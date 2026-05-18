@@ -2114,6 +2114,48 @@
        :block-access-list-max-code-size
        +block-access-list-max-code-size+))))
 
+(deftest block-body-validates-block-access-list-item-gas-limit
+  (let* ((address (address-from-hex
+                   "0x0000000000000000000000000000000000000001"))
+         (read-slot (hash32-from-hex
+                     "0x0000000000000000000000000000000000000000000000000000000000000001"))
+         (write-slot (hash32-from-hex
+                      "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (slot-writes (make-block-access-slot-writes
+                       :slot write-slot
+                       :accesses
+                       (list (make-block-access-storage-write
+                              :tx-index 0
+                              :value-after 7))))
+         (account (make-block-access-account
+                   :address address
+                   :storage-writes (list slot-writes)
+                   :storage-reads (list read-slot)))
+         (access-list (list account))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 0))
+         (limit-block
+           (make-block :header (make-block-header
+                                :timestamp 0
+                                :gas-limit
+                                (* 3 +block-access-list-item-gas-cost+))
+                       :block-access-list access-list))
+         (oversized-block
+           (make-block :header (make-block-header
+                                :timestamp 0
+                                :gas-limit
+                                (* 2 +block-access-list-item-gas-cost+))
+                       :block-access-list access-list)))
+    (is (= 3 (block-access-list-item-count access-list)))
+    (is (validate-block-access-list-fields access-list
+                                           :max-items 3))
+    (signals block-validation-error
+      (validate-block-access-list-fields access-list
+                                         :max-items 2))
+    (is (validate-block-body-against-config limit-block config))
+    (signals block-validation-error
+      (validate-block-body-against-config oversized-block config))))
+
 (deftest block-body-validates-block-access-list-shape-before-hash
   (let ((block (make-block)))
     (setf (block-block-access-list block) "not a block access list"

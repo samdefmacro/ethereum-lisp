@@ -1075,7 +1075,10 @@
                :message "Missing block access list in block body"))
       (validate-block-access-list-fields
        block-access-list
-       :max-code-size block-access-list-max-code-size)
+       :max-code-size block-access-list-max-code-size
+       :max-items (when (plusp (block-header-gas-limit header))
+                    (floor (block-header-gas-limit header)
+                           +block-access-list-item-gas-cost+)))
       (unless (execution-hash32= (block-header-block-access-list-hash header)
                                  (block-access-list-hash block-access-list))
         (error 'block-validation-error
@@ -1084,7 +1087,10 @@
                (not (block-header-block-access-list-hash header)))
       (validate-block-access-list-fields
        block-access-list
-       :max-code-size block-access-list-max-code-size))
+       :max-code-size block-access-list-max-code-size
+       :max-items (when (plusp (block-header-gas-limit header))
+                    (floor (block-header-gas-limit header)
+                           +block-access-list-item-gas-cost+))))
     (when (and header-blob-gas-used
                (/= header-blob-gas-used actual-blob-gas-used))
       (error 'block-validation-error :message "Blob gas used mismatch"))

@@ -1164,6 +1164,48 @@
            (state-account-balance (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
+(deftest block-execution-preflights-block-access-list-item-gas-limit
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (read-slot (hash32-from-hex
+                     "0x0000000000000000000000000000000000000000000000000000000000000001"))
+         (write-slot (hash32-from-hex
+                      "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (access-list
+           (list (make-block-access-account
+                  :address sender
+                  :storage-writes
+                  (list (make-block-access-slot-writes
+                         :slot write-slot
+                         :accesses
+                         (list (make-block-access-storage-write
+                                :tx-index 0
+                                :value-after 7))))
+                  :storage-reads (list read-slot))))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 10))
+         (header (make-block-header
+                  :timestamp 10
+                  :gas-limit (* 2 +block-access-list-item-gas-cost+)
+                  :base-fee-per-gas 1))
+         (transaction (make-legacy-transaction :nonce 0
+                                               :gas-price 1
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 100000))
+    (signals block-validation-error
+      (execute-legacy-block state sender (list transaction)
+                            :header header
+                            :chain-config config
+                            :block-access-list access-list))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+    (is (= 100000
+           (state-account-balance (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
 (deftest legacy-block-execution-carries-empty-block-access-list
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

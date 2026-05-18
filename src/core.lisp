@@ -34,6 +34,7 @@
 (defconstant +max-header-gas-limit+ #x7fffffffffffffff)
 (defconstant +block-access-list-max-code-size+ 24576)
 (defconstant +block-access-list-amsterdam-max-code-size+ 32768)
+(defconstant +block-access-list-item-gas-cost+ 2000)
 (defconstant +genesis-gas-limit+ 4712388)
 (defconstant +genesis-difficulty+ 131072)
 
@@ -2363,13 +2364,30 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (setf previous-slot-bytes slot-bytes))))
   t)
 
-(defun validate-block-access-list-fields (block-access-list &key max-code-size)
+(defun block-access-list-item-count (block-access-list)
   (unless (listp block-access-list)
     (block-validation-fail "Block access list must be a list"))
-  (let ((previous-address-bytes nil))
+  (loop for account in block-access-list
+        do (unless (block-access-account-p account)
+             (block-validation-fail
+              "Block access list account must be a block access account"))
+        sum (+ 1
+               (length (block-access-account-storage-writes account))
+               (length (block-access-account-storage-reads account)))))
+
+(defun validate-block-access-list-fields
+    (block-access-list &key max-code-size max-items)
+  (unless (listp block-access-list)
+    (block-validation-fail "Block access list must be a list"))
+  (let ((previous-address-bytes nil)
+        (item-count 0))
     (dolist (account block-access-list)
       (validate-block-access-account-fields account
                                             :max-code-size max-code-size)
+      (incf item-count
+            (+ 1
+               (length (block-access-account-storage-writes account))
+               (length (block-access-account-storage-reads account))))
       (let ((address-bytes (address-bytes
                             (block-access-account-address account))))
         (when (and previous-address-bytes
@@ -2377,7 +2395,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                                     address-bytes)))
           (block-validation-fail
            "Block access list account addresses must be sorted"))
-        (setf previous-address-bytes address-bytes))))
+        (setf previous-address-bytes address-bytes)))
+    (when (and max-items
+               (> item-count max-items))
+      (block-validation-fail
+       "Block access list item count exceeds gas limit")))
   t)
 
 (defun expected-base-fee-per-gas
@@ -3195,7 +3217,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when (block-block-access-list-present-p block)
       (validate-block-access-list-fields
        (block-block-access-list block)
-       :max-code-size block-access-list-max-code-size))
+       :max-code-size block-access-list-max-code-size
+       :max-items (when (plusp (block-header-gas-limit header))
+                    (floor (block-header-gas-limit header)
+                           +block-access-list-item-gas-cost+))))
     (unless (hash32= ommers-root (block-header-ommers-hash header))
       (block-validation-fail "Ommers root hash mismatch"))
     (when (and (block-header-post-merge-p header)

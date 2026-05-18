@@ -140,6 +140,7 @@
    #:+maximum-extra-data-size+
    #:+block-access-list-max-code-size+
    #:+block-access-list-amsterdam-max-code-size+
+   #:+block-access-list-item-gas-cost+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
    #:+genesis-gas-limit+
@@ -454,6 +455,7 @@
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
+   #:block-access-list-item-count
    #:block-validation-error
    #:block-validation-error-message
    #:expected-base-fee-per-gas
@@ -757,6 +759,7 @@
    #:+maximum-extra-data-size+
    #:+block-access-list-max-code-size+
    #:+block-access-list-amsterdam-max-code-size+
+   #:+block-access-list-item-gas-cost+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
    #:+genesis-gas-limit+
@@ -1071,6 +1074,7 @@
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
+   #:block-access-list-item-count
    #:block-validation-error
    #:block-validation-error-message
    #:expected-base-fee-per-gas
@@ -1335,6 +1339,7 @@
    #:+maximum-extra-data-size+
    #:+block-access-list-max-code-size+
    #:+block-access-list-amsterdam-max-code-size+
+   #:+block-access-list-item-gas-cost+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
    #:+genesis-gas-limit+
@@ -1649,6 +1654,7 @@
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
+   #:block-access-list-item-count
    #:block-validation-error
    #:block-validation-error-message
    #:expected-base-fee-per-gas
