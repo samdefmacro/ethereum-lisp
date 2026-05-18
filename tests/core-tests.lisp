@@ -3853,6 +3853,43 @@
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
 
+(deftest eth-rpc-chain-id-and-block-number
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1701))
+           (block
+             (make-block
+              :header (make-block-header :number 12
+                                         :timestamp 1))))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((responses
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "[{\"jsonrpc\":\"2.0\",\"id\":17,"
+                  "\"method\":\"eth_chainId\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":18,"
+                  "\"method\":\"eth_blockNumber\",\"params\":[]}]")
+                 store
+                 config))))
+        (is (= 2 (length responses)))
+        (is (= 17 (field (first responses) "id")))
+        (is (string= (quantity-to-hex 1701)
+                     (field (first responses) "result")))
+        (is (= 18 (field (second responses) "id")))
+        (is (string= (quantity-to-hex 12)
+                     (field (second responses) "result")))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":19,\"method\":\"eth_chainId\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

@@ -599,7 +599,10 @@ cell-proof sidecars with 128 proofs per blob and serves
 `engine_getBlobsV2`/`engine_getBlobsV3`: V2 returns a full ordered
 `blob`/`proofs` list only when every requested blob is available and otherwise
 returns `null`, while V3 keeps request order and allows per-item `null`
-partial responses. A first HTTP POST adapter now
+partial responses. The first public `eth_*` read methods are now wired through
+the same JSON-RPC dispatcher: `eth_chainId` returns the configured EIP-155
+chain id, and `eth_blockNumber` returns the current memory-store head number.
+A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
 Bearer authentication with HS256 signatures, 32-byte secrets, `iat` freshness,

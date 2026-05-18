@@ -3684,6 +3684,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-rpc-validate-transition-configuration (first params))
   (engine-rpc-transition-configuration-object config))
 
+(defun engine-rpc-handle-eth-chain-id (params config)
+  (when params
+    (block-validation-fail "eth_chainId params must be empty"))
+  (quantity-to-hex (chain-config-chain-id config)))
+
+(defun engine-rpc-handle-eth-block-number (params store)
+  (when params
+    (block-validation-fail "eth_blockNumber params must be empty"))
+  (quantity-to-hex (engine-payload-memory-store-head-number store)))
+
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
@@ -4149,6 +4159,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 :result
                 (engine-rpc-handle-exchange-transition-configuration
                  params config)))
+              ((string= method "eth_chainId")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-chain-id params config)))
+              ((string= method "eth_blockNumber")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-block-number params store)))
               (t
                (engine-rpc-response
                 id
