@@ -2475,10 +2475,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defstruct (payload-attributes-v1
             (:constructor make-payload-attributes-v1
-                (&key timestamp prev-randao suggested-fee-recipient)))
+                (&key timestamp prev-randao suggested-fee-recipient
+                      withdrawals withdrawals-present-p)))
   timestamp
   prev-randao
-  suggested-fee-recipient)
+  suggested-fee-recipient
+  withdrawals
+  withdrawals-present-p)
 
 (defstruct (engine-prepared-payload
             (:constructor make-engine-prepared-payload
@@ -3268,7 +3271,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-forkchoice-state-from-object (object)
   (unless (json-object-p object)
     (block-validation-fail
-     "engine_forkchoiceUpdatedV1 params must contain forkchoice state object"))
+     "engine_forkchoiceUpdated params must contain forkchoice state object"))
   (make-forkchoice-state
    :head-block-hash
    (engine-rpc-required-hash32-field object "headBlockHash")
@@ -3277,32 +3280,54 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :finalized-block-hash
    (engine-rpc-required-hash32-field object "finalizedBlockHash")))
 
-(defun engine-rpc-validate-payload-attributes-v1 (object)
+(defun engine-rpc-validate-payload-attributes-v1
+    (object &key (method "engine_forkchoiceUpdatedV1")
+                 withdrawals-field-required-p)
   (unless (json-object-p object)
     (block-validation-fail
-     "engine_forkchoiceUpdatedV1 payloadAttributes must be an object or null"))
+     "~A payloadAttributes must be an object or null" method))
+  (when (and withdrawals-field-required-p
+             (not (genesis-object-field-present-p object "withdrawals")))
+    (block-validation-fail "~A payloadAttributes withdrawals is missing" method))
   (make-payload-attributes-v1
    :timestamp (engine-rpc-required-quantity-field object "timestamp")
    :prev-randao (engine-rpc-required-hash32-field object "prevRandao")
    :suggested-fee-recipient
-   (engine-rpc-required-address-field object "suggestedFeeRecipient")))
+   (engine-rpc-required-address-field object "suggestedFeeRecipient")
+   :withdrawals (engine-rpc-withdrawals-field object)
+   :withdrawals-present-p
+   (genesis-object-field-present-p object "withdrawals")))
 
-(defun engine-payload-id-v1 (parent-hash attributes)
+(defun engine-rpc-validate-payload-attributes-v2 (object)
+  (engine-rpc-validate-payload-attributes-v1
+   object :method "engine_forkchoiceUpdatedV2"))
+
+(defun engine-payload-id (version parent-hash attributes)
+  (unless (and (integerp version) (<= 0 version 255))
+    (block-validation-fail "Engine payload version must fit in one byte"))
   (let* ((digest
            (sha256
-            #(1)
+            (vector version)
             (hash32-bytes parent-hash)
             (integer-to-minimal-bytes
              (payload-attributes-v1-timestamp attributes))
             (hash32-bytes (payload-attributes-v1-prev-randao attributes))
             (address-bytes
-             (payload-attributes-v1-suggested-fee-recipient attributes))))
+             (payload-attributes-v1-suggested-fee-recipient attributes))
+            (if (payload-attributes-v1-withdrawals-present-p attributes)
+                (hash32-bytes
+                 (withdrawal-list-root
+                  (payload-attributes-v1-withdrawals attributes)))
+                #())))
          (payload-id (make-byte-vector 8)))
-    (setf (aref payload-id 0) 1)
+    (setf (aref payload-id 0) version)
     (replace payload-id digest :start1 1 :start2 0 :end2 7)
     payload-id))
 
-(defun engine-build-empty-payload-v1 (parent-block attributes)
+(defun engine-payload-id-v1 (parent-hash attributes)
+  (engine-payload-id 1 parent-hash attributes))
+
+(defun engine-build-empty-payload (parent-block attributes)
   (unless (typep parent-block 'ethereum-block)
     (block-validation-fail "Payload parent must be a known block"))
   (unless (typep attributes 'payload-attributes-v1)
@@ -3312,22 +3337,30 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (unless (> timestamp (block-header-timestamp parent-header))
       (block-validation-fail
        "Payload attributes timestamp must be greater than parent timestamp"))
-    (make-block
-     :header
-     (make-block-header
-      :parent-hash (block-hash parent-block)
-      :beneficiary (payload-attributes-v1-suggested-fee-recipient attributes)
-      :state-root (or (block-header-state-root parent-header)
-                      +empty-trie-hash+)
-      :mix-hash (payload-attributes-v1-prev-randao attributes)
-      :number (1+ (block-header-number parent-header))
-      :gas-limit (block-header-gas-limit parent-header)
-      :gas-used 0
-      :timestamp timestamp
-      :base-fee-per-gas
-      (if (block-header-base-fee-per-gas parent-header)
-          (expected-base-fee-per-gas parent-header)
-          0)))))
+    (let ((header
+            (make-block-header
+             :parent-hash (block-hash parent-block)
+             :beneficiary
+             (payload-attributes-v1-suggested-fee-recipient attributes)
+             :state-root (or (block-header-state-root parent-header)
+                             +empty-trie-hash+)
+             :mix-hash (payload-attributes-v1-prev-randao attributes)
+             :number (1+ (block-header-number parent-header))
+             :gas-limit (block-header-gas-limit parent-header)
+             :gas-used 0
+             :timestamp timestamp
+             :base-fee-per-gas
+             (if (block-header-base-fee-per-gas parent-header)
+                 (expected-base-fee-per-gas parent-header)
+                 0))))
+      (if (payload-attributes-v1-withdrawals-present-p attributes)
+          (make-block
+           :header header
+           :withdrawals (payload-attributes-v1-withdrawals attributes))
+          (make-block :header header)))))
+
+(defun engine-build-empty-payload-v1 (parent-block attributes)
+  (engine-build-empty-payload parent-block attributes))
 
 (defun engine-forkchoice-checkpoint-error-message (store hash label)
   (when (and (not (hash32= hash (zero-hash32)))
@@ -3363,6 +3396,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defparameter +engine-rpc-capabilities+
   '("engine_exchangeTransitionConfigurationV1"
     "engine_forkchoiceUpdatedV1"
+    "engine_forkchoiceUpdatedV2"
     "engine_getPayloadBodiesByHashV1"
     "engine_getPayloadBodiesByHashV2"
     "engine_getPayloadBodiesByRangeV1"
@@ -3678,20 +3712,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    params store "engine_getPayloadBodiesByRangeV2"
    #'engine-rpc-payload-body-v2-object))
 
-(defun engine-rpc-handle-forkchoice-updated-v1 (params store)
+(defun engine-rpc-handle-forkchoice-updated
+    (params store method payload-version payload-attributes-parser)
   (unless (and (listp params) params)
-    (block-validation-fail
-     "engine_forkchoiceUpdatedV1 params must include forkchoice state"))
+    (block-validation-fail "~A params must include forkchoice state" method))
   (let ((state
           (engine-rpc-forkchoice-state-from-object
            (engine-rpc-required-param
-            params 0 "forkchoiceState" "engine_forkchoiceUpdatedV1")))
+            params 0 "forkchoiceState" method)))
         (payload-attributes
           (when (< 1 (length params))
             (second params))))
     (setf payload-attributes
           (when payload-attributes
-            (engine-rpc-validate-payload-attributes-v1 payload-attributes)))
+            (funcall payload-attributes-parser payload-attributes)))
     (let ((status (engine-forkchoice-memory-status store state))
           (payload-id nil))
       (when (string= +payload-status-valid+
@@ -3715,18 +3749,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (parent-block
                  (engine-payload-store-known-block store head-hash))
                (candidate-id
-                 (engine-payload-id-v1 head-hash payload-attributes)))
+                 (engine-payload-id
+                  payload-version head-hash payload-attributes)))
           (unless (engine-payload-store-prepared-payload
                    store candidate-id)
             (engine-payload-store-put-prepared-payload
              store
              (make-engine-prepared-payload
               :payload-id candidate-id
-              :version 1
+              :version payload-version
               :block
               (handler-case
-                  (engine-build-empty-payload-v1
-                   parent-block payload-attributes)
+                  (engine-build-empty-payload parent-block payload-attributes)
                 (block-validation-error (condition)
                   (engine-rpc-fail
                    +engine-rpc-error-invalid-payload-attributes+
@@ -3735,6 +3769,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-rpc-forkchoice-response-object
        status
        :payload-id payload-id))))
+
+(defun engine-rpc-handle-forkchoice-updated-v1 (params store)
+  (engine-rpc-handle-forkchoice-updated
+   params store "engine_forkchoiceUpdatedV1" 1
+   (lambda (payload-attributes)
+     (engine-rpc-validate-payload-attributes-v1
+      payload-attributes :method "engine_forkchoiceUpdatedV1"))))
+
+(defun engine-rpc-handle-forkchoice-updated-v2 (params store)
+  (engine-rpc-handle-forkchoice-updated
+   params store "engine_forkchoiceUpdatedV2" 2
+   #'engine-rpc-validate-payload-attributes-v2))
 
 (defun engine-rpc-response (id &key result error)
   (append (list (cons "jsonrpc" "2.0")
@@ -3785,6 +3831,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-forkchoice-updated-v1 params store)))
+              ((string= method "engine_forkchoiceUpdatedV2")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-forkchoice-updated-v2 params store)))
               ((string= method "engine_getPayloadV1")
                (engine-rpc-response
                 id

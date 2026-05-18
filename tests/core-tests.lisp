@@ -2889,6 +2889,79 @@
              (error (field response "error")))
         (is (= -32602 (field error "code"))))))))
 
+(deftest engine-rpc-forkchoice-updated-v2-prepares-withdrawal-payload
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (forkchoice-state-object
+               (head &key
+                     (safe (zero-hash32))
+                     (finalized (zero-hash32)))
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex safe))
+                   (cons "finalizedBlockHash"
+                         (hash32-to-hex finalized))))
+           (withdrawal-object ()
+             (list (cons "index" "0x1")
+                   (cons "validatorIndex" "0x2")
+                   (cons "address" (address-to-hex (zero-address)))
+                   (cons "amount" "0x3")))
+           (payload-attributes-object ()
+             (list (cons "timestamp" "0x1")
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))
+                   (cons "withdrawals" (list (withdrawal-object)))))
+           (forkchoice-request (id state payload-attributes)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV2")
+                   (cons "params" (list state payload-attributes)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (known-block (make-block))
+           (known-hash (block-hash known-block)))
+      (engine-payload-store-put-block
+       store known-block :state-available-p t)
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 28
+                 (forkchoice-state-object known-hash)
+                 (payload-attributes-object))
+                store
+                config))
+             (result (field response "result"))
+             (payload-status (field result "payloadStatus"))
+             (payload-id (field result "payloadId")))
+        (is (= 28 (field response "id")))
+        (is (string= +payload-status-valid+
+                     (field payload-status "status")))
+        (is (stringp payload-id))
+        (is (string= "02" (subseq payload-id 2 4)))
+        (let* ((get-payload-response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 29)
+                        (cons "method" "engine_getPayloadV2")
+                        (cons "params" (list payload-id)))
+                  store
+                  config))
+               (envelope (field get-payload-response "result"))
+               (payload (field envelope "executionPayload"))
+               (withdrawals (field payload "withdrawals"))
+               (withdrawal (first withdrawals)))
+          (is (= 29 (field get-payload-response "id")))
+          (is (string= "0x0" (field envelope "blockValue")))
+          (is (string= (hash32-to-hex known-hash)
+                       (field payload "parentHash")))
+          (is (= 1 (hex-to-quantity (field payload "blockNumber"))))
+          (is (= 1 (length withdrawals)))
+          (is (string= "0x1" (field withdrawal "index")))
+          (is (string= "0x2" (field withdrawal "validatorIndex")))
+          (is (string= (address-to-hex (zero-address))
+                       (field withdrawal "address")))
+          (is (string= "0x3" (field withdrawal "amount"))))))))
+
 (deftest engine-rpc-get-payload-v3-returns-cancun-envelope
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3330,6 +3403,12 @@
       (is (= 11 (field response "id")))
       (is (member "engine_newPayloadV1" capabilities :test #'string=))
       (is (member "engine_newPayloadV5" capabilities :test #'string=))
+      (is (member "engine_forkchoiceUpdatedV1"
+                  capabilities
+                  :test #'string=))
+      (is (member "engine_forkchoiceUpdatedV2"
+                  capabilities
+                  :test #'string=))
       (is (member "engine_getPayloadV1" capabilities :test #'string=))
       (is (member "engine_getPayloadV2" capabilities :test #'string=))
       (is (member "engine_getPayloadV3" capabilities :test #'string=))
@@ -3354,10 +3433,7 @@
                   :test #'string=))
       (is (not (member "engine_exchangeCapabilities"
                        capabilities
-                       :test #'string=)))
-      (is (member "engine_forkchoiceUpdatedV1"
-                  capabilities
-                  :test #'string=)))
+                       :test #'string=))))
     (let* ((response (parse-json
                       (engine-rpc-handle-request-json
                        "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"engine_exchangeCapabilities\",\"params\":[7]}"
