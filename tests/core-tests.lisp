@@ -908,6 +908,25 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
+(deftest block-body-validates-commitment-fields-before-comparison
+  (let* ((block (make-block))
+         (header (block-header block)))
+    (setf (block-header-ommers-hash header) nil)
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (setf (block-header-ommers-hash header) +empty-ommers-hash+
+          (block-header-transactions-root header) nil)
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (setf (block-header-transactions-root header) +empty-trie-hash+
+          (block-header-withdrawals-root header) "not a hash")
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (setf (block-header-withdrawals-root header) nil
+          (block-header-requests-hash header) "not a hash")
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-body-validation-uses-chain-config-transaction-types
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10

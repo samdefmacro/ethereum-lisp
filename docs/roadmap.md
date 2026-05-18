@@ -252,6 +252,9 @@ The ommers body is likewise checked as a list of block headers before
 `ommersHash` derivation or Post-Merge ommer rejection.
 Withdrawal and execution-request bodies now validate their list container shape
 before withdrawal-root or requests-hash derivation.
+Header body commitments (`ommersHash`, `transactionsRoot`, optional
+`withdrawalsRoot`, and optional `requestsHash`) are shape-checked before
+commitment comparison.
 A first-pass chain configuration model is present for block-number forks
 through London and timestamp forks through Prague, including geth-compatible
 activation predicates and config-driven header validation for Shanghai,

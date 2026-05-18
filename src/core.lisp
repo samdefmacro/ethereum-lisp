@@ -1711,6 +1711,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (unless (block-header-p ommer)
       (block-validation-fail "Block ommer must be a block header"))))
 
+(defun validate-block-body-commitment-fields (header)
+  (unless (hash32-p (block-header-ommers-hash header))
+    (block-validation-fail "Header ommers hash must be a hash32"))
+  (unless (hash32-p (block-header-transactions-root header))
+    (block-validation-fail "Header transactions root must be a hash32"))
+  (when (block-header-withdrawals-root header)
+    (unless (hash32-p (block-header-withdrawals-root header))
+      (block-validation-fail "Header withdrawals root must be a hash32")))
+  (when (block-header-requests-hash header)
+    (unless (hash32-p (block-header-requests-hash header))
+      (block-validation-fail "Header requests hash must be a hash32")))
+  t)
+
 (defun transaction-blob-count (transaction)
   (typecase transaction
     (blob-transaction
@@ -1772,6 +1785,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            header
                            :update-fraction
                            blob-base-fee-update-fraction))))
+    (validate-block-body-commitment-fields header)
     (validate-block-ommer-list-fields ommers)
     (setf ommers-root (ommers-hash ommers))
     (validate-block-transaction-list-fields transactions)
