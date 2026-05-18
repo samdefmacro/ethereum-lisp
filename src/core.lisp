@@ -2078,6 +2078,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   tx-index
   nonce)
 
+(defstruct (block-access-code-change
+            (:constructor make-block-access-code-change
+                (&key tx-index code)))
+  tx-index
+  code)
+
 (defun hash32-uint256 (hash)
   (bytes-to-integer (hash32-bytes hash)))
 
@@ -2103,6 +2109,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (block-access-nonce-change-tx-index change)
    (block-access-nonce-change-nonce change)))
 
+(defun block-access-code-change-rlp-object (change)
+  (make-rlp-list
+   (block-access-code-change-tx-index change)
+   (ensure-byte-vector (block-access-code-change-code change))))
+
 (defun block-access-account-rlp-object (account)
   (make-rlp-list
    (address-bytes (block-access-account-address account))
@@ -2113,7 +2124,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            (block-access-account-balance-changes account))
    (mapcar #'block-access-nonce-change-rlp-object
            (block-access-account-nonce-changes account))
-   (block-access-account-code-changes account)))
+   (mapcar #'block-access-code-change-rlp-object
+           (block-access-account-code-changes account))))
 
 (defun block-access-account-rlp (account)
   (rlp-encode (block-access-account-rlp-object account)))
@@ -2260,6 +2272,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      "Block access list nonce change nonce must be uint64"))
   t)
 
+(defun validate-block-access-code-change-fields (change)
+  (unless (block-access-code-change-p change)
+    (block-validation-fail
+     "Block access list code change must be a code change"))
+  (unless (uint32-value-p (block-access-code-change-tx-index change))
+    (block-validation-fail
+     "Block access list code change tx index must be uint32"))
+  (validate-byte-sequence-field (block-access-code-change-code change)
+                                "Block access list code change code")
+  t)
+
 (defun validate-block-access-indexed-change-list
     (changes validate-change tx-index-fn label)
   (unless (listp changes)
@@ -2295,6 +2318,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    #'validate-block-access-nonce-change-fields
    #'block-access-nonce-change-tx-index
    "nonce changes")
+  (validate-block-access-indexed-change-list
+   (block-access-account-code-changes account)
+   #'validate-block-access-code-change-fields
+   #'block-access-code-change-tx-index
+   "code changes")
   (let ((previous-slot-bytes nil)
         (write-slot-table (make-hash-table :test #'equal)))
     (dolist (slot-writes (block-access-account-storage-writes account))
@@ -2323,10 +2351,6 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (block-validation-fail
            "Block access list storage read duplicates a storage write slot"))
         (setf previous-slot-bytes slot-bytes))))
-  (dolist (field (list (block-access-account-code-changes account)))
-    (unless (null field)
-      (block-validation-fail
-       "Non-empty block access list account changes are not implemented yet")))
   t)
 
 (defun validate-block-access-list-fields (block-access-list)

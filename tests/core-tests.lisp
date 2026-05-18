@@ -1596,6 +1596,44 @@
                      :tx-index 1
                      :nonce (expt 2 64)))))))))
 
+(deftest block-access-list-rlp-encodes-code-changes
+  (let* ((change-1 (make-block-access-code-change
+                    :tx-index 1
+                    :code #(222 173 190 239)))
+         (change-2 (make-block-access-code-change
+                    :tx-index 2
+                    :code #(96 0)))
+         (account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")
+                   :code-changes (list change-1 change-2)))
+         (access-list (list account)))
+    (is (string=
+         "0xe7e6940000000000000000000000000000000000000001c0c0c0c0ccc60184deadbeefc402826000"
+         (bytes-to-hex (block-access-list-rlp access-list))))
+    (is (validate-block-access-list-fields access-list))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :code-changes (list change-2 change-1)))))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :code-changes (list change-1 change-1)))))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :code-changes
+              (list (make-block-access-code-change
+                     :tx-index 1
+                     :code "not bytes"))))))))
+
 (deftest block-access-list-validates-account-order
   (let ((first (make-block-access-account
                 :address (address-from-hex

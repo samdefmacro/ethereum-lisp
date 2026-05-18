@@ -445,6 +445,10 @@
    #:make-block-access-nonce-change
    #:block-access-nonce-change-tx-index
    #:block-access-nonce-change-nonce
+   #:block-access-code-change
+   #:make-block-access-code-change
+   #:block-access-code-change-tx-index
+   #:block-access-code-change-code
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
@@ -1056,6 +1060,10 @@
    #:make-block-access-nonce-change
    #:block-access-nonce-change-tx-index
    #:block-access-nonce-change-nonce
+   #:block-access-code-change
+   #:make-block-access-code-change
+   #:block-access-code-change-tx-index
+   #:block-access-code-change-code
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
@@ -1628,6 +1636,10 @@
    #:make-block-access-nonce-change
    #:block-access-nonce-change-tx-index
    #:block-access-nonce-change-nonce
+   #:block-access-code-change
+   #:make-block-access-code-change
+   #:block-access-code-change-tx-index
+   #:block-access-code-change-code
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
