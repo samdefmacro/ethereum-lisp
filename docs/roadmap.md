@@ -535,7 +535,9 @@ database-backed import path. A parsed JSON-RPC object dispatcher can now route
 `engine_newPayloadV1` through `engine_newPayloadV5` calls into that store and
 return Engine-style payload status result objects. The same core can now encode
 single and batch JSON-RPC response strings for request-string entry points,
-leaving HTTP transport as the next outer shell.
+and advertises the currently implemented `engine_newPayloadV1` through
+`engine_newPayloadV5` methods through `engine_exchangeCapabilities`, leaving
+HTTP transport as the next outer shell.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.

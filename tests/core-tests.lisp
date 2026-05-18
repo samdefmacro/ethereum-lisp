@@ -2707,6 +2707,34 @@
         (is (not (field (second responses) "id")))
         (is (= -32600 (field second-error "code")))))))
 
+(deftest engine-rpc-exchange-capabilities-advertises-supported-methods
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (request-json
+             "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"engine_exchangeCapabilities\",\"params\":[[\"engine_newPayloadV1\",\"engine_forkchoiceUpdatedV1\"]]}")
+           (response (parse-json
+                      (engine-rpc-handle-request-json
+                       request-json store config)))
+           (capabilities (field response "result")))
+      (is (= 11 (field response "id")))
+      (is (member "engine_newPayloadV1" capabilities :test #'string=))
+      (is (member "engine_newPayloadV5" capabilities :test #'string=))
+      (is (not (member "engine_exchangeCapabilities"
+                       capabilities
+                       :test #'string=)))
+      (is (not (member "engine_forkchoiceUpdatedV1"
+                       capabilities
+                       :test #'string=))))
+    (let* ((response (parse-json
+                      (engine-rpc-handle-request-json
+                       "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"engine_exchangeCapabilities\",\"params\":[7]}"
+                       (make-engine-payload-memory-store)
+                       (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

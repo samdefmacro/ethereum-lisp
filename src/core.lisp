@@ -3029,6 +3029,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (cons "validationError" (payload-status-validation-error status))
         (cons "witness" (payload-status-witness status))))
 
+(defparameter +engine-rpc-capabilities+
+  '("engine_newPayloadV1"
+    "engine_newPayloadV2"
+    "engine_newPayloadV3"
+    "engine_newPayloadV4"
+    "engine_newPayloadV5"))
+
+(defun engine-rpc-capabilities ()
+  (copy-list +engine-rpc-capabilities+))
+
 (defun engine-rpc-new-payload-version (method)
   (cond
     ((string= method "engine_newPayloadV1") 1)
@@ -3082,6 +3092,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (declare (ignore block))
       (engine-rpc-payload-status-object status))))
 
+(defun engine-rpc-handle-exchange-capabilities (params)
+  (when params
+    (let ((remote (first params)))
+      (unless (and (listp remote)
+                   (every #'stringp remote))
+        (block-validation-fail
+         "engine_exchangeCapabilities params must contain a string list"))))
+  (engine-rpc-capabilities))
+
 (defun engine-rpc-response (id &key result error)
   (append (list (cons "jsonrpc" "2.0")
                 (cons "id" id))
@@ -3114,16 +3133,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (block-validation-fail "JSON-RPC method must be a string"))
             (unless (listp params)
               (block-validation-fail "JSON-RPC params must be a list"))
-            (if version
-                (engine-rpc-response
-                 id
-                 :result
-                 (engine-rpc-handle-new-payload
-                  version params store config))
-                (engine-rpc-response
-                 id
-                 :error
-                 (engine-rpc-error-object -32601 "Method not found")))))
+            (cond
+              (version
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-new-payload
+                 version params store config)))
+              ((string= method "engine_exchangeCapabilities")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-exchange-capabilities params)))
+              (t
+               (engine-rpc-response
+                id
+                :error
+                (engine-rpc-error-object -32601 "Method not found"))))))
       (block-validation-error (condition)
         (engine-rpc-response
          id
