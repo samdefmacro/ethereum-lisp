@@ -985,6 +985,17 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
+(deftest block-body-validates-transaction-data-before-root-derivation
+  (let* ((recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000001"))
+         (block (make-block))
+         (bad-data-tx
+           (make-legacy-transaction :to recipient
+                                    :data "not bytes")))
+    (setf (block-transactions block) (list bad-data-tx))
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-body-validates-set-code-fields-before-root-derivation
   (let* ((recipient (address-from-hex
                      "0x0000000000000000000000000000000000000001"))

@@ -188,6 +188,15 @@
              (plusp (length code))
              (= (aref code 0) #xef)))))
 
+(defun validate-transaction-data-field (tx)
+  (handler-case
+      (progn
+        (ensure-byte-vector (transaction-data tx))
+        t)
+    (error ()
+      (error 'transaction-validation-error
+             :message "Transaction data must be a byte sequence"))))
+
 (defun validate-set-code-transaction-fields (tx)
   (when (typep tx 'set-code-transaction)
     (unless (transaction-to tx)
@@ -563,6 +572,7 @@
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
   (validate-execution-transaction-type tx effective-chain-rules)
+  (validate-transaction-data-field tx)
   (validate-access-list-fields tx)
   (when (typep tx 'blob-transaction)
     (validate-blob-transaction-fields tx)

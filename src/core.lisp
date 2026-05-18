@@ -1486,6 +1486,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Max fee per blob gas below blob base fee"))
   t)
 
+(defun validate-transaction-data-field (transaction)
+  (handler-case
+      (progn
+        (ensure-byte-vector (transaction-data transaction))
+        t)
+    (error ()
+      (block-validation-fail "Transaction data must be a byte sequence"))))
+
 (defun validate-access-list-fields (transaction)
   (dolist (entry (transaction-access-list transaction) t)
     (unless (typep entry 'access-list-entry)
@@ -1645,6 +1653,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            :update-fraction
                            blob-base-fee-update-fraction))))
     (dolist (transaction transactions)
+      (validate-transaction-data-field transaction)
       (validate-access-list-fields transaction)
       (validate-set-code-transaction-fields transaction)
       (when base-fee

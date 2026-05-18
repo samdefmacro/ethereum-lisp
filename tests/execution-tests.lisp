@@ -1177,6 +1177,29 @@
             (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
+(deftest message-validates-transaction-data-before-state-mutation
+  (let* ((state (make-state-db))
+         (sender (address-from-hex
+                  "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000002"))
+         (balance 100000)
+         (tx (make-legacy-transaction :nonce 0
+                                      :gas-price 1
+                                      :gas-limit 30000
+                                      :to recipient
+                                      :data "not bytes")))
+    (state-db-set-account state sender
+                          (make-state-account :balance balance))
+    (signals transaction-validation-error
+      (apply-message state sender tx))
+    (is (= 0 (state-account-nonce
+              (state-db-get-account state sender))))
+    (is (= balance
+           (state-account-balance
+            (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
 (deftest access-list-prewarms-sload-storage-key
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
