@@ -962,6 +962,29 @@
        (make-block :header (make-block-header :base-fee-per-gas 5)
                    :transactions (list tip-too-high))))))
 
+(deftest block-body-validates-access-list-fields-before-root-derivation
+  (let* ((recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000001"))
+         (block (make-block))
+         (bad-address-tx
+           (make-access-list-transaction
+            :to recipient
+            :access-list
+            (list (make-access-list-entry :address nil))))
+         (bad-slot-tx
+           (make-access-list-transaction
+            :to recipient
+            :access-list
+            (list (make-access-list-entry
+                   :address recipient
+                   :storage-keys (list nil))))))
+    (setf (block-transactions block) (list bad-address-tx))
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (setf (block-transactions block) (list bad-slot-tx))
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-validation-combines-config-header-and-body-checks
   (let* ((config (make-chain-config :london-block 0
                                     :shanghai-time 150

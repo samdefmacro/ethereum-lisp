@@ -1486,6 +1486,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Max fee per blob gas below blob base fee"))
   t)
 
+(defun validate-access-list-fields (transaction)
+  (dolist (entry (transaction-access-list transaction) t)
+    (unless (typep entry 'access-list-entry)
+      (block-validation-fail
+       "Access list entry must be an access-list entry"))
+    (unless (address-p (access-list-entry-address entry))
+      (block-validation-fail "Access list entry address must be an address"))
+    (unless (listp (access-list-entry-storage-keys entry))
+      (block-validation-fail "Access list storage keys must be a list"))
+    (dolist (slot (access-list-entry-storage-keys entry))
+      (unless (hash32-p slot)
+        (block-validation-fail "Access list storage key must be a hash32")))))
+
 (defun validate-sized-byte-vector (value size label)
   (let ((bytes (handler-case
                    (ensure-byte-vector value)
@@ -1592,7 +1605,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((header (block-header block))
          (ommers-root (ommers-hash (block-ommers block)))
          (transactions (block-transactions block))
-         (transactions-root (transaction-list-root transactions))
+         (transactions-root nil)
          (blob-gas-used (blob-gas-used transactions))
          (base-fee (block-header-base-fee-per-gas header))
          (blob-base-fee (when (block-header-excess-blob-gas header)
@@ -1601,12 +1614,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            :update-fraction
                            blob-base-fee-update-fraction))))
     (dolist (transaction transactions)
+      (validate-access-list-fields transaction)
       (when base-fee
         (validate-1559-transaction-fees transaction base-fee))
       (when (typep transaction 'blob-transaction)
         (validate-blob-transaction-fields transaction)
         (when blob-base-fee
           (validate-blob-transaction-fee-cap transaction blob-base-fee))))
+    (setf transactions-root (transaction-list-root transactions))
     (when (block-withdrawals-present-p block)
       (validate-withdrawal-list-fields (block-withdrawals block)))
     (when (block-requests-present-p block)
