@@ -2151,9 +2151,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      "Block access list account must be a block access account"))
   (unless (address-p (block-access-account-address account))
     (block-validation-fail "Block access list account address must be an address"))
-  (dolist (slot (block-access-account-storage-reads account))
-    (unless (hash32-p slot)
-      (block-validation-fail "Block access list storage read must be a hash32")))
+  (unless (listp (block-access-account-storage-reads account))
+    (block-validation-fail "Block access list storage reads must be a list"))
+  (let ((previous-slot-bytes nil))
+    (dolist (slot (block-access-account-storage-reads account))
+      (unless (hash32-p slot)
+        (block-validation-fail "Block access list storage read must be a hash32"))
+      (let ((slot-bytes (hash32-bytes slot)))
+        (when (and previous-slot-bytes
+                   (not (byte-vector-lexicographic< previous-slot-bytes
+                                                    slot-bytes)))
+          (block-validation-fail
+           "Block access list storage reads must be sorted"))
+        (setf previous-slot-bytes slot-bytes))))
   (dolist (field (list (block-access-account-storage-writes account)
                        (block-access-account-balance-changes account)
                        (block-access-account-nonce-changes account)

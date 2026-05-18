@@ -1442,6 +1442,33 @@
                       (hash32-to-hex
                        (block-access-list-hash access-list)))))))
 
+(deftest block-access-list-rlp-encodes-storage-reads
+  (let* ((slot-1 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000001"))
+         (slot-2 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")
+                   :storage-reads (list slot-1 slot-2)))
+         (access-list (list account)))
+    (is (string=
+         "0xf85ff85d940000000000000000000000000000000000000001c0f842a00000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000002c0c0c0"
+         (bytes-to-hex (block-access-list-rlp access-list))))
+    (is (validate-block-access-list-fields access-list))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :storage-reads (list slot-2 slot-1)))))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :storage-reads (list slot-1 slot-1)))))))
+
 (deftest block-access-list-validates-account-order
   (let ((first (make-block-access-account
                 :address (address-from-hex

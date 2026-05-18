@@ -319,8 +319,9 @@ block-access-list body, derive its empty-list commitment into `balHash`, and
 validate body/header BAL presence and hash consistency; non-empty BAL account
 change encoding remains a future slice. The first non-empty BAL encoding slice
 is also present: block-access accounts encode in geth's six-field RLP shape,
-account addresses are validated in strict lexicographic order, and account
-shells with empty change lists can now contribute to `balHash`. Amsterdam
+account addresses and storage-read slots are validated in strict lexicographic
+order, and account shells plus sorted storage-read lists can now contribute to
+`balHash`. Amsterdam
 header validation also now requires child slot numbers to strictly exceed the
 parent once the parent is already Amsterdam-shaped.
 A small dependency-free genesis JSON
