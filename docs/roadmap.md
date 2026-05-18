@@ -661,8 +661,12 @@ effective gas price. `eth_getBlockReceipts` now exposes the same retained
 receipt objects by block tag, number, or hash for known memory-store blocks;
 `eth_getLogs` can scan retained memory-store receipts by block range or
 `blockHash`, address filter, and positional topic filters, returning canonical
-log objects and empty JSON arrays for no matches;
-pending txpool lookup remains a later networking/txpool slice.
+log objects and empty JSON arrays for no matches. `eth_sendRawTransaction` now
+decodes raw transaction bytes, records the decoded transaction in a local
+pending-transaction placeholder, and returns the transaction hash; locally
+submitted pending raw bytes are also visible through
+`eth_getRawTransactionByHash`. Structured pending transaction objects and full
+txpool admission rules remain a later networking/txpool slice.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

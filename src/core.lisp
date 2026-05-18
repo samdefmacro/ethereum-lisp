@@ -2924,7 +2924,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (remote-blocks (make-hash-table :test 'equal))
                       (invalid-tipsets (make-hash-table :test 'equal))
                       (prepared-payloads (make-hash-table :test 'equal))
-                      (blob-sidecars (make-hash-table :test 'equal)))))
+                      (blob-sidecars (make-hash-table :test 'equal))
+                      (pending-transactions (make-hash-table :test 'equal)))))
   blocks
   number-blocks
   transaction-locations
@@ -2937,7 +2938,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   remote-blocks
   invalid-tipsets
   prepared-payloads
-  blob-sidecars)
+  blob-sidecars
+  pending-transactions)
 
 (defstruct (engine-transaction-location
             (:constructor make-engine-transaction-location
@@ -3013,6 +3015,26 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-transaction-location (store hash)
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-transaction-locations store)))
+
+(defun engine-payload-store-put-pending-transaction (store transaction)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep transaction
+                 '(or legacy-transaction
+                      access-list-transaction
+                      dynamic-fee-transaction
+                      blob-transaction
+                      set-code-transaction))
+    (block-validation-fail "Pending transaction must be a transaction"))
+  (setf (gethash
+         (engine-payload-store-key (transaction-hash transaction))
+         (engine-payload-memory-store-pending-transactions store))
+        transaction)
+  transaction)
+
+(defun engine-payload-store-pending-transaction (store hash)
+  (gethash (engine-payload-store-key hash)
+           (engine-payload-memory-store-pending-transactions store)))
 
 (defun engine-payload-store-account-key (block-hash address)
   (format nil "~A:~A"
@@ -4611,6 +4633,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (transaction-encoding
       (engine-transaction-location-transaction location)))))
 
+(defun eth-rpc-raw-transaction (transaction)
+  (when transaction
+    (bytes-to-hex (transaction-encoding transaction))))
+
 (defun eth-rpc-receipt-gas-used (receipt previous-receipt)
   (- (receipt-cumulative-gas-used receipt)
      (if previous-receipt
@@ -4878,7 +4904,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((hash (eth-rpc-hash-param
                 params "eth_getRawTransactionByHash" "transaction hash"))
          (location (engine-payload-store-transaction-location store hash)))
-    (eth-rpc-raw-transaction-from-location location)))
+    (or (eth-rpc-raw-transaction-from-location location)
+        (eth-rpc-raw-transaction
+         (engine-payload-store-pending-transaction store hash)))))
+
+(defun engine-rpc-handle-eth-send-raw-transaction (params store)
+  (unless (= 1 (length params))
+    (block-validation-fail
+     "eth_sendRawTransaction params must contain exactly one transaction"))
+  (let* ((raw-bytes
+           (engine-rpc-bytes
+            (first params)
+            "eth_sendRawTransaction transaction"))
+         (transaction (transaction-from-encoding raw-bytes)))
+    (engine-payload-store-put-pending-transaction store transaction)
+    (hash32-to-hex (transaction-hash transaction))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
@@ -5601,6 +5641,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-raw-transaction-by-hash
+                 params store)))
+              ((string= method "eth_sendRawTransaction")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-send-raw-transaction
                  params store)))
               (t
                (engine-rpc-response

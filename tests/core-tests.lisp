@@ -5421,6 +5421,64 @@
         (is (null (field missing-raw-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-send-raw-transaction
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (make-address (make-byte-vector 20 :initial-element #x77)))
+           (transaction (make-legacy-transaction
+                         :nonce 9
+                         :gas-price 11
+                         :gas-limit 21000
+                         :to recipient
+                         :value 13
+                         :data #(1 2 3)
+                         :v 27
+                         :r 1
+                         :s 2))
+           (raw-transaction (bytes-to-hex (transaction-encoding transaction)))
+           (transaction-hash (hash32-to-hex (transaction-hash transaction)))
+           (config (make-chain-config)))
+      (let* ((send-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":60,"
+                  "\"method\":\"eth_sendRawTransaction\","
+                  "\"params\":[\"" raw-transaction "\"]}")
+                 store
+                 config)))
+             (raw-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":61,"
+                  "\"method\":\"eth_getRawTransactionByHash\","
+                  "\"params\":[\"" transaction-hash "\"]}")
+                 store
+                 config)))
+             (invalid-rlp-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":62,\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x01\"]}"
+                 store
+                 config)))
+             (invalid-count-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":63,\"method\":\"eth_sendRawTransaction\",\"params\":[]}"
+                 store
+                 config))))
+        (is (string= transaction-hash (field send-response "result")))
+        (is (string= raw-transaction (field raw-response "result")))
+        (is (= -32602
+               (field (field invalid-rlp-response "error") "code")))
+        (is (= -32602
+               (field (field invalid-count-response "error") "code")))))))
+
 (deftest eth-rpc-get-transaction-receipt
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
