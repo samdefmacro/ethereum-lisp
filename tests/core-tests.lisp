@@ -3069,6 +3069,42 @@
     (is (= 13 (length set-code-items)))
     (is (= 6 (length authorization-items)))
     (is (= 11 (bytes-to-integer (third authorization-items))))
+    (let ((decoded (transaction-from-encoding
+                    (access-list-transaction-encoding tx1))))
+      (is (typep decoded 'access-list-transaction))
+      (is (= 1 (access-list-transaction-chain-id decoded)))
+      (is (= 2 (access-list-transaction-nonce decoded)))
+      (is (= 3 (access-list-transaction-gas-price decoded)))
+      (is (= 4 (access-list-transaction-gas-limit decoded)))
+      (is (string= (address-to-hex recipient)
+                   (address-to-hex (access-list-transaction-to decoded))))
+      (is (= 5 (access-list-transaction-value decoded)))
+      (is (bytes= #(6) (access-list-transaction-data decoded)))
+      (is (= 1 (length (access-list-transaction-access-list decoded))))
+      (is (bytes= (hash32-bytes slot)
+                  (hash32-bytes
+                   (first (access-list-entry-storage-keys
+                           (first (access-list-transaction-access-list
+                                   decoded)))))))
+      (is (= 1 (access-list-transaction-y-parity decoded)))
+      (is (= 7 (access-list-transaction-r decoded)))
+      (is (= 8 (access-list-transaction-s decoded)))
+      (is (bytes= (access-list-transaction-encoding tx1)
+                  (access-list-transaction-encoding decoded))))
+    (signals block-validation-error
+      (access-list-transaction-from-rlp (rlp-encode (list 1 2 3))))
+    (signals block-validation-error
+      (access-list-transaction-from-rlp
+       (rlp-encode
+        (make-rlp-list 1 2 3 4
+                       (make-byte-vector 20)
+                       5
+                       (make-byte-vector 1 :initial-element 6)
+                       (make-rlp-list
+                        (make-rlp-list
+                         (make-byte-vector 19)
+                         (make-rlp-list)))
+                       1 7 8))))
     (is (hash32-p (transaction-hash tx1)))
     (is (hash32-p (blob-transaction-signing-hash tx3)))
     (is (not (string= (hash32-to-hex (blob-transaction-signing-hash tx3))

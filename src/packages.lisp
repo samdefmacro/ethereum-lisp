@@ -303,10 +303,18 @@
    #:access-list-transaction
    #:make-access-list-transaction
    #:access-list-transaction-chain-id
+   #:access-list-transaction-nonce
+   #:access-list-transaction-gas-price
+   #:access-list-transaction-gas-limit
+   #:access-list-transaction-to
+   #:access-list-transaction-value
+   #:access-list-transaction-data
+   #:access-list-transaction-access-list
    #:access-list-transaction-y-parity
    #:access-list-transaction-r
    #:access-list-transaction-s
    #:access-list-transaction-encoding
+   #:access-list-transaction-from-rlp
    #:access-list-transaction-hash
    #:access-list-transaction-signing-payload
    #:access-list-transaction-signing-hash
@@ -955,10 +963,18 @@
    #:access-list-transaction
    #:make-access-list-transaction
    #:access-list-transaction-chain-id
+   #:access-list-transaction-nonce
+   #:access-list-transaction-gas-price
+   #:access-list-transaction-gas-limit
+   #:access-list-transaction-to
+   #:access-list-transaction-value
+   #:access-list-transaction-data
+   #:access-list-transaction-access-list
    #:access-list-transaction-y-parity
    #:access-list-transaction-r
    #:access-list-transaction-s
    #:access-list-transaction-encoding
+   #:access-list-transaction-from-rlp
    #:access-list-transaction-hash
    #:access-list-transaction-signing-payload
    #:access-list-transaction-signing-hash
@@ -1568,10 +1584,18 @@
    #:access-list-transaction
    #:make-access-list-transaction
    #:access-list-transaction-chain-id
+   #:access-list-transaction-nonce
+   #:access-list-transaction-gas-price
+   #:access-list-transaction-gas-limit
+   #:access-list-transaction-to
+   #:access-list-transaction-value
+   #:access-list-transaction-data
+   #:access-list-transaction-access-list
    #:access-list-transaction-y-parity
    #:access-list-transaction-r
    #:access-list-transaction-s
    #:access-list-transaction-encoding
+   #:access-list-transaction-from-rlp
    #:access-list-transaction-hash
    #:access-list-transaction-signing-payload
    #:access-list-transaction-signing-hash

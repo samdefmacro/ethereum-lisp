@@ -1273,6 +1273,43 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun access-list-rlp-object (access-list)
   (mapcar #'access-list-entry-rlp-object access-list))
 
+(defun access-list-address-from-rlp (value label)
+  (let ((bytes (rlp-bytes-field value label)))
+    (unless (= (length bytes) 20)
+      (block-validation-fail "~A must be exactly 20 bytes" label))
+    (make-address bytes)))
+
+(defun access-list-storage-key-from-rlp (value label)
+  (let ((bytes (rlp-bytes-field value label)))
+    (unless (= (length bytes) 32)
+      (block-validation-fail "~A must be exactly 32 bytes" label))
+    (make-hash32 bytes)))
+
+(defun access-list-entry-from-rlp-object (value)
+  (unless (rlp-list-p value)
+    (block-validation-fail "Access list entry must be an RLP list"))
+  (let ((fields (rlp-list-items value)))
+    (unless (= (length fields) 2)
+      (block-validation-fail "Access list entry must contain 2 fields"))
+    (unless (rlp-list-p (second fields))
+      (block-validation-fail "Access list storage keys must be an RLP list"))
+    (make-access-list-entry
+     :address (access-list-address-from-rlp
+               (first fields)
+               "Access list entry address")
+     :storage-keys
+     (mapcar (lambda (storage-key)
+               (access-list-storage-key-from-rlp
+                storage-key
+                "Access list storage key"))
+             (rlp-list-items (second fields))))))
+
+(defun access-list-from-rlp-object (value)
+  (unless (rlp-list-p value)
+    (block-validation-fail "Access list must be an RLP list"))
+  (mapcar #'access-list-entry-from-rlp-object
+          (rlp-list-items value)))
+
 (defstruct (access-list-transaction (:constructor make-access-list-transaction
                                       (&key (chain-id 0)
                                             (nonce 0)
@@ -1313,6 +1350,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun access-list-transaction-encoding (transaction)
   (concat-bytes #(1) (rlp-encode (access-list-transaction-payload transaction))))
+
+(defun access-list-transaction-from-rlp (bytes)
+  (handler-case
+      (let ((value (rlp-decode-one bytes)))
+        (unless (rlp-list-p value)
+          (block-validation-fail
+           "Access-list transaction payload must be an RLP list"))
+        (let ((fields (rlp-list-items value)))
+          (unless (= (length fields) 11)
+            (block-validation-fail
+             "Access-list transaction payload must contain 11 fields"))
+          (make-access-list-transaction
+           :chain-id (rlp-uint-field (first fields)
+                                     "Transaction chain id")
+           :nonce (rlp-uint-field (second fields) "Transaction nonce")
+           :gas-price (rlp-uint-field (third fields)
+                                      "Transaction gas price")
+           :gas-limit (rlp-uint-field (fourth fields)
+                                      "Transaction gas limit")
+           :to (legacy-transaction-recipient-from-rlp (fifth fields))
+           :value (rlp-uint-field (sixth fields) "Transaction value")
+           :data (rlp-bytes-field (seventh fields) "Transaction data")
+           :access-list (access-list-from-rlp-object (eighth fields))
+           :y-parity (rlp-uint-field (ninth fields) "Transaction y parity")
+           :r (rlp-uint-field (tenth fields) "Transaction r")
+           :s (rlp-uint-field (nth 10 fields) "Transaction s"))))
+    (block-validation-error (condition)
+      (error condition))
+    (rlp-error (condition)
+      (block-validation-fail "Invalid access-list transaction RLP: ~A"
+                             condition))))
 
 (defun access-list-transaction-signing-payload (transaction)
   (make-rlp-list
@@ -1825,8 +1893,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail "Transaction encoding is empty"))
     (if (> (aref bytes 0) #x7f)
         (legacy-transaction-from-rlp bytes)
-        (block-validation-fail
-         "Typed transaction decoding is not implemented yet"))))
+        (case (aref bytes 0)
+          (1 (access-list-transaction-from-rlp (subseq bytes 1)))
+          (otherwise
+           (block-validation-fail
+            "Typed transaction decoding is not implemented yet"))))))
 
 (defun transaction-hash (transaction)
   (keccak-256-hash (transaction-encoding transaction)))
