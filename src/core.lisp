@@ -2480,10 +2480,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defstruct (engine-prepared-payload
             (:constructor make-engine-prepared-payload
-                (&key payload-id version block)))
+                (&key payload-id version block blobs-bundle)))
   payload-id
   version
-  block)
+  block
+  blobs-bundle)
 
 (defun maybe-copy-bytes (bytes)
   (when bytes
@@ -2497,7 +2498,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (when requests
     (mapcar #'maybe-copy-bytes requests)))
 
-(defun block-to-executable-data (block &key (block-value 0) requests)
+(defun maybe-copy-blob-sidecar (sidecar)
+  (when sidecar
+    (unless (typep sidecar 'blob-sidecar)
+      (block-validation-fail "Blob sidecar must be a blob-sidecar"))
+    (make-blob-sidecar
+     :blobs (mapcar #'maybe-copy-bytes (blob-sidecar-blobs sidecar))
+     :commitments (mapcar #'maybe-copy-bytes
+                           (blob-sidecar-commitments sidecar))
+     :proofs (mapcar #'maybe-copy-bytes (blob-sidecar-proofs sidecar)))))
+
+(defun block-to-executable-data
+    (block &key (block-value 0) requests blobs-bundle)
   (let* ((header (block-header block))
          (payload
            (make-executable-data
@@ -2537,6 +2549,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (make-execution-payload-envelope
      :execution-payload payload
      :block-value block-value
+     :blobs-bundle (maybe-copy-blob-sidecar blobs-bundle)
      :requests payload-requests
      :override-p nil)))
 
@@ -3328,6 +3341,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     "engine_getPayloadV2"
     "engine_getPayloadV3"
     "engine_getPayloadV4"
+    "engine_getPayloadV5"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3492,7 +3506,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-prepared-payload-envelope (prepared-payload)
   (block-to-executable-data
-   (engine-prepared-payload-block prepared-payload)))
+   (engine-prepared-payload-block prepared-payload)
+   :blobs-bundle (engine-prepared-payload-blobs-bundle prepared-payload)))
 
 (defun engine-rpc-handle-get-payload-v1 (params store)
   (let ((prepared-payload
@@ -3531,6 +3546,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            params store "engine_getPayloadV4")))
     (unless (= 4 (engine-prepared-payload-version prepared-payload))
       (block-validation-fail "payload id is not for engine_getPayloadV4"))
+    (engine-rpc-execution-payload-envelope-object
+     (engine-rpc-prepared-payload-envelope prepared-payload)
+     :include-blobs-bundle-p t
+     :include-override-p t)))
+
+(defun engine-rpc-handle-get-payload-v5 (params store)
+  (let ((prepared-payload
+          (engine-rpc-prepared-payload
+           params store "engine_getPayloadV5")))
+    (unless (= 5 (engine-prepared-payload-version prepared-payload))
+      (block-validation-fail "payload id is not for engine_getPayloadV5"))
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t
@@ -3737,6 +3763,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-v4 params store)))
+              ((string= method "engine_getPayloadV5")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-v5 params store)))
               ((string= method "engine_getPayloadBodiesByHashV1")
                (engine-rpc-response
                 id

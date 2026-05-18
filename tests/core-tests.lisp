@@ -2977,6 +2977,52 @@
         (is (string= "0x00aa" (first encoded-requests)))
         (is (string= "0x01bb" (second encoded-requests)))))))
 
+(deftest engine-rpc-get-payload-v5-returns-osaka-blobs-bundle
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((payload-id #(5 0 0 0 0 0 0 1))
+           (requests (list #(#x02 #xcc)))
+           (sidecar
+             (make-blob-sidecar
+              :blobs (list #(#x03 #xdd))
+              :commitments (list #(#x04 #xee))
+              :proofs (list #(#x05 #xff) #(#x06 #x11))))
+           (block
+             (make-block
+              :header
+              (make-block-header :number 9
+                                 :timestamp 14
+                                 :blob-gas-used 0
+                                 :excess-blob-gas 0)
+              :requests requests))
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (engine-payload-store-put-prepared-payload
+       store
+       (make-engine-prepared-payload
+        :payload-id payload-id
+        :version 5
+        :block block
+        :blobs-bundle sidecar))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 40)
+                      (cons "method" "engine_getPayloadV5")
+                      (cons "params" (list (bytes-to-hex payload-id))))
+                store
+                config))
+             (envelope (field response "result"))
+             (bundle (field envelope "blobsBundle")))
+        (is (= 40 (field response "id")))
+        (is (eq :false (field envelope "shouldOverrideBuilder")))
+        (is (string= "0x02cc"
+                     (first (field envelope "executionRequests"))))
+        (is (string= "0x04ee" (first (field bundle "commitments"))))
+        (is (string= "0x05ff" (first (field bundle "proofs"))))
+        (is (string= "0x0611" (second (field bundle "proofs"))))
+        (is (string= "0x03dd" (first (field bundle "blobs"))))))))
+
 (deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3239,6 +3285,7 @@
       (is (member "engine_getPayloadV2" capabilities :test #'string=))
       (is (member "engine_getPayloadV3" capabilities :test #'string=))
       (is (member "engine_getPayloadV4" capabilities :test #'string=))
+      (is (member "engine_getPayloadV5" capabilities :test #'string=))
       (is (member "engine_getPayloadBodiesByHashV1"
                   capabilities
                   :test #'string=))
