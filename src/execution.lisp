@@ -230,6 +230,22 @@
              :message "Transaction sender has non-delegation code")))
   t)
 
+(defun validate-access-list-fields (tx)
+  (dolist (entry (transaction-access-list tx) t)
+    (unless (typep entry 'access-list-entry)
+      (error 'transaction-validation-error
+             :message "Access list entry must be an access-list entry"))
+    (unless (address-p (access-list-entry-address entry))
+      (error 'transaction-validation-error
+             :message "Access list entry address must be an address"))
+    (unless (listp (access-list-entry-storage-keys entry))
+      (error 'transaction-validation-error
+             :message "Access list storage keys must be a list"))
+    (dolist (slot (access-list-entry-storage-keys entry))
+      (unless (hash32-p slot)
+        (error 'transaction-validation-error
+               :message "Access list storage key must be a hash32")))))
+
 (defun valid-set-code-authorization-chain-p (authorization chain-id)
   (let ((authorization-chain-id
           (set-code-authorization-chain-id authorization)))
@@ -547,6 +563,7 @@
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
   (validate-execution-transaction-type tx effective-chain-rules)
+  (validate-access-list-fields tx)
   (when (typep tx 'blob-transaction)
     (validate-blob-transaction-fields tx)
     (validate-blob-transaction-fee-cap tx blob-base-fee))

@@ -228,6 +228,9 @@ block execution state mutation.
 Withdrawal body validation now also checks withdrawal field shapes before root
 comparison or state mutation, including uint256 index/validator/amount fields
 and address-typed recipients.
+Transaction access-list execution now validates access-list entry, address, and
+storage-key shapes before intrinsic gas calculation, sender gas purchase, or
+EVM context prewarming.
 A first-pass chain configuration model is present for block-number forks
 through London and timestamp forks through Prague, including geth-compatible
 activation predicates and config-driven header validation for Shanghai,

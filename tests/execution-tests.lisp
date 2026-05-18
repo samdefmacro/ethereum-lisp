@@ -1141,6 +1141,42 @@
     (is (= (+ 21000 16 4 2400 (* 2 1900))
            (transaction-intrinsic-gas transaction)))))
 
+(deftest access-list-message-validates-fields-before-state-mutation
+  (let* ((state (make-state-db))
+         (sender (address-from-hex
+                  "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000002"))
+         (balance 100000)
+         (bad-address-tx
+           (make-access-list-transaction
+            :gas-price 1
+            :gas-limit 30000
+            :to recipient
+            :access-list
+            (list (make-access-list-entry :address nil))))
+         (bad-slot-tx
+           (make-access-list-transaction
+            :gas-price 1
+            :gas-limit 30000
+            :to recipient
+            :access-list
+            (list (make-access-list-entry
+                   :address recipient
+                   :storage-keys (list nil))))))
+    (state-db-set-account state sender
+                          (make-state-account :balance balance))
+    (signals transaction-validation-error
+      (apply-message state sender bad-address-tx))
+    (signals transaction-validation-error
+      (apply-message state sender bad-slot-tx))
+    (is (= 0 (state-account-nonce
+              (state-db-get-account state sender))))
+    (is (= balance
+           (state-account-balance
+            (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
 (deftest access-list-prewarms-sload-storage-key
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
