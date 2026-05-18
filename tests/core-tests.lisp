@@ -2258,6 +2258,184 @@
       (is (search "block hash mismatch"
                   (payload-status-validation-error status))))))
 
+(deftest engine-new-payload-version-status-enforces-fork-parameters
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000002"))
+         (parent-beacon-root
+           (hash32-from-hex
+            "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (transaction (make-legacy-transaction :nonce 1
+                                               :gas-price 2
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 4
+                                               :v 27
+                                               :r 6
+                                               :s 7))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (withdrawal (make-withdrawal :index 1
+                                      :validator-index 2
+                                      :address address
+                                      :amount 3))
+         (requests (list #(#x00 #xaa)))
+         (london-config (make-chain-config :london-block 0))
+         (cancun-config (make-chain-config :london-block 0
+                                           :shanghai-time 0
+                                           :cancun-time 0))
+         (prague-config (make-chain-config :london-block 0
+                                           :shanghai-time 0
+                                           :cancun-time 0
+                                           :prague-time 0))
+         (amsterdam-config (make-chain-config :london-block 0
+                                              :shanghai-time 0
+                                              :cancun-time 0
+                                              :prague-time 0
+                                              :amsterdam-time 0))
+         (legacy-header (make-block-header
+                         :parent-hash (zero-hash32)
+                         :beneficiary address
+                         :state-root +empty-trie-hash+
+                         :mix-hash (zero-hash32)
+                         :number 42
+                         :gas-limit 50000
+                         :gas-used 21000
+                         :timestamp 99
+                         :base-fee-per-gas 100))
+         (cancun-header (make-block-header
+                         :parent-hash (zero-hash32)
+                         :beneficiary address
+                         :state-root +empty-trie-hash+
+                         :mix-hash (zero-hash32)
+                         :number 42
+                         :gas-limit 50000
+                         :gas-used 21000
+                         :timestamp 99
+                         :base-fee-per-gas 100
+                         :withdrawals-root (withdrawal-list-root
+                                            (list withdrawal))
+                         :blob-gas-used 0
+                         :excess-blob-gas 0
+                         :parent-beacon-root parent-beacon-root))
+         (prague-header (make-block-header
+                         :parent-hash (zero-hash32)
+                         :beneficiary address
+                         :state-root +empty-trie-hash+
+                         :mix-hash (zero-hash32)
+                         :number 42
+                         :gas-limit 50000
+                         :gas-used 21000
+                         :timestamp 99
+                         :base-fee-per-gas 100
+                         :withdrawals-root (withdrawal-list-root
+                                            (list withdrawal))
+                         :blob-gas-used 0
+                         :excess-blob-gas 0
+                         :parent-beacon-root parent-beacon-root
+                         :requests-hash (execution-requests-hash requests)))
+         (amsterdam-header (make-block-header
+                            :parent-hash (zero-hash32)
+                            :beneficiary address
+                            :state-root +empty-trie-hash+
+                            :mix-hash (zero-hash32)
+                            :number 42
+                            :gas-limit 50000
+                            :gas-used 21000
+                            :timestamp 99
+                            :base-fee-per-gas 100
+                            :withdrawals-root (withdrawal-list-root
+                                               (list withdrawal))
+                            :blob-gas-used 0
+                            :excess-blob-gas 0
+                            :parent-beacon-root parent-beacon-root
+                            :requests-hash (execution-requests-hash requests)
+                            :slot-number 7))
+         (legacy-payload
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data
+             (make-block :header legacy-header
+                         :transactions (list transaction)
+                         :receipts (list receipt)))))
+         (cancun-payload
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data
+             (make-block :header cancun-header
+                         :transactions (list transaction)
+                         :receipts (list receipt)
+                         :withdrawals (list withdrawal)))))
+         (prague-payload
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data
+             (make-block :header prague-header
+                         :transactions (list transaction)
+                         :receipts (list receipt)
+                         :withdrawals (list withdrawal)
+                         :requests requests))))
+         (amsterdam-payload
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data
+             (make-block :header amsterdam-header
+                         :transactions (list transaction)
+                         :receipts (list receipt)
+                         :withdrawals (list withdrawal)
+                         :requests requests)))))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status 1 legacy-payload london-config)
+      (is (string= +payload-status-valid+ (payload-status-status status)))
+      (is (typep block 'ethereum-block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status 1 cancun-payload cancun-config)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (not block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status 2 legacy-payload cancun-config)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (not block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
+         3 cancun-payload cancun-config
+         :parent-beacon-root parent-beacon-root
+         :versioned-hashes '())
+      (is (string= +payload-status-valid+ (payload-status-status status)))
+      (is (typep block 'ethereum-block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
+         3 cancun-payload cancun-config
+         :parent-beacon-root parent-beacon-root)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (not block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
+         4 prague-payload prague-config
+         :parent-beacon-root parent-beacon-root
+         :versioned-hashes '()
+         :requests requests)
+      (is (string= +payload-status-valid+ (payload-status-status status)))
+      (is (typep block 'ethereum-block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
+         4 prague-payload prague-config
+         :parent-beacon-root parent-beacon-root
+         :versioned-hashes '())
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (not block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
+         5 amsterdam-payload amsterdam-config
+         :parent-beacon-root parent-beacon-root
+         :versioned-hashes '()
+         :requests requests)
+      (is (string= +payload-status-valid+ (payload-status-status status)))
+      (is (typep block 'ethereum-block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
+         5 prague-payload prague-config
+         :parent-beacon-root parent-beacon-root
+         :versioned-hashes '()
+         :requests requests)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (not block)))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

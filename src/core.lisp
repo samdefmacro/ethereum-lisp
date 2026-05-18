@@ -2657,6 +2657,117 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         :validation-error (block-validation-error-message condition))
        nil))))
 
+(defun invalid-payload-status (message)
+  (make-payload-status :status +payload-status-invalid+
+                       :validation-error message))
+
+(defun engine-new-payload-version-invalid-p
+    (version payload config versioned-hashes-supplied-p
+             parent-beacon-root-supplied-p requests-supplied-p)
+  (let* ((number (executable-data-number payload))
+         (timestamp (executable-data-timestamp payload))
+         (withdrawals (executable-data-withdrawals payload))
+         (shanghai-p (chain-config-shanghai-p config number timestamp))
+         (cancun-p (chain-config-cancun-p config number timestamp))
+         (prague-p (chain-config-prague-p config number timestamp))
+         (amsterdam-p (chain-config-amsterdam-p config number timestamp)))
+    (cond
+      ((= version 1)
+       (when withdrawals
+         "withdrawals not supported in newPayloadV1"))
+      ((= version 2)
+       (cond
+         (cancun-p "newPayloadV2 cannot be used after Cancun")
+         ((and shanghai-p (null withdrawals))
+          "withdrawals required after Shanghai")
+         ((and (not shanghai-p) withdrawals)
+          "withdrawals not supported before Shanghai")
+         ((executable-data-excess-blob-gas payload)
+          "excessBlobGas not supported before Cancun")
+         ((executable-data-blob-gas-used payload)
+          "blobGasUsed not supported before Cancun")))
+      ((= version 3)
+       (cond
+         ((null withdrawals) "withdrawals required after Shanghai")
+         ((null (executable-data-excess-blob-gas payload))
+          "excessBlobGas required after Cancun")
+         ((null (executable-data-blob-gas-used payload))
+          "blobGasUsed required after Cancun")
+         ((not versioned-hashes-supplied-p)
+          "versionedHashes required after Cancun")
+         ((not parent-beacon-root-supplied-p)
+          "parentBeaconBlockRoot required after Cancun")
+         ((not cancun-p)
+          "newPayloadV3 requires Cancun")))
+      ((= version 4)
+       (cond
+         ((null withdrawals) "withdrawals required after Shanghai")
+         ((null (executable-data-excess-blob-gas payload))
+          "excessBlobGas required after Cancun")
+         ((null (executable-data-blob-gas-used payload))
+          "blobGasUsed required after Cancun")
+         ((not versioned-hashes-supplied-p)
+          "versionedHashes required after Cancun")
+         ((not parent-beacon-root-supplied-p)
+          "parentBeaconBlockRoot required after Cancun")
+         ((not requests-supplied-p)
+          "executionRequests required after Prague")
+         ((not prague-p)
+          "newPayloadV4 requires Prague or later")))
+      ((= version 5)
+       (cond
+         ((null withdrawals) "withdrawals required after Shanghai")
+         ((null (executable-data-excess-blob-gas payload))
+          "excessBlobGas required after Cancun")
+         ((null (executable-data-blob-gas-used payload))
+          "blobGasUsed required after Cancun")
+         ((not versioned-hashes-supplied-p)
+          "versionedHashes required after Cancun")
+         ((not parent-beacon-root-supplied-p)
+          "parentBeaconBlockRoot required after Cancun")
+         ((not requests-supplied-p)
+          "executionRequests required after Prague")
+         ((null (executable-data-slot-number payload))
+          "slotNumber required after Amsterdam")
+         ((not amsterdam-p)
+          "newPayloadV5 requires Amsterdam")))
+      (t "unsupported newPayload version"))))
+
+(defun engine-new-payload-version-status
+    (version payload config
+     &key (parent-beacon-root nil parent-beacon-root-supplied-p)
+          (versioned-hashes nil versioned-hashes-supplied-p)
+          (requests nil requests-supplied-p))
+  (unless (typep payload 'executable-data)
+    (return-from engine-new-payload-version-status
+      (values (invalid-payload-status
+               "newPayload execution payload must be executable-data")
+              nil)))
+  (unless (typep config 'chain-config)
+    (return-from engine-new-payload-version-status
+      (values (invalid-payload-status
+               "newPayload chain config must be chain-config")
+              nil)))
+  (let ((invalid-message
+          (engine-new-payload-version-invalid-p
+           version payload config
+           versioned-hashes-supplied-p
+           parent-beacon-root-supplied-p
+           requests-supplied-p)))
+    (when invalid-message
+      (return-from engine-new-payload-version-status
+        (values (invalid-payload-status invalid-message) nil))))
+  (if requests-supplied-p
+      (engine-new-payload-params-status
+       payload
+       :parent-beacon-root parent-beacon-root
+       :versioned-hashes versioned-hashes
+       :requests requests)
+      (engine-new-payload-params-status
+       payload
+       :parent-beacon-root parent-beacon-root
+       :versioned-hashes versioned-hashes)))
+
 (defun execution-requests-hash (requests)
   (sha256-hash
    (apply #'concat-bytes

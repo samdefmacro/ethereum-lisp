@@ -501,6 +501,7 @@
    #:executable-data-to-block-no-hash
    #:executable-data-to-block
    #:engine-new-payload-params-status
+   #:engine-new-payload-version-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1200,6 +1201,7 @@
    #:executable-data-to-block-no-hash
    #:executable-data-to-block
    #:engine-new-payload-params-status
+   #:engine-new-payload-version-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1860,6 +1862,7 @@
    #:executable-data-to-block-no-hash
    #:executable-data-to-block
    #:engine-new-payload-params-status
+   #:engine-new-payload-version-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account

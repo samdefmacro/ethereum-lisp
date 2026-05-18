@@ -527,7 +527,8 @@ headers/bodies, plus a hash-checking wrapper for the normal `newPayload`
 payload import path. The reverse Engine import path also checks supplied
 blob `versionedHashes` against decoded blob transactions, and has a first
 stateless `newPayload` parameter-status wrapper that maps local validation
-errors into Engine-style payload status objects.
+errors into Engine-style payload status objects. Version-specific `newPayload`
+parameter gates now cover V1 through V5 fork requirements before block import.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.
