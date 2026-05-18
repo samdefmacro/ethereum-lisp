@@ -3800,6 +3800,93 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when block
       (eth-rpc-header-object (block-header block)))))
 
+(defun eth-rpc-rlp-length-prefix (offset length)
+  (if (<= length 55)
+      (ensure-byte-vector (list (+ offset length)))
+      (let ((length-bytes (integer-to-minimal-bytes length)))
+        (concat-bytes
+         (ensure-byte-vector (list (+ offset 55 (length length-bytes))))
+         length-bytes))))
+
+(defun eth-rpc-encoded-rlp-list (encoded-items)
+  (let ((payload (if encoded-items
+                     (apply #'concat-bytes encoded-items)
+                     (make-byte-vector 0))))
+    (concat-bytes (eth-rpc-rlp-length-prefix #xc0 (length payload))
+                  payload)))
+
+(defun eth-rpc-block-rlp (block)
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "eth block result must be a block"))
+  (let ((items
+          (list
+           (block-header-rlp (block-header block))
+           (eth-rpc-encoded-rlp-list
+            (mapcar #'transaction-encoding (block-transactions block)))
+           (eth-rpc-encoded-rlp-list
+            (mapcar #'block-header-rlp (block-ommers block))))))
+    (when (block-withdrawals-present-p block)
+      (setf items
+            (append items
+                    (list (eth-rpc-encoded-rlp-list
+                           (mapcar #'withdrawal-rlp
+                                   (block-withdrawals block)))))))
+    (when (block-requests-present-p block)
+      (setf items
+            (append items
+                    (list (eth-rpc-encoded-rlp-list
+                           (mapcar #'rlp-encode
+                                   (block-requests block)))))))
+    (when (block-block-access-list-present-p block)
+      (setf items
+            (append items
+                    (list (or (block-encoded-block-access-list block)
+                              (block-access-list-rlp
+                               (block-block-access-list block)))))))
+    (eth-rpc-encoded-rlp-list items)))
+
+(defun eth-rpc-require-transaction-hashes (params method)
+  (unless (= 2 (length params))
+    (block-validation-fail
+     "~A params must contain block id and full transaction flag" method))
+  (let ((full-transactions-p (second params)))
+    (unless (or (null full-transactions-p)
+                (eq full-transactions-p t))
+      (block-validation-fail
+       "~A full transaction flag must be a boolean" method))
+    (when full-transactions-p
+      (block-validation-fail
+       "~A full transaction objects are not implemented yet" method))))
+
+(defun eth-rpc-block-object (block)
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "eth block result must be a block"))
+  (append
+   (eth-rpc-header-object (block-header block))
+   (list
+    (cons "size" (quantity-to-hex (length (eth-rpc-block-rlp block))))
+    (cons "transactions"
+          (mapcar (lambda (transaction)
+                    (hash32-to-hex (transaction-hash transaction)))
+                  (block-transactions block)))
+    (cons "uncles"
+          (mapcar (lambda (ommer)
+                    (hash32-to-hex (block-header-hash ommer)))
+                  (block-ommers block))))
+   (when (block-withdrawals-present-p block)
+     (list
+      (cons "withdrawals"
+            (mapcar #'engine-rpc-withdrawal-object
+                    (block-withdrawals block)))))))
+
+(defun engine-rpc-handle-eth-get-block-by-number (params store)
+  (eth-rpc-require-transaction-hashes params "eth_getBlockByNumber")
+  (let* ((number (eth-rpc-block-number-param
+                  (list (first params)) store "eth_getBlockByNumber"))
+         (block (engine-payload-store-block-by-number store number)))
+    (when block
+      (eth-rpc-block-object block))))
+
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
@@ -4285,6 +4372,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-header-by-hash params store)))
+              ((string= method "eth_getBlockByNumber")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-block-by-number params store)))
               (t
                (engine-rpc-response
                 id

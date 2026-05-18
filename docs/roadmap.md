@@ -605,7 +605,11 @@ chain id, `eth_blockNumber` returns the current memory-store head number, and
 `eth_getHeaderByNumber`/`eth_getHeaderByHash` can return canonical memory-store
 headers for `latest`, `earliest`, hex block quantities, or block hashes using
 the geth-style header object shape while returning JSON `null` for unknown
-blocks.
+blocks. `eth_getBlockByNumber` now handles the transaction-hash form
+(`fullTx=false`) for memory-store canonical blocks, adding block size,
+transaction hashes, ommer hashes, and Shanghai withdrawals while returning
+`null` for unknown numbers; full transaction object expansion remains a later
+RPC-object slice.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

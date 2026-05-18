@@ -4049,6 +4049,76 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-get-block-by-number-with-transaction-hashes
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (make-address (make-byte-vector 20 :initial-element #x42)))
+           (transaction
+             (make-legacy-transaction :nonce 1
+                                      :gas-price 7
+                                      :gas-limit 21000
+                                      :to recipient
+                                      :value 3))
+           (withdrawal
+             (make-withdrawal :index 1
+                              :validator-index 2
+                              :address recipient
+                              :amount 4))
+           (ommer (make-block-header :number 7
+                                     :timestamp 70))
+           (block
+             (make-block
+              :header (make-block-header :number 8
+                                         :timestamp 80
+                                         :gas-limit 30000000
+                                         :gas-used 21000
+                                         :base-fee-per-gas 9)
+              :transactions (list transaction)
+              :ommers (list ommer)
+              :withdrawals (list withdrawal)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":28,\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x8\",false]}"
+                 store
+                 config)))
+             (result (field response "result"))
+             (transactions (field result "transactions"))
+             (uncles (field result "uncles"))
+             (withdrawals (field result "withdrawals"))
+             (missing-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":29,\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x63\",false]}"
+                 store
+                 config)))
+             (full-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x8\",true]}"
+                 store
+                 config)))
+             (full-error (field full-response "error")))
+        (is (string= (quantity-to-hex 8) (field result "number")))
+        (is (string= (hash32-to-hex (block-hash block))
+                     (field result "hash")))
+        (is (stringp (field result "size")))
+        (is (= 1 (length transactions)))
+        (is (string= (hash32-to-hex (transaction-hash transaction))
+                     (first transactions)))
+        (is (= 1 (length uncles)))
+        (is (string= (hash32-to-hex (block-header-hash ommer))
+                     (first uncles)))
+        (is (= 1 (length withdrawals)))
+        (is (string= (quantity-to-hex 1)
+                     (field (first withdrawals) "index")))
+        (is (null (field missing-response "result")))
+        (is (= -32602 (field full-error "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
