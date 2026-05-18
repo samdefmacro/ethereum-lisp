@@ -5470,6 +5470,12 @@
                   "\"params\":[\"" transaction-hash "\"]}")
                  store
                  config)))
+             (pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                 store
+                 config)))
              (invalid-rlp-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -5480,6 +5486,12 @@
                (parse-json
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":64,\"method\":\"eth_sendRawTransaction\",\"params\":[]}"
+                 store
+                 config)))
+             (invalid-pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":66,\"method\":\"eth_pendingTransactions\",\"params\":[\"unexpected\"]}"
                  store
                  config))))
         (is (string= transaction-hash (field send-response "result")))
@@ -5495,10 +5507,17 @@
                        (field pending-transaction "gasPrice")))
           (is (string= (quantity-to-hex 13)
                        (field pending-transaction "value"))))
+        (let ((pending-transactions (field pending-response "result")))
+          (is (= 1 (length pending-transactions)))
+          (is (string= transaction-hash
+                       (field (first pending-transactions) "hash")))
+          (is (null (field (first pending-transactions) "blockHash"))))
         (is (= -32602
                (field (field invalid-rlp-response "error") "code")))
         (is (= -32602
-               (field (field invalid-count-response "error") "code")))))))
+               (field (field invalid-count-response "error") "code")))
+        (is (= -32602
+               (field (field invalid-pending-response "error") "code")))))))
 
 (deftest eth-rpc-get-transaction-receipt
   (labels ((field (object name)

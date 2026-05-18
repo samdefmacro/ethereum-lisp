@@ -3036,6 +3036,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-pending-transactions store)))
 
+(defun engine-payload-store-pending-transactions (store)
+  (sort
+   (loop for transaction
+           being the hash-values of
+             (engine-payload-memory-store-pending-transactions store)
+         collect transaction)
+   #'string<
+   :key (lambda (transaction)
+          (hash32-to-hex (transaction-hash transaction)))))
+
 (defun engine-payload-store-account-key (block-hash address)
   (format nil "~A:~A"
           (engine-payload-store-key block-hash)
@@ -4637,6 +4647,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (when transaction
     (eth-rpc-transaction-object transaction nil nil)))
 
+(defun eth-rpc-pending-transaction-objects (transactions)
+  (eth-rpc-json-array
+   (mapcar #'eth-rpc-pending-transaction-object transactions)))
+
 (defun eth-rpc-raw-transaction-from-location (location)
   (when location
     (bytes-to-hex
@@ -4929,6 +4943,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (transaction (transaction-from-encoding raw-bytes)))
     (engine-payload-store-put-pending-transaction store transaction)
     (hash32-to-hex (transaction-hash transaction))))
+
+(defun engine-rpc-handle-eth-pending-transactions (params store)
+  (when params
+    (block-validation-fail "eth_pendingTransactions params must be empty"))
+  (eth-rpc-pending-transaction-objects
+   (engine-payload-store-pending-transactions store)))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
@@ -5659,6 +5679,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-send-raw-transaction
+                 params store)))
+              ((string= method "eth_pendingTransactions")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-pending-transactions
                  params store)))
               (t
                (engine-rpc-response
