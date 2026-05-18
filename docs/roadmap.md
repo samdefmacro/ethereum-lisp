@@ -255,6 +255,9 @@ before withdrawal-root or requests-hash derivation.
 Header body commitments (`ommersHash`, `transactionsRoot`, optional
 `withdrawalsRoot`, and optional `requestsHash`) are shape-checked before
 commitment comparison.
+Post-execution commitment validation now also checks logs bloom, receipts root,
+header state root, computed state root, and gas-used shapes before comparing
+the executed results.
 A first-pass chain configuration model is present for block-number forks
 through London and timestamp forks through Prague, including geth-compatible
 activation predicates and config-driven header validation for Shanghai,

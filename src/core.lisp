@@ -1849,6 +1849,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (receipt-cumulative-gas-used (car (last receipts)))
       0))
 
+(defun validate-block-execution-commitment-fields (header state-root)
+  (unless (uint256-p (block-header-gas-used header))
+    (block-validation-fail "Header gas used must be uint256"))
+  (validate-sized-byte-vector (block-header-logs-bloom header)
+                              256
+                              "Header logs bloom")
+  (unless (hash32-p (block-header-receipts-root header))
+    (block-validation-fail "Header receipts root must be a hash32"))
+  (unless (hash32-p (block-header-state-root header))
+    (block-validation-fail "Header state root must be a hash32"))
+  (unless (hash32-p state-root)
+    (block-validation-fail "Computed state root must be a hash32"))
+  t)
+
 (defun validate-block-execution-roots
     (block receipts state-root &key (transactions nil transactions-supplied-p))
   (let* ((header (block-header block))
@@ -1857,6 +1871,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (receipts-root (if transactions-supplied-p
                             (transaction-receipt-list-root transactions receipts)
                             (receipt-list-root receipts))))
+    (validate-block-execution-commitment-fields header state-root)
     (unless (= gas-used (block-header-gas-used header))
       (block-validation-fail "Gas used mismatch"))
     (unless (and (block-header-logs-bloom header)

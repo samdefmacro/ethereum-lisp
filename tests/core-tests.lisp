@@ -1500,6 +1500,29 @@
     (signals block-validation-error
       (validate-block-execution-roots block (list receipt) state-root))))
 
+(deftest block-execution-validates-commitment-fields-before-comparison
+  (let* ((receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (state-root (hash32-from-hex
+                      "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (block (make-block :receipts (list receipt)))
+         (header (block-header block)))
+    (setf (block-header-gas-used header) 21000
+          (block-header-state-root header) state-root)
+    (setf (block-header-logs-bloom header) "not a bloom")
+    (signals block-validation-error
+      (validate-block-execution-roots block (list receipt) state-root))
+    (setf (block-header-logs-bloom header) (make-byte-vector 256)
+          (block-header-receipts-root header) nil)
+    (signals block-validation-error
+      (validate-block-execution-roots block (list receipt) state-root))
+    (setf (block-header-receipts-root header) (receipt-list-root (list receipt))
+          (block-header-state-root header) nil)
+    (signals block-validation-error
+      (validate-block-execution-roots block (list receipt) state-root))
+    (setf (block-header-state-root header) state-root)
+    (signals block-validation-error
+      (validate-block-execution-roots block (list receipt) nil))))
+
 (deftest bloom-add-and-lookup-log-values
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (topic (hash32-from-hex
