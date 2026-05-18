@@ -3069,6 +3069,45 @@
                       (state-db-get-account state sender))))
       (is (not (state-db-get-account state contract))))))
 
+(deftest legacy-message-contract-creation-uses-amsterdam-code-size-limit
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 0
+                                    :amsterdam-time 0))
+         (allowed-initcode #(#x61 #x60 #x01 #x60 0 #xf3))
+         (oversized-initcode #(#x61 #x80 #x01 #x60 0 #xf3))
+         (contract
+           (make-address
+            (subseq
+             (keccak-256
+              (rlp-encode
+               (make-rlp-list (address-bytes sender) 0)))
+             12 32)))
+         (allowed-tx (make-legacy-transaction :nonce 0
+                                              :gas-price 1
+                                              :gas-limit 6000000
+                                              :to nil
+                                              :data allowed-initcode))
+         (oversized-tx (make-legacy-transaction :nonce 1
+                                                :gas-price 1
+                                                :gas-limit 8000000
+                                                :to nil
+                                                :data oversized-initcode)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 20000000))
+    (let ((receipt (apply-message state sender allowed-tx
+                                  :chain-config config
+                                  :timestamp 0)))
+      (is (= 1 (receipt-status receipt)))
+      (is (= (1+ ethereum-lisp.execution::+max-contract-code-size+)
+             (length (state-db-get-code state contract)))))
+    (let ((receipt (apply-message state sender oversized-tx
+                                  :chain-config config
+                                  :timestamp 0)))
+      (is (= 0 (receipt-status receipt)))
+      (is (= 8000000 (receipt-cumulative-gas-used receipt))))))
+
 (deftest legacy-message-contract-creation-rejects-oversized-initcode
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -3085,6 +3124,41 @@
     (is (= 0 (state-account-nonce (state-db-get-account state sender))))
     (is (= 2000000
            (state-account-balance (state-db-get-account state sender))))))
+
+(deftest legacy-message-contract-creation-uses-amsterdam-initcode-size-limit
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 0
+                                    :amsterdam-time 0))
+         (allowed-initcode
+           (make-byte-vector
+            (1+ ethereum-lisp.execution::+max-initcode-size+)))
+         (oversized-initcode
+           (make-byte-vector
+            (1+ ethereum-lisp.execution::+amsterdam-max-initcode-size+)))
+         (allowed-tx (make-legacy-transaction :nonce 0
+                                              :gas-price 1
+                                              :gas-limit 500000
+                                              :to nil
+                                              :data allowed-initcode))
+         (oversized-tx (make-legacy-transaction :nonce 1
+                                                :gas-price 1
+                                                :gas-limit 1000000
+                                                :to nil
+                                                :data oversized-initcode)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 2000000))
+    (let ((receipt (apply-message state sender allowed-tx
+                                  :chain-config config
+                                  :timestamp 0)))
+      (is (= 1 (receipt-status receipt)))
+      (is (= 1 (state-account-nonce (state-db-get-account state sender)))))
+    (signals transaction-validation-error
+      (apply-message state sender oversized-tx
+                     :chain-config config
+                     :timestamp 0))
+    (is (= 1 (state-account-nonce (state-db-get-account state sender))))))
 
 (deftest legacy-message-contract-creation-allows-oversized-initcode-before-shanghai
   (let* ((state (make-state-db))

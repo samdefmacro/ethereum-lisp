@@ -362,8 +362,9 @@ first-pass code deposit gas charge (`200 * runtime-code-bytes`) on successful
 deployment, and rejects code-deposit out-of-gas by consuming the full
 transaction gas limit without installing code; it also rejects EIP-3541
 `0xEF`-prefixed runtime code when London rules are active, while allowing that
-prefix before London; runtime code above the 24576-byte limit is rejected, and
-creation initcode above the 49152-byte limit is rejected before execution when
+prefix before London; runtime code above the fork-specific 24576-byte or
+Amsterdam 32768-byte limit is rejected, and creation initcode above the paired
+49152-byte or Amsterdam 65536-byte limit is rejected before execution when
 Shanghai rules are active. Intrinsic gas now uses the 53000 contract-creation
 base cost and applies the EIP-3860 initcode word cost only when Shanghai rules
 are active, alongside EIP-2930 access-list address and storage-key costs. Block execution

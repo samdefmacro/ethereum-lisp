@@ -3,6 +3,9 @@
 (defconstant +create-data-gas+ 200)
 (defconstant +max-contract-code-size+ 24576)
 (defconstant +max-initcode-size+ (* 2 +max-contract-code-size+))
+(defconstant +amsterdam-max-contract-code-size+ 32768)
+(defconstant +amsterdam-max-initcode-size+
+  (* 2 +amsterdam-max-contract-code-size+))
 (defconstant +max-account-nonce+ (1- (ash 1 64)))
 (defconstant +max-transaction-gas-limit+ (1- (ash 1 64)))
 (defconstant +refund-quotient-eip3529+ 5)
@@ -206,9 +209,17 @@
 (defun eip3541-code-prefix-restricted-p (rules)
   (or (null rules) (chain-rules-london-p rules)))
 
+(defun contract-code-size-limit (rules)
+  (if (and rules (chain-rules-amsterdam-p rules))
+      +amsterdam-max-contract-code-size+
+      +max-contract-code-size+))
+
+(defun contract-initcode-size-limit (rules)
+  (* 2 (contract-code-size-limit rules)))
+
 (defun invalid-contract-runtime-code-p (code &optional rules)
   (let ((code (ensure-byte-vector code)))
-    (or (> (length code) +max-contract-code-size+)
+    (or (> (length code) (contract-code-size-limit rules))
         (and (eip3541-code-prefix-restricted-p rules)
              (plusp (length code))
              (= (aref code 0) #xef)))))
@@ -352,7 +363,7 @@
 (defun validate-contract-initcode-size (tx &optional rules)
   (when (and (eip3860-initcode-rules-active-p rules)
              (> (length (ensure-byte-vector (transaction-data tx)))
-                +max-initcode-size+))
+                (contract-initcode-size-limit rules)))
     (error 'transaction-validation-error
            :message "Contract initcode exceeds maximum size"))
   t)

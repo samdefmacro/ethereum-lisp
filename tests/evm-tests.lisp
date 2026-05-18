@@ -1767,6 +1767,10 @@
         (shanghai (make-chain-rules :chain-id 1
                                     :london-p t
                                     :shanghai-p t))
+        (amsterdam (make-chain-rules :chain-id 1
+                                     :london-p t
+                                     :shanghai-p t
+                                     :amsterdam-p t))
         (oversized (1+ ethereum-lisp.evm::+max-initcode-size+)))
     (is (= 0
            (ethereum-lisp.evm::create-initcode-extra-gas
@@ -1786,7 +1790,35 @@
       (ethereum-lisp.evm::create-initcode-extra-gas
        oversized
        :create2-p t
-       :rules shanghai))))
+       :rules shanghai))
+    (is (= (* ethereum-lisp.evm::+initcode-word-gas+
+              (ceiling oversized 32))
+           (ethereum-lisp.evm::create-initcode-extra-gas
+            oversized
+            :rules amsterdam)))
+    (signals evm-error
+      (ethereum-lisp.evm::create-initcode-extra-gas
+       (1+ ethereum-lisp.evm::+amsterdam-max-initcode-size+)
+       :rules amsterdam))))
+
+(deftest evm-created-runtime-code-size-follows-amsterdam-rules
+  (let ((pre-amsterdam (make-chain-rules :chain-id 1
+                                         :london-p t
+                                         :shanghai-p t))
+        (amsterdam (make-chain-rules :chain-id 1
+                                     :london-p t
+                                     :shanghai-p t
+                                     :amsterdam-p t)))
+    (is (ethereum-lisp.evm::invalid-created-runtime-code-p
+         (make-byte-vector (1+ ethereum-lisp.evm::+max-contract-code-size+))
+         pre-amsterdam))
+    (is (not (ethereum-lisp.evm::invalid-created-runtime-code-p
+              (make-byte-vector (1+ ethereum-lisp.evm::+max-contract-code-size+))
+              amsterdam)))
+    (is (ethereum-lisp.evm::invalid-created-runtime-code-p
+         (make-byte-vector
+          (1+ ethereum-lisp.evm::+amsterdam-max-contract-code-size+))
+         amsterdam))))
 
 (deftest evm-create-prewarms-created-address-for-initcode
   (let* ((state (make-state-db))

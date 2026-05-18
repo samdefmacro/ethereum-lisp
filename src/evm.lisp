@@ -109,6 +109,9 @@
 (defconstant +keccak256-word-gas+ 6)
 (defconstant +max-contract-code-size+ 24576)
 (defconstant +max-initcode-size+ 49152)
+(defconstant +amsterdam-max-contract-code-size+ 32768)
+(defconstant +amsterdam-max-initcode-size+
+  (* 2 +amsterdam-max-contract-code-size+))
 (defconstant +call-stipend+ 2300)
 (defconstant +call-value-transfer-gas+ 9000)
 (defconstant +call-new-account-gas+ 25000)
@@ -730,11 +733,19 @@
 (defun eip3860-initcode-rules-active-p (rules)
   (or (null rules) (chain-rules-shanghai-p rules)))
 
+(defun contract-code-size-limit (rules)
+  (if (and rules (chain-rules-amsterdam-p rules))
+      +amsterdam-max-contract-code-size+
+      +max-contract-code-size+))
+
+(defun contract-initcode-size-limit (rules)
+  (* 2 (contract-code-size-limit rules)))
+
 (defun create-initcode-extra-gas (size &key create2-p rules)
   (let ((word-count (initcode-word-count size)))
     (if (eip3860-initcode-rules-active-p rules)
         (progn
-          (when (> size +max-initcode-size+)
+          (when (> size (contract-initcode-size-limit rules))
             (fail "EVM initcode exceeds maximum size"))
           (* word-count
              (+ +initcode-word-gas+
@@ -751,7 +762,7 @@
 
 (defun invalid-created-runtime-code-p (code &optional rules)
   (let ((code (ensure-byte-vector code)))
-    (or (> (length code) +max-contract-code-size+)
+    (or (> (length code) (contract-code-size-limit rules))
         (and (eip3541-code-prefix-restricted-p rules)
              (plusp (length code))
              (= (aref code 0) #xef)))))
