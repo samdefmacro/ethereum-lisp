@@ -417,8 +417,11 @@
    #:block-withdrawals-present-p
    #:block-requests
    #:block-requests-present-p
+   #:block-block-access-list
+   #:block-block-access-list-present-p
    #:block-hash
    #:execution-requests-hash
+   #:block-access-list-hash
    #:block-validation-error
    #:block-validation-error-message
    #:expected-base-fee-per-gas
@@ -447,6 +450,7 @@
    #:validate-withdrawal-list-fields
    #:validate-execution-request-fields
    #:validate-execution-request-list-fields
+   #:validate-block-access-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config
    #:validate-block-against-config
@@ -996,8 +1000,11 @@
    #:block-withdrawals-present-p
    #:block-requests
    #:block-requests-present-p
+   #:block-block-access-list
+   #:block-block-access-list-present-p
    #:block-hash
    #:execution-requests-hash
+   #:block-access-list-hash
    #:block-validation-error
    #:block-validation-error-message
    #:expected-base-fee-per-gas
@@ -1026,6 +1033,7 @@
    #:validate-withdrawal-list-fields
    #:validate-execution-request-fields
    #:validate-execution-request-list-fields
+   #:validate-block-access-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config
    #:validate-block-against-config
@@ -1536,8 +1544,11 @@
    #:block-withdrawals-present-p
    #:block-requests
    #:block-requests-present-p
+   #:block-block-access-list
+   #:block-block-access-list-present-p
    #:block-hash
    #:execution-requests-hash
+   #:block-access-list-hash
    #:block-validation-error
    #:block-validation-error-message
    #:expected-base-fee-per-gas
@@ -1566,6 +1577,7 @@
    #:validate-withdrawal-list-fields
    #:validate-execution-request-fields
    #:validate-execution-request-list-fields
+   #:validate-block-access-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config
    #:validate-block-against-config

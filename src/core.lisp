@@ -934,17 +934,14 @@
                                            :config config))
 
 (defun genesis-block-from-genesis-header (header)
-  (let ((withdrawals-present-p (block-header-withdrawals-root header))
-        (requests-present-p (block-header-requests-hash header)))
-    (cond
-      ((and withdrawals-present-p requests-present-p)
-       (make-block :header header :withdrawals '() :requests '()))
-      (withdrawals-present-p
-       (make-block :header header :withdrawals '()))
-      (requests-present-p
-       (make-block :header header :requests '()))
-      (t
-       (make-block :header header)))))
+  (let ((args (list :header header)))
+    (when (block-header-withdrawals-root header)
+      (setf args (append args (list :withdrawals '()))))
+    (when (block-header-requests-hash header)
+      (setf args (append args (list :requests '()))))
+    (when (block-header-block-access-list-hash header)
+      (setf args (append args (list :block-access-list '()))))
+    (apply #'make-block args)))
 
 (defun genesis-block-from-genesis-object (object &key state-root config)
   (genesis-block-from-genesis-header
@@ -1982,7 +1979,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                    withdrawals
                                    withdrawals-present-p
                                    requests
-                                   requests-present-p))
+                                   requests-present-p
+                                   block-access-list
+                                   block-access-list-present-p))
                            (:conc-name block-))
   header
   (transactions '() :type list)
@@ -1990,14 +1989,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   withdrawals
   withdrawals-present-p
   requests
-  requests-present-p)
+  requests-present-p
+  block-access-list
+  block-access-list-present-p)
 
 (defun make-block (&key (header (make-block-header))
                         (transactions '())
                         (receipts '())
                         (ommers '())
                         (withdrawals nil withdrawals-supplied-p)
-                        (requests nil requests-supplied-p))
+                        (requests nil requests-supplied-p)
+                        (block-access-list nil block-access-list-supplied-p))
   (setf (block-header-transactions-root header)
         (transaction-list-root transactions)
         (block-header-receipts-root header)
@@ -2014,13 +2016,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (when requests-supplied-p
     (setf (block-header-requests-hash header)
           (execution-requests-hash requests)))
+  (when block-access-list-supplied-p
+    (setf (block-header-block-access-list-hash header)
+          (block-access-list-hash block-access-list)))
   (%make-block :header header
                :transactions transactions
                :ommers ommers
                :withdrawals withdrawals
                :withdrawals-present-p withdrawals-supplied-p
                :requests requests
-               :requests-present-p requests-supplied-p))
+               :requests-present-p requests-supplied-p
+               :block-access-list block-access-list
+               :block-access-list-present-p block-access-list-supplied-p))
 
 (defun block-hash (block)
   (block-header-hash (block-header block)))
@@ -2032,6 +2039,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 for bytes = (validate-execution-request-fields request)
                 when (> (length bytes) 1)
                   collect (sha256 bytes)))))
+
+(defun block-access-list-hash (block-access-list)
+  (validate-block-access-list-fields block-access-list)
+  (when block-access-list
+    (block-validation-fail
+     "Non-empty block access lists are not implemented yet"))
+  +empty-ommers-hash+)
 
 (define-condition block-validation-error (error)
   ((message :initarg :message :reader block-validation-error-message))
@@ -2090,6 +2104,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Execution requests must be a list"))
   (dolist (request requests t)
     (validate-execution-request-fields request)))
+
+(defun validate-block-access-list-fields (block-access-list)
+  (unless (listp block-access-list)
+    (block-validation-fail "Block access list must be a list"))
+  (when block-access-list
+    (block-validation-fail
+     "Non-empty block access lists are not implemented yet"))
+  t)
 
 (defun expected-base-fee-per-gas
     (parent-header &key (london-parent-p t)
@@ -2800,6 +2822,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (when (block-header-requests-hash header)
     (unless (hash32-p (block-header-requests-hash header))
       (block-validation-fail "Header requests hash must be a hash32")))
+  (when (block-header-block-access-list-hash header)
+    (unless (hash32-p (block-header-block-access-list-hash header))
+      (block-validation-fail
+       "Header block access list hash must be a hash32")))
   t)
 
 (defun transaction-blob-count (transaction)
@@ -2880,6 +2906,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (validate-withdrawal-list-fields (block-withdrawals block)))
     (when (block-requests-present-p block)
       (validate-execution-request-list-fields (block-requests block)))
+    (when (block-block-access-list-present-p block)
+      (validate-block-access-list-fields (block-block-access-list block)))
     (unless (hash32= ommers-root (block-header-ommers-hash header))
       (block-validation-fail "Ommers root hash mismatch"))
     (when (and (block-header-post-merge-p header)
@@ -2906,6 +2934,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (block-validation-fail "Execution requests hash mismatch")))
       ((block-requests-present-p block)
        (block-validation-fail "Execution requests present before requests hash")))
+    (cond
+      ((block-header-block-access-list-hash header)
+       (unless (block-block-access-list-present-p block)
+         (block-validation-fail "Missing block access list in block body"))
+       (unless (hash32= (block-access-list-hash
+                         (block-block-access-list block))
+                        (block-header-block-access-list-hash header))
+         (block-validation-fail "Block access list hash mismatch")))
+      ((block-block-access-list-present-p block)
+       (block-validation-fail
+        "Block access list present before block access list hash")))
     (cond
       ((block-header-blob-gas-used header)
        (unless (= blob-gas-used (block-header-blob-gas-used header))

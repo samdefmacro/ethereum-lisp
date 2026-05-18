@@ -841,7 +841,8 @@
                 "\"londonBlock\":0,"
                 "\"shanghaiTime\":0,"
                 "\"cancunTime\":0,"
-                "\"pragueTime\":0"
+                "\"pragueTime\":0,"
+                "\"amsterdamTime\":0"
                 "},"
                 "\"timestamp\":0"
                 "}"))
@@ -856,10 +857,15 @@
     (is (null (block-withdrawals block)))
     (is (block-requests-present-p block))
     (is (null (block-requests block)))
+    (is (block-block-access-list-present-p block))
+    (is (null (block-block-access-list block)))
     (is (string= (hash32-to-hex (withdrawal-list-root '()))
                  (hash32-to-hex (block-header-withdrawals-root header))))
     (is (string= (hash32-to-hex (execution-requests-hash '()))
-                 (hash32-to-hex (block-header-requests-hash header))))))
+                 (hash32-to-hex (block-header-requests-hash header))))
+    (is (string= (hash32-to-hex (block-access-list-hash '()))
+                 (hash32-to-hex
+                  (block-header-block-access-list-hash header))))))
 
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
@@ -1405,12 +1411,14 @@
          (block (make-block :transactions (list transaction)
                             :receipts (list receipt)
                             :withdrawals (list withdrawal)
-                            :requests (list #(#x00) #(#x01 #xaa))))
+                            :requests (list #(#x00) #(#x01 #xaa))
+                            :block-access-list '()))
          (header (block-header block)))
     (is (hash32-p (block-hash block)))
     (is (= 1 (length (block-transactions block))))
     (is (= 1 (length (block-withdrawals block))))
     (is (= 2 (length (block-requests block))))
+    (is (block-block-access-list-present-p block))
     (is (string= (hash32-to-hex (transaction-list-root (list transaction)))
                  (hash32-to-hex (block-header-transactions-root header))))
     (is (string= (hash32-to-hex (receipt-list-root (list receipt)))
@@ -1420,6 +1428,9 @@
     (is (string= (hash32-to-hex
                   (execution-requests-hash (list #(#x00) #(#x01 #xaa))))
                  (hash32-to-hex (block-header-requests-hash header))))
+    (is (string= (hash32-to-hex (block-access-list-hash '()))
+                 (hash32-to-hex
+                  (block-header-block-access-list-hash header))))
     (is (bytes= (bloom-bytes (receipt-bloom (list log)))
                 (block-header-logs-bloom header)))))
 
@@ -1770,6 +1781,35 @@
   (let ((block (make-block)))
     (setf (block-requests block) "not a request list"
           (block-requests-present-p block) t)
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
+(deftest block-body-validates-block-access-list-hash
+  (let* ((block (make-block :block-access-list '()))
+         (header (block-header block)))
+    (is (validate-block-body-roots block))
+    (is (string= (hash32-to-hex (block-access-list-hash '()))
+                 (hash32-to-hex
+                  (block-header-block-access-list-hash header))))
+    (setf (block-header-block-access-list-hash header) (zero-hash32))
+    (signals block-validation-error
+      (validate-block-body-roots block)))
+  (let ((header-without-body
+          (make-block-header :block-access-list-hash
+                             (block-access-list-hash '()))))
+    (signals block-validation-error
+      (validate-block-body-roots
+       (make-block :header header-without-body))))
+  (let ((pre-amsterdam-block (make-block :block-access-list '())))
+    (setf (block-header-block-access-list-hash
+           (block-header pre-amsterdam-block)) nil)
+    (signals block-validation-error
+      (validate-block-body-roots pre-amsterdam-block))))
+
+(deftest block-body-validates-block-access-list-shape-before-hash
+  (let ((block (make-block)))
+    (setf (block-block-access-list block) "not a block access list"
+          (block-block-access-list-present-p block) t)
     (signals block-validation-error
       (validate-block-body-roots block))))
 

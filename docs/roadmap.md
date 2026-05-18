@@ -314,7 +314,10 @@ Amsterdam header shape is now represented as well: genesis parsing accepts
 geth-style `balHash`/`blockAccessListHash` plus `slotNumber`, active Amsterdam
 genesis headers default the block access-list hash to the empty RLP list hash
 and slot number to zero, and config-driven header validation gates those fields
-at the Amsterdam timestamp.
+at the Amsterdam timestamp. Blocks can now carry a first-pass empty Amsterdam
+block-access-list body, derive its empty-list commitment into `balHash`, and
+validate body/header BAL presence and hash consistency; non-empty BAL account
+change encoding remains a future slice.
 A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.
