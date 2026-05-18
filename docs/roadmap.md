@@ -620,7 +620,10 @@ next block's EIP-1559 base fee from the current memory-store head,
 suggestion, and `eth_gasPrice` combines that tip with the current head base fee
 when present for legacy transaction callers;
 `eth_blobBaseFee` exposes the current head blob base fee when Cancun blob-gas
-fields are present,
+fields are present, and `eth_feeHistory` now returns a first memory-store fee
+history window with base fee progression, gas-used ratios, optional blob fee
+history, and zero-filled reward percentile placeholders until transaction
+reward accounting is indexed,
 `eth_getBalance` can read retained per-block account balance snapshots by
 block tag, number, or hash while returning `null` when the block or retained
 state is unavailable, `eth_getTransactionCount` does the same for retained

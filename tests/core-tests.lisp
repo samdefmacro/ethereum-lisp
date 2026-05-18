@@ -3950,6 +3950,14 @@
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :london-block 0
                                       :cancun-time 0))
+           (parent
+             (make-block
+              :header (make-block-header
+                       :number 29
+                       :timestamp 8
+                       :gas-limit 200
+                       :gas-used 100
+                       :base-fee-per-gas 900)))
            (head
              (make-block
               :header (make-block-header
@@ -3960,6 +3968,7 @@
                        :base-fee-per-gas 1000
                        :blob-gas-used 0
                        :excess-blob-gas 0))))
+      (engine-payload-store-put-block store parent)
       (engine-payload-store-put-block store head)
       (let* ((responses
                (parse-json
@@ -3973,10 +3982,13 @@
                   "{\"jsonrpc\":\"2.0\",\"id\":35,"
                   "\"method\":\"eth_gasPrice\",\"params\":[]},"
                   "{\"jsonrpc\":\"2.0\",\"id\":36,"
-                  "\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]}]")
+                  "\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":56,"
+                  "\"method\":\"eth_feeHistory\","
+                  "\"params\":[\"0x2\",\"latest\",[10.5,90]]}]")
                  store
                  config))))
-        (is (= 4 (length responses)))
+        (is (= 5 (length responses)))
         (is (= 26 (field (first responses) "id")))
         (is (string= (quantity-to-hex
                       (expected-base-fee-per-gas (block-header head)))
@@ -3990,7 +4002,36 @@
                      (field (third responses) "result")))
         (is (= 36 (field (fourth responses) "id")))
         (is (string= (quantity-to-hex 0)
-                     (field (fourth responses) "result")))))
+                     (field (fourth responses) "result")))
+        (let* ((fee-history (field (fifth responses) "result"))
+               (base-fees (field fee-history "baseFeePerGas"))
+               (gas-ratios (field fee-history "gasUsedRatio"))
+               (rewards (field fee-history "reward"))
+               (blob-base-fees (field fee-history "baseFeePerBlobGas"))
+               (blob-ratios (field fee-history "blobGasUsedRatio")))
+          (is (= 56 (field (fifth responses) "id")))
+          (is (string= (quantity-to-hex 29)
+                       (field fee-history "oldestBlock")))
+          (is (string= (quantity-to-hex 900) (first base-fees)))
+          (is (string= (quantity-to-hex 1000) (second base-fees)))
+          (is (string= (quantity-to-hex
+                        (expected-base-fee-per-gas (block-header head)))
+                       (third base-fees)))
+          (is (= 1/2 (first gas-ratios)))
+          (is (= 3/4 (second gas-ratios)))
+          (is (string= (quantity-to-hex 0)
+                       (first (first rewards))))
+          (is (string= (quantity-to-hex 0)
+                       (second (second rewards))))
+          (is (string= (quantity-to-hex 0) (first blob-base-fees)))
+          (is (string= (quantity-to-hex
+                        (block-header-blob-base-fee (block-header head)))
+                       (second blob-base-fees)))
+          (is (string= (quantity-to-hex
+                        (block-header-blob-base-fee (block-header head)))
+                       (third blob-base-fees)))
+          (is (= 0 (first blob-ratios)))
+          (is (= 0 (second blob-ratios))))))
     (let* ((responses
              (parse-json
               (engine-rpc-handle-request-json
@@ -4182,6 +4223,22 @@
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":40,\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":57,\"method\":\"eth_feeHistory\",\"params\":[\"0x0\",\"latest\",[]]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":58,\"method\":\"eth_feeHistory\",\"params\":[\"0x1\",\"latest\",[90,10]]}"
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))
