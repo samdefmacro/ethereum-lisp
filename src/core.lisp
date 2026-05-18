@@ -3787,6 +3787,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when block
       (eth-rpc-header-object (block-header block)))))
 
+(defun eth-rpc-hash-param (params method label)
+  (unless (= 1 (length params))
+    (block-validation-fail "~A params must contain exactly one ~A"
+                           method label))
+  (engine-rpc-hash32 (first params) label))
+
+(defun engine-rpc-handle-eth-get-header-by-hash (params store)
+  (let* ((hash (eth-rpc-hash-param
+                params "eth_getHeaderByHash" "block hash"))
+         (block (engine-payload-store-known-block store hash)))
+    (when block
+      (eth-rpc-header-object (block-header block)))))
+
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
@@ -4267,6 +4280,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-header-by-number params store)))
+              ((string= method "eth_getHeaderByHash")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-header-by-hash params store)))
               (t
                (engine-rpc-response
                 id

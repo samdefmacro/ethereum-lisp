@@ -3999,6 +3999,56 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-get-header-by-hash
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (header
+             (make-block-header :number 5
+                                :timestamp 55
+                                :gas-limit 1000000
+                                :gas-used 21000
+                                :base-fee-per-gas 9))
+           (block (make-block :header header))
+           (hash (block-hash block))
+           (hash-hex (hash32-to-hex hash))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((found-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":25,"
+                  "\"method\":\"eth_getHeaderByHash\",\"params\":[\""
+                  hash-hex "\"]}")
+                 store
+                 config)))
+             (found (field found-response "result"))
+             (missing-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":26,"
+                  "\"method\":\"eth_getHeaderByHash\",\"params\":[\""
+                  (hash32-to-hex (zero-hash32)) "\"]}")
+                 store
+                 config)))
+             (invalid-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":27,\"method\":\"eth_getHeaderByHash\",\"params\":[\"0x1234\"]}"
+                 store
+                 config)))
+             (invalid-error (field invalid-response "error")))
+        (is (string= (quantity-to-hex 5) (field found "number")))
+        (is (string= hash-hex (field found "hash")))
+        (is (string= (quantity-to-hex 55) (field found "timestamp")))
+        (is (string= (quantity-to-hex 9) (field found "baseFeePerGas")))
+        (is (null (field missing-response "result")))
+        (is (= -32602 (field invalid-error "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
