@@ -526,6 +526,7 @@
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
    #:engine-payload-store-put-account-code
+   #:engine-payload-store-put-account-storage
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
    #:engine-payload-store-mark-invalid
@@ -1311,6 +1312,7 @@
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
    #:engine-payload-store-put-account-code
+   #:engine-payload-store-put-account-storage
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
    #:engine-payload-store-mark-invalid
@@ -2057,6 +2059,7 @@
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
    #:engine-payload-store-put-account-code
+   #:engine-payload-store-put-account-storage
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
    #:engine-payload-store-mark-invalid

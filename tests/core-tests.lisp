@@ -4183,6 +4183,114 @@
         (is (= -32602 (field invalid-address-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
 
+(deftest eth-rpc-get-storage-at
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (address
+             (address-from-hex "0x0000000000000000000000000000000000000101"))
+           (empty-address
+             (address-from-hex "0x0000000000000000000000000000000000000102"))
+           (slot
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000007"))
+           (state-block
+             (make-block
+              :header (make-block-header :number 26
+                                         :timestamp 260
+                                         :gas-limit 30000000)))
+           (missing-state-block
+             (make-block
+              :header (make-block-header :number 27
+                                         :timestamp 270
+                                         :gas-limit 30000000)))
+           (state-block-hash-hex (hash32-to-hex (block-hash state-block)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store state-block)
+      (engine-payload-store-put-account-storage
+       store (block-hash state-block) address slot #x2a)
+      (engine-payload-store-put-block store missing-state-block)
+      (let* ((number-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":92,"
+                  "\"method\":\"eth_getStorageAt\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"0x7\",\"0x1a\"]}")
+                 store
+                 config)))
+             (hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":93,"
+                  "\"method\":\"eth_getStorageAt\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"7\",\"" state-block-hash-hex "\"]}")
+                 store
+                 config)))
+             (empty-account-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":94,"
+                  "\"method\":\"eth_getStorageAt\","
+                  "\"params\":[\"" (address-to-hex empty-address)
+                  "\",\"0x7\",\"0x1a\"]}")
+                 store
+                 config)))
+             (missing-state-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":95,"
+                  "\"method\":\"eth_getStorageAt\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"0x7\",\"0x1b\"]}")
+                 store
+                 config)))
+             (invalid-slot-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":96,"
+                  "\"method\":\"eth_getStorageAt\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"0x"
+                  "111111111111111111111111111111111111111111111111111111111111111111"
+                  "\",\"0x1a\"]}")
+                 store
+                 config)))
+             (invalid-params-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":97,"
+                  "\"method\":\"eth_getStorageAt\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"0x7\"]}")
+                 store
+                 config)))
+             (invalid-slot-error (field invalid-slot-response "error"))
+             (invalid-params-error (field invalid-params-response "error"))
+             (expected-word
+               "0x000000000000000000000000000000000000000000000000000000000000002a")
+             (zero-word
+               "0x0000000000000000000000000000000000000000000000000000000000000000"))
+        (is (string= expected-word (field number-response "result")))
+        (is (string= expected-word (field hash-response "result")))
+        (is (string= zero-word (field empty-account-response "result")))
+        (is (null (field missing-state-response "result")))
+        (is (= -32602 (field invalid-slot-error "code")))
+        (is (= -32602 (field invalid-params-error "code")))))))
+
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

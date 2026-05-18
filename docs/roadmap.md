@@ -606,7 +606,9 @@ chain id, `eth_blockNumber` returns the current memory-store head number,
 block tag, number, or hash while returning `null` when the block or retained
 state is unavailable, `eth_getTransactionCount` does the same for retained
 account nonce snapshots, `eth_getCode` returns retained account bytecode
-snapshots with empty code for missing accounts, and
+snapshots with empty code for missing accounts, `eth_getStorageAt` reads
+retained account storage slot snapshots as 32-byte words with zero words for
+missing accounts/slots, and
 `eth_getHeaderByNumber`/`eth_getHeaderByHash` can return canonical memory-store
 headers for `latest`, `earliest`, hex block quantities, or block hashes using
 the geth-style header object shape while

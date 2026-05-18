@@ -2908,6 +2908,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (account-balances (make-hash-table :test 'equal))
                       (account-nonces (make-hash-table :test 'equal))
                       (account-codes (make-hash-table :test 'equal))
+                      (account-storage (make-hash-table :test 'equal))
                       (head-number 0)
                       (state-blocks (make-hash-table :test 'equal))
                       (remote-blocks (make-hash-table :test 'equal))
@@ -2920,6 +2921,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   account-balances
   account-nonces
   account-codes
+  account-storage
   (head-number 0 :type (integer 0 *))
   state-blocks
   remote-blocks
@@ -3007,6 +3009,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-payload-store-key block-hash)
           (address-to-hex address)))
 
+(defun engine-payload-store-account-storage-key (block-hash address slot)
+  (format nil "~A:~A"
+          (engine-payload-store-account-key block-hash address)
+          (hash32-to-hex slot)))
+
 (defun engine-payload-store-put-account-balance
     (store block-hash address balance)
   (unless (typep store 'engine-payload-memory-store)
@@ -3083,6 +3090,34 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (if code
         (copy-seq code)
         (make-byte-vector 0))))
+
+(defun engine-payload-store-put-account-storage
+    (store block-hash address slot value)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (address-p address)
+    (block-validation-fail "Engine account storage address must be an address"))
+  (unless (hash32-p slot)
+    (block-validation-fail "Engine account storage slot must be a hash32"))
+  (unless (uint256-p value)
+    (block-validation-fail "Engine account storage value must be uint256"))
+  (let ((block (engine-payload-store-known-block store block-hash)))
+    (unless block
+      (block-validation-fail
+       "Engine account storage block must be known by the memory store"))
+    (setf (gethash
+           (engine-payload-store-account-storage-key block-hash address slot)
+           (engine-payload-memory-store-account-storage store))
+          value
+          (gethash (engine-payload-store-key block-hash)
+                   (engine-payload-memory-store-state-blocks store))
+          t)
+    value))
+
+(defun engine-payload-store-account-storage (store block-hash address slot)
+  (gethash (engine-payload-store-account-storage-key block-hash address slot)
+           (engine-payload-memory-store-account-storage store)
+           0))
 
 (defun engine-payload-store-state-available-p
     (store hash)
@@ -3824,6 +3859,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-error ()
       (block-validation-fail "~A ~A must be an address" method label))))
 
+(defun eth-rpc-storage-slot-param (value method)
+  (handler-case
+      (let ((text value))
+        (unless (stringp text)
+          (block-validation-fail "~A storage key must be a hex string" method))
+        (let ((hex (if (and (>= (length text) 2)
+                            (char= (char text 0) #\0)
+                            (member (char text 1) '(#\x #\X)))
+                       (subseq text 2)
+                       text)))
+          (when (oddp (length hex))
+            (setf hex (concatenate 'string "0" hex)))
+          (when (> (length hex) 64)
+            (block-validation-fail
+             "~A storage key must be at most 32 bytes" method))
+          (let* ((bytes (hex-to-bytes hex))
+                 (padded (make-byte-vector 32)))
+            (replace padded bytes :start1 (- 32 (length bytes)))
+            (make-hash32 padded))))
+    (block-validation-error (condition)
+      (error condition))
+    (error ()
+      (block-validation-fail "~A storage key must be hex bytes" method))))
+
+(defun eth-rpc-uint256-word-hex (value)
+  (let* ((bytes (integer-to-minimal-bytes
+                 (ensure-uint256 value "RPC storage value")))
+         (word (make-byte-vector 32)))
+    (replace word bytes :start1 (- 32 (length bytes)))
+    (bytes-to-hex word)))
+
 (defun eth-rpc-block-number-param (params store method)
   (unless (= 1 (length params))
     (block-validation-fail "~A params must contain exactly one block number"
@@ -3899,6 +3965,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (bytes-to-hex
        (engine-payload-store-account-code
         store (block-hash block) address)))))
+
+(defun engine-rpc-handle-eth-get-storage-at (params store)
+  (unless (= 3 (length params))
+    (block-validation-fail
+     "eth_getStorageAt params must contain address, storage key, and block id"))
+  (let* ((address (eth-rpc-address-param
+                   (first params) "eth_getStorageAt" "address"))
+         (slot (eth-rpc-storage-slot-param
+                (second params) "eth_getStorageAt"))
+         (block (eth-rpc-block-param
+                 (list (third params)) store "eth_getStorageAt")))
+    (when (and block
+               (engine-payload-store-state-available-p
+                store (block-hash block)))
+      (eth-rpc-uint256-word-hex
+       (engine-payload-store-account-storage
+        store (block-hash block) address slot)))))
 
 (defun eth-rpc-header-object (header)
   (unless (block-header-p header)
@@ -5054,6 +5137,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-code params store)))
+              ((string= method "eth_getStorageAt")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-storage-at params store)))
               ((string= method "eth_getHeaderByNumber")
                (engine-rpc-response
                 id
