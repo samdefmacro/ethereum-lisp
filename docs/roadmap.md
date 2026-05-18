@@ -608,7 +608,10 @@ protocol as `0x46`/ETH70,
 memory-store execution node, `eth_accounts` returns an empty local-wallet
 account list until wallet support exists, `eth_coinbase` returns the zero
 address for the current non-mining local node, `eth_baseFee` estimates the
-next block's EIP-1559 base fee from the current memory-store head, and
+next block's EIP-1559 base fee from the current memory-store head,
+`eth_maxPriorityFeePerGas` exposes the current deterministic local tip
+suggestion, and `eth_gasPrice` combines that tip with the current head base fee
+when present for legacy transaction callers;
 `eth_blobBaseFee` exposes the current head blob base fee when Cancun blob-gas
 fields are present,
 `eth_getBalance` can read retained per-block account balance snapshots by

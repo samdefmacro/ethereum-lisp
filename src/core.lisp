@@ -3883,6 +3883,26 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "eth_coinbase params must be empty"))
   (address-to-hex (zero-address)))
 
+(defun engine-rpc-suggest-gas-tip-cap (store)
+  (declare (ignore store))
+  0)
+
+(defun engine-rpc-handle-eth-max-priority-fee-per-gas (params store)
+  (when params
+    (block-validation-fail "eth_maxPriorityFeePerGas params must be empty"))
+  (quantity-to-hex (engine-rpc-suggest-gas-tip-cap store)))
+
+(defun engine-rpc-handle-eth-gas-price (params store)
+  (when params
+    (block-validation-fail "eth_gasPrice params must be empty"))
+  (let* ((head (engine-payload-store-head-block store))
+         (header (and head (block-header head)))
+         (base-fee (if header
+                       (or (block-header-base-fee-per-gas header) 0)
+                       0)))
+    (quantity-to-hex (+ base-fee
+                        (engine-rpc-suggest-gas-tip-cap store)))))
+
 (defun engine-payload-store-head-block (store)
   (engine-payload-store-block-by-number
    store
@@ -5353,6 +5373,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-coinbase params)))
+              ((string= method "eth_gasPrice")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-gas-price params store)))
+              ((string= method "eth_maxPriorityFeePerGas")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-max-priority-fee-per-gas
+                 params store)))
               ((string= method "eth_baseFee")
                (engine-rpc-response
                 id
