@@ -3179,6 +3179,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (mapcar #'engine-rpc-withdrawal-object
                     (block-withdrawals block)))))))
 
+(defun engine-rpc-payload-body-v2-object (block)
+  (append
+   (engine-rpc-payload-body-v1-object block)
+   (when (block-block-access-list-present-p block)
+     (list (cons "blockAccessList"
+                 (bytes-to-hex (block-encoded-block-access-list block)))))))
+
 (defun engine-rpc-payload-status-object (status)
   (list (cons "status" (payload-status-status status))
         (cons "latestValidHash"
@@ -3286,6 +3293,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   '("engine_exchangeTransitionConfigurationV1"
     "engine_forkchoiceUpdatedV1"
     "engine_getPayloadBodiesByHashV1"
+    "engine_getPayloadBodiesByHashV2"
     "engine_getPayloadBodiesByRangeV1"
     "engine_getPayloadV1"
     "engine_getPayloadV2"
@@ -3477,14 +3485,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defconstant +engine-rpc-max-payload-bodies-request+ 1024)
 
-(defun engine-rpc-handle-get-payload-bodies-by-hash-v1 (params store)
+(defun engine-rpc-handle-get-payload-bodies-by-hash
+    (params store method body-object-function)
   (unless (and (listp params) params)
     (block-validation-fail
-     "engine_getPayloadBodiesByHashV1 params must include block hashes"))
+     "~A params must include block hashes" method))
   (let ((hashes
           (engine-rpc-hash32-list
            (engine-rpc-required-param
-            params 0 "blockHashes" "engine_getPayloadBodiesByHashV1")
+            params 0 "blockHashes" method)
            "blockHashes")))
     (when (> (length hashes) +engine-rpc-max-payload-bodies-request+)
       (engine-rpc-fail
@@ -3493,8 +3502,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (mapcar (lambda (hash)
               (let ((block (engine-payload-store-known-block store hash)))
                 (when block
-                  (engine-rpc-payload-body-v1-object block))))
+                  (funcall body-object-function block))))
             hashes)))
+
+(defun engine-rpc-handle-get-payload-bodies-by-hash-v1 (params store)
+  (engine-rpc-handle-get-payload-bodies-by-hash
+   params store "engine_getPayloadBodiesByHashV1"
+   #'engine-rpc-payload-body-v1-object))
+
+(defun engine-rpc-handle-get-payload-bodies-by-hash-v2 (params store)
+  (engine-rpc-handle-get-payload-bodies-by-hash
+   params store "engine_getPayloadBodiesByHashV2"
+   #'engine-rpc-payload-body-v2-object))
 
 (defun engine-rpc-quantity-param (params index label method)
   (parse-genesis-quantity
@@ -3649,6 +3668,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-bodies-by-hash-v1
+                 params store)))
+              ((string= method "engine_getPayloadBodiesByHashV2")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-bodies-by-hash-v2
                  params store)))
               ((string= method "engine_getPayloadBodiesByRangeV1")
                (engine-rpc-response

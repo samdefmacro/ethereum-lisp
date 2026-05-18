@@ -2961,6 +2961,54 @@
         (is (string= "The number of requested bodies must not exceed 1024"
                      (field error "message")))))))
 
+(deftest engine-rpc-get-payload-bodies-by-hash-v2-returns-block-access-list
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((plain-block (make-block))
+           (bal-block (make-block :block-access-list '()))
+           (unknown-hash
+             (hash32-from-hex
+              "0x3333333333333333333333333333333333333333333333333333333333333333"))
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store plain-block :state-available-p t)
+      (engine-payload-store-put-block store bal-block :state-available-p t)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 33)
+                      (cons "method" "engine_getPayloadBodiesByHashV2")
+                      (cons "params"
+                            (list
+                             (list (hash32-to-hex (block-hash plain-block))
+                                   (hash32-to-hex (block-hash bal-block))
+                                   (hash32-to-hex unknown-hash)))))
+                store
+                config))
+             (bodies (field response "result"))
+             (plain-body (first bodies))
+             (bal-body (second bodies)))
+        (is (= 33 (field response "id")))
+        (is (= 3 (length bodies)))
+        (is (not (field plain-body "blockAccessList")))
+        (is (string= (bytes-to-hex (block-encoded-block-access-list bal-block))
+                     (field bal-body "blockAccessList")))
+        (is (not (third bodies)))))
+    (let* ((too-many-hashes
+             (loop repeat 1025 collect (hash32-to-hex (zero-hash32))))
+           (response
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 34)
+                    (cons "method" "engine_getPayloadBodiesByHashV2")
+                    (cons "params" (list too-many-hashes)))
+              (make-engine-payload-memory-store)
+              (make-chain-config)))
+           (error (field response "error")))
+      (is (= -38004 (field error "code")))
+      (is (string= "The number of requested bodies must not exceed 1024"
+                   (field error "message"))))))
+
 (deftest engine-rpc-get-payload-bodies-by-range-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
@@ -3050,6 +3098,9 @@
       (is (member "engine_getPayloadV1" capabilities :test #'string=))
       (is (member "engine_getPayloadV2" capabilities :test #'string=))
       (is (member "engine_getPayloadBodiesByHashV1"
+                  capabilities
+                  :test #'string=))
+      (is (member "engine_getPayloadBodiesByHashV2"
                   capabilities
                   :test #'string=))
       (is (member "engine_getPayloadBodiesByRangeV1"

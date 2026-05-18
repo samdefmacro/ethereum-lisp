@@ -558,6 +558,8 @@ store and returns a geth/Nethermind-shaped payload envelope with
 serve transaction/withdrawal bodies from the same memory store, preserving
 request order, returning `null` for unknown hashes, and rejecting over-1024
 body requests with Engine `Too large request` error code `-38004`.
+`engine_getPayloadBodiesByHashV2` reuses that path and includes retained
+encoded Amsterdam block-access-list RLP as `blockAccessList` when present.
 `engine_getPayloadBodiesByRangeV1` is also present with a first memory-store
 block-number index, positive start/count validation, head-number clipping, and
 the same 1024-body limit; payload build
