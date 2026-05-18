@@ -178,6 +178,9 @@
    #:chain-config-bpo4-time
    #:chain-config-bpo5-time
    #:chain-config-terminal-total-difficulty
+   #:chain-config-terminal-total-difficulty-passed
+   #:chain-config-merge-netsplit-block
+   #:chain-config-deposit-contract-address
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p
@@ -736,6 +739,9 @@
    #:chain-config-bpo4-time
    #:chain-config-bpo5-time
    #:chain-config-terminal-total-difficulty
+   #:chain-config-terminal-total-difficulty-passed
+   #:chain-config-merge-netsplit-block
+   #:chain-config-deposit-contract-address
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p
@@ -1255,6 +1261,9 @@
    #:chain-config-bpo4-time
    #:chain-config-bpo5-time
    #:chain-config-terminal-total-difficulty
+   #:chain-config-terminal-total-difficulty-passed
+   #:chain-config-merge-netsplit-block
+   #:chain-config-deposit-contract-address
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p

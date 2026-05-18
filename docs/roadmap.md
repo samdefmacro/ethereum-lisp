@@ -302,7 +302,9 @@ target/max/update-fraction values so execution paths that only receive rules
 still use the same blob limits and fee update fraction. A first-pass geth
 genesis config conversion layer now accepts parsed `config` objects, including
 the `blobSchedule` fork map, and builds the same chain-config/custom-schedule
-model used by validation and execution. A small dependency-free genesis JSON
+model used by validation and execution. It also preserves geth/Nethermind
+Merge-era config fields such as `terminalTotalDifficultyPassed`,
+`mergeNetsplitBlock`, and `depositContractAddress`. A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.
 Blob transaction body validation rejects empty blob hash lists, missing or

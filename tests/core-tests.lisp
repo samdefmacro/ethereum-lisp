@@ -530,6 +530,10 @@
              ("bpo3Time" . 30)
              ("bpo5Time" . 40)
              ("terminalTotalDifficulty" . 0)
+             ("terminalTotalDifficultyPassed" . t)
+             ("mergeNetsplitBlock" . "9")
+             ("depositContractAddress" .
+              "0x00000000219ab540356cbb839cbe05303d7705fa")
              ("blobSchedule" .
               (("bpo3" .
                 (("target" . 8)
@@ -551,6 +555,11 @@
     (is (= 30 (chain-config-bpo3-time config)))
     (is (= 40 (chain-config-bpo5-time config)))
     (is (= 0 (chain-config-terminal-total-difficulty config)))
+    (is (chain-config-terminal-total-difficulty-passed config))
+    (is (= 9 (chain-config-merge-netsplit-block config)))
+    (is (string= "0x00000000219ab540356cbb839cbe05303d7705fa"
+                 (address-to-hex
+                  (chain-config-deposit-contract-address config))))
     (is (= 2 (length (chain-config-custom-blob-schedule config))))
     (multiple-value-bind (target max update-fraction)
         (chain-config-blob-schedule config 6 30)
@@ -573,13 +582,23 @@
           (("target" . 3)
            ("max" . 6)))))))))
 
+(deftest chain-config-from-genesis-config-rejects-bad-merge-flag
+  (signals block-validation-error
+    (chain-config-from-genesis-config
+     '(("chainId" . 1)
+       ("terminalTotalDifficultyPassed" . "true")))))
+
 (deftest chain-config-from-genesis-json-string-parses-config
-  (let* ((json "{\"config\":{\"chainId\":\"0x7b\",\"londonBlock\":\"5\",\"cancunTime\":16,\"bpo3Time\":30,\"blobSchedule\":{\"bpo3\":{\"target\":8,\"max\":11,\"baseFeeUpdateFraction\":\"12345\"}}}}")
+  (let* ((json "{\"config\":{\"chainId\":\"0x7b\",\"londonBlock\":\"5\",\"cancunTime\":16,\"bpo3Time\":30,\"terminalTotalDifficultyPassed\":true,\"depositContractAddress\":\"0x00000000219ab540356cbb839cbe05303d7705fa\",\"blobSchedule\":{\"bpo3\":{\"target\":8,\"max\":11,\"baseFeeUpdateFraction\":\"12345\"}}}}")
          (config (chain-config-from-genesis-json-string json)))
     (is (= 123 (chain-config-chain-id config)))
     (is (= 5 (chain-config-london-block config)))
     (is (= 16 (chain-config-cancun-time config)))
     (is (= 30 (chain-config-bpo3-time config)))
+    (is (chain-config-terminal-total-difficulty-passed config))
+    (is (string= "0x00000000219ab540356cbb839cbe05303d7705fa"
+                 (address-to-hex
+                  (chain-config-deposit-contract-address config))))
     (multiple-value-bind (target max update-fraction)
         (chain-config-blob-schedule config 6 30)
       (is (= (* 8 +blob-gas-per-blob+) target))

@@ -75,6 +75,9 @@
                                    bpo4-time
                                    bpo5-time
                                    terminal-total-difficulty
+                                   terminal-total-difficulty-passed
+                                   merge-netsplit-block
+                                   deposit-contract-address
                                    custom-blob-schedule)))
   (chain-id 1 :type (integer 0 *))
   homestead-block
@@ -97,6 +100,9 @@
   bpo4-time
   bpo5-time
   terminal-total-difficulty
+  terminal-total-difficulty-passed
+  merge-netsplit-block
+  deposit-contract-address
   custom-blob-schedule)
 
 (defstruct (chain-rules (:constructor make-chain-rules
@@ -297,6 +303,20 @@
              return value))
     (t nil)))
 
+(defun genesis-object-field-present-p (object name)
+  (cond
+    ((null object) nil)
+    ((and (listp object) (every #'consp object))
+     (not (null (find name object
+                      :key #'car
+                      :test (lambda (expected key)
+                              (genesis-key= key expected))))))
+    ((listp object)
+     (loop for (key value) on object by #'cddr
+           when (genesis-key= key name)
+             return t))
+    (t nil)))
+
 (defun genesis-object-field-any (object names)
   (loop for name in names
         for value = (genesis-object-field object name)
@@ -335,6 +355,15 @@
                               (genesis-object-field object name))
                           (or label name)
                           :required-p required-p))
+
+(defun parse-genesis-boolean-field (object name label)
+  (unless (genesis-object-field-present-p object name)
+    (return-from parse-genesis-boolean-field nil))
+  (let ((value (genesis-object-field object name)))
+    (cond
+      ((eq value t) t)
+      ((null value) nil)
+      (t (block-validation-fail "~A must be a boolean" label)))))
 
 (defun genesis-blob-schedule-timestamp-field (fork-name)
   (cond
@@ -647,6 +676,13 @@
    :bpo5-time (parse-genesis-field object "bpo5Time")
    :terminal-total-difficulty
    (parse-genesis-field object "terminalTotalDifficulty")
+   :terminal-total-difficulty-passed
+   (parse-genesis-boolean-field object "terminalTotalDifficultyPassed"
+                                "terminalTotalDifficultyPassed")
+   :merge-netsplit-block (parse-genesis-field object "mergeNetsplitBlock")
+   :deposit-contract-address
+   (parse-genesis-address-field object "depositContractAddress"
+                                "Genesis deposit contract address")
    :custom-blob-schedule (parse-genesis-blob-schedule object)))
 
 (defun chain-config-from-genesis-json-string (string)
