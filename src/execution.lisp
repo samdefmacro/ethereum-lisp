@@ -422,6 +422,19 @@
         +osaka-blob-base-fee-update-fraction+
         +blob-base-fee-update-fraction+)))
 
+(defun execution-max-blob-gas
+    (chain-rules chain-config block-number timestamp)
+  (* (if (let ((effective-chain-rules
+                 (execution-chain-rules chain-rules
+                                        chain-config
+                                        block-number
+                                        timestamp)))
+           (and effective-chain-rules
+                (chain-rules-osaka-p effective-chain-rules)))
+         +osaka-max-blobs-per-block+
+         +max-blobs-per-block+)
+     +blob-gas-per-blob+))
+
 (defun execution-block-blob-base-fee (header chain-rules chain-config)
   (if (block-header-excess-blob-gas header)
       (block-header-blob-base-fee
@@ -944,7 +957,8 @@
        (bytes= (hash32-bytes left) (hash32-bytes right))))
 
 (defun validate-block-fork-body-shape-before-execution
-    (header chain-config &key withdrawals-supplied-p requests-supplied-p)
+    (header chain-config &key withdrawals-supplied-p requests-supplied-p
+                              max-blob-gas)
   (when chain-config
     (let* ((number (block-header-number header))
            (timestamp (block-header-timestamp header))
@@ -972,7 +986,9 @@
                 :message "Withdrawals present before Shanghai")))
       (validate-block-cancun-fields header :cancun-enabled-p cancun-p)
       (if cancun-p
-          (validate-block-blob-gas-fields header :blob-gas-enabled-p t)
+          (validate-block-blob-gas-fields header
+                                          :blob-gas-enabled-p t
+                                          :max-blob-gas max-blob-gas)
           (validate-block-blob-gas-fields header :blob-gas-enabled-p nil))
       (cond
         (prague-p
@@ -991,7 +1007,8 @@
                               withdrawals
                               withdrawals-supplied-p
                               requests
-                              requests-supplied-p)
+                              requests-supplied-p
+                              max-blob-gas)
   (let ((actual-blob-gas-used (blob-gas-used transactions))
         (header-blob-gas-used (block-header-blob-gas-used header)))
     (when (and (block-header-transactions-root header)
@@ -1031,6 +1048,9 @@
     (when (and header-blob-gas-used
                (/= header-blob-gas-used actual-blob-gas-used))
       (error 'block-validation-error :message "Blob gas used mismatch"))
+    (when (and max-blob-gas
+               (> actual-blob-gas-used max-blob-gas))
+      (error 'block-validation-error :message "Blob gas used exceeds maximum"))
     actual-blob-gas-used))
 
 (defun validate-supplied-block-execution-roots
@@ -1121,18 +1141,25 @@
                                   (ommers '())
                                   (withdrawals nil withdrawals-supplied-p)
                                   (requests nil requests-supplied-p))
-  (let ((actual-blob-gas-used
+  (let* ((max-blob-gas
+           (execution-max-blob-gas chain-rules
+                                   chain-config
+                                   (block-header-number header)
+                                   (block-header-timestamp header)))
+         (actual-blob-gas-used
           (validate-block-body-commitments-before-execution
            transactions header
            :ommers ommers
            :withdrawals withdrawals
            :withdrawals-supplied-p withdrawals-supplied-p
            :requests requests
-           :requests-supplied-p requests-supplied-p)))
+           :requests-supplied-p requests-supplied-p
+           :max-blob-gas max-blob-gas)))
     (validate-block-fork-body-shape-before-execution
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
-     :requests-supplied-p requests-supplied-p)
+     :requests-supplied-p requests-supplied-p
+     :max-blob-gas max-blob-gas)
     (let ((snapshot (state-db-copy state))
           (header-snapshot (copy-block-header-for-execution header)))
       (handler-case
@@ -1198,18 +1225,25 @@
                                   (withdrawals nil withdrawals-supplied-p)
                                   (requests nil requests-supplied-p))
   "Execute a block by recovering each transaction sender from its signature."
-  (let ((actual-blob-gas-used
+  (let* ((max-blob-gas
+           (execution-max-blob-gas chain-rules
+                                   chain-config
+                                   (block-header-number header)
+                                   (block-header-timestamp header)))
+         (actual-blob-gas-used
           (validate-block-body-commitments-before-execution
            transactions header
            :ommers ommers
            :withdrawals withdrawals
            :withdrawals-supplied-p withdrawals-supplied-p
            :requests requests
-           :requests-supplied-p requests-supplied-p)))
+           :requests-supplied-p requests-supplied-p
+           :max-blob-gas max-blob-gas)))
     (validate-block-fork-body-shape-before-execution
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
-     :requests-supplied-p requests-supplied-p)
+     :requests-supplied-p requests-supplied-p
+     :max-blob-gas max-blob-gas)
     (let ((snapshot (state-db-copy state))
           (header-snapshot (copy-block-header-for-execution header)))
       (handler-case

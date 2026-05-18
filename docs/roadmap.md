@@ -334,15 +334,19 @@ base cost and applies the EIP-3860 initcode word cost only when Shanghai rules
 are active, alongside EIP-2930 access-list address and storage-key costs. Block execution
 now enforces a first-pass gas pool check against the header gas limit before
 applying each transaction, and passes header environment fields into
-transaction EVM contexts for `COINBASE`, `TIMESTAMP`, `NUMBER`, `PREVRANDAO`,
-`GASLIMIT`, and `BASEFEE`. Cancun blob transactions now validate their blob fee
+transaction EVM contexts for `COINBASE`, `TIMESTAMP`, `NUMBER`, pre-Merge
+`DIFFICULTY`/post-Merge `PREVRANDAO`, `GASLIMIT`, and `BASEFEE`. Cancun blob
+transactions now validate their blob fee
 cap during message execution and supply
 blob versioned hashes/blob base fee to the EVM context for `BLOBHASH` and
 `BLOBBASEFEE`; first-pass blob execution also debits `blobGasUsed * blobBaseFee`
 from the sender, and block execution preflights supplied body commitments
 including `transactionsRoot`, `ommersHash`, `withdrawalsRoot`, `requestsHash`,
 and `blobGasUsed` before mutating state while still populating those fields
-when building a block from transactions. Prague execution requests hash derivation is present
+when building a block from transactions. Execution block preflight now also
+checks aggregate blob gas against the fork-specific limit, allowing Osaka's
+higher 9-blob block aggregate while keeping the prior 6-blob limit before
+Osaka. Prague execution requests hash derivation is present
 using SHA-256 over non-empty request payload hashes, and request bodies are
 field-validated before hash derivation, body-root validation, or execution
 state mutation; blocks can now carry requests bodies whose header
