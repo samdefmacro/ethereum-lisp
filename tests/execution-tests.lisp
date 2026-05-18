@@ -1235,6 +1235,49 @@
                     (block-header-block-access-list-hash
                      (block-header block))))))))
 
+(deftest legacy-block-execution-carries-encoded-block-access-list
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000003")))
+         (encoded (block-access-list-rlp (list account)))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 10))
+         (header (make-block-header :timestamp 10
+                                    :gas-limit 50000
+                                    :base-fee-per-gas 1))
+         (transaction (make-legacy-transaction :nonce 0
+                                               :gas-price 1
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 100000))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state sender (list transaction)
+                              :header header
+                              :chain-config config
+                              :block-access-list-rlp encoded)
+      (is (= 1 (length receipts)))
+      (is (block-block-access-list-present-p block))
+      (is (bytes= encoded (block-encoded-block-access-list block)))
+      (is (bytes= encoded
+                  (block-access-list-rlp (block-block-access-list block))))
+      (is (string= (hash32-to-hex (block-access-list-rlp-hash encoded))
+                   (hash32-to-hex
+                    (block-header-block-access-list-hash
+                     (block-header block)))))))
+  (let ((encoded (block-access-list-rlp '())))
+    (signals block-validation-error
+      (execute-legacy-block
+       (make-state-db)
+       (address-from-hex "0x0000000000000000000000000000000000000001")
+       '()
+       :block-access-list '()
+       :block-access-list-rlp encoded))))
+
 (deftest block-execution-supplies-header-environment-to-evm
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

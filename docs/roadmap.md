@@ -388,9 +388,11 @@ including `transactionsRoot`, `ommersHash`, `withdrawalsRoot`, `requestsHash`,
 `balHash`, and `blobGasUsed` before mutating state while still populating those
 fields when building a block from transactions. Execution block preflight now
 also requires/prohibits Amsterdam block-access-list bodies according to the
-active chain config, and checks aggregate blob gas against the fork-specific
-limit, allowing Osaka's higher 9-blob block aggregate while keeping the prior
-6-blob limit before Osaka. Prague execution requests hash derivation is present
+active chain config; legacy and signed execution block entry points can accept
+encoded BAL RLP, decode it for validation, and preserve the original encoded
+bytes in the produced block. Execution also checks aggregate blob gas against
+the fork-specific limit, allowing Osaka's higher 9-blob block aggregate while
+keeping the prior 6-blob limit before Osaka. Prague execution requests hash derivation is present
 using SHA-256 over non-empty request payload hashes, and request bodies are
 field-validated before hash derivation, body-root validation, or execution
 state mutation; blocks can now carry requests bodies whose header

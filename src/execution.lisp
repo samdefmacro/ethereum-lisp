@@ -976,6 +976,20 @@
        right
        (bytes= (hash32-bytes left) (hash32-bytes right))))
 
+(defun normalize-execution-block-access-list-input
+    (block-access-list block-access-list-supplied-p
+     block-access-list-rlp block-access-list-rlp-supplied-p)
+  (when (and block-access-list-supplied-p
+             block-access-list-rlp-supplied-p)
+    (error 'block-validation-error
+           :message
+           "Block access list cannot be supplied as both typed data and RLP"))
+  (if block-access-list-rlp-supplied-p
+      (values (block-access-list-from-rlp block-access-list-rlp)
+              t
+              (ensure-byte-vector block-access-list-rlp))
+      (values block-access-list block-access-list-supplied-p nil)))
+
 (defun validate-block-fork-body-shape-before-execution
     (header chain-config &key withdrawals-supplied-p requests-supplied-p
                               block-access-list-supplied-p
@@ -1204,31 +1218,38 @@
                                   (withdrawals nil withdrawals-supplied-p)
                                   (requests nil requests-supplied-p)
                                   (block-access-list nil
-                                   block-access-list-supplied-p))
-  (let* ((max-blob-gas
-           (execution-max-blob-gas chain-rules
-                                   chain-config
-                                   (block-header-number header)
-                                   (block-header-timestamp header)))
-         (block-access-list-max-code-size
-           (execution-block-access-list-max-code-size
-            chain-rules
-            chain-config
-            (block-header-number header)
-            (block-header-timestamp header)))
-         (actual-blob-gas-used
-          (validate-block-body-commitments-before-execution
-           transactions header
-           :ommers ommers
-           :withdrawals withdrawals
-           :withdrawals-supplied-p withdrawals-supplied-p
-           :requests requests
-           :requests-supplied-p requests-supplied-p
-           :block-access-list block-access-list
-           :block-access-list-supplied-p block-access-list-supplied-p
-           :max-blob-gas max-blob-gas
-           :block-access-list-max-code-size
-           block-access-list-max-code-size)))
+                                   block-access-list-supplied-p)
+                                  (block-access-list-rlp nil
+                                   block-access-list-rlp-supplied-p))
+  (multiple-value-bind (block-access-list block-access-list-supplied-p
+                        encoded-block-access-list)
+      (normalize-execution-block-access-list-input
+       block-access-list block-access-list-supplied-p
+       block-access-list-rlp block-access-list-rlp-supplied-p)
+    (let* ((max-blob-gas
+             (execution-max-blob-gas chain-rules
+                                     chain-config
+                                     (block-header-number header)
+                                     (block-header-timestamp header)))
+           (block-access-list-max-code-size
+             (execution-block-access-list-max-code-size
+              chain-rules
+              chain-config
+              (block-header-number header)
+              (block-header-timestamp header)))
+           (actual-blob-gas-used
+            (validate-block-body-commitments-before-execution
+             transactions header
+             :ommers ommers
+             :withdrawals withdrawals
+             :withdrawals-supplied-p withdrawals-supplied-p
+             :requests requests
+             :requests-supplied-p requests-supplied-p
+             :block-access-list block-access-list
+             :block-access-list-supplied-p block-access-list-supplied-p
+             :max-blob-gas max-blob-gas
+             :block-access-list-max-code-size
+             block-access-list-max-code-size)))
     (validate-block-fork-body-shape-before-execution
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
@@ -1285,12 +1306,15 @@
                             (when requests-supplied-p
                               (list :requests requests))
                             (when block-access-list-supplied-p
-                              (list :block-access-list block-access-list))))
+                              (if encoded-block-access-list
+                                  (list :block-access-list-rlp
+                                        encoded-block-access-list)
+                                  (list :block-access-list block-access-list)))))
              receipts))
         (error (condition)
           (state-db-restore state snapshot)
           (restore-block-header-for-execution header header-snapshot)
-          (error condition))))))
+          (error condition)))))))
 
 (defun execute-signed-block (state transactions
                              &key expected-chain-id
@@ -1302,32 +1326,39 @@
                                   (withdrawals nil withdrawals-supplied-p)
                                   (requests nil requests-supplied-p)
                                   (block-access-list nil
-                                   block-access-list-supplied-p))
+                                   block-access-list-supplied-p)
+                                  (block-access-list-rlp nil
+                                   block-access-list-rlp-supplied-p))
   "Execute a block by recovering each transaction sender from its signature."
-  (let* ((max-blob-gas
-           (execution-max-blob-gas chain-rules
-                                   chain-config
-                                   (block-header-number header)
-                                   (block-header-timestamp header)))
-         (block-access-list-max-code-size
-           (execution-block-access-list-max-code-size
-            chain-rules
-            chain-config
-            (block-header-number header)
-            (block-header-timestamp header)))
-         (actual-blob-gas-used
-          (validate-block-body-commitments-before-execution
-           transactions header
-           :ommers ommers
-           :withdrawals withdrawals
-           :withdrawals-supplied-p withdrawals-supplied-p
-           :requests requests
-           :requests-supplied-p requests-supplied-p
-           :block-access-list block-access-list
-           :block-access-list-supplied-p block-access-list-supplied-p
-           :max-blob-gas max-blob-gas
-           :block-access-list-max-code-size
-           block-access-list-max-code-size)))
+  (multiple-value-bind (block-access-list block-access-list-supplied-p
+                        encoded-block-access-list)
+      (normalize-execution-block-access-list-input
+       block-access-list block-access-list-supplied-p
+       block-access-list-rlp block-access-list-rlp-supplied-p)
+    (let* ((max-blob-gas
+             (execution-max-blob-gas chain-rules
+                                     chain-config
+                                     (block-header-number header)
+                                     (block-header-timestamp header)))
+           (block-access-list-max-code-size
+             (execution-block-access-list-max-code-size
+              chain-rules
+              chain-config
+              (block-header-number header)
+              (block-header-timestamp header)))
+           (actual-blob-gas-used
+            (validate-block-body-commitments-before-execution
+             transactions header
+             :ommers ommers
+             :withdrawals withdrawals
+             :withdrawals-supplied-p withdrawals-supplied-p
+             :requests requests
+             :requests-supplied-p requests-supplied-p
+             :block-access-list block-access-list
+             :block-access-list-supplied-p block-access-list-supplied-p
+             :max-blob-gas max-blob-gas
+             :block-access-list-max-code-size
+             block-access-list-max-code-size)))
     (validate-block-fork-body-shape-before-execution
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
@@ -1385,9 +1416,12 @@
                             (when requests-supplied-p
                               (list :requests requests))
                             (when block-access-list-supplied-p
-                              (list :block-access-list block-access-list))))
+                              (if encoded-block-access-list
+                                  (list :block-access-list-rlp
+                                        encoded-block-access-list)
+                                  (list :block-access-list block-access-list)))))
              receipts))
         (error (condition)
           (state-db-restore state snapshot)
           (restore-block-header-for-execution header header-snapshot)
-          (error condition))))))
+          (error condition)))))))
