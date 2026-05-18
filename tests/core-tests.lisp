@@ -5507,6 +5507,160 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-get-logs
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (make-address (make-byte-vector 20 :initial-element #x44)))
+           (address-a
+             (make-address (make-byte-vector 20 :initial-element #xaa)))
+           (address-b
+             (make-address (make-byte-vector 20 :initial-element #xbb)))
+           (topic-a (make-hash32
+                     (make-byte-vector 32 :initial-element #x11)))
+           (topic-b (make-hash32
+                     (make-byte-vector 32 :initial-element #x22)))
+           (topic-c (make-hash32
+                     (make-byte-vector 32 :initial-element #x33)))
+           (tx-1 (make-legacy-transaction :nonce 1
+                                          :gas-price 8
+                                          :gas-limit 21000
+                                          :to recipient
+                                          :value 1))
+           (tx-2 (make-legacy-transaction :nonce 2
+                                          :gas-price 9
+                                          :gas-limit 22000
+                                          :to recipient
+                                          :value 2))
+           (tx-3 (make-legacy-transaction :nonce 3
+                                          :gas-price 10
+                                          :gas-limit 23000
+                                          :to recipient
+                                          :value 3))
+           (receipt-1
+             (make-receipt
+              :status 1
+              :cumulative-gas-used 21000
+              :logs (list (make-log-entry
+                           :address address-a
+                           :topics (list topic-a topic-b)
+                           :data #(1 2)))))
+           (receipt-2
+             (make-receipt
+              :status 1
+              :cumulative-gas-used 43000
+              :logs (list (make-log-entry
+                           :address address-b
+                           :topics (list topic-a topic-c)
+                           :data #(3)))))
+           (receipt-3
+             (make-receipt
+              :status 1
+              :cumulative-gas-used 23000
+              :logs (list (make-log-entry
+                           :address address-a
+                           :topics (list topic-a topic-c)
+                           :data #(4 5)))))
+           (block-1
+             (make-block
+              :header (make-block-header :number 40
+                                         :timestamp 400
+                                         :gas-limit 30000000)
+              :transactions (list tx-1 tx-2)
+              :receipts (list receipt-1 receipt-2)))
+           (block-2
+             (make-block
+              :header (make-block-header :number 41
+                                         :timestamp 410
+                                         :gas-limit 30000000)
+              :transactions (list tx-3)
+              :receipts (list receipt-3)))
+           (config (make-chain-config))
+           (block-2-hash-hex (hash32-to-hex (block-hash block-2))))
+      (engine-payload-store-put-block store block-1 :state-available-p t)
+      (engine-payload-store-put-block store block-2 :state-available-p t)
+      (let* ((range-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":67,"
+                  "\"method\":\"eth_getLogs\","
+                  "\"params\":[{\"fromBlock\":\"0x28\","
+                  "\"toBlock\":\"0x28\","
+                  "\"address\":\"" (address-to-hex address-a) "\","
+                  "\"topics\":[\"" (hash32-to-hex topic-a) "\"]}]}")
+                 store
+                 config)))
+             (range-logs (field range-response "result"))
+             (range-log (first range-logs))
+             (range-topics (field range-log "topics"))
+             (block-hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":68,"
+                  "\"method\":\"eth_getLogs\","
+                  "\"params\":[{\"blockHash\":\"" block-2-hash-hex "\","
+                  "\"topics\":[null,\"" (hash32-to-hex topic-c) "\"]}]}")
+                 store
+                 config)))
+             (block-hash-logs (field block-hash-response "result"))
+             (empty-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":69,"
+                 "\"method\":\"eth_getLogs\","
+                 "\"params\":[{\"fromBlock\":\"0x28\","
+                 "\"toBlock\":\"0x29\","
+                 "\"address\":\"" (address-to-hex recipient) "\"}]}")
+                store
+                config))
+             (invalid-range-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"eth_getLogs\",\"params\":[{\"fromBlock\":\"0x29\",\"toBlock\":\"0x28\"}]}"
+                 store
+                 config)))
+             (invalid-range-error
+               (field invalid-range-response "error"))
+             (invalid-address-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x1234\"}]}"
+                 store
+                 config)))
+             (invalid-address-error
+               (field invalid-address-response "error")))
+        (is (= 1 (length range-logs)))
+        (is (string= (address-to-hex address-a)
+                     (field range-log "address")))
+        (is (string= "0x0102" (field range-log "data")))
+        (is (string= (hash32-to-hex (block-hash block-1))
+                     (field range-log "blockHash")))
+        (is (string= (quantity-to-hex 40)
+                     (field range-log "blockNumber")))
+        (is (string= (hash32-to-hex (transaction-hash tx-1))
+                     (field range-log "transactionHash")))
+        (is (string= (quantity-to-hex 0)
+                     (field range-log "transactionIndex")))
+        (is (string= (quantity-to-hex 0)
+                     (field range-log "logIndex")))
+        (is (= 2 (length range-topics)))
+        (is (string= (hash32-to-hex topic-a) (first range-topics)))
+        (is (string= (hash32-to-hex topic-b) (second range-topics)))
+        (is (= 1 (length block-hash-logs)))
+        (is (string= block-2-hash-hex
+                     (field (first block-hash-logs) "blockHash")))
+        (is (string= (quantity-to-hex 41)
+                     (field (first block-hash-logs) "blockNumber")))
+        (is (search "\"result\":[]" empty-json))
+        (is (= -32602 (field invalid-range-error "code")))
+        (is (= -32602 (field invalid-address-error "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
