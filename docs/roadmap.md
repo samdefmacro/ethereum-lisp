@@ -600,7 +600,9 @@ cell-proof sidecars with 128 proofs per blob and serves
 `blob`/`proofs` list only when every requested blob is available and otherwise
 returns `null`, while V3 keeps request order and allows per-item `null`
 partial responses. The first public `eth_*` read methods are now wired through
-the same JSON-RPC dispatcher: `eth_chainId` returns the configured EIP-155
+the same JSON-RPC dispatcher: `web3_clientVersion` returns the local client
+identity string, `net_version` returns the configured network id as a decimal
+string, `eth_chainId` returns the configured EIP-155
 chain id, `eth_blockNumber` returns the current memory-store head number,
 `eth_protocolVersion` reports the current highest supported devp2p `eth`
 protocol as `0x46`/ETH70,

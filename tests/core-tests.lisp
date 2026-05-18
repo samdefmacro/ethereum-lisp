@@ -3873,10 +3873,14 @@
                   "{\"jsonrpc\":\"2.0\",\"id\":18,"
                   "\"method\":\"eth_blockNumber\",\"params\":[]},"
                   "{\"jsonrpc\":\"2.0\",\"id\":33,"
-                  "\"method\":\"eth_protocolVersion\",\"params\":[]}]")
+                  "\"method\":\"eth_protocolVersion\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":45,"
+                  "\"method\":\"net_version\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":46,"
+                  "\"method\":\"web3_clientVersion\",\"params\":[]}]")
                  store
                  config))))
-        (is (= 3 (length responses)))
+        (is (= 5 (length responses)))
         (is (= 17 (field (first responses) "id")))
         (is (string= (quantity-to-hex 1701)
                      (field (first responses) "result")))
@@ -3885,7 +3889,12 @@
                      (field (second responses) "result")))
         (is (= 33 (field (third responses) "id")))
         (is (string= (quantity-to-hex 70)
-                     (field (third responses) "result")))))
+                     (field (third responses) "result")))
+        (is (= 45 (field (fourth responses) "id")))
+        (is (string= "1701" (field (fourth responses) "result")))
+        (is (= 46 (field (fifth responses) "id")))
+        (is (string= "ethereum-lisp/0.1.0/CL/0x00000000"
+                     (field (fifth responses) "result")))))
     (let* ((response-json
              (engine-rpc-handle-request-json
               "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"eth_syncing\",\"params\":[]}"
@@ -4094,6 +4103,22 @@
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"eth_protocolVersion\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":47,\"method\":\"net_version\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"web3_clientVersion\",\"params\":[\"unexpected\"]}"
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))

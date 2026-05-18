@@ -3853,6 +3853,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-rpc-validate-transition-configuration (first params))
   (engine-rpc-transition-configuration-object config))
 
+(defun engine-rpc-handle-web3-client-version (params)
+  (when params
+    (block-validation-fail "web3_clientVersion params must be empty"))
+  (let ((version (engine-rpc-client-version)))
+    (format nil "~A/~A/~A/~A"
+            (engine-rpc-required-field version "name")
+            (engine-rpc-required-field version "version")
+            (engine-rpc-required-field version "code")
+            (engine-rpc-required-field version "commit"))))
+
+(defun engine-rpc-handle-net-version (params config)
+  (when params
+    (block-validation-fail "net_version params must be empty"))
+  (write-to-string (chain-config-chain-id config) :base 10))
+
 (defun engine-rpc-handle-eth-chain-id (params config)
   (when params
     (block-validation-fail "eth_chainId params must be empty"))
@@ -5353,6 +5368,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 :result
                 (engine-rpc-handle-exchange-transition-configuration
                  params config)))
+              ((string= method "web3_clientVersion")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-web3-client-version params)))
+              ((string= method "net_version")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-net-version params config)))
               ((string= method "eth_chainId")
                (engine-rpc-response
                 id
