@@ -628,8 +628,9 @@ for known canonical memory-store transactions with JSON `null` for unknown
 hashes. Receipts supplied with memory-store blocks are retained alongside that
 transaction index, enabling `eth_getTransactionReceipt` with mined receipt
 metadata, gas accounting, logs, logs bloom, typed transaction status, and
-effective gas price; pending txpool lookup remains a later networking/txpool
-slice.
+effective gas price. `eth_getBlockReceipts` now exposes the same retained
+receipt objects by block tag, number, or hash for known memory-store blocks;
+pending txpool lookup remains a later networking/txpool slice.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

@@ -4754,6 +4754,110 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-get-block-receipts
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (make-address (make-byte-vector 20 :initial-element #x77)))
+           (log-address
+             (make-address (make-byte-vector 20 :initial-element #x88)))
+           (topic (make-hash32
+                   (make-byte-vector 32 :initial-element #x33)))
+           (tx-1 (make-legacy-transaction :nonce 7
+                                          :gas-price 8
+                                          :gas-limit 21000
+                                          :to recipient
+                                          :value 9))
+           (tx-2 (make-dynamic-fee-transaction
+                  :chain-id 1
+                  :nonce 8
+                  :max-priority-fee-per-gas 3
+                  :max-fee-per-gas 10
+                  :gas-limit 23000
+                  :to recipient
+                  :value 10
+                  :y-parity 1
+                  :r 8
+                  :s 9))
+           (receipt-1
+             (make-receipt :status 1
+                           :cumulative-gas-used 21000))
+           (receipt-2
+             (make-receipt
+              :status 1
+              :cumulative-gas-used 44000
+              :logs (list (make-log-entry
+                           :address log-address
+                           :topics (list topic)
+                           :data #(9)))))
+           (block
+             (make-block
+              :header (make-block-header :number 16
+                                         :timestamp 160
+                                         :gas-limit 30000000
+                                         :base-fee-per-gas 6)
+              :transactions (list tx-1 tx-2)
+              :receipts (list receipt-1 receipt-2)))
+           (block-hash-hex (hash32-to-hex (block-hash block)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((latest-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":63,\"method\":\"eth_getBlockReceipts\",\"params\":[\"latest\"]}"
+                 store
+                 config)))
+             (latest-receipts (field latest-response "result"))
+             (first-receipt (first latest-receipts))
+             (second-receipt (second latest-receipts))
+             (hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":64,"
+                  "\"method\":\"eth_getBlockReceipts\","
+                  "\"params\":[\"" block-hash-hex "\"]}")
+                 store
+                 config)))
+             (hash-receipts (field hash-response "result"))
+             (missing-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"eth_getBlockReceipts\",\"params\":[\"0x63\"]}"
+                 store
+                 config)))
+             (invalid-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":66,\"method\":\"eth_getBlockReceipts\",\"params\":[]}"
+                 store
+                 config)))
+             (invalid-error (field invalid-response "error")))
+        (is (= 2 (length latest-receipts)))
+        (is (= 2 (length hash-receipts)))
+        (is (string= (hash32-to-hex (transaction-hash tx-1))
+                     (field first-receipt "transactionHash")))
+        (is (string= (hash32-to-hex (transaction-hash tx-2))
+                     (field second-receipt "transactionHash")))
+        (is (string= block-hash-hex (field second-receipt "blockHash")))
+        (is (string= (quantity-to-hex 16)
+                     (field second-receipt "blockNumber")))
+        (is (string= (quantity-to-hex 1)
+                     (field second-receipt "transactionIndex")))
+        (is (string= (quantity-to-hex 23000)
+                     (field second-receipt "gasUsed")))
+        (is (= 1 (length (field second-receipt "logs"))))
+        (is (string= (quantity-to-hex 0)
+                     (field (first (field second-receipt "logs"))
+                            "logIndex")))
+        (is (string= (field second-receipt "transactionHash")
+                     (field (second hash-receipts)
+                            "transactionHash")))
+        (is (null (field missing-response "result")))
+        (is (= -32602 (field invalid-error "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

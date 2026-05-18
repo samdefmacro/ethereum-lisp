@@ -3747,6 +3747,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         "~A block number must be latest, earliest, or a hex quantity"
         method)))))
 
+(defun eth-rpc-block-param (params store method)
+  (unless (= 1 (length params))
+    (block-validation-fail "~A params must contain exactly one block id"
+                           method))
+  (let ((value (first params)))
+    (if (and (stringp value)
+             (= 66 (length value)))
+        (engine-payload-store-known-block
+         store
+         (eth-rpc-hash-param params method "block hash"))
+        (engine-payload-store-block-by-number
+         store
+         (eth-rpc-block-number-param params store method)))))
+
 (defun eth-rpc-header-object (header)
   (unless (block-header-p header)
     (block-validation-fail "eth header result must be a block header"))
@@ -4286,6 +4300,24 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (list (cons "status"
                          (quantity-to-hex (receipt-status receipt))))))))))
 
+(defun eth-rpc-block-receipts-object (block)
+  (when (and block
+             (= (length (block-transactions block))
+                (length (block-receipts block))))
+    (loop with log-index-start = 0
+          for transaction in (block-transactions block)
+          for receipt in (block-receipts block)
+          for index from 0
+          for location = (make-engine-transaction-location
+                          :block block
+                          :index index
+                          :transaction transaction
+                          :receipt receipt
+                          :log-index-start log-index-start)
+          collect (prog1 (eth-rpc-receipt-object location)
+                    (incf log-index-start
+                          (length (receipt-logs receipt)))))))
+
 (defun engine-rpc-handle-eth-get-raw-transaction-by-block-number-and-index
     (params store)
   (let* ((number (eth-rpc-block-number-param
@@ -4346,6 +4378,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (location (engine-payload-store-transaction-location store hash)))
     (when location
       (eth-rpc-receipt-object location))))
+
+(defun engine-rpc-handle-eth-get-block-receipts (params store)
+  (let ((block (eth-rpc-block-param params store "eth_getBlockReceipts")))
+    (eth-rpc-block-receipts-object block)))
 
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
@@ -4891,6 +4927,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-transaction-receipt
+                 params store)))
+              ((string= method "eth_getBlockReceipts")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-block-receipts
                  params store)))
               ((string= method
                         "eth_getRawTransactionByBlockNumberAndIndex")
