@@ -22,6 +22,29 @@
     (state-db-set-storage state address slot 0)
     (is (= 0 (state-db-get-storage state address slot)))))
 
+(deftest state-db-from-genesis-json-applies-alloc
+  (let* ((json (concatenate
+                'string
+                "{\"alloc\":{"
+                "\"0x0000000000000000000000000000000000000001\":{"
+                "\"balance\":\"0x10\","
+                "\"nonce\":\"2\","
+                "\"code\":\"0x60016000\","
+                "\"storage\":{"
+                "\"0x0000000000000000000000000000000000000000000000000000000000000007\":\"0x2a\""
+                "}}}}"))
+         (state (state-db-from-genesis-json-string json))
+         (address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000007"))
+         (account (state-db-get-account state address)))
+    (is account)
+    (is (= 16 (state-account-balance account)))
+    (is (= 2 (state-account-nonce account)))
+    (is (string= "0x60016000" (bytes-to-hex (state-db-get-code state address))))
+    (is (= 42 (state-db-get-storage state address slot)))
+    (is (string= (state-db-root-hex state) (state-db-root-hex state)))))
+
 (deftest withdrawals-credit-state-balances-in-wei
   (let* ((state (make-state-db))
          (existing (address-from-hex "0x0000000000000000000000000000000000000011"))

@@ -146,6 +146,13 @@
    #:blob-schedule-entry-target-blobs
    #:blob-schedule-entry-max-blobs
    #:blob-schedule-entry-update-fraction
+   #:genesis-account
+   #:make-genesis-account
+   #:genesis-account-address
+   #:genesis-account-balance
+   #:genesis-account-nonce
+   #:genesis-account-code
+   #:genesis-account-storage
    #:chain-config
    #:make-chain-config
    #:chain-config-chain-id
@@ -194,6 +201,9 @@
    #:chain-config-from-genesis-config
    #:chain-config-from-genesis-json-string
    #:chain-config-from-genesis-json-file
+   #:genesis-alloc-from-genesis-object
+   #:genesis-alloc-from-genesis-json-string
+   #:genesis-alloc-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -462,6 +472,11 @@
    #:state-db-get-storage
    #:state-db-root
    #:state-db-root-hex
+   #:apply-genesis-account
+   #:apply-genesis-alloc
+   #:state-db-from-genesis-alloc
+   #:state-db-from-genesis-json-string
+   #:state-db-from-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal
@@ -662,6 +677,13 @@
    #:blob-schedule-entry-target-blobs
    #:blob-schedule-entry-max-blobs
    #:blob-schedule-entry-update-fraction
+   #:genesis-account
+   #:make-genesis-account
+   #:genesis-account-address
+   #:genesis-account-balance
+   #:genesis-account-nonce
+   #:genesis-account-code
+   #:genesis-account-storage
    #:chain-config
    #:make-chain-config
    #:chain-config-chain-id
@@ -710,6 +732,9 @@
    #:chain-config-from-genesis-config
    #:chain-config-from-genesis-json-string
    #:chain-config-from-genesis-json-file
+   #:genesis-alloc-from-genesis-object
+   #:genesis-alloc-from-genesis-json-string
+   #:genesis-alloc-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1009,6 +1034,11 @@
    #:state-db-get-storage
    #:state-db-root
    #:state-db-root-hex
+   #:apply-genesis-account
+   #:apply-genesis-alloc
+   #:state-db-from-genesis-alloc
+   #:state-db-from-genesis-json-string
+   #:state-db-from-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal
@@ -1139,6 +1169,13 @@
    #:blob-schedule-entry-target-blobs
    #:blob-schedule-entry-max-blobs
    #:blob-schedule-entry-update-fraction
+   #:genesis-account
+   #:make-genesis-account
+   #:genesis-account-address
+   #:genesis-account-balance
+   #:genesis-account-nonce
+   #:genesis-account-code
+   #:genesis-account-storage
    #:chain-config
    #:make-chain-config
    #:chain-config-chain-id
@@ -1187,6 +1224,9 @@
    #:chain-config-from-genesis-config
    #:chain-config-from-genesis-json-string
    #:chain-config-from-genesis-json-file
+   #:genesis-alloc-from-genesis-object
+   #:genesis-alloc-from-genesis-json-string
+   #:genesis-alloc-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1484,6 +1524,11 @@
    #:state-db-get-storage
    #:state-db-root
    #:state-db-root-hex
+   #:apply-genesis-account
+   #:apply-genesis-alloc
+   #:state-db-from-genesis-alloc
+   #:state-db-from-genesis-json-string
+   #:state-db-from-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal

@@ -592,6 +592,36 @@
     (chain-config-from-genesis-json-string
      "{\"config\":{\"chainId\":1.5}}")))
 
+(deftest genesis-alloc-from-json-parses-account-fields
+  (let* ((json (concatenate
+                'string
+                "{\"alloc\":{"
+                "\"0000000000000000000000000000000000000001\":{"
+                "\"balance\":\"0x10\","
+                "\"nonce\":\"2\","
+                "\"code\":\"0x60016000\","
+                "\"storage\":{"
+                "\"0x0000000000000000000000000000000000000000000000000000000000000007\":\"0x2a\""
+                "}}}}"))
+         (alloc (genesis-alloc-from-genesis-json-string json))
+         (account (first alloc))
+         (storage-entry (first (genesis-account-storage account))))
+    (is (= 1 (length alloc)))
+    (is (string= "0x0000000000000000000000000000000000000001"
+                 (address-to-hex (genesis-account-address account))))
+    (is (= 16 (genesis-account-balance account)))
+    (is (= 2 (genesis-account-nonce account)))
+    (is (string= "0x60016000"
+                 (bytes-to-hex (genesis-account-code account))))
+    (is (string= "0x0000000000000000000000000000000000000000000000000000000000000007"
+                 (hash32-to-hex (car storage-entry))))
+    (is (= 42 (cdr storage-entry)))))
+
+(deftest genesis-alloc-from-json-rejects-negative-quantities
+  (signals block-validation-error
+    (genesis-alloc-from-genesis-json-string
+     "{\"alloc\":{\"0000000000000000000000000000000000000001\":{\"balance\":\"-1\"}}}")))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10

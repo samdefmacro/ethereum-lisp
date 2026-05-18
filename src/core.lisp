@@ -41,6 +41,16 @@
   max-blobs
   update-fraction)
 
+(defstruct (genesis-account
+            (:constructor make-genesis-account
+                (&key address (balance 0) (nonce 0)
+                      (code (make-byte-vector 0)) storage)))
+  address
+  (balance 0 :type (integer 0 *))
+  (nonce 0 :type (integer 0 *))
+  (code (make-byte-vector 0) :type byte-vector)
+  (storage nil :type list))
+
 (defstruct (chain-config (:constructor make-chain-config
                              (&key (chain-id 1)
                                    homestead-block
@@ -290,9 +300,13 @@
     ((and (integerp value) (not (minusp value))) value)
     ((stringp value)
      (handler-case
-         (if (genesis-hex-quantity-string-p value)
-             (hex-to-quantity value)
-             (parse-integer value :radix 10))
+         (let ((quantity (if (genesis-hex-quantity-string-p value)
+                             (hex-to-quantity value)
+                             (parse-integer value :radix 10))))
+           (if (and (integerp quantity) (not (minusp quantity)))
+               quantity
+               (block-validation-fail
+                "~A must be a non-negative quantity" label)))
        (error ()
          (block-validation-fail "~A must be a non-negative quantity" label))))
     (t (block-validation-fail "~A must be a non-negative quantity" label))))
@@ -348,6 +362,80 @@
             when timestamp
               collect (parse-genesis-blob-schedule-entry
                        timestamp entry-object fork-name)))))
+
+(defun parse-genesis-uint256-field (object name label &key required-p)
+  (let ((value (parse-genesis-field object name
+                                    :label label
+                                    :required-p required-p)))
+    (when value
+      (ensure-uint256 value label))))
+
+(defun parse-genesis-address (value label)
+  (unless (stringp value)
+    (block-validation-fail "~A must be a hex address" label))
+  (handler-case
+      (address-from-hex value)
+    (error ()
+      (block-validation-fail "~A must be a 20-byte hex address" label))))
+
+(defun parse-genesis-code (value label)
+  (cond
+    ((null value) (make-byte-vector 0))
+    ((stringp value)
+     (handler-case
+         (hex-to-bytes value)
+       (error ()
+         (block-validation-fail "~A must be hex bytecode" label))))
+    (t (block-validation-fail "~A must be hex bytecode" label))))
+
+(defun parse-genesis-storage-slot (value label)
+  (unless (stringp value)
+    (block-validation-fail "~A must be a hex storage slot" label))
+  (handler-case
+      (hash32-from-hex value)
+    (error ()
+      (block-validation-fail "~A must be a 32-byte hex storage slot" label))))
+
+(defun parse-genesis-storage-value (value label)
+  (let ((quantity (parse-genesis-quantity value label :required-p t)))
+    (ensure-uint256 quantity label)))
+
+(defun parse-genesis-storage (object label)
+  (when object
+    (loop for (slot . value) in (genesis-object-entries object label)
+          collect (cons (parse-genesis-storage-slot
+                         slot (format nil "~A slot" label))
+                        (parse-genesis-storage-value
+                         value (format nil "~A value" label))))))
+
+(defun genesis-account-from-entry (address-key account-object)
+  (unless (and (listp account-object) (every #'consp account-object))
+    (block-validation-fail "Genesis alloc account ~A must be an object"
+                           address-key))
+  (let ((label (format nil "Genesis alloc account ~A" address-key)))
+    (make-genesis-account
+     :address (parse-genesis-address address-key label)
+     :balance (or (parse-genesis-uint256-field
+                   account-object "balance"
+                   (format nil "~A balance" label))
+                  0)
+     :nonce (or (parse-genesis-uint256-field
+                 account-object "nonce"
+                 (format nil "~A nonce" label))
+                0)
+     :code (parse-genesis-code
+            (genesis-object-field account-object "code")
+            (format nil "~A code" label))
+     :storage (parse-genesis-storage
+               (genesis-object-field account-object "storage")
+               (format nil "~A storage" label)))))
+
+(defun genesis-alloc-from-genesis-object (object)
+  (let ((alloc-object (genesis-object-field object "alloc")))
+    (when alloc-object
+      (loop for (address-key . account-object)
+              in (genesis-object-entries alloc-object "alloc")
+            collect (genesis-account-from-entry address-key account-object)))))
 
 (defun json-whitespace-p (char)
   (member char '(#\Space #\Tab #\Newline #\Return)))
@@ -538,6 +626,12 @@
 
 (defun chain-config-from-genesis-json-file (path)
   (chain-config-from-genesis-json-string (read-text-file path)))
+
+(defun genesis-alloc-from-genesis-json-string (string)
+  (genesis-alloc-from-genesis-object (parse-json string)))
+
+(defun genesis-alloc-from-genesis-json-file (path)
+  (genesis-alloc-from-genesis-json-string (read-text-file path)))
 
 (defun chain-config-blob-schedule (config block-number timestamp)
   (let ((custom-entry (active-custom-blob-schedule-entry config timestamp)))

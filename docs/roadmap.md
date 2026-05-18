@@ -386,10 +386,15 @@ nonzero nonce or non-empty ommers hash, rejects post-Merge bodies containing
 ommers, and prevents a post-Merge parent from being followed by a nonzero
 difficulty child; post-Merge header gas limits are also capped at the geth
 beacon maximum of `2^63 - 1`.
+Genesis JSON loading now has a first-pass allocation path: geth-style `alloc`
+objects are parsed into genesis account descriptors with balance, nonce, code,
+and storage, and those descriptors can initialize the in-memory state DB with
+deterministic account/code/storage roots.
 Typed transaction execution semantics, full nested contract creation/inter-
 contract calls, storage/selfdestruct refund counters and richer EVM gas
 scheduling, full header validation including difficulty/seal rules and fork
-schedules, full genesis state/allocation parsing, and deeper blob
+schedules, full genesis header construction/state-root cross-checking and
+allocation edge-case compatibility, and deeper blob
 transaction validation remain. EIP-7702 set-code execution has a first-pass
 transaction-shape layer: set-code messages reject contract creation and empty
 authorization lists, and intrinsic gas now charges the authorization-list

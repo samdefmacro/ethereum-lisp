@@ -157,6 +157,33 @@
 (defun state-db-root-hex (state)
   (hash32-to-hex (state-db-root state)))
 
+(defun apply-genesis-account (state account)
+  (let ((address (genesis-account-address account)))
+    (state-db-set-account
+     state address
+     (make-state-account :nonce (genesis-account-nonce account)
+                         :balance (genesis-account-balance account)))
+    (when (plusp (length (genesis-account-code account)))
+      (state-db-set-code state address (genesis-account-code account)))
+    (dolist (entry (genesis-account-storage account))
+      (state-db-set-storage state address (car entry) (cdr entry)))
+    state))
+
+(defun apply-genesis-alloc (state alloc)
+  (dolist (account alloc state)
+    (apply-genesis-account state account)))
+
+(defun state-db-from-genesis-alloc (alloc)
+  (apply-genesis-alloc (make-state-db) alloc))
+
+(defun state-db-from-genesis-json-string (string)
+  (state-db-from-genesis-alloc
+   (genesis-alloc-from-genesis-json-string string)))
+
+(defun state-db-from-genesis-json-file (path)
+  (state-db-from-genesis-alloc
+   (genesis-alloc-from-genesis-json-file path)))
+
 (define-condition transaction-validation-error (error)
   ((message :initarg :message :reader transaction-validation-error-message))
   (:report (lambda (condition stream)
