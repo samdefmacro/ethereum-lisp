@@ -3694,6 +3694,99 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "eth_blockNumber params must be empty"))
   (quantity-to-hex (engine-payload-memory-store-head-number store)))
 
+(defun eth-rpc-block-number-param (params store method)
+  (unless (= 1 (length params))
+    (block-validation-fail "~A params must contain exactly one block number"
+                           method))
+  (let ((value (first params)))
+    (cond
+      ((and (stringp value) (string= value "latest"))
+       (engine-payload-memory-store-head-number store))
+      ((and (stringp value) (string= value "earliest")) 0)
+      ((and (stringp value)
+            (genesis-hex-quantity-string-p value))
+       (parse-genesis-quantity value "block number" :required-p t))
+      (t
+       (block-validation-fail
+        "~A block number must be latest, earliest, or a hex quantity"
+        method)))))
+
+(defun eth-rpc-header-object (header)
+  (unless (block-header-p header)
+    (block-validation-fail "eth header result must be a block header"))
+  (append
+   (list
+    (cons "number" (quantity-to-hex (block-header-number header)))
+    (cons "hash" (hash32-to-hex (block-header-hash header)))
+    (cons "parentHash"
+          (hash32-to-hex (or (block-header-parent-hash header)
+                             (zero-hash32))))
+    (cons "nonce"
+          (bytes-to-hex (or (block-header-nonce header)
+                            (make-byte-vector 8))))
+    (cons "mixHash"
+          (hash32-to-hex (or (block-header-mix-hash header)
+                             (zero-hash32))))
+    (cons "sha3Uncles"
+          (hash32-to-hex (or (block-header-ommers-hash header)
+                             +empty-ommers-hash+)))
+    (cons "logsBloom"
+          (bytes-to-hex (or (block-header-logs-bloom header)
+                            (make-byte-vector 256))))
+    (cons "stateRoot"
+          (hash32-to-hex (or (block-header-state-root header)
+                             +empty-trie-hash+)))
+    (cons "miner"
+          (address-to-hex (or (block-header-beneficiary header)
+                              (zero-address))))
+    (cons "difficulty" (quantity-to-hex (block-header-difficulty header)))
+    (cons "extraData" (bytes-to-hex (block-header-extra-data header)))
+    (cons "gasLimit" (quantity-to-hex (block-header-gas-limit header)))
+    (cons "gasUsed" (quantity-to-hex (block-header-gas-used header)))
+    (cons "timestamp" (quantity-to-hex (block-header-timestamp header)))
+    (cons "transactionsRoot"
+          (hash32-to-hex (or (block-header-transactions-root header)
+                             +empty-trie-hash+)))
+    (cons "receiptsRoot"
+          (hash32-to-hex (or (block-header-receipts-root header)
+                             +empty-trie-hash+))))
+   (when (block-header-base-fee-per-gas header)
+     (list (cons "baseFeePerGas"
+                 (quantity-to-hex
+                  (block-header-base-fee-per-gas header)))))
+   (when (block-header-withdrawals-root header)
+     (list (cons "withdrawalsRoot"
+                 (hash32-to-hex
+                  (block-header-withdrawals-root header)))))
+   (when (block-header-blob-gas-used header)
+     (list (cons "blobGasUsed"
+                 (quantity-to-hex (block-header-blob-gas-used header)))))
+   (when (block-header-excess-blob-gas header)
+     (list (cons "excessBlobGas"
+                 (quantity-to-hex
+                  (block-header-excess-blob-gas header)))))
+   (when (block-header-parent-beacon-root header)
+     (list (cons "parentBeaconBlockRoot"
+                 (hash32-to-hex
+                  (block-header-parent-beacon-root header)))))
+   (when (block-header-requests-hash header)
+     (list (cons "requestsHash"
+                 (hash32-to-hex (block-header-requests-hash header)))))
+   (when (block-header-block-access-list-hash header)
+     (list (cons "balHash"
+                 (hash32-to-hex
+                  (block-header-block-access-list-hash header)))))
+   (when (block-header-slot-number header)
+     (list (cons "slotNumber"
+                 (quantity-to-hex (block-header-slot-number header)))))))
+
+(defun engine-rpc-handle-eth-get-header-by-number (params store)
+  (let* ((number (eth-rpc-block-number-param
+                  params store "eth_getHeaderByNumber"))
+         (block (engine-payload-store-block-by-number store number)))
+    (when block
+      (eth-rpc-header-object (block-header block)))))
+
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
@@ -4169,6 +4262,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-block-number params store)))
+              ((string= method "eth_getHeaderByNumber")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-header-by-number params store)))
               (t
                (engine-rpc-response
                 id

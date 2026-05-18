@@ -601,7 +601,10 @@ cell-proof sidecars with 128 proofs per blob and serves
 returns `null`, while V3 keeps request order and allows per-item `null`
 partial responses. The first public `eth_*` read methods are now wired through
 the same JSON-RPC dispatcher: `eth_chainId` returns the configured EIP-155
-chain id, and `eth_blockNumber` returns the current memory-store head number.
+chain id, `eth_blockNumber` returns the current memory-store head number, and
+`eth_getHeaderByNumber` can return canonical memory-store headers for
+`latest`, `earliest`, or hex block quantities using the geth-style header
+object shape while returning JSON `null` for unknown numbers.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
