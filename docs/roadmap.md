@@ -562,7 +562,8 @@ body requests with Engine `Too large request` error code `-38004`.
 encoded Amsterdam block-access-list RLP as `blockAccessList` when present.
 `engine_getPayloadBodiesByRangeV1` is also present with a first memory-store
 block-number index, positive start/count validation, head-number clipping, and
-the same 1024-body limit; payload build
+the same 1024-body limit; `engine_getPayloadBodiesByRangeV2` now follows that
+same indexed range path while surfacing retained block-access-list RLP. Payload build
 requests with semantically invalid V1 attributes, such as a timestamp not
 greater than the parent head, now report Engine API `Invalid payload attributes`
 with error code `-38003`. A first HTTP POST adapter now

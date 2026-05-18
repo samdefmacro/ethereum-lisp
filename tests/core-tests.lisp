@@ -3081,6 +3081,58 @@
         (is (string= "The number of requested bodies must not exceed 1024"
                      (field error "message")))))))
 
+(deftest engine-rpc-get-payload-bodies-by-range-v2-returns-block-access-list
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (numbered-block
+               (number &key (block-access-list nil block-access-list-p))
+             (let ((header (make-block-header :number number
+                                              :timestamp number)))
+               (if block-access-list-p
+                   (make-block :header header
+                               :block-access-list block-access-list)
+                   (make-block :header header)))))
+    (let* ((plain-block (numbered-block 1))
+           (bal-block (numbered-block 2 :block-access-list '()))
+           (tail-block (numbered-block 4 :block-access-list '()))
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store plain-block :state-available-p t)
+      (engine-payload-store-put-block store bal-block :state-available-p t)
+      (engine-payload-store-put-block store tail-block :state-available-p t)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 35)
+                      (cons "method" "engine_getPayloadBodiesByRangeV2")
+                      (cons "params" (list "0x1" "0x4")))
+                store
+                config))
+             (bodies (field response "result"))
+             (plain-body (first bodies))
+             (bal-body (second bodies))
+             (tail-body (fourth bodies)))
+        (is (= 35 (field response "id")))
+        (is (= 4 (length bodies)))
+        (is (not (field plain-body "blockAccessList")))
+        (is (string= (bytes-to-hex (block-encoded-block-access-list bal-block))
+                     (field bal-body "blockAccessList")))
+        (is (not (third bodies)))
+        (is (string= (bytes-to-hex (block-encoded-block-access-list tail-block))
+                     (field tail-body "blockAccessList"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 36)
+                      (cons "method" "engine_getPayloadBodiesByRangeV2")
+                      (cons "params" (list "0x1" "0x401")))
+                store
+                config))
+             (error (field response "error")))
+        (is (= -38004 (field error "code")))
+        (is (string= "The number of requested bodies must not exceed 1024"
+                     (field error "message")))))))
+
 (deftest engine-rpc-exchange-capabilities-advertises-supported-methods
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3104,6 +3156,9 @@
                   capabilities
                   :test #'string=))
       (is (member "engine_getPayloadBodiesByRangeV1"
+                  capabilities
+                  :test #'string=))
+      (is (member "engine_getPayloadBodiesByRangeV2"
                   capabilities
                   :test #'string=))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))

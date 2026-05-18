@@ -3295,6 +3295,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     "engine_getPayloadBodiesByHashV1"
     "engine_getPayloadBodiesByHashV2"
     "engine_getPayloadBodiesByRangeV1"
+    "engine_getPayloadBodiesByRangeV2"
     "engine_getPayloadV1"
     "engine_getPayloadV2"
     "engine_getClientVersionV1"
@@ -3521,14 +3522,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    label
    :required-p t))
 
-(defun engine-rpc-handle-get-payload-bodies-by-range-v1 (params store)
+(defun engine-rpc-handle-get-payload-bodies-by-range
+    (params store method body-object-function)
   (unless (and (listp params) params)
     (block-validation-fail
-     "engine_getPayloadBodiesByRangeV1 params must include start and count"))
+     "~A params must include start and count" method))
   (let ((start (engine-rpc-quantity-param
-                params 0 "start" "engine_getPayloadBodiesByRangeV1"))
+                params 0 "start" method))
         (count (engine-rpc-quantity-param
-                params 1 "count" "engine_getPayloadBodiesByRangeV1")))
+                params 1 "count" method)))
     (unless (and (plusp start) (plusp count))
       (block-validation-fail "start and count must be positive numbers"))
     (when (> count +engine-rpc-max-payload-bodies-request+)
@@ -3544,7 +3546,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (let ((block (engine-payload-store-block-by-number
                               store number)))
                   (when block
-                    (engine-rpc-payload-body-v1-object block))))))))
+                    (funcall body-object-function block))))))))
+
+(defun engine-rpc-handle-get-payload-bodies-by-range-v1 (params store)
+  (engine-rpc-handle-get-payload-bodies-by-range
+   params store "engine_getPayloadBodiesByRangeV1"
+   #'engine-rpc-payload-body-v1-object))
+
+(defun engine-rpc-handle-get-payload-bodies-by-range-v2 (params store)
+  (engine-rpc-handle-get-payload-bodies-by-range
+   params store "engine_getPayloadBodiesByRangeV2"
+   #'engine-rpc-payload-body-v2-object))
 
 (defun engine-rpc-handle-forkchoice-updated-v1 (params store)
   (unless (and (listp params) params)
@@ -3680,6 +3692,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-bodies-by-range-v1
+                 params store)))
+              ((string= method "engine_getPayloadBodiesByRangeV2")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-bodies-by-range-v2
                  params store)))
               ((string= method "engine_getClientVersionV1")
                (engine-rpc-response
