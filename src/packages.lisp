@@ -440,6 +440,7 @@
    #:validate-block-requests-hash-field
    #:block-header-amsterdam-fields-present-p
    #:validate-block-amsterdam-fields
+   #:validate-block-amsterdam-slot-number
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash
@@ -1023,6 +1024,7 @@
    #:validate-block-requests-hash-field
    #:block-header-amsterdam-fields-present-p
    #:validate-block-amsterdam-fields
+   #:validate-block-amsterdam-slot-number
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash
@@ -1567,6 +1569,7 @@
    #:validate-block-requests-hash-field
    #:block-header-amsterdam-fields-present-p
    #:validate-block-amsterdam-fields
+   #:validate-block-amsterdam-slot-number
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash

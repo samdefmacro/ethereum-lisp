@@ -1239,6 +1239,46 @@
                 :requests-hash (execution-requests-hash '()))
          config)))))
 
+(deftest amsterdam-header-slot-number-must-exceed-parent
+  (let* ((config (make-chain-config :london-block 0
+                                    :shanghai-time 150
+                                    :cancun-time 200
+                                    :prague-time 300
+                                    :amsterdam-time 400))
+         (parent (make-block-header :number 8
+                                    :gas-limit 1024000
+                                    :gas-used 512000
+                                    :timestamp 400
+                                    :base-fee-per-gas 1000
+                                    :withdrawals-root (withdrawal-list-root '())
+                                    :blob-gas-used 0
+                                    :excess-blob-gas 0
+                                    :parent-beacon-root (zero-hash32)
+                                    :requests-hash (execution-requests-hash '())
+                                    :block-access-list-hash +empty-ommers-hash+
+                                    :slot-number 10))
+         (parent-hash (block-header-hash parent)))
+    (flet ((child (slot-number)
+             (make-block-header
+              :parent-hash parent-hash
+              :number 9
+              :gas-limit 1024000
+              :gas-used 1000
+              :timestamp 410
+              :base-fee-per-gas 1000
+              :withdrawals-root (withdrawal-list-root '())
+              :blob-gas-used 0
+              :excess-blob-gas 0
+              :parent-beacon-root (zero-hash32)
+              :requests-hash (execution-requests-hash '())
+              :block-access-list-hash +empty-ommers-hash+
+              :slot-number slot-number)))
+      (is (validate-block-header-against-config parent (child 11) config))
+      (signals block-validation-error
+        (validate-block-header-against-config parent (child 10) config))
+      (signals block-validation-error
+        (validate-block-header-against-config parent (child 9) config)))))
+
 (deftest london-fork-block-validates-gas-limit-against-elastic-parent
   (let* ((parent (make-block-header :number 7
                                     :gas-limit 1024000

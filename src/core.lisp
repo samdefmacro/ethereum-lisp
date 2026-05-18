@@ -2324,6 +2324,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (block-validation-fail "Slot number present before Amsterdam"))))
   t)
 
+(defun validate-block-amsterdam-slot-number (parent-header header)
+  (let ((parent-slot-number (block-header-slot-number parent-header))
+        (slot-number (block-header-slot-number header)))
+    (when (and parent-slot-number
+               slot-number
+               (<= slot-number parent-slot-number))
+      (block-validation-fail
+       "Amsterdam header slot number must exceed parent slot number")))
+  t)
+
 (defun block-header-post-merge-p (header)
   (and (plusp (block-header-number header))
        (zerop (block-header-difficulty header))))
@@ -2518,6 +2528,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      header :requests-enabled-p requests-enabled-p)
     (validate-block-amsterdam-fields
      header :amsterdam-enabled-p amsterdam-enabled-p)
+    (when amsterdam-enabled-p
+      (validate-block-amsterdam-slot-number parent-header header))
     (when validate-base-fee-p
       (validate-block-base-fee parent-header header
                                :london-parent-p london-parent-p)))
