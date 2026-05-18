@@ -3887,6 +3887,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when block
       (eth-rpc-block-object block))))
 
+(defun engine-rpc-handle-eth-get-block-by-hash (params store)
+  (eth-rpc-require-transaction-hashes params "eth_getBlockByHash")
+  (let* ((hash (eth-rpc-hash-param
+                (list (first params)) "eth_getBlockByHash" "block hash"))
+         (block (engine-payload-store-known-block store hash)))
+    (when block
+      (eth-rpc-block-object block))))
+
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
@@ -4377,6 +4385,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-block-by-number params store)))
+              ((string= method "eth_getBlockByHash")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-block-by-hash params store)))
               (t
                (engine-rpc-response
                 id
