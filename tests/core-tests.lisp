@@ -1783,6 +1783,81 @@
     (is (bytes= (bloom-bytes (receipt-bloom (list log)))
                 (block-header-logs-bloom header)))))
 
+(deftest block-to-executable-data-maps-engine-payload-fields
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000002"))
+         (parent-hash (hash32-from-hex
+                       "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (state-root (hash32-from-hex
+                      "0x0200000000000000000000000000000000000000000000000000000000000000"))
+         (mix-hash (hash32-from-hex
+                    "0x0300000000000000000000000000000000000000000000000000000000000000"))
+         (transaction (make-legacy-transaction :nonce 1
+                                               :gas-price 2
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 4
+                                               :v 27
+                                               :r 6
+                                               :s 7))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (withdrawal (make-withdrawal :index 1
+                                      :validator-index 2
+                                      :address address
+                                      :amount 3))
+         (requests (list #(#x00 #xaa) #(#x01 #xbb)))
+         (header (make-block-header :parent-hash parent-hash
+                                    :beneficiary address
+                                    :state-root state-root
+                                    :mix-hash mix-hash
+                                    :number 42
+                                    :gas-limit 50000
+                                    :gas-used 21000
+                                    :timestamp 99
+                                    :extra-data #(1 2 3)
+                                    :base-fee-per-gas 100
+                                    :blob-gas-used 0
+                                    :excess-blob-gas 7
+                                    :slot-number 11))
+         (block (make-block :header header
+                            :transactions (list transaction)
+                            :receipts (list receipt)
+                            :withdrawals (list withdrawal)
+                            :requests requests))
+         (envelope (block-to-executable-data block :block-value 123))
+         (payload (execution-payload-envelope-execution-payload envelope)))
+    (is (= 123 (execution-payload-envelope-block-value envelope)))
+    (is (not (execution-payload-envelope-override-p envelope)))
+    (is (hash32-p (executable-data-block-hash payload)))
+    (is (string= (hash32-to-hex (block-hash block))
+                 (hash32-to-hex (executable-data-block-hash payload))))
+    (is (string= (hash32-to-hex parent-hash)
+                 (hash32-to-hex (executable-data-parent-hash payload))))
+    (is (string= (address-to-hex address)
+                 (address-to-hex (executable-data-fee-recipient payload))))
+    (is (string= (hash32-to-hex state-root)
+                 (hash32-to-hex (executable-data-state-root payload))))
+    (is (string= (hash32-to-hex mix-hash)
+                 (hash32-to-hex (executable-data-random payload))))
+    (is (= 42 (executable-data-number payload)))
+    (is (= 50000 (executable-data-gas-limit payload)))
+    (is (= 21000 (executable-data-gas-used payload)))
+    (is (= 99 (executable-data-timestamp payload)))
+    (is (= 100 (executable-data-base-fee-per-gas payload)))
+    (is (= 0 (executable-data-blob-gas-used payload)))
+    (is (= 7 (executable-data-excess-blob-gas payload)))
+    (is (= 11 (executable-data-slot-number payload)))
+    (is (bytes= #(1 2 3) (executable-data-extra-data payload)))
+    (is (bytes= (transaction-encoding transaction)
+                (first (executable-data-transactions payload))))
+    (is (= 1 (length (executable-data-withdrawals payload))))
+    (is (= 1 (withdrawal-index
+              (first (executable-data-withdrawals payload)))))
+    (is (= 2 (length (execution-payload-envelope-requests envelope))))
+    (is (bytes= (first requests)
+                (first (execution-payload-envelope-requests envelope))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

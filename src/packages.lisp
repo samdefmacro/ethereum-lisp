@@ -424,6 +424,34 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:executable-data
+   #:make-executable-data
+   #:executable-data-parent-hash
+   #:executable-data-fee-recipient
+   #:executable-data-state-root
+   #:executable-data-receipts-root
+   #:executable-data-logs-bloom
+   #:executable-data-random
+   #:executable-data-number
+   #:executable-data-gas-limit
+   #:executable-data-gas-used
+   #:executable-data-timestamp
+   #:executable-data-extra-data
+   #:executable-data-base-fee-per-gas
+   #:executable-data-block-hash
+   #:executable-data-transactions
+   #:executable-data-withdrawals
+   #:executable-data-blob-gas-used
+   #:executable-data-excess-blob-gas
+   #:executable-data-slot-number
+   #:execution-payload-envelope
+   #:make-execution-payload-envelope
+   #:execution-payload-envelope-execution-payload
+   #:execution-payload-envelope-block-value
+   #:execution-payload-envelope-blobs-bundle
+   #:execution-payload-envelope-requests
+   #:execution-payload-envelope-override-p
+   #:block-to-executable-data
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1046,6 +1074,34 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:executable-data
+   #:make-executable-data
+   #:executable-data-parent-hash
+   #:executable-data-fee-recipient
+   #:executable-data-state-root
+   #:executable-data-receipts-root
+   #:executable-data-logs-bloom
+   #:executable-data-random
+   #:executable-data-number
+   #:executable-data-gas-limit
+   #:executable-data-gas-used
+   #:executable-data-timestamp
+   #:executable-data-extra-data
+   #:executable-data-base-fee-per-gas
+   #:executable-data-block-hash
+   #:executable-data-transactions
+   #:executable-data-withdrawals
+   #:executable-data-blob-gas-used
+   #:executable-data-excess-blob-gas
+   #:executable-data-slot-number
+   #:execution-payload-envelope
+   #:make-execution-payload-envelope
+   #:execution-payload-envelope-execution-payload
+   #:execution-payload-envelope-block-value
+   #:execution-payload-envelope-blobs-bundle
+   #:execution-payload-envelope-requests
+   #:execution-payload-envelope-override-p
+   #:block-to-executable-data
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1629,6 +1685,34 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:executable-data
+   #:make-executable-data
+   #:executable-data-parent-hash
+   #:executable-data-fee-recipient
+   #:executable-data-state-root
+   #:executable-data-receipts-root
+   #:executable-data-logs-bloom
+   #:executable-data-random
+   #:executable-data-number
+   #:executable-data-gas-limit
+   #:executable-data-gas-used
+   #:executable-data-timestamp
+   #:executable-data-extra-data
+   #:executable-data-base-fee-per-gas
+   #:executable-data-block-hash
+   #:executable-data-transactions
+   #:executable-data-withdrawals
+   #:executable-data-blob-gas-used
+   #:executable-data-excess-blob-gas
+   #:executable-data-slot-number
+   #:execution-payload-envelope
+   #:make-execution-payload-envelope
+   #:execution-payload-envelope-execution-payload
+   #:execution-payload-envelope-block-value
+   #:execution-payload-envelope-blobs-bundle
+   #:execution-payload-envelope-requests
+   #:execution-payload-envelope-override-p
+   #:block-to-executable-data
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account

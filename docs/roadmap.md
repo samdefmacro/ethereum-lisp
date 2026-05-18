@@ -513,6 +513,12 @@ first pass, but interfaces must not block that path.
 - transaction submission and pool placeholder
 - tracing/debug APIs after EVM is mature
 
+Status: initial local Engine payload projection is present. Blocks can be
+converted into geth-shaped `ExecutableData` payload envelopes, including
+header fields, encoded transactions, optional withdrawals, optional execution
+requests, blob gas counters, and Amsterdam slot numbers. JSON-RPC transport and
+`newPayload` status handling remain.
+
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.
 

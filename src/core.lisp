@@ -2055,6 +2055,112 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun block-hash (block)
   (block-header-hash (block-header block)))
 
+(defstruct (executable-data (:constructor make-executable-data
+                              (&key parent-hash
+                                    fee-recipient
+                                    state-root
+                                    receipts-root
+                                    logs-bloom
+                                    random
+                                    number
+                                    gas-limit
+                                    gas-used
+                                    timestamp
+                                    extra-data
+                                    base-fee-per-gas
+                                    block-hash
+                                    transactions
+                                    withdrawals
+                                    blob-gas-used
+                                    excess-blob-gas
+                                    slot-number)))
+  parent-hash
+  fee-recipient
+  state-root
+  receipts-root
+  logs-bloom
+  random
+  number
+  gas-limit
+  gas-used
+  timestamp
+  extra-data
+  base-fee-per-gas
+  block-hash
+  (transactions '() :type list)
+  withdrawals
+  blob-gas-used
+  excess-blob-gas
+  slot-number)
+
+(defstruct (execution-payload-envelope
+            (:constructor make-execution-payload-envelope
+                (&key execution-payload
+                      (block-value 0)
+                      blobs-bundle
+                      requests
+                      override-p)))
+  execution-payload
+  (block-value 0 :type (integer 0 *))
+  blobs-bundle
+  requests
+  override-p)
+
+(defun maybe-copy-bytes (bytes)
+  (when bytes
+    (copy-seq (ensure-byte-vector bytes))))
+
+(defun maybe-copy-withdrawals (withdrawals)
+  (when withdrawals
+    (mapcar #'copy-withdrawal withdrawals)))
+
+(defun maybe-copy-requests (requests)
+  (when requests
+    (mapcar #'maybe-copy-bytes requests)))
+
+(defun block-to-executable-data (block &key (block-value 0) requests)
+  (let* ((header (block-header block))
+         (payload
+           (make-executable-data
+            :block-hash (block-hash block)
+            :parent-hash (or (block-header-parent-hash header) (zero-hash32))
+            :fee-recipient (or (block-header-beneficiary header)
+                               (zero-address))
+            :state-root (or (block-header-state-root header) +empty-trie-hash+)
+            :receipts-root (or (block-header-receipts-root header)
+                               +empty-trie-hash+)
+            :logs-bloom (maybe-copy-bytes
+                         (or (block-header-logs-bloom header)
+                             (make-byte-vector 256)))
+            :random (or (block-header-mix-hash header) (zero-hash32))
+            :number (block-header-number header)
+            :gas-limit (block-header-gas-limit header)
+            :gas-used (block-header-gas-used header)
+            :timestamp (block-header-timestamp header)
+            :extra-data (maybe-copy-bytes (block-header-extra-data header))
+            :base-fee-per-gas (or (block-header-base-fee-per-gas header) 0)
+            :transactions (mapcar (lambda (transaction)
+                                    (copy-seq
+                                     (transaction-encoding transaction)))
+                                  (block-transactions block))
+            :withdrawals (when (block-withdrawals-present-p block)
+                           (maybe-copy-withdrawals
+                            (block-withdrawals block)))
+            :blob-gas-used (block-header-blob-gas-used header)
+            :excess-blob-gas (block-header-excess-blob-gas header)
+            :slot-number (block-header-slot-number header)))
+         (payload-requests
+           (cond
+             (requests (maybe-copy-requests requests))
+             ((block-requests-present-p block)
+              (maybe-copy-requests (block-requests block)))
+             (t nil))))
+    (make-execution-payload-envelope
+     :execution-payload payload
+     :block-value block-value
+     :requests payload-requests
+     :override-p nil)))
+
 (defun execution-requests-hash (requests)
   (sha256-hash
    (apply #'concat-bytes
