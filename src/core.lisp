@@ -2904,14 +2904,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (state-blocks (make-hash-table :test 'equal))
                       (remote-blocks (make-hash-table :test 'equal))
                       (invalid-tipsets (make-hash-table :test 'equal))
-                      (prepared-payloads (make-hash-table :test 'equal)))))
+                      (prepared-payloads (make-hash-table :test 'equal))
+                      (blob-sidecars (make-hash-table :test 'equal)))))
   blocks
   number-blocks
   (head-number 0 :type (integer 0 *))
   state-blocks
   remote-blocks
   invalid-tipsets
-  prepared-payloads)
+  prepared-payloads
+  blob-sidecars)
+
+(defstruct (engine-blob-and-proof-v1
+            (:constructor make-engine-blob-and-proof-v1
+                (&key blob proof)))
+  blob
+  proof)
 
 (defun engine-payload-store-key (hash)
   (unless (hash32-p hash)
@@ -3026,6 +3034,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-prepared-payload (store payload-id)
   (gethash (engine-payload-id-key payload-id)
            (engine-payload-memory-store-prepared-payloads store)))
+
+(defun engine-payload-store-put-blob-sidecar
+    (store sidecar)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep sidecar 'blob-sidecar)
+    (block-validation-fail
+     "Engine blob sidecar store value must be a blob sidecar"))
+  (let ((hashes (blob-sidecar-versioned-hashes sidecar))
+        (blobs (blob-sidecar-blobs sidecar))
+        (proofs (blob-sidecar-proofs sidecar)))
+    (unless (= (length hashes) (length blobs) (length proofs))
+      (block-validation-fail
+       "Engine blob sidecar blobs, commitments, and proofs must have matching lengths"))
+    (loop for versioned-hash in hashes
+          for blob in blobs
+          for proof in proofs
+          do (setf (gethash
+                    (engine-payload-store-key versioned-hash)
+                    (engine-payload-memory-store-blob-sidecars store))
+                   (make-engine-blob-and-proof-v1
+                    :blob (maybe-copy-bytes blob)
+                    :proof (maybe-copy-bytes proof)))))
+  sidecar)
+
+(defun engine-payload-store-blob-and-proof-v1
+    (store versioned-hash)
+  (gethash (engine-payload-store-key versioned-hash)
+           (engine-payload-memory-store-blob-sidecars store)))
 
 (defun engine-rpc-required-field (object name)
   (unless (genesis-object-field-present-p object name)
@@ -3215,6 +3252,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (cons "blobs"
            (mapcar #'bytes-to-hex
                    (blob-sidecar-blobs sidecar))))))
+
+(defun engine-rpc-blob-and-proof-v1-object (blob-and-proof)
+  (unless (typep blob-and-proof 'engine-blob-and-proof-v1)
+    (block-validation-fail
+     "Engine RPC blob response must be an engine-blob-and-proof-v1"))
+  (list
+   (cons "blob"
+         (bytes-to-hex
+          (engine-blob-and-proof-v1-blob blob-and-proof)))
+   (cons "proof"
+         (bytes-to-hex
+          (engine-blob-and-proof-v1-proof blob-and-proof)))))
 
 (defun engine-rpc-execution-payload-envelope-object
     (envelope &key include-blobs-bundle-p include-override-p)
@@ -3466,6 +3515,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     "engine_getPayloadV4"
     "engine_getPayloadV5"
     "engine_getPayloadV6"
+    "engine_getBlobsV1"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3698,6 +3748,28 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :include-override-p t)))
 
 (defconstant +engine-rpc-max-payload-bodies-request+ 1024)
+(defconstant +engine-rpc-max-get-blobs-request+ 128)
+
+(defun engine-rpc-handle-get-blobs-v1 (params store)
+  (unless (and (listp params) params)
+    (block-validation-fail
+     "engine_getBlobsV1 params must include blob versioned hashes"))
+  (let ((hashes
+          (engine-rpc-hash32-list
+           (engine-rpc-required-param
+            params 0 "blobVersionedHashes" "engine_getBlobsV1")
+           "blobVersionedHashes")))
+    (when (> (length hashes) +engine-rpc-max-get-blobs-request+)
+      (engine-rpc-fail
+       +engine-rpc-error-too-large-request+
+       "The number of requested blobs must not exceed 128"))
+    (mapcar (lambda (versioned-hash)
+              (let ((blob-and-proof
+                      (engine-payload-store-blob-and-proof-v1
+                       store versioned-hash)))
+                (when blob-and-proof
+                  (engine-rpc-blob-and-proof-v1-object blob-and-proof))))
+            hashes)))
 
 (defun engine-rpc-handle-get-payload-bodies-by-hash
     (params store method body-object-function)
@@ -3969,6 +4041,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 :result
                 (engine-rpc-handle-get-payload-bodies-by-range-v2
                  params store)))
+              ((string= method "engine_getBlobsV1")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-blobs-v1 params store)))
               ((string= method "engine_getClientVersionV1")
                (engine-rpc-response
                 id

@@ -590,7 +590,12 @@ the same 1024-body limit; `engine_getPayloadBodiesByRangeV2` now follows that
 same indexed range path while surfacing retained block-access-list RLP. Payload build
 requests with semantically invalid V1 attributes, such as a timestamp not
 greater than the parent head, now report Engine API `Invalid payload attributes`
-with error code `-38003`. A first HTTP POST adapter now
+with error code `-38003`. `engine_getBlobsV1` now has a first memory-store
+blob sidecar index keyed by KZG versioned hash, returns V1 `blob`/`proof`
+objects in request order, preserves `null` for missing blob data, advertises
+the capability, and rejects over-128 blob requests with Engine `Too large
+request` error code `-38004`; Osaka `engine_getBlobsV2`/`V3` cell-proof
+semantics remain a later slice. A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
 Bearer authentication with HS256 signatures, 32-byte secrets, `iat` freshness,

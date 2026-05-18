@@ -530,6 +530,8 @@
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
+   #:engine-payload-store-put-blob-sidecar
+   #:engine-payload-store-blob-and-proof-v1
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
@@ -1308,6 +1310,8 @@
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
+   #:engine-payload-store-put-blob-sidecar
+   #:engine-payload-store-blob-and-proof-v1
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
@@ -2047,6 +2051,8 @@
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
+   #:engine-payload-store-put-blob-sidecar
+   #:engine-payload-store-blob-and-proof-v1
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+

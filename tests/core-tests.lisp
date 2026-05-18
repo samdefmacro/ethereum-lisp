@@ -3348,6 +3348,60 @@
         (is (string= "0x09cc" (first (field bundle "proofs"))))
         (is (string= "0x07aa" (first (field bundle "blobs"))))))))
 
+(deftest engine-rpc-get-blobs-v1-returns-blobs-and-proofs
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((blob (make-byte-vector +blob-byte-size+))
+           (commitment (make-byte-vector +kzg-commitment-size+))
+           (proof (make-byte-vector +kzg-proof-size+))
+           (unknown-hash
+             (make-hash32 (make-byte-vector 32 :initial-element #x11)))
+           (sidecar nil)
+           (versioned-hash nil)
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (setf (aref blob 0) #xaa
+            (aref commitment 0) #xbb
+            (aref proof 0) #xcc
+            sidecar (make-blob-sidecar
+                     :blobs (list blob)
+                     :commitments (list commitment)
+                     :proofs (list proof))
+            versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
+      (engine-payload-store-put-blob-sidecar store sidecar)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 42)
+                      (cons "method" "engine_getBlobsV1")
+                      (cons "params"
+                            (list (list (hash32-to-hex versioned-hash)
+                                        (hash32-to-hex unknown-hash)))))
+                store
+                config))
+             (result (field response "result"))
+             (first-blob (first result)))
+        (is (= 42 (field response "id")))
+        (is (= 2 (length result)))
+        (is (string= (bytes-to-hex blob) (field first-blob "blob")))
+        (is (string= (bytes-to-hex proof) (field first-blob "proof")))
+        (is (null (second result))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 43)
+                      (cons "method" "engine_getBlobsV1")
+                      (cons "params"
+                            (list
+                             (loop repeat 129
+                                   collect (hash32-to-hex unknown-hash)))))
+                store
+                config))
+             (error (field response "error")))
+        (is (= -38004 (field error "code")))
+        (is (string= "The number of requested blobs must not exceed 128"
+                     (field error "message")))))))
+
 (deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3636,6 +3690,7 @@
       (is (member "engine_getPayloadBodiesByRangeV2"
                   capabilities
                   :test #'string=))
+      (is (member "engine_getBlobsV1" capabilities :test #'string=))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))
       (is (member "engine_exchangeTransitionConfigurationV1"
                   capabilities
