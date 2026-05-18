@@ -3402,6 +3402,81 @@
         (is (string= "The number of requested blobs must not exceed 128"
                      (field error "message")))))))
 
+(deftest engine-rpc-get-blobs-v2-v3-return-cell-proofs
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((blob (make-byte-vector +blob-byte-size+))
+           (commitment (make-byte-vector +kzg-commitment-size+))
+           (proofs
+             (loop for i below +cell-proofs-per-blob+
+                   collect
+                   (let ((proof (make-byte-vector +kzg-proof-size+)))
+                     (setf (aref proof 0) i)
+                     proof)))
+           (unknown-hash
+             (make-hash32 (make-byte-vector 32 :initial-element #x22)))
+           (sidecar nil)
+           (versioned-hash nil)
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (setf (aref blob 0) #xaa
+            (aref commitment 0) #xbb
+            sidecar (make-blob-sidecar
+                     :blobs (list blob)
+                     :commitments (list commitment)
+                     :proofs proofs)
+            versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
+      (engine-payload-store-put-blob-sidecar store sidecar)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 44)
+                      (cons "method" "engine_getBlobsV2")
+                      (cons "params"
+                            (list (list (hash32-to-hex versioned-hash)))))
+                store
+                config))
+             (result (field response "result"))
+             (first-blob (first result))
+             (encoded-proofs (field first-blob "proofs")))
+        (is (= 44 (field response "id")))
+        (is (= 1 (length result)))
+        (is (string= (bytes-to-hex blob) (field first-blob "blob")))
+        (is (= +cell-proofs-per-blob+ (length encoded-proofs)))
+        (is (string= (bytes-to-hex (first proofs)) (first encoded-proofs)))
+        (is (string= (bytes-to-hex (car (last proofs)))
+                     (car (last encoded-proofs)))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 45)
+                      (cons "method" "engine_getBlobsV2")
+                      (cons "params"
+                            (list (list (hash32-to-hex versioned-hash)
+                                        (hash32-to-hex unknown-hash)))))
+                store
+                config)))
+        (is (= 45 (field response "id")))
+        (is (null (field response "result"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 46)
+                      (cons "method" "engine_getBlobsV3")
+                      (cons "params"
+                            (list (list (hash32-to-hex versioned-hash)
+                                        (hash32-to-hex unknown-hash)))))
+                store
+                config))
+             (result (field response "result"))
+             (first-blob (first result)))
+        (is (= 46 (field response "id")))
+        (is (= 2 (length result)))
+        (is (string= (bytes-to-hex blob) (field first-blob "blob")))
+        (is (string= (bytes-to-hex (first proofs))
+                     (first (field first-blob "proofs"))))
+        (is (null (second result)))))))
+
 (deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3691,6 +3766,8 @@
                   capabilities
                   :test #'string=))
       (is (member "engine_getBlobsV1" capabilities :test #'string=))
+      (is (member "engine_getBlobsV2" capabilities :test #'string=))
+      (is (member "engine_getBlobsV3" capabilities :test #'string=))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))
       (is (member "engine_exchangeTransitionConfigurationV1"
                   capabilities

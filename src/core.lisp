@@ -7,6 +7,7 @@
 (defconstant +blob-gas-per-blob+ 131072)
 (defconstant +blob-byte-size+ +blob-gas-per-blob+)
 (defconstant +kzg-proof-size+ +kzg-commitment-size+)
+(defconstant +cell-proofs-per-blob+ 128)
 (defconstant +target-blobs-per-block+ 3)
 (defconstant +max-blobs-per-block+ 6)
 (defconstant +osaka-target-blobs-per-block+ 6)
@@ -2915,11 +2916,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   prepared-payloads
   blob-sidecars)
 
-(defstruct (engine-blob-and-proof-v1
-            (:constructor make-engine-blob-and-proof-v1
-                (&key blob proof)))
+(defstruct (engine-blob-and-proofs
+            (:constructor make-engine-blob-and-proofs
+                (&key blob proof cell-proofs)))
   blob
-  proof)
+  proof
+  cell-proofs)
 
 (defun engine-payload-store-key (hash)
   (unless (hash32-p hash)
@@ -3045,24 +3047,51 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((hashes (blob-sidecar-versioned-hashes sidecar))
         (blobs (blob-sidecar-blobs sidecar))
         (proofs (blob-sidecar-proofs sidecar)))
-    (unless (= (length hashes) (length blobs) (length proofs))
+    (unless (= (length hashes) (length blobs))
       (block-validation-fail
-       "Engine blob sidecar blobs, commitments, and proofs must have matching lengths"))
+       "Engine blob sidecar blobs and commitments must have matching lengths"))
+    (unless (or (= (length proofs) (length blobs))
+                (= (length proofs)
+                   (* (length blobs) +cell-proofs-per-blob+)))
+      (block-validation-fail
+       "Engine blob sidecar proofs must be one per blob or cell proofs per blob"))
     (loop for versioned-hash in hashes
           for blob in blobs
-          for proof in proofs
+          for index from 0
+          for proof = (if (= (length proofs) (length blobs))
+                          (nth index proofs)
+                          (nth (* index +cell-proofs-per-blob+) proofs))
+          for cell-proofs = (when (= (length proofs)
+                                     (* (length blobs)
+                                        +cell-proofs-per-blob+))
+                              (subseq proofs
+                                      (* index +cell-proofs-per-blob+)
+                                      (* (1+ index)
+                                         +cell-proofs-per-blob+)))
           do (setf (gethash
                     (engine-payload-store-key versioned-hash)
                     (engine-payload-memory-store-blob-sidecars store))
-                   (make-engine-blob-and-proof-v1
+                   (make-engine-blob-and-proofs
                     :blob (maybe-copy-bytes blob)
-                    :proof (maybe-copy-bytes proof)))))
+                    :proof (maybe-copy-bytes proof)
+                    :cell-proofs (mapcar #'maybe-copy-bytes
+                                         cell-proofs)))))
   sidecar)
 
-(defun engine-payload-store-blob-and-proof-v1
+(defun engine-payload-store-blob-and-proofs-v1
     (store versioned-hash)
   (gethash (engine-payload-store-key versioned-hash)
            (engine-payload-memory-store-blob-sidecars store)))
+
+(defun engine-payload-store-blob-and-proofs-v2
+    (store versioned-hash)
+  (let ((blob-and-proofs
+          (engine-payload-store-blob-and-proofs-v1 store versioned-hash)))
+    (when (and blob-and-proofs
+               (= +cell-proofs-per-blob+
+                  (length
+                   (engine-blob-and-proofs-cell-proofs blob-and-proofs))))
+      blob-and-proofs)))
 
 (defun engine-rpc-required-field (object name)
   (unless (genesis-object-field-present-p object name)
@@ -3253,17 +3282,33 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            (mapcar #'bytes-to-hex
                    (blob-sidecar-blobs sidecar))))))
 
-(defun engine-rpc-blob-and-proof-v1-object (blob-and-proof)
-  (unless (typep blob-and-proof 'engine-blob-and-proof-v1)
+(defun engine-rpc-blob-and-proof-v1-object (blob-and-proofs)
+  (unless (typep blob-and-proofs 'engine-blob-and-proofs)
     (block-validation-fail
-     "Engine RPC blob response must be an engine-blob-and-proof-v1"))
+     "Engine RPC blob response must be an engine-blob-and-proofs"))
   (list
    (cons "blob"
          (bytes-to-hex
-          (engine-blob-and-proof-v1-blob blob-and-proof)))
+          (engine-blob-and-proofs-blob blob-and-proofs)))
    (cons "proof"
          (bytes-to-hex
-          (engine-blob-and-proof-v1-proof blob-and-proof)))))
+          (engine-blob-and-proofs-proof blob-and-proofs)))))
+
+(defun engine-rpc-blob-and-proof-v2-object (blob-and-proofs)
+  (unless (typep blob-and-proofs 'engine-blob-and-proofs)
+    (block-validation-fail
+     "Engine RPC blob response must be an engine-blob-and-proofs"))
+  (let ((cell-proofs
+          (engine-blob-and-proofs-cell-proofs blob-and-proofs)))
+    (unless (= +cell-proofs-per-blob+ (length cell-proofs))
+      (block-validation-fail
+       "Engine RPC V2 blob response must have 128 cell proofs"))
+    (list
+     (cons "blob"
+           (bytes-to-hex
+            (engine-blob-and-proofs-blob blob-and-proofs)))
+     (cons "proofs"
+           (mapcar #'bytes-to-hex cell-proofs)))))
 
 (defun engine-rpc-execution-payload-envelope-object
     (envelope &key include-blobs-bundle-p include-override-p)
@@ -3516,6 +3561,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     "engine_getPayloadV5"
     "engine_getPayloadV6"
     "engine_getBlobsV1"
+    "engine_getBlobsV2"
+    "engine_getBlobsV3"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3750,25 +3797,60 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defconstant +engine-rpc-max-payload-bodies-request+ 1024)
 (defconstant +engine-rpc-max-get-blobs-request+ 128)
 
-(defun engine-rpc-handle-get-blobs-v1 (params store)
+(defun engine-rpc-get-blob-hashes-param (params method)
   (unless (and (listp params) params)
     (block-validation-fail
-     "engine_getBlobsV1 params must include blob versioned hashes"))
+     "~A params must include blob versioned hashes" method))
+  (engine-rpc-hash32-list
+   (engine-rpc-required-param
+    params 0 "blobVersionedHashes" method)
+   "blobVersionedHashes"))
+
+(defun engine-rpc-validate-get-blobs-request-size (hashes)
+  (when (> (length hashes) +engine-rpc-max-get-blobs-request+)
+    (engine-rpc-fail
+     +engine-rpc-error-too-large-request+
+     "The number of requested blobs must not exceed 128")))
+
+(defun engine-rpc-handle-get-blobs-v1 (params store)
   (let ((hashes
-          (engine-rpc-hash32-list
-           (engine-rpc-required-param
-            params 0 "blobVersionedHashes" "engine_getBlobsV1")
-           "blobVersionedHashes")))
-    (when (> (length hashes) +engine-rpc-max-get-blobs-request+)
-      (engine-rpc-fail
-       +engine-rpc-error-too-large-request+
-       "The number of requested blobs must not exceed 128"))
+          (engine-rpc-get-blob-hashes-param
+           params "engine_getBlobsV1")))
+    (engine-rpc-validate-get-blobs-request-size hashes)
     (mapcar (lambda (versioned-hash)
-              (let ((blob-and-proof
-                      (engine-payload-store-blob-and-proof-v1
+              (let ((blob-and-proofs
+                      (engine-payload-store-blob-and-proofs-v1
                        store versioned-hash)))
-                (when blob-and-proof
-                  (engine-rpc-blob-and-proof-v1-object blob-and-proof))))
+                (when blob-and-proofs
+                  (engine-rpc-blob-and-proof-v1-object blob-and-proofs))))
+            hashes)))
+
+(defun engine-rpc-handle-get-blobs-v2 (params store)
+  (let* ((hashes
+           (engine-rpc-get-blob-hashes-param
+            params "engine_getBlobsV2"))
+         (blobs
+           (progn
+             (engine-rpc-validate-get-blobs-request-size hashes)
+             (mapcar (lambda (versioned-hash)
+                       (engine-payload-store-blob-and-proofs-v2
+                        store versioned-hash))
+                     hashes))))
+    (if (some #'null blobs)
+        nil
+        (mapcar #'engine-rpc-blob-and-proof-v2-object blobs))))
+
+(defun engine-rpc-handle-get-blobs-v3 (params store)
+  (let ((hashes
+          (engine-rpc-get-blob-hashes-param
+           params "engine_getBlobsV3")))
+    (engine-rpc-validate-get-blobs-request-size hashes)
+    (mapcar (lambda (versioned-hash)
+              (let ((blob-and-proofs
+                      (engine-payload-store-blob-and-proofs-v2
+                       store versioned-hash)))
+                (when blob-and-proofs
+                  (engine-rpc-blob-and-proof-v2-object blob-and-proofs))))
             hashes)))
 
 (defun engine-rpc-handle-get-payload-bodies-by-hash
@@ -4046,6 +4128,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-blobs-v1 params store)))
+              ((string= method "engine_getBlobsV2")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-blobs-v2 params store)))
+              ((string= method "engine_getBlobsV3")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-blobs-v3 params store)))
               ((string= method "engine_getClientVersionV1")
                (engine-rpc-response
                 id
@@ -5899,9 +5991,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (blob-count (length blobs))
          (commitment-count (length commitments))
          (proof-count (length proofs)))
-    (unless (= blob-count commitment-count proof-count)
+    (unless (= blob-count commitment-count)
       (block-validation-fail
-       "Blob sidecar blob, commitment, and proof counts must match"))
+       "Blob sidecar blob and commitment counts must match"))
+    (unless (or (= proof-count blob-count)
+                (= proof-count (* blob-count +cell-proofs-per-blob+)))
+      (block-validation-fail
+       "Blob sidecar proof count must match blobs or cell proofs per blob"))
     (dolist (blob blobs)
       (validate-sized-byte-vector blob +blob-byte-size+ "Blob"))
     (dolist (commitment commitments)

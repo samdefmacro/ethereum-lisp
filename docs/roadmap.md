@@ -594,8 +594,12 @@ with error code `-38003`. `engine_getBlobsV1` now has a first memory-store
 blob sidecar index keyed by KZG versioned hash, returns V1 `blob`/`proof`
 objects in request order, preserves `null` for missing blob data, advertises
 the capability, and rejects over-128 blob requests with Engine `Too large
-request` error code `-38004`; Osaka `engine_getBlobsV2`/`V3` cell-proof
-semantics remain a later slice. A first HTTP POST adapter now
+request` error code `-38004`. The same memory index now also accepts Osaka
+cell-proof sidecars with 128 proofs per blob and serves
+`engine_getBlobsV2`/`engine_getBlobsV3`: V2 returns a full ordered
+`blob`/`proofs` list only when every requested blob is available and otherwise
+returns `null`, while V3 keeps request order and allows per-item `null`
+partial responses. A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
 Bearer authentication with HS256 signatures, 32-byte secrets, `iat` freshness,

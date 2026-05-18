@@ -116,6 +116,7 @@
    #:+blob-gas-per-blob+
    #:+blob-byte-size+
    #:+kzg-proof-size+
+   #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
    #:+osaka-target-blobs-per-block+
@@ -531,7 +532,8 @@
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
-   #:engine-payload-store-blob-and-proof-v1
+   #:engine-payload-store-blob-and-proofs-v1
+   #:engine-payload-store-blob-and-proofs-v2
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
@@ -896,6 +898,7 @@
    #:+blob-gas-per-blob+
    #:+blob-byte-size+
    #:+kzg-proof-size+
+   #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
    #:+osaka-target-blobs-per-block+
@@ -1311,7 +1314,8 @@
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
-   #:engine-payload-store-blob-and-proof-v1
+   #:engine-payload-store-blob-and-proofs-v1
+   #:engine-payload-store-blob-and-proofs-v2
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
@@ -1637,6 +1641,7 @@
    #:+blob-gas-per-blob+
    #:+blob-byte-size+
    #:+kzg-proof-size+
+   #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
    #:+osaka-target-blobs-per-block+
@@ -2052,7 +2057,8 @@
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
-   #:engine-payload-store-blob-and-proof-v1
+   #:engine-payload-store-blob-and-proofs-v1
+   #:engine-payload-store-blob-and-proofs-v2
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
