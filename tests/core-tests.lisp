@@ -3046,6 +3046,89 @@
           (is (listp (field bundle "proofs")))
           (is (listp (field bundle "blobs"))))))))
 
+(deftest engine-rpc-forkchoice-updated-v4-prepares-amsterdam-payload
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (forkchoice-state-object
+               (head &key
+                     (safe (zero-hash32))
+                     (finalized (zero-hash32)))
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex safe))
+                   (cons "finalizedBlockHash"
+                         (hash32-to-hex finalized))))
+           (withdrawal-object ()
+             (list (cons "index" "0x7")
+                   (cons "validatorIndex" "0x8")
+                   (cons "address" (address-to-hex (zero-address)))
+                   (cons "amount" "0x9")))
+           (payload-attributes-object (parent-beacon-root)
+             (list (cons "timestamp" "0x1")
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))
+                   (cons "withdrawals" (list (withdrawal-object)))
+                   (cons "parentBeaconBlockRoot"
+                         (hash32-to-hex parent-beacon-root))
+                   (cons "slotNumber" "0x2a")))
+           (forkchoice-request (id state payload-attributes)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV4")
+                   (cons "params" (list state payload-attributes)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (known-block (make-block))
+           (known-hash (block-hash known-block))
+           (parent-beacon-root
+             (hash32-from-hex
+              "0x4444444444444444444444444444444444444444444444444444444444444444")))
+      (engine-payload-store-put-block
+       store known-block :state-available-p t)
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 32
+                 (forkchoice-state-object known-hash)
+                 (payload-attributes-object parent-beacon-root))
+                store
+                config))
+             (result (field response "result"))
+             (payload-status (field result "payloadStatus"))
+             (payload-id (field result "payloadId"))
+             (prepared-payload
+               (engine-payload-store-prepared-payload
+                store (hex-to-bytes payload-id)))
+             (prepared-header
+               (block-header
+                (engine-prepared-payload-block prepared-payload))))
+        (is (= 32 (field response "id")))
+        (is (string= +payload-status-valid+
+                     (field payload-status "status")))
+        (is (string= "04" (subseq payload-id 2 4)))
+        (is (= 42 (block-header-slot-number prepared-header)))
+        (let* ((get-payload-response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 33)
+                        (cons "method" "engine_getPayloadV4")
+                        (cons "params" (list payload-id)))
+                  store
+                  config))
+               (envelope (field get-payload-response "result"))
+               (payload (field envelope "executionPayload"))
+               (bundle (field envelope "blobsBundle"))
+               (withdrawals (field payload "withdrawals")))
+          (is (= 33 (field get-payload-response "id")))
+          (is (eq :false (field envelope "shouldOverrideBuilder")))
+          (is (string= (quantity-to-hex 42) (field payload "slotNumber")))
+          (is (string= "0x0" (field payload "blobGasUsed")))
+          (is (string= "0x0" (field payload "excessBlobGas")))
+          (is (= 1 (length withdrawals)))
+          (is (listp (field bundle "commitments")))
+          (is (listp (field bundle "proofs")))
+          (is (listp (field bundle "blobs"))))))))
+
 (deftest engine-rpc-get-payload-v3-returns-cancun-envelope
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3494,6 +3577,9 @@
                   capabilities
                   :test #'string=))
       (is (member "engine_forkchoiceUpdatedV3"
+                  capabilities
+                  :test #'string=))
+      (is (member "engine_forkchoiceUpdatedV4"
                   capabilities
                   :test #'string=))
       (is (member "engine_getPayloadV1" capabilities :test #'string=))

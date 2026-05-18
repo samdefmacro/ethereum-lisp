@@ -2477,14 +2477,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor make-payload-attributes-v1
                 (&key timestamp prev-randao suggested-fee-recipient
                       withdrawals withdrawals-present-p
-                      parent-beacon-root parent-beacon-root-present-p)))
+                      parent-beacon-root parent-beacon-root-present-p
+                      slot-number slot-number-present-p)))
   timestamp
   prev-randao
   suggested-fee-recipient
   withdrawals
   withdrawals-present-p
   parent-beacon-root
-  parent-beacon-root-present-p)
+  parent-beacon-root-present-p
+  slot-number
+  slot-number-present-p)
 
 (defstruct (engine-prepared-payload
             (:constructor make-engine-prepared-payload
@@ -3320,6 +3323,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           t)
     attributes))
 
+(defun engine-rpc-validate-payload-attributes-v4 (object)
+  (let ((attributes (engine-rpc-validate-payload-attributes-v3 object)))
+    (unless (genesis-object-field-present-p object "slotNumber")
+      (block-validation-fail
+       "engine_forkchoiceUpdatedV4 payloadAttributes slotNumber is missing"))
+    (setf (payload-attributes-v1-slot-number attributes)
+          (engine-rpc-required-quantity-field object "slotNumber")
+          (payload-attributes-v1-slot-number-present-p attributes)
+          t)
+    attributes))
+
 (defun engine-payload-id (version parent-hash attributes)
   (unless (and (integerp version) (<= 0 version 255))
     (block-validation-fail "Engine payload version must fit in one byte"))
@@ -3340,6 +3354,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (if (payload-attributes-v1-parent-beacon-root-present-p attributes)
                 (hash32-bytes
                  (payload-attributes-v1-parent-beacon-root attributes))
+                #())
+            (if (payload-attributes-v1-slot-number-present-p attributes)
+                (integer-to-minimal-bytes
+                 (payload-attributes-v1-slot-number attributes))
                 #())))
          (payload-id (make-byte-vector 8)))
     (setf (aref payload-id 0) version)
@@ -3386,7 +3404,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              :excess-blob-gas
              (when (payload-attributes-v1-parent-beacon-root-present-p
                     attributes)
-               0))))
+               0)
+             :slot-number
+             (when (payload-attributes-v1-slot-number-present-p attributes)
+               (payload-attributes-v1-slot-number attributes)))))
       (if (payload-attributes-v1-withdrawals-present-p attributes)
           (make-block
            :header header
@@ -3432,6 +3453,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     "engine_forkchoiceUpdatedV1"
     "engine_forkchoiceUpdatedV2"
     "engine_forkchoiceUpdatedV3"
+    "engine_forkchoiceUpdatedV4"
     "engine_getPayloadBodiesByHashV1"
     "engine_getPayloadBodiesByHashV2"
     "engine_getPayloadBodiesByRangeV1"
@@ -3822,6 +3844,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    params store "engine_forkchoiceUpdatedV3" 3
    #'engine-rpc-validate-payload-attributes-v3))
 
+(defun engine-rpc-handle-forkchoice-updated-v4 (params store)
+  (engine-rpc-handle-forkchoice-updated
+   params store "engine_forkchoiceUpdatedV4" 4
+   #'engine-rpc-validate-payload-attributes-v4))
+
 (defun engine-rpc-response (id &key result error)
   (append (list (cons "jsonrpc" "2.0")
                 (cons "id" id))
@@ -3881,6 +3908,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-forkchoice-updated-v3 params store)))
+              ((string= method "engine_forkchoiceUpdatedV4")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-forkchoice-updated-v4 params store)))
               ((string= method "engine_getPayloadV1")
                (engine-rpc-response
                 id

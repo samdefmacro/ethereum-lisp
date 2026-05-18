@@ -538,6 +538,7 @@ and advertises the currently implemented `engine_newPayloadV1` through
 `engine_newPayloadV5` plus `engine_forkchoiceUpdatedV1`,
 `engine_forkchoiceUpdatedV2`,
 `engine_forkchoiceUpdatedV3`,
+`engine_forkchoiceUpdatedV4`,
 `engine_getClientVersionV1`, and
 `engine_exchangeTransitionConfigurationV1` methods through
 `engine_exchangeCapabilities`; `engine_getClientVersionV1` now returns the
@@ -559,7 +560,10 @@ prepares deterministic V2 child payloads, and carries PayloadAttributesV2
 withdrawals into the prepared block. `engine_forkchoiceUpdatedV3` extends that
 prepared-payload path with required PayloadAttributesV3
 `parentBeaconBlockRoot`, retaining it on the prepared Cancun header and
-initializing zero blob-gas fields for `engine_getPayloadV3`. The first
+initializing zero blob-gas fields for `engine_getPayloadV3`.
+`engine_forkchoiceUpdatedV4` now adds required PayloadAttributesV4
+`slotNumber`, carries it into the prepared Amsterdam header, and exposes it
+through the prepared-payload `engine_getPayloadV4` path. The first
 `engine_getPayloadV2` path is
 also wired through the same prepared-payload
 store and returns a geth/Nethermind-shaped payload envelope with
