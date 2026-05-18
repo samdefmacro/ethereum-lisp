@@ -3201,11 +3201,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (expected-base-fee-per-gas parent-header)
           0)))))
 
-(defun engine-forkchoice-checkpoint-status (store hash label)
+(defun engine-forkchoice-checkpoint-error-message (store hash label)
   (when (and (not (hash32= hash (zero-hash32)))
              (not (engine-payload-store-known-block store hash)))
-    (invalid-payload-status
-     (format nil "forkchoice ~A block is not available" label))))
+    (format nil "forkchoice ~A block is not available" label)))
 
 (defun engine-forkchoice-memory-status (store state)
   (unless (typep store 'engine-payload-memory-store)
@@ -3222,14 +3221,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       ((engine-payload-store-invalid-ancestor-status
         store head-hash head-hash))
       ((engine-payload-store-known-block store head-hash)
-       (or
-        (engine-forkchoice-checkpoint-status
-         store (forkchoice-state-finalized-block-hash state) "finalized")
-        (engine-forkchoice-checkpoint-status
-         store (forkchoice-state-safe-block-hash state) "safe")
-        (make-payload-status
-         :status +payload-status-valid+
-         :latest-valid-hash head-hash)))
+       (make-payload-status
+        :status +payload-status-valid+
+        :latest-valid-hash head-hash))
       (t
        (make-payload-status :status +payload-status-syncing+)))))
 
@@ -3364,6 +3358,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-rpc-transition-configuration-object config))
 
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
+(defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
 
 (define-condition engine-rpc-error (error)
@@ -3423,6 +3418,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (engine-rpc-validate-payload-attributes-v1 payload-attributes)))
     (let ((status (engine-forkchoice-memory-status store state))
           (payload-id nil))
+      (when (string= +payload-status-valid+
+                     (payload-status-status status))
+        (let ((checkpoint-error
+                (or
+                 (engine-forkchoice-checkpoint-error-message
+                  store (forkchoice-state-finalized-block-hash state)
+                  "finalized")
+                 (engine-forkchoice-checkpoint-error-message
+                  store (forkchoice-state-safe-block-hash state)
+                  "safe"))))
+          (when checkpoint-error
+            (engine-rpc-fail
+             +engine-rpc-error-invalid-forkchoice-state+
+             checkpoint-error))))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))

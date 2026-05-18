@@ -545,7 +545,8 @@ difficulty with zero terminal-block defaults. `engine_forkchoiceUpdatedV1` now
 parses forkchoice state and V1 payload attributes, maps known memory-store
 heads to `VALID`, unknown heads to `SYNCING`, and zero heads or cached invalid
 tipsets to `INVALID`; nonzero safe/finalized checkpoint hashes are also checked
-against the local memory store and rejected when unavailable. It can prepare a
+against the local memory store and rejected with the Engine API `Invalid
+forkchoice state` error code `-38002` when unavailable. It can prepare a
 deterministic in-memory empty child payload when V1 payload attributes are
 supplied for a valid head. The prepared payload is keyed by an 8-byte
 Engine-style payload id and can be fetched through `engine_getPayloadV1`, which

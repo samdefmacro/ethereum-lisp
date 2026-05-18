@@ -2835,13 +2835,10 @@
                  (forkchoice-state-object known-hash :safe unknown-hash))
                 store
                 config))
-             (result (field response "result"))
-             (payload-status (field result "payloadStatus")))
-        (is (string= +payload-status-invalid+
-                     (field payload-status "status")))
+             (error (field response "error")))
+        (is (= -38002 (field error "code")))
         (is (string= "forkchoice safe block is not available"
-                     (field payload-status "validationError")))
-        (is (not (field result "payloadId"))))
+                     (field error "message"))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -2850,13 +2847,10 @@
                   known-hash :finalized unknown-hash))
                 store
                 config))
-             (result (field response "result"))
-             (payload-status (field result "payloadStatus")))
-        (is (string= +payload-status-invalid+
-                     (field payload-status "status")))
+             (error (field response "error")))
+        (is (= -38002 (field error "code")))
         (is (string= "forkchoice finalized block is not available"
-                     (field payload-status "validationError")))
-        (is (not (field result "payloadId"))))
+                     (field error "message"))))
       (let* ((bad-state
                (list (cons "headBlockHash" (hash32-to-hex known-hash))))
              (response
