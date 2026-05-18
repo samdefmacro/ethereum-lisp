@@ -416,6 +416,22 @@
   (dolist (tx transactions t)
     (validate-execution-transaction-type tx rules)))
 
+(defun validate-execution-transaction-fields (tx rules blob-base-fee)
+  (validate-execution-transaction-type tx rules)
+  (validate-transaction-recipient-field tx)
+  (validate-transaction-data-field tx)
+  (validate-access-list-fields tx)
+  (when (typep tx 'blob-transaction)
+    (validate-blob-transaction-fields tx)
+    (validate-blob-transaction-fee-cap tx blob-base-fee))
+  (validate-set-code-transaction-fields tx)
+  t)
+
+(defun validate-execution-transaction-list-fields
+    (transactions rules blob-base-fee)
+  (dolist (tx transactions t)
+    (validate-execution-transaction-fields tx rules blob-base-fee)))
+
 (defun make-message-evm-context
     (state sender tx address input gas-price
      &key (base-fee 0)
@@ -578,14 +594,7 @@
   "Apply a transaction message and execute recipient code when present."
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
-  (validate-execution-transaction-type tx effective-chain-rules)
-  (validate-transaction-recipient-field tx)
-  (validate-transaction-data-field tx)
-  (validate-access-list-fields tx)
-  (when (typep tx 'blob-transaction)
-    (validate-blob-transaction-fields tx)
-    (validate-blob-transaction-fee-cap tx blob-base-fee))
-  (validate-set-code-transaction-fields tx)
+  (validate-execution-transaction-fields tx effective-chain-rules blob-base-fee)
   (validate-transaction-sender-code state sender)
   (if (transaction-to tx)
       (let* ((recipient (transaction-to tx))
@@ -752,7 +761,9 @@
           (execution-chain-rules chain-rules chain-config block-number timestamp))
         (receipts '())
         (cumulative-gas 0))
-    (validate-execution-transaction-types transactions effective-chain-rules)
+    (validate-execution-transaction-list-fields transactions
+                                                effective-chain-rules
+                                                blob-base-fee)
     (dolist (tx transactions)
       (when (and block-gas-limit
                  (> (+ cumulative-gas (transaction-gas-limit tx))
@@ -793,7 +804,9 @@
           (execution-chain-rules chain-rules chain-config block-number timestamp))
         (receipts '())
         (cumulative-gas 0))
-    (validate-execution-transaction-types transactions effective-chain-rules)
+    (validate-execution-transaction-list-fields transactions
+                                                effective-chain-rules
+                                                blob-base-fee)
     (let ((senders (signed-transaction-senders-or-error transactions
                                                         expected-chain-id)))
       (loop for tx in transactions
