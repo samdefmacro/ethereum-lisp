@@ -2464,6 +2464,111 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                "Invalid executable data transaction ~D: ~A"
                index condition))))))
 
+(defun executable-data-required-hash32 (value label)
+  (unless (hash32-p value)
+    (block-validation-fail "~A must be a hash32" label))
+  value)
+
+(defun executable-data-required-address (value label)
+  (unless (address-p value)
+    (block-validation-fail "~A must be an address" label))
+  value)
+
+(defun executable-data-required-uint256 (value label)
+  (unless (uint256-p value)
+    (block-validation-fail "~A must be uint256" label))
+  value)
+
+(defun executable-data-to-block-no-hash
+    (payload &key parent-beacon-root (requests nil requests-supplied-p))
+  (unless (typep payload 'executable-data)
+    (block-validation-fail "Executable data payload must be executable-data"))
+  (let* ((transactions (executable-data-decoded-transactions payload))
+         (withdrawals (executable-data-withdrawals payload))
+         (extra-data (validate-byte-sequence-field
+                      (executable-data-extra-data payload)
+                      "Executable data extra data"))
+         (logs-bloom (validate-byte-sequence-field
+                      (executable-data-logs-bloom payload)
+                      "Executable data logs bloom"
+                      :size 256)))
+    (when (> (length extra-data) +maximum-extra-data-size+)
+      (block-validation-fail "Executable data extra data too long"))
+    (when withdrawals
+      (validate-withdrawal-list-fields withdrawals))
+    (validate-optional-hash32-field parent-beacon-root
+                                    "Executable data parent beacon root")
+    (when requests-supplied-p
+      (validate-execution-request-list-fields requests))
+    (let ((header
+            (make-block-header
+             :parent-hash
+             (executable-data-required-hash32
+              (executable-data-parent-hash payload)
+              "Executable data parent hash")
+             :ommers-hash +empty-ommers-hash+
+             :beneficiary
+             (executable-data-required-address
+              (executable-data-fee-recipient payload)
+              "Executable data fee recipient")
+             :state-root
+             (executable-data-required-hash32
+              (executable-data-state-root payload)
+              "Executable data state root")
+             :transactions-root (transaction-list-root transactions)
+             :receipts-root
+             (executable-data-required-hash32
+              (executable-data-receipts-root payload)
+              "Executable data receipts root")
+             :logs-bloom (copy-seq logs-bloom)
+             :difficulty 0
+             :number
+             (executable-data-required-uint256
+              (executable-data-number payload)
+              "Executable data block number")
+             :gas-limit
+             (executable-data-required-uint256
+              (executable-data-gas-limit payload)
+              "Executable data gas limit")
+             :gas-used
+             (executable-data-required-uint256
+              (executable-data-gas-used payload)
+              "Executable data gas used")
+             :timestamp
+             (executable-data-required-uint256
+              (executable-data-timestamp payload)
+              "Executable data timestamp")
+             :extra-data (copy-seq extra-data)
+             :mix-hash
+             (executable-data-required-hash32
+              (executable-data-random payload)
+              "Executable data random")
+             :base-fee-per-gas
+             (executable-data-required-uint256
+              (executable-data-base-fee-per-gas payload)
+              "Executable data base fee")
+             :withdrawals-root (when withdrawals
+                                 (withdrawal-list-root withdrawals))
+             :blob-gas-used (executable-data-blob-gas-used payload)
+             :excess-blob-gas (executable-data-excess-blob-gas payload)
+             :parent-beacon-root parent-beacon-root
+             :requests-hash (when requests-supplied-p
+                              (execution-requests-hash requests))
+             :slot-number (executable-data-slot-number payload))))
+      (validate-optional-uint256-field (block-header-blob-gas-used header)
+                                       "Executable data blob gas used")
+      (validate-optional-uint256-field (block-header-excess-blob-gas header)
+                                       "Executable data excess blob gas")
+      (validate-optional-uint256-field (block-header-slot-number header)
+                                       "Executable data slot number")
+      (%make-block :header header
+                   :transactions transactions
+                   :ommers '()
+                   :withdrawals withdrawals
+                   :withdrawals-present-p (not (null withdrawals))
+                   :requests requests
+                   :requests-present-p requests-supplied-p))))
+
 (defun execution-requests-hash (requests)
   (sha256-hash
    (apply #'concat-bytes
