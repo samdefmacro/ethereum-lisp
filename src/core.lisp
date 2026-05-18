@@ -725,6 +725,15 @@
     ((eq value :false) (write-string "false" stream))
     ((stringp value) (write-json-string value stream))
     ((integerp value) (write-string (write-to-string value :base 10) stream))
+    ((vectorp value)
+     (write-char #\[ stream)
+     (loop for index below (length value)
+           for first-p = t then nil
+           do (progn
+                (unless first-p
+                  (write-char #\, stream))
+                (write-json-value (aref value index) stream)))
+     (write-char #\] stream))
     ((json-object-p value)
      (write-char #\{ stream)
      (loop for (key . item) in value
@@ -3858,6 +3867,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "eth_syncing params must be empty"))
   :false)
 
+(defun engine-rpc-handle-eth-accounts (params)
+  (when params
+    (block-validation-fail "eth_accounts params must be empty"))
+  (make-array 0))
+
+(defun engine-rpc-handle-eth-coinbase (params)
+  (when params
+    (block-validation-fail "eth_coinbase params must be empty"))
+  (address-to-hex (zero-address)))
+
 (defun eth-rpc-address-param (value method label)
   (handler-case
       (engine-rpc-address value label)
@@ -5132,6 +5151,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-syncing params)))
+              ((string= method "eth_accounts")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-accounts params)))
+              ((string= method "eth_coinbase")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-coinbase params)))
               ((string= method "eth_getBalance")
                (engine-rpc-response
                 id

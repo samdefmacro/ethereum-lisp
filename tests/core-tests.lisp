@@ -3890,6 +3890,24 @@
       (is (= 20 (field response "id")))
       (is (null (field response "result")))
       (is (search "\"result\":false" response-json)))
+    (let* ((response-json
+             (engine-rpc-handle-request-json
+              (concatenate
+               'string
+               "[{\"jsonrpc\":\"2.0\",\"id\":22,"
+               "\"method\":\"eth_accounts\",\"params\":[]},"
+               "{\"jsonrpc\":\"2.0\",\"id\":23,"
+               "\"method\":\"eth_coinbase\",\"params\":[]}]")
+              (make-engine-payload-memory-store)
+              (make-chain-config)))
+           (responses (parse-json response-json)))
+      (is (= 2 (length responses)))
+      (is (= 22 (field (first responses) "id")))
+      (is (null (field (first responses) "result")))
+      (is (search "\"result\":[]" response-json))
+      (is (= 23 (field (second responses) "id")))
+      (is (string= (address-to-hex (zero-address))
+                   (field (second responses) "result"))))
     (let* ((response
              (parse-json
               (engine-rpc-handle-request-json
@@ -3902,6 +3920,22 @@
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"eth_syncing\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"eth_accounts\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"eth_coinbase\",\"params\":[\"unexpected\"]}"
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))
