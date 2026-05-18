@@ -4686,6 +4686,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (eth-rpc-pending-transaction-object transaction)))
     (eth-rpc-hash-table-object nonce-transactions)))
 
+(defun txpool-rpc-transaction-summary (transaction)
+  (let ((to (transaction-to transaction)))
+    (format nil "~A: ~D wei + ~D gas x ~D wei"
+            (if to
+                (address-to-hex to)
+                "contract creation")
+            (transaction-value transaction)
+            (transaction-gas-limit transaction)
+            (transaction-max-fee-per-gas transaction))))
+
 (defun txpool-rpc-content-transactions (transactions)
   (let ((senders (make-hash-table :test 'equal)))
     (dolist (transaction transactions)
@@ -4698,6 +4708,29 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                             (make-hash-table :test 'equal)))))
         (setf (gethash nonce sender-transactions)
               (eth-rpc-pending-transaction-object transaction))))
+    (if (zerop (hash-table-count senders))
+        +json-empty-object+
+        (loop for sender in (sort (loop for sender being the hash-keys
+                                          of senders
+                                        collect sender)
+                                  #'string<)
+              collect
+              (cons sender
+                    (eth-rpc-hash-table-object
+                     (gethash sender senders)))))))
+
+(defun txpool-rpc-inspect-transactions (transactions)
+  (let ((senders (make-hash-table :test 'equal)))
+    (dolist (transaction transactions)
+      (let* ((sender (address-to-hex
+                      (txpool-rpc-transaction-sender transaction)))
+             (nonce (write-to-string (transaction-nonce transaction)
+                                     :base 10))
+             (sender-transactions (or (gethash sender senders)
+                                      (setf (gethash sender senders)
+                                            (make-hash-table :test 'equal)))))
+        (setf (gethash nonce sender-transactions)
+              (txpool-rpc-transaction-summary transaction))))
     (if (zerop (hash-table-count senders))
         +json-empty-object+
         (loop for sender in (sort (loop for sender being the hash-keys
@@ -5040,6 +5073,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (txpool-rpc-transaction-sender-p transaction address))
              (engine-payload-store-pending-transactions store))))
      (cons "queued" +json-empty-object+))))
+
+(defun engine-rpc-handle-txpool-inspect (params store)
+  (when params
+    (block-validation-fail "txpool_inspect params must be empty"))
+  (list
+   (cons "pending"
+         (txpool-rpc-inspect-transactions
+          (engine-payload-store-pending-transactions store)))
+   (cons "queued" +json-empty-object+)))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
@@ -5792,6 +5834,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-txpool-content-from params store)))
+              ((string= method "txpool_inspect")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-txpool-inspect params store)))
               (t
                (engine-rpc-response
                 id

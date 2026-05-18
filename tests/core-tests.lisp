@@ -5514,6 +5514,12 @@
                  "\"]}")
                 store
                 config))
+             (txpool-inspect-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":75,\"method\":\"txpool_inspect\",\"params\":[]}"
+                store
+                config))
+             (txpool-inspect-response (parse-json txpool-inspect-json))
              (invalid-rlp-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -5554,6 +5560,12 @@
                (parse-json
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":74,\"method\":\"txpool_contentFrom\",\"params\":[\"0x1234\"]}"
+                 store
+                 config)))
+             (invalid-txpool-inspect-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":76,\"method\":\"txpool_inspect\",\"params\":[\"unexpected\"]}"
                  store
                  config))))
         (is (string= transaction-hash (field send-response "result")))
@@ -5599,6 +5611,18 @@
                        (field nonce-transaction "hash")))
           (is (search "\"queued\":{}" txpool-content-from-json))
           (is (search "\"pending\":{}" txpool-content-from-missing-json)))
+        (let* ((txpool-inspect (field txpool-inspect-response "result"))
+               (pending (field txpool-inspect "pending"))
+               (sender-transactions
+                 (field pending
+                        (address-to-hex
+                         (or (transaction-sender transaction)
+                             (zero-address)))))
+               (summary (field sender-transactions "9")))
+          (is (string= (format nil "~A: 13 wei + 21000 gas x 11 wei"
+                               (address-to-hex recipient))
+                       summary))
+          (is (search "\"queued\":{}" txpool-inspect-json)))
         (is (= -32602
                (field (field invalid-rlp-response "error") "code")))
         (is (= -32602
@@ -5618,6 +5642,9 @@
         (is (= -32602
                (field (field invalid-txpool-content-from-address-response
                              "error")
+                      "code")))
+        (is (= -32602
+               (field (field invalid-txpool-inspect-response "error")
                       "code")))))))
 
 (deftest eth-rpc-get-transaction-receipt
