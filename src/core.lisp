@@ -3916,6 +3916,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (block (engine-payload-store-known-block store hash)))
     (eth-rpc-block-transaction-count block)))
 
+(defun eth-rpc-block-ommer-count (block)
+  (when block
+    (quantity-to-hex (length (block-ommers block)))))
+
+(defun engine-rpc-handle-eth-get-uncle-count-by-number (params store)
+  (let* ((number (eth-rpc-block-number-param
+                  params store "eth_getUncleCountByBlockNumber"))
+         (block (engine-payload-store-block-by-number store number)))
+    (eth-rpc-block-ommer-count block)))
+
+(defun engine-rpc-handle-eth-get-uncle-count-by-hash (params store)
+  (let* ((hash (eth-rpc-hash-param
+                params "eth_getUncleCountByBlockHash" "block hash"))
+         (block (engine-payload-store-known-block store hash)))
+    (eth-rpc-block-ommer-count block)))
+
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
@@ -4422,6 +4438,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-block-transaction-count-by-hash
+                 params store)))
+              ((string= method "eth_getUncleCountByBlockNumber")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-uncle-count-by-number
+                 params store)))
+              ((string= method "eth_getUncleCountByBlockHash")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-uncle-count-by-hash
                  params store)))
               (t
                (engine-rpc-response

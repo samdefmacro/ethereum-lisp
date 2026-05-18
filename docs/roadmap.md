@@ -613,6 +613,9 @@ remains a later RPC-object slice. The matching
 `eth_getBlockTransactionCountByNumber` and
 `eth_getBlockTransactionCountByHash` read endpoints now return transaction
 counts for canonical memory-store blocks and JSON `null` for unknown blocks.
+`eth_getUncleCountByBlockNumber` and `eth_getUncleCountByBlockHash` likewise
+return ommer counts from the in-memory block body with the same unknown-block
+`null` behavior.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

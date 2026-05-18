@@ -4240,6 +4240,67 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-get-uncle-count
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (ommer-1 (make-block-header :number 10
+                                       :timestamp 101))
+           (ommer-2 (make-block-header :number 10
+                                       :timestamp 102))
+           (block
+             (make-block
+              :header (make-block-header :number 11
+                                         :timestamp 110
+                                         :gas-limit 30000000)
+              :ommers (list ommer-1 ommer-2)))
+           (hash-hex (hash32-to-hex (block-hash block)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((number-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"eth_getUncleCountByBlockNumber\",\"params\":[\"0xb\"]}"
+                 store
+                 config)))
+             (latest-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":40,\"method\":\"eth_getUncleCountByBlockNumber\",\"params\":[\"latest\"]}"
+                 store
+                 config)))
+             (hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":41,"
+                  "\"method\":\"eth_getUncleCountByBlockHash\","
+                  "\"params\":[\"" hash-hex "\"]}")
+                 store
+                 config)))
+             (missing-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"eth_getUncleCountByBlockNumber\",\"params\":[\"0x63\"]}"
+                 store
+                 config)))
+             (invalid-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"eth_getUncleCountByBlockHash\",\"params\":[\"0x1234\"]}"
+                 store
+                 config)))
+             (invalid-error (field invalid-response "error")))
+        (is (string= (quantity-to-hex 2)
+                     (field number-response "result")))
+        (is (string= (quantity-to-hex 2)
+                     (field latest-response "result")))
+        (is (string= (quantity-to-hex 2)
+                     (field hash-response "result")))
+        (is (null (field missing-response "result")))
+        (is (= -32602 (field invalid-error "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
