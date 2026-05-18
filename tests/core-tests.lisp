@@ -985,6 +985,42 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
+(deftest block-body-validates-set-code-fields-before-root-derivation
+  (let* ((recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000001"))
+         (block (make-block))
+         (missing-to-tx
+           (make-set-code-transaction
+            :to nil
+            :authorization-list
+            (list (make-set-code-authorization :address recipient))))
+         (missing-auth-tx
+           (make-set-code-transaction :to recipient))
+         (bad-auth-address-tx
+           (make-set-code-transaction
+            :to recipient
+            :authorization-list
+            (list (make-set-code-authorization :address nil))))
+         (bad-auth-chain-tx
+           (make-set-code-transaction
+            :to recipient
+            :authorization-list
+            (list (make-set-code-authorization
+                   :chain-id (1+ +uint256-max+)
+                   :address recipient)))))
+    (setf (block-transactions block) (list missing-to-tx))
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (setf (block-transactions block) (list missing-auth-tx))
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (setf (block-transactions block) (list bad-auth-address-tx))
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (setf (block-transactions block) (list bad-auth-chain-tx))
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-validation-combines-config-header-and-body-checks
   (let* ((config (make-chain-config :london-block 0
                                     :shanghai-time 150

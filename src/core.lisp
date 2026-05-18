@@ -1499,6 +1499,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (unless (hash32-p slot)
         (block-validation-fail "Access list storage key must be a hash32")))))
 
+(defun validate-set-code-authorization-fields (authorization)
+  (unless (typep authorization 'set-code-authorization)
+    (block-validation-fail
+     "Set-code authorization must be a set-code authorization"))
+  (unless (uint256-p (set-code-authorization-chain-id authorization))
+    (block-validation-fail "Authorization chain id must be uint256"))
+  (unless (address-p (set-code-authorization-address authorization))
+    (block-validation-fail "Authorization address must be an address"))
+  (unless (and (integerp (set-code-authorization-nonce authorization))
+               (<= 0 (set-code-authorization-nonce authorization)
+                   (1- (ash 1 64))))
+    (block-validation-fail "Authorization nonce must be uint64"))
+  (unless (uint256-p (set-code-authorization-y-parity authorization))
+    (block-validation-fail "Authorization y parity must be uint256"))
+  (unless (uint256-p (set-code-authorization-r authorization))
+    (block-validation-fail "Authorization r must be uint256"))
+  (unless (uint256-p (set-code-authorization-s authorization))
+    (block-validation-fail "Authorization s must be uint256"))
+  t)
+
+(defun validate-set-code-transaction-fields (transaction)
+  (when (typep transaction 'set-code-transaction)
+    (unless (transaction-to transaction)
+      (block-validation-fail "Set-code transaction cannot create contracts"))
+    (when (null (transaction-authorization-list transaction))
+      (block-validation-fail
+       "Set-code transaction requires an authorization list"))
+    (dolist (authorization (transaction-authorization-list transaction))
+      (validate-set-code-authorization-fields authorization)))
+  t)
+
 (defun validate-sized-byte-vector (value size label)
   (let ((bytes (handler-case
                    (ensure-byte-vector value)
@@ -1615,6 +1646,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            blob-base-fee-update-fraction))))
     (dolist (transaction transactions)
       (validate-access-list-fields transaction)
+      (validate-set-code-transaction-fields transaction)
       (when base-fee
         (validate-1559-transaction-fees transaction base-fee))
       (when (typep transaction 'blob-transaction)
