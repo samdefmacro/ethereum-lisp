@@ -374,6 +374,7 @@
    #:set-code-authorization-y-parity
    #:set-code-authorization-r
    #:set-code-authorization-s
+   #:set-code-authorization-from-rlp-object
    #:set-code-authorization-signing-hash
    #:set-code-authorization-authority
    #:set-code-delegation-code
@@ -381,10 +382,20 @@
    #:set-code-transaction
    #:make-set-code-transaction
    #:set-code-transaction-chain-id
+   #:set-code-transaction-nonce
+   #:set-code-transaction-max-priority-fee-per-gas
+   #:set-code-transaction-max-fee-per-gas
+   #:set-code-transaction-gas-limit
+   #:set-code-transaction-to
+   #:set-code-transaction-value
+   #:set-code-transaction-data
+   #:set-code-transaction-access-list
+   #:set-code-transaction-authorization-list
    #:set-code-transaction-y-parity
    #:set-code-transaction-r
    #:set-code-transaction-s
    #:set-code-transaction-encoding
+   #:set-code-transaction-from-rlp
    #:set-code-transaction-hash
    #:set-code-transaction-signing-hash
    #:set-code-transaction-sender
@@ -1048,6 +1059,7 @@
    #:set-code-authorization-y-parity
    #:set-code-authorization-r
    #:set-code-authorization-s
+   #:set-code-authorization-from-rlp-object
    #:set-code-authorization-signing-hash
    #:set-code-authorization-authority
    #:set-code-delegation-code
@@ -1055,10 +1067,20 @@
    #:set-code-transaction
    #:make-set-code-transaction
    #:set-code-transaction-chain-id
+   #:set-code-transaction-nonce
+   #:set-code-transaction-max-priority-fee-per-gas
+   #:set-code-transaction-max-fee-per-gas
+   #:set-code-transaction-gas-limit
+   #:set-code-transaction-to
+   #:set-code-transaction-value
+   #:set-code-transaction-data
+   #:set-code-transaction-access-list
+   #:set-code-transaction-authorization-list
    #:set-code-transaction-y-parity
    #:set-code-transaction-r
    #:set-code-transaction-s
    #:set-code-transaction-encoding
+   #:set-code-transaction-from-rlp
    #:set-code-transaction-hash
    #:set-code-transaction-signing-hash
    #:set-code-transaction-sender
@@ -1683,6 +1705,7 @@
    #:set-code-authorization-y-parity
    #:set-code-authorization-r
    #:set-code-authorization-s
+   #:set-code-authorization-from-rlp-object
    #:set-code-authorization-signing-hash
    #:set-code-authorization-authority
    #:set-code-delegation-code
@@ -1690,10 +1713,20 @@
    #:set-code-transaction
    #:make-set-code-transaction
    #:set-code-transaction-chain-id
+   #:set-code-transaction-nonce
+   #:set-code-transaction-max-priority-fee-per-gas
+   #:set-code-transaction-max-fee-per-gas
+   #:set-code-transaction-gas-limit
+   #:set-code-transaction-to
+   #:set-code-transaction-value
+   #:set-code-transaction-data
+   #:set-code-transaction-access-list
+   #:set-code-transaction-authorization-list
    #:set-code-transaction-y-parity
    #:set-code-transaction-r
    #:set-code-transaction-s
    #:set-code-transaction-encoding
+   #:set-code-transaction-from-rlp
    #:set-code-transaction-hash
    #:set-code-transaction-signing-hash
    #:set-code-transaction-sender

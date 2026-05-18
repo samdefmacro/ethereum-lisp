@@ -3189,6 +3189,64 @@
                        10
                        (make-rlp-list (make-byte-vector 31))
                        1 8 9))))
+    (let ((decoded (transaction-from-encoding
+                    (set-code-transaction-encoding tx4))))
+      (is (typep decoded 'set-code-transaction))
+      (is (= 1 (set-code-transaction-chain-id decoded)))
+      (is (= 2 (set-code-transaction-nonce decoded)))
+      (is (= 3 (set-code-transaction-max-priority-fee-per-gas decoded)))
+      (is (= 4 (set-code-transaction-max-fee-per-gas decoded)))
+      (is (= 5 (set-code-transaction-gas-limit decoded)))
+      (is (string= (address-to-hex recipient)
+                   (address-to-hex (set-code-transaction-to decoded))))
+      (is (= 6 (set-code-transaction-value decoded)))
+      (is (bytes= #(7) (set-code-transaction-data decoded)))
+      (is (= 1 (length (set-code-transaction-access-list decoded))))
+      (is (= 1 (length (set-code-transaction-authorization-list decoded))))
+      (let ((decoded-authorization
+              (first (set-code-transaction-authorization-list decoded))))
+        (is (= 1 (set-code-authorization-chain-id decoded-authorization)))
+        (is (string= (address-to-hex recipient)
+                     (address-to-hex
+                      (set-code-authorization-address
+                       decoded-authorization))))
+        (is (= 11 (set-code-authorization-nonce decoded-authorization)))
+        (is (= 1 (set-code-authorization-y-parity decoded-authorization)))
+        (is (= 12 (set-code-authorization-r decoded-authorization)))
+        (is (= 13 (set-code-authorization-s decoded-authorization))))
+      (is (= 1 (set-code-transaction-y-parity decoded)))
+      (is (= 8 (set-code-transaction-r decoded)))
+      (is (= 9 (set-code-transaction-s decoded)))
+      (is (bytes= (set-code-transaction-encoding tx4)
+                  (set-code-transaction-encoding decoded))))
+    (signals block-validation-error
+      (set-code-transaction-from-rlp (rlp-encode (list 1 2 3))))
+    (signals block-validation-error
+      (set-code-transaction-from-rlp
+       (rlp-encode
+        (make-rlp-list 1 2 3 4 5
+                       (make-byte-vector 0)
+                       6
+                       (make-byte-vector 1 :initial-element 7)
+                       (make-rlp-list)
+                       (make-rlp-list
+                        (make-rlp-list 1
+                                       (address-bytes recipient)
+                                       11 1 12 13))
+                       1 8 9))))
+    (signals block-validation-error
+      (set-code-transaction-from-rlp
+       (rlp-encode
+        (make-rlp-list 1 2 3 4 5
+                       (address-bytes recipient)
+                       6
+                       (make-byte-vector 1 :initial-element 7)
+                       (make-rlp-list)
+                       (make-rlp-list
+                        (make-rlp-list 1
+                                       (make-byte-vector 0)
+                                       11 1 12 13))
+                       1 8 9))))
     (is (hash32-p (transaction-hash tx1)))
     (is (hash32-p (blob-transaction-signing-hash tx3)))
     (is (not (string= (hash32-to-hex (blob-transaction-signing-hash tx3))
