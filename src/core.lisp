@@ -32,6 +32,8 @@
 (defconstant +gas-limit-bound-divisor+ 1024)
 (defconstant +minimum-gas-limit+ 5000)
 (defconstant +max-header-gas-limit+ #x7fffffffffffffff)
+(defconstant +block-access-list-max-code-size+ 24576)
+(defconstant +block-access-list-amsterdam-max-code-size+ 32768)
 (defconstant +genesis-gas-limit+ 4712388)
 (defconstant +genesis-difficulty+ 131072)
 
@@ -2272,15 +2274,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      "Block access list nonce change nonce must be uint64"))
   t)
 
-(defun validate-block-access-code-change-fields (change)
+(defun validate-block-access-code-change-fields (change &key max-code-size)
   (unless (block-access-code-change-p change)
     (block-validation-fail
      "Block access list code change must be a code change"))
   (unless (uint32-value-p (block-access-code-change-tx-index change))
     (block-validation-fail
      "Block access list code change tx index must be uint32"))
-  (validate-byte-sequence-field (block-access-code-change-code change)
-                                "Block access list code change code")
+  (let ((code (validate-byte-sequence-field
+               (block-access-code-change-code change)
+               "Block access list code change code")))
+    (when (and max-code-size
+               (> (length code) max-code-size))
+      (block-validation-fail
+       "Block access list code change exceeds maximum code size")))
   t)
 
 (defun validate-block-access-indexed-change-list
@@ -2298,7 +2305,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (setf previous-tx-index tx-index))))
   t)
 
-(defun validate-block-access-account-fields (account)
+(defun validate-block-access-account-fields (account &key max-code-size)
   (unless (block-access-account-p account)
     (block-validation-fail
      "Block access list account must be a block access account"))
@@ -2320,7 +2327,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    "nonce changes")
   (validate-block-access-indexed-change-list
    (block-access-account-code-changes account)
-   #'validate-block-access-code-change-fields
+   (lambda (change)
+     (validate-block-access-code-change-fields
+      change
+      :max-code-size max-code-size))
    #'block-access-code-change-tx-index
    "code changes")
   (let ((previous-slot-bytes nil)
@@ -2353,12 +2363,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (setf previous-slot-bytes slot-bytes))))
   t)
 
-(defun validate-block-access-list-fields (block-access-list)
+(defun validate-block-access-list-fields (block-access-list &key max-code-size)
   (unless (listp block-access-list)
     (block-validation-fail "Block access list must be a list"))
   (let ((previous-address-bytes nil))
     (dolist (account block-access-list)
-      (validate-block-access-account-fields account)
+      (validate-block-access-account-fields account
+                                            :max-code-size max-code-size)
       (let ((address-bytes (address-bytes
                             (block-access-account-address account))))
         (when (and previous-address-bytes
@@ -3119,7 +3130,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun validate-block-body-against-config (block config)
   (let* ((header (block-header block))
          (number (block-header-number header))
-         (timestamp (block-header-timestamp header)))
+         (timestamp (block-header-timestamp header))
+         (block-access-list-max-code-size
+           (if (chain-config-amsterdam-p config number timestamp)
+               +block-access-list-amsterdam-max-code-size+
+               +block-access-list-max-code-size+)))
     (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
         (chain-config-blob-schedule config number timestamp)
       (declare (ignore target-blob-gas))
@@ -3127,7 +3142,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (validate-block-body-roots block
                                  :blob-base-fee-update-fraction
                                  update-fraction
-                                 :max-blob-gas max-blob-gas))))
+                                 :max-blob-gas max-blob-gas
+                                 :block-access-list-max-code-size
+                                 block-access-list-max-code-size))))
 
 (defun validate-block-against-config (parent-header block config)
   (validate-block-header-against-config parent-header (block-header block)
@@ -3138,7 +3155,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block &key (blob-base-fee-update-fraction
                  +blob-base-fee-update-fraction+)
                 (max-blob-gas
-                 (* +max-blobs-per-block+ +blob-gas-per-blob+)))
+                 (* +max-blobs-per-block+ +blob-gas-per-blob+))
+                block-access-list-max-code-size)
   (let* ((header (block-header block))
          (ommers (block-ommers block))
          (ommers-root nil)
@@ -3175,7 +3193,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when (block-requests-present-p block)
       (validate-execution-request-list-fields (block-requests block)))
     (when (block-block-access-list-present-p block)
-      (validate-block-access-list-fields (block-block-access-list block)))
+      (validate-block-access-list-fields
+       (block-block-access-list block)
+       :max-code-size block-access-list-max-code-size))
     (unless (hash32= ommers-root (block-header-ommers-hash header))
       (block-validation-fail "Ommers root hash mismatch"))
     (when (and (block-header-post-merge-p header)

@@ -1632,7 +1632,11 @@
               :code-changes
               (list (make-block-access-code-change
                      :tx-index 1
-                     :code "not bytes"))))))))
+                     :code "not bytes"))))))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       access-list
+       :max-code-size 3))))
 
 (deftest block-access-list-validates-account-order
   (let ((first (make-block-access-account
@@ -2073,6 +2077,42 @@
            (block-header pre-amsterdam-block)) nil)
     (signals block-validation-error
       (validate-block-body-roots pre-amsterdam-block))))
+
+(deftest block-body-validates-block-access-list-code-change-size
+  (let* ((address (address-from-hex
+                   "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 0))
+         (limit-code (make-byte-vector
+                      +block-access-list-amsterdam-max-code-size+))
+         (oversized-code (make-byte-vector
+                          (1+ +block-access-list-amsterdam-max-code-size+)))
+         (limit-account
+           (make-block-access-account
+            :address address
+            :code-changes
+            (list (make-block-access-code-change :tx-index 1
+                                                 :code limit-code))))
+         (oversized-account
+           (make-block-access-account
+            :address address
+            :code-changes
+            (list (make-block-access-code-change :tx-index 1
+                                                 :code oversized-code))))
+         (limit-block
+           (make-block :header (make-block-header :timestamp 0)
+                       :block-access-list (list limit-account)))
+         (oversized-block
+           (make-block :header (make-block-header :timestamp 0)
+                       :block-access-list (list oversized-account))))
+    (is (validate-block-body-against-config limit-block config))
+    (signals block-validation-error
+      (validate-block-body-against-config oversized-block config))
+    (signals block-validation-error
+      (validate-block-body-roots
+       limit-block
+       :block-access-list-max-code-size
+       +block-access-list-max-code-size+))))
 
 (deftest block-body-validates-block-access-list-shape-before-hash
   (let ((block (make-block)))

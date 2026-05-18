@@ -435,6 +435,15 @@
           max-blob-gas)
         (* +max-blobs-per-block+ +blob-gas-per-blob+))))
 
+(defun execution-block-access-list-max-code-size
+    (chain-rules chain-config block-number timestamp)
+  (let ((effective-chain-rules
+          (execution-chain-rules chain-rules chain-config block-number timestamp)))
+    (if (and effective-chain-rules
+             (chain-rules-amsterdam-p effective-chain-rules))
+        +block-access-list-amsterdam-max-code-size+
+        +block-access-list-max-code-size+)))
+
 (defun execution-block-blob-base-fee (header chain-rules chain-config)
   (if (block-header-excess-blob-gas header)
       (block-header-blob-base-fee
@@ -1022,7 +1031,8 @@
                               requests-supplied-p
                               block-access-list
                               block-access-list-supplied-p
-                              max-blob-gas)
+                              max-blob-gas
+                              block-access-list-max-code-size)
   (let ((actual-blob-gas-used (blob-gas-used transactions))
         (header-blob-gas-used (block-header-blob-gas-used header)))
     (when (and (block-header-transactions-root header)
@@ -1063,14 +1073,18 @@
       (unless block-access-list-supplied-p
         (error 'block-validation-error
                :message "Missing block access list in block body"))
-      (validate-block-access-list-fields block-access-list)
+      (validate-block-access-list-fields
+       block-access-list
+       :max-code-size block-access-list-max-code-size)
       (unless (execution-hash32= (block-header-block-access-list-hash header)
                                  (block-access-list-hash block-access-list))
         (error 'block-validation-error
                :message "Block access list hash mismatch")))
     (when (and block-access-list-supplied-p
                (not (block-header-block-access-list-hash header)))
-      (validate-block-access-list-fields block-access-list))
+      (validate-block-access-list-fields
+       block-access-list
+       :max-code-size block-access-list-max-code-size))
     (when (and header-blob-gas-used
                (/= header-blob-gas-used actual-blob-gas-used))
       (error 'block-validation-error :message "Blob gas used mismatch"))
@@ -1179,6 +1193,12 @@
                                    chain-config
                                    (block-header-number header)
                                    (block-header-timestamp header)))
+         (block-access-list-max-code-size
+           (execution-block-access-list-max-code-size
+            chain-rules
+            chain-config
+            (block-header-number header)
+            (block-header-timestamp header)))
          (actual-blob-gas-used
           (validate-block-body-commitments-before-execution
            transactions header
@@ -1189,7 +1209,9 @@
            :requests-supplied-p requests-supplied-p
            :block-access-list block-access-list
            :block-access-list-supplied-p block-access-list-supplied-p
-           :max-blob-gas max-blob-gas)))
+           :max-blob-gas max-blob-gas
+           :block-access-list-max-code-size
+           block-access-list-max-code-size)))
     (validate-block-fork-body-shape-before-execution
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
@@ -1270,6 +1292,12 @@
                                    chain-config
                                    (block-header-number header)
                                    (block-header-timestamp header)))
+         (block-access-list-max-code-size
+           (execution-block-access-list-max-code-size
+            chain-rules
+            chain-config
+            (block-header-number header)
+            (block-header-timestamp header)))
          (actual-blob-gas-used
           (validate-block-body-commitments-before-execution
            transactions header
@@ -1280,7 +1308,9 @@
            :requests-supplied-p requests-supplied-p
            :block-access-list block-access-list
            :block-access-list-supplied-p block-access-list-supplied-p
-           :max-blob-gas max-blob-gas)))
+           :max-blob-gas max-blob-gas
+           :block-access-list-max-code-size
+           block-access-list-max-code-size)))
     (validate-block-fork-body-shape-before-execution
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
