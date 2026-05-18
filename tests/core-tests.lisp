@@ -2889,6 +2889,52 @@
              (error (field response "error")))
         (is (= -32602 (field error "code"))))))))
 
+(deftest engine-rpc-get-payload-v3-returns-cancun-envelope
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((payload-id #(3 0 0 0 0 0 0 1))
+           (block
+             (make-block
+              :header
+              (make-block-header :number 7
+                                 :timestamp 12
+                                 :blob-gas-used 0
+                                 :excess-blob-gas 0)))
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (engine-payload-store-put-prepared-payload
+       store
+       (make-engine-prepared-payload
+        :payload-id payload-id
+        :version 3
+        :block block))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 37)
+                      (cons "method" "engine_getPayloadV3")
+                      (cons "params" (list (bytes-to-hex payload-id))))
+                store
+                config))
+             (envelope (field response "result"))
+             (payload (field envelope "executionPayload"))
+             (bundle (field envelope "blobsBundle")))
+        (is (= 37 (field response "id")))
+        (is (string= "0x0" (field envelope "blockValue")))
+        (is (eq :false (field envelope "shouldOverrideBuilder")))
+        (is (string= "0x0" (field payload "blobGasUsed")))
+        (is (string= "0x0" (field payload "excessBlobGas")))
+        (is (listp (field bundle "commitments")))
+        (is (listp (field bundle "proofs")))
+        (is (listp (field bundle "blobs")))
+        (is (= 0 (length (field bundle "commitments")))))
+      (let* ((response-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"engine_getPayloadV3\",\"params\":[\"0x0300000000000001\"]}"
+                store
+                config)))
+        (is (search "\"shouldOverrideBuilder\":false" response-json))))))
+
 (deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3149,6 +3195,7 @@
       (is (member "engine_newPayloadV5" capabilities :test #'string=))
       (is (member "engine_getPayloadV1" capabilities :test #'string=))
       (is (member "engine_getPayloadV2" capabilities :test #'string=))
+      (is (member "engine_getPayloadV3" capabilities :test #'string=))
       (is (member "engine_getPayloadBodiesByHashV1"
                   capabilities
                   :test #'string=))

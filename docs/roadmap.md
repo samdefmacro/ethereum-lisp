@@ -554,7 +554,10 @@ returns the execution payload object for the prepared block and reports missing
 ids with the Engine API `Unknown payload` error code `-38001`. The first
 `engine_getPayloadV2` path is also wired through the same prepared-payload
 store and returns a geth/Nethermind-shaped payload envelope with
-`executionPayload` and `blockValue`. `engine_getPayloadBodiesByHashV1` can now
+`executionPayload` and `blockValue`; `engine_getPayloadV3` now returns the
+Cancun envelope shape with an empty V1 `blobsBundle` and explicit
+`shouldOverrideBuilder` false marker for locally prepared payloads.
+`engine_getPayloadBodiesByHashV1` can now
 serve transaction/withdrawal bodies from the same memory store, preserving
 request order, returning `null` for unknown hashes, and rejecting over-1024
 body requests with Engine `Too large request` error code `-38004`.

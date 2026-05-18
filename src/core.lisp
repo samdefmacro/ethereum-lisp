@@ -721,6 +721,7 @@
   (cond
     ((null value) (write-string "null" stream))
     ((eq value t) (write-string "true" stream))
+    ((eq value :false) (write-string "false" stream))
     ((stringp value) (write-json-string value stream))
     ((integerp value) (write-string (write-to-string value :base 10) stream))
     ((json-object-p value)
@@ -3145,7 +3146,24 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (cons "slotNumber"
             (quantity-to-hex (executable-data-slot-number payload)))))))
 
-(defun engine-rpc-execution-payload-envelope-object (envelope)
+(defun engine-rpc-blobs-bundle-object (bundle)
+  (let ((sidecar (or bundle (make-blob-sidecar))))
+    (unless (typep sidecar 'blob-sidecar)
+      (block-validation-fail
+       "Engine RPC blobs bundle must be a blob sidecar"))
+    (list
+     (cons "commitments"
+           (mapcar #'bytes-to-hex
+                   (blob-sidecar-commitments sidecar)))
+     (cons "proofs"
+           (mapcar #'bytes-to-hex
+                   (blob-sidecar-proofs sidecar)))
+     (cons "blobs"
+           (mapcar #'bytes-to-hex
+                   (blob-sidecar-blobs sidecar))))))
+
+(defun engine-rpc-execution-payload-envelope-object
+    (envelope &key include-blobs-bundle-p include-override-p)
   (unless (typep envelope 'execution-payload-envelope)
     (block-validation-fail
      "Engine RPC payload envelope must be execution-payload-envelope"))
@@ -3161,8 +3179,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (cons "executionRequests"
             (mapcar #'bytes-to-hex
                     (execution-payload-envelope-requests envelope)))))
-   (when (execution-payload-envelope-override-p envelope)
-     (list (cons "shouldOverrideBuilder" t)))))
+   (when include-blobs-bundle-p
+     (list
+      (cons "blobsBundle"
+            (engine-rpc-blobs-bundle-object
+             (execution-payload-envelope-blobs-bundle envelope)))))
+   (when (or include-override-p
+             (execution-payload-envelope-override-p envelope))
+     (list
+      (cons "shouldOverrideBuilder"
+            (if (execution-payload-envelope-override-p envelope)
+                t
+                :false))))))
 
 (defun engine-rpc-payload-body-v1-object (block)
   (unless (typep block 'ethereum-block)
@@ -3298,6 +3326,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     "engine_getPayloadBodiesByRangeV2"
     "engine_getPayloadV1"
     "engine_getPayloadV2"
+    "engine_getPayloadV3"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3483,6 +3512,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail "payload id is not for engine_getPayloadV2"))
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload))))
+
+(defun engine-rpc-handle-get-payload-v3 (params store)
+  (let ((prepared-payload
+          (engine-rpc-prepared-payload
+           params store "engine_getPayloadV3")))
+    (unless (= 3 (engine-prepared-payload-version prepared-payload))
+      (block-validation-fail "payload id is not for engine_getPayloadV3"))
+    (engine-rpc-execution-payload-envelope-object
+     (engine-rpc-prepared-payload-envelope prepared-payload)
+     :include-blobs-bundle-p t
+     :include-override-p t)))
 
 (defconstant +engine-rpc-max-payload-bodies-request+ 1024)
 
@@ -3675,6 +3715,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-v2 params store)))
+              ((string= method "engine_getPayloadV3")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-v3 params store)))
               ((string= method "engine_getPayloadBodiesByHashV1")
                (engine-rpc-response
                 id
