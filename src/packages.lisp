@@ -437,6 +437,10 @@
    #:make-block-access-slot-writes
    #:block-access-slot-writes-slot
    #:block-access-slot-writes-accesses
+   #:block-access-balance-change
+   #:make-block-access-balance-change
+   #:block-access-balance-change-tx-index
+   #:block-access-balance-change-balance
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
@@ -1040,6 +1044,10 @@
    #:make-block-access-slot-writes
    #:block-access-slot-writes-slot
    #:block-access-slot-writes-accesses
+   #:block-access-balance-change
+   #:make-block-access-balance-change
+   #:block-access-balance-change-tx-index
+   #:block-access-balance-change-balance
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
@@ -1604,6 +1612,10 @@
    #:make-block-access-slot-writes
    #:block-access-slot-writes-slot
    #:block-access-slot-writes-accesses
+   #:block-access-balance-change
+   #:make-block-access-balance-change
+   #:block-access-balance-change-tx-index
+   #:block-access-balance-change-balance
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash

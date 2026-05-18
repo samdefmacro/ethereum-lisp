@@ -1520,6 +1520,44 @@
                      :accesses (list write-1)))
               :storage-reads (list slot-1)))))))
 
+(deftest block-access-list-rlp-encodes-balance-changes
+  (let* ((change-1 (make-block-access-balance-change
+                    :tx-index 1
+                    :balance 100))
+         (change-2 (make-block-access-balance-change
+                    :tx-index 2
+                    :balance 500))
+         (account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")
+                   :balance-changes (list change-1 change-2)))
+         (access-list (list account)))
+    (is (string=
+         "0xe3e2940000000000000000000000000000000000000001c0c0c8c20164c4028201f4c0c0"
+         (bytes-to-hex (block-access-list-rlp access-list))))
+    (is (validate-block-access-list-fields access-list))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :balance-changes (list change-2 change-1)))))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :balance-changes (list change-1 change-1)))))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :balance-changes
+              (list (make-block-access-balance-change
+                     :tx-index (expt 2 32)
+                     :balance 100))))))))
+
 (deftest block-access-list-validates-account-order
   (let ((first (make-block-access-account
                 :address (address-from-hex

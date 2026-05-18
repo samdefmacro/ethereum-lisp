@@ -2066,6 +2066,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   slot
   (accesses '() :type list))
 
+(defstruct (block-access-balance-change
+            (:constructor make-block-access-balance-change
+                (&key tx-index balance)))
+  tx-index
+  balance)
+
 (defun hash32-uint256 (hash)
   (bytes-to-integer (hash32-bytes hash)))
 
@@ -2081,13 +2087,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (mapcar #'block-access-storage-write-rlp-object
                   (block-access-slot-writes-accesses slot-writes)))))
 
+(defun block-access-balance-change-rlp-object (change)
+  (make-rlp-list
+   (block-access-balance-change-tx-index change)
+   (block-access-balance-change-balance change)))
+
 (defun block-access-account-rlp-object (account)
   (make-rlp-list
    (address-bytes (block-access-account-address account))
    (mapcar #'block-access-slot-writes-rlp-object
            (block-access-account-storage-writes account))
    (mapcar #'hash32-uint256 (block-access-account-storage-reads account))
-   (block-access-account-balance-changes account)
+   (mapcar #'block-access-balance-change-rlp-object
+           (block-access-account-balance-changes account))
    (block-access-account-nonce-changes account)
    (block-access-account-code-changes account)))
 
@@ -2212,6 +2224,33 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (setf previous-tx-index tx-index))))
   t)
 
+(defun validate-block-access-balance-change-fields (change)
+  (unless (block-access-balance-change-p change)
+    (block-validation-fail
+     "Block access list balance change must be a balance change"))
+  (unless (uint32-value-p (block-access-balance-change-tx-index change))
+    (block-validation-fail
+     "Block access list balance change tx index must be uint32"))
+  (unless (uint256-p (block-access-balance-change-balance change))
+    (block-validation-fail
+     "Block access list balance change balance must be uint256"))
+  t)
+
+(defun validate-block-access-indexed-change-list
+    (changes validate-change tx-index-fn label)
+  (unless (listp changes)
+    (block-validation-fail "Block access list ~A must be a list" label))
+  (let ((previous-tx-index nil))
+    (dolist (change changes)
+      (funcall validate-change change)
+      (let ((tx-index (funcall tx-index-fn change)))
+        (when (and previous-tx-index
+                   (<= tx-index previous-tx-index))
+          (block-validation-fail
+           "Block access list ~A tx indices must be sorted" label))
+        (setf previous-tx-index tx-index))))
+  t)
+
 (defun validate-block-access-account-fields (account)
   (unless (block-access-account-p account)
     (block-validation-fail
@@ -2222,6 +2261,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Block access list storage writes must be a list"))
   (unless (listp (block-access-account-storage-reads account))
     (block-validation-fail "Block access list storage reads must be a list"))
+  (validate-block-access-indexed-change-list
+   (block-access-account-balance-changes account)
+   #'validate-block-access-balance-change-fields
+   #'block-access-balance-change-tx-index
+   "balance changes")
   (let ((previous-slot-bytes nil)
         (write-slot-table (make-hash-table :test #'equal)))
     (dolist (slot-writes (block-access-account-storage-writes account))
@@ -2250,8 +2294,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (block-validation-fail
            "Block access list storage read duplicates a storage write slot"))
         (setf previous-slot-bytes slot-bytes))))
-  (dolist (field (list (block-access-account-balance-changes account)
-                       (block-access-account-nonce-changes account)
+  (dolist (field (list (block-access-account-nonce-changes account)
                        (block-access-account-code-changes account)))
     (unless (null field)
       (block-validation-fail
