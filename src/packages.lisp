@@ -497,6 +497,11 @@
    #:payload-status-latest-valid-hash
    #:payload-status-validation-error
    #:payload-status-witness
+   #:forkchoice-state
+   #:make-forkchoice-state
+   #:forkchoice-state-head-block-hash
+   #:forkchoice-state-safe-block-hash
+   #:forkchoice-state-finalized-block-hash
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
@@ -519,6 +524,10 @@
    #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
+   #:engine-rpc-forkchoice-state-from-object
+   #:engine-forkchoice-memory-status
+   #:engine-rpc-forkchoice-response-object
+   #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
@@ -1251,6 +1260,11 @@
    #:payload-status-latest-valid-hash
    #:payload-status-validation-error
    #:payload-status-witness
+   #:forkchoice-state
+   #:make-forkchoice-state
+   #:forkchoice-state-head-block-hash
+   #:forkchoice-state-safe-block-hash
+   #:forkchoice-state-finalized-block-hash
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
@@ -1273,6 +1287,10 @@
    #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
+   #:engine-rpc-forkchoice-state-from-object
+   #:engine-forkchoice-memory-status
+   #:engine-rpc-forkchoice-response-object
+   #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
@@ -1966,6 +1984,11 @@
    #:payload-status-latest-valid-hash
    #:payload-status-validation-error
    #:payload-status-witness
+   #:forkchoice-state
+   #:make-forkchoice-state
+   #:forkchoice-state-head-block-hash
+   #:forkchoice-state-safe-block-hash
+   #:forkchoice-state-finalized-block-hash
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
@@ -1988,6 +2011,10 @@
    #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
+   #:engine-rpc-forkchoice-state-from-object
+   #:engine-forkchoice-memory-status
+   #:engine-rpc-forkchoice-response-object
+   #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string

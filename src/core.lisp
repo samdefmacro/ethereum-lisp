@@ -2463,6 +2463,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   validation-error
   witness)
 
+(defstruct (forkchoice-state
+            (:constructor make-forkchoice-state
+                (&key head-block-hash safe-block-hash finalized-block-hash)))
+  head-block-hash
+  safe-block-hash
+  finalized-block-hash)
+
 (defun maybe-copy-bytes (bytes)
   (when bytes
     (copy-seq (ensure-byte-vector bytes))))
@@ -2720,6 +2727,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun invalid-payload-status (message)
   (make-payload-status :status +payload-status-invalid+
                        :validation-error message))
+
+(defun forkchoice-state-zero-head-status ()
+  (invalid-payload-status "forkchoice head block hash is zero"))
 
 (defun engine-new-payload-version-invalid-p
     (version payload config versioned-hashes-supplied-p
@@ -3029,8 +3039,55 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (cons "validationError" (payload-status-validation-error status))
         (cons "witness" (payload-status-witness status))))
 
+(defun engine-rpc-forkchoice-state-from-object (object)
+  (unless (json-object-p object)
+    (block-validation-fail
+     "engine_forkchoiceUpdatedV1 params must contain forkchoice state object"))
+  (make-forkchoice-state
+   :head-block-hash
+   (engine-rpc-required-hash32-field object "headBlockHash")
+   :safe-block-hash
+   (engine-rpc-required-hash32-field object "safeBlockHash")
+   :finalized-block-hash
+   (engine-rpc-required-hash32-field object "finalizedBlockHash")))
+
+(defun engine-rpc-validate-payload-attributes-v1 (object)
+  (unless (json-object-p object)
+    (block-validation-fail
+     "engine_forkchoiceUpdatedV1 payloadAttributes must be an object or null"))
+  (engine-rpc-required-quantity-field object "timestamp")
+  (engine-rpc-required-hash32-field object "prevRandao")
+  (engine-rpc-required-address-field object "suggestedFeeRecipient")
+  t)
+
+(defun engine-forkchoice-memory-status (store state)
+  (unless (typep store 'engine-payload-memory-store)
+    (return-from engine-forkchoice-memory-status
+      (invalid-payload-status
+       "forkchoiceUpdated store must be engine-payload-memory-store")))
+  (unless (typep state 'forkchoice-state)
+    (return-from engine-forkchoice-memory-status
+      (invalid-payload-status "forkchoice state must be forkchoice-state")))
+  (let ((head-hash (forkchoice-state-head-block-hash state)))
+    (cond
+      ((hash32= head-hash (zero-hash32))
+       (forkchoice-state-zero-head-status))
+      ((engine-payload-store-invalid-ancestor-status
+        store head-hash head-hash))
+      ((engine-payload-store-known-block store head-hash)
+       (make-payload-status
+        :status +payload-status-valid+
+        :latest-valid-hash head-hash))
+      (t
+       (make-payload-status :status +payload-status-syncing+)))))
+
+(defun engine-rpc-forkchoice-response-object (status &key payload-id)
+  (list (cons "payloadStatus" (engine-rpc-payload-status-object status))
+        (cons "payloadId" payload-id)))
+
 (defparameter +engine-rpc-capabilities+
   '("engine_exchangeTransitionConfigurationV1"
+    "engine_forkchoiceUpdatedV1"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3069,9 +3126,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     ((string= method "engine_newPayloadV5") 5)
     (t nil)))
 
-(defun engine-rpc-required-param (params index label)
+(defun engine-rpc-required-param
+    (params index label &optional (method "engine_newPayload"))
   (unless (< index (length params))
-    (block-validation-fail "engine_newPayload param ~A is missing" label))
+    (block-validation-fail "~A param ~A is missing" method label))
   (nth index params))
 
 (defun engine-rpc-handle-new-payload (version params store config)
@@ -3151,6 +3209,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-rpc-validate-transition-configuration (first params))
   (engine-rpc-transition-configuration-object config))
 
+(defun engine-rpc-handle-forkchoice-updated-v1 (params store)
+  (unless (and (listp params) params)
+    (block-validation-fail
+     "engine_forkchoiceUpdatedV1 params must include forkchoice state"))
+  (let ((state
+          (engine-rpc-forkchoice-state-from-object
+           (engine-rpc-required-param
+            params 0 "forkchoiceState" "engine_forkchoiceUpdatedV1")))
+        (payload-attributes
+          (when (< 1 (length params))
+            (second params))))
+    (when payload-attributes
+      (engine-rpc-validate-payload-attributes-v1 payload-attributes))
+    (engine-rpc-forkchoice-response-object
+     (engine-forkchoice-memory-status store state)
+     :payload-id nil)))
+
 (defun engine-rpc-response (id &key result error)
   (append (list (cons "jsonrpc" "2.0")
                 (cons "id" id))
@@ -3195,6 +3270,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-exchange-capabilities params)))
+              ((string= method "engine_forkchoiceUpdatedV1")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-forkchoice-updated-v1 params store)))
               ((string= method "engine_getClientVersionV1")
                (engine-rpc-response
                 id

@@ -2707,6 +2707,84 @@
         (is (not (field (second responses) "id")))
         (is (= -32600 (field second-error "code")))))))
 
+(deftest engine-rpc-forkchoice-updated-v1-reports-memory-status
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (forkchoice-state-object (head)
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                   (cons "finalizedBlockHash"
+                         (hash32-to-hex (zero-hash32)))))
+           (payload-attributes-object ()
+             (list (cons "timestamp" "0x1")
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))))
+           (forkchoice-request (id state &optional payload-attributes)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV1")
+                   (cons "params" (list state payload-attributes)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (known-block (make-block))
+           (known-hash (block-hash known-block))
+           (unknown-hash
+             (hash32-from-hex
+              "0x1111111111111111111111111111111111111111111111111111111111111111")))
+      (engine-payload-store-put-block
+       store known-block :state-available-p t)
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 17
+                 (forkchoice-state-object known-hash)
+                 (payload-attributes-object))
+                store
+                config))
+             (result (field response "result"))
+             (payload-status (field result "payloadStatus")))
+        (is (= 17 (field response "id")))
+        (is (string= +payload-status-valid+
+                     (field payload-status "status")))
+        (is (string= (hash32-to-hex known-hash)
+                     (field payload-status "latestValidHash")))
+        (is (not (field result "payloadId"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 18
+                 (forkchoice-state-object unknown-hash))
+                store
+                config))
+             (payload-status
+               (field (field response "result") "payloadStatus")))
+        (is (string= +payload-status-syncing+
+                     (field payload-status "status")))
+        (is (not (field payload-status "latestValidHash"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 19
+                 (forkchoice-state-object (zero-hash32)))
+                store
+                config))
+             (payload-status
+               (field (field response "result") "payloadStatus")))
+        (is (string= +payload-status-invalid+
+                     (field payload-status "status")))
+        (is (string= "forkchoice head block hash is zero"
+                     (field payload-status "validationError"))))
+      (let* ((bad-state
+               (list (cons "headBlockHash" (hash32-to-hex known-hash))))
+             (response
+               (engine-rpc-handle-request
+                (forkchoice-request 20 bad-state)
+                store
+                config))
+             (error (field response "error")))
+        (is (= -32602 (field error "code")))))))
+
 (deftest engine-rpc-exchange-capabilities-advertises-supported-methods
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -2728,9 +2806,9 @@
       (is (not (member "engine_exchangeCapabilities"
                        capabilities
                        :test #'string=)))
-      (is (not (member "engine_forkchoiceUpdatedV1"
-                       capabilities
-                       :test #'string=))))
+      (is (member "engine_forkchoiceUpdatedV1"
+                  capabilities
+                  :test #'string=)))
     (let* ((response (parse-json
                       (engine-rpc-handle-request-json
                        "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"engine_exchangeCapabilities\",\"params\":[7]}"

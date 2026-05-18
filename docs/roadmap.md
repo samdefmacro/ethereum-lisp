@@ -516,8 +516,7 @@ first pass, but interfaces must not block that path.
 Status: initial local Engine payload projection is present. Blocks can be
 converted into geth-shaped `ExecutableData` payload envelopes, including
 header fields, encoded transactions, optional withdrawals, optional execution
-requests, blob gas counters, and Amsterdam slot numbers. JSON-RPC transport and
-`newPayload` status handling remain. The reverse raw-transaction path has begun
+requests, blob gas counters, and Amsterdam slot numbers. The reverse raw-transaction path has begun
 with legacy, EIP-2930 access-list, EIP-1559 dynamic-fee, EIP-4844 blob, and
 EIP-7702 set-code transaction RLP decoding, so Engine payload transaction bytes
 can start feeding back into local transaction/root validation; `ExecutableData`
@@ -536,12 +535,17 @@ database-backed import path. A parsed JSON-RPC object dispatcher can now route
 return Engine-style payload status result objects. The same core can now encode
 single and batch JSON-RPC response strings for request-string entry points,
 and advertises the currently implemented `engine_newPayloadV1` through
-`engine_newPayloadV5` plus `engine_getClientVersionV1` and
+`engine_newPayloadV5` plus `engine_forkchoiceUpdatedV1`,
+`engine_getClientVersionV1`, and
 `engine_exchangeTransitionConfigurationV1` methods through
 `engine_exchangeCapabilities`; `engine_getClientVersionV1` now returns the
 local Common Lisp client identity, and
 `engine_exchangeTransitionConfigurationV1` returns the local terminal
-difficulty with zero terminal-block defaults. A first HTTP POST adapter now
+difficulty with zero terminal-block defaults. `engine_forkchoiceUpdatedV1` now
+parses forkchoice state and V1 payload attributes, maps known memory-store
+heads to `VALID`, unknown heads to `SYNCING`, and zero heads or cached invalid
+tipsets to `INVALID`, returning the Engine-style forkchoice response shell with
+a null payload id until payload building is implemented. A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
 Bearer authentication with HS256 signatures, 32-byte secrets, `iat` freshness,
