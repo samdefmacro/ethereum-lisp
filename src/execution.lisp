@@ -271,6 +271,10 @@
              :message "Transaction sender has non-delegation code")))
   t)
 
+(defun validate-transaction-senders-code (state senders)
+  (dolist (sender senders t)
+    (validate-transaction-sender-code state sender)))
+
 (defun validate-access-list-fields (tx)
   (dolist (entry (transaction-access-list tx) t)
     (unless (typep entry 'access-list-entry)
@@ -807,6 +811,7 @@
     (validate-execution-transaction-list-fields transactions
                                                 effective-chain-rules
                                                 blob-base-fee)
+    (validate-transaction-sender-code state sender)
     (dolist (tx transactions)
       (when (and block-gas-limit
                  (> (+ cumulative-gas (transaction-gas-limit tx))
@@ -852,6 +857,7 @@
                                                 blob-base-fee)
     (let ((senders (signed-transaction-senders-or-error transactions
                                                         expected-chain-id)))
+      (validate-transaction-senders-code state senders)
       (loop for tx in transactions
             for sender in senders
             do

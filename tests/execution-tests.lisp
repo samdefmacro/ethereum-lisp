@@ -162,6 +162,46 @@
             (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
+(deftest signed-message-list-preflights-sender-code-before-state-mutation
+  (let* ((state (make-state-db))
+         (first-sender
+           (address-from-hex "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
+         (second-sender
+           (address-from-hex "0xecf0824670edaa527366d79662bba5f201333bca"))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (balance 2000000000000000000)
+         (first (make-legacy-transaction
+                 :nonce 9
+                 :gas-price 20000000000
+                 :gas-limit 21000
+                 :to recipient
+                 :value 1000000000000000000
+                 :v 37
+                 :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+                 :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+         (second (make-legacy-transaction
+                  :nonce 10
+                  :gas-price 20000000000
+                  :gas-limit 21000
+                  :to recipient
+                  :value 1
+                  :v 37
+                  :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+                  :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83)))
+    (state-db-set-account state first-sender
+                          (make-state-account :nonce 9 :balance balance))
+    (state-db-set-code state second-sender #(0))
+    (signals transaction-validation-error
+      (apply-signed-message-list state (list first second)
+                                 :expected-chain-id 1))
+    (is (= 9 (state-account-nonce
+              (state-db-get-account state first-sender))))
+    (is (= balance
+           (state-account-balance
+            (state-db-get-account state first-sender))))
+    (is (null (state-db-get-account state recipient)))))
+
 (deftest message-list-preflights-transaction-fields-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

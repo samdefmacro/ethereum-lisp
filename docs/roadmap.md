@@ -358,11 +358,12 @@ point applies the same sender recovery per transaction while preserving header
 environment, gas-limit, receipt/root, withdrawal, and blob-gas accounting
 behavior; signed transaction list execution now preflights the full batch of
 signatures before mutating state, so a later invalid signature cannot leave
-earlier transactions applied. Transaction list execution also preflights
-list container/element shape, recipient, data, scalar bounds/fee caps,
-access-list, blob, set-code authorization field shapes, intrinsic gas
-sufficiency, and initcode size for the whole batch before applying the first
-transaction. Historical Ethash block beneficiary and ommer rewards now have a
+earlier transactions applied; it also preflights recovered sender code for the
+full signed batch before applying the first transaction. Transaction list
+execution also preflights list container/element shape, recipient, data,
+scalar bounds/fee caps, access-list, blob, set-code authorization field shapes,
+intrinsic gas sufficiency, and initcode size for the whole batch before
+applying the first transaction. Historical Ethash block beneficiary and ommer rewards now have a
 first-pass execution hook, with Frontier, Byzantium, and Constantinople base
 reward selection behind an explicit block-execution option; post-Merge
 zero-difficulty headers skip those Ethash rewards on the same execution path.
