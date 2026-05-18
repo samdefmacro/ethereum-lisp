@@ -2138,6 +2138,120 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (apply #'make-rlp-list
           (mapcar #'block-access-account-rlp-object block-access-list))))
 
+(defun require-block-access-rlp-list (value label)
+  (unless (rlp-list-p value)
+    (block-validation-fail "Block access list ~A must be an RLP list" label))
+  (rlp-list-items value))
+
+(defun require-block-access-rlp-list-fields (value count label)
+  (let ((items (require-block-access-rlp-list value label)))
+    (unless (= (length items) count)
+      (block-validation-fail "Block access list ~A must contain ~D fields"
+                             label count))
+    items))
+
+(defun require-block-access-rlp-bytes (value label)
+  (unless (byte-vector-p value)
+    (block-validation-fail "Block access list ~A must be RLP bytes" label))
+  value)
+
+(defun block-access-rlp-uint (value label)
+  (bytes-to-integer (require-block-access-rlp-bytes value label)))
+
+(defun uint256-to-hash32 (value label)
+  (unless (uint256-p value)
+    (block-validation-fail "Block access list ~A must be uint256" label))
+  (let* ((bytes (integer-to-minimal-bytes value))
+         (out (make-byte-vector 32)))
+    (replace out bytes :start1 (- 32 (length bytes)))
+    (make-hash32 out)))
+
+(defun decode-block-access-storage-write-rlp-object (value)
+  (let ((items (require-block-access-rlp-list-fields value 2
+                                                     "storage write")))
+    (make-block-access-storage-write
+     :tx-index (block-access-rlp-uint (first items) "storage write tx index")
+     :value-after (block-access-rlp-uint (second items)
+                                         "storage write value-after"))))
+
+(defun decode-block-access-slot-writes-rlp-object (value)
+  (let ((items (require-block-access-rlp-list-fields value 2
+                                                     "storage writes entry")))
+    (make-block-access-slot-writes
+     :slot (uint256-to-hash32
+            (block-access-rlp-uint (first items) "storage write slot")
+            "storage write slot")
+     :accesses
+     (mapcar #'decode-block-access-storage-write-rlp-object
+             (require-block-access-rlp-list (second items)
+                                            "storage write accesses")))))
+
+(defun decode-block-access-balance-change-rlp-object (value)
+  (let ((items (require-block-access-rlp-list-fields value 2
+                                                     "balance change")))
+    (make-block-access-balance-change
+     :tx-index (block-access-rlp-uint (first items) "balance change tx index")
+     :balance (block-access-rlp-uint (second items)
+                                     "balance change balance"))))
+
+(defun decode-block-access-nonce-change-rlp-object (value)
+  (let ((items (require-block-access-rlp-list-fields value 2
+                                                     "nonce change")))
+    (make-block-access-nonce-change
+     :tx-index (block-access-rlp-uint (first items) "nonce change tx index")
+     :nonce (block-access-rlp-uint (second items) "nonce change nonce"))))
+
+(defun decode-block-access-code-change-rlp-object (value)
+  (let ((items (require-block-access-rlp-list-fields value 2
+                                                     "code change")))
+    (make-block-access-code-change
+     :tx-index (block-access-rlp-uint (first items) "code change tx index")
+     :code (require-block-access-rlp-bytes (second items)
+                                           "code change code"))))
+
+(defun decode-block-access-account-rlp-object (value)
+  (let ((items (require-block-access-rlp-list-fields value 6 "account")))
+    (make-block-access-account
+     :address (make-address
+               (require-block-access-rlp-bytes (first items)
+                                               "account address"))
+     :storage-writes
+     (mapcar #'decode-block-access-slot-writes-rlp-object
+             (require-block-access-rlp-list (second items)
+                                            "storage writes"))
+     :storage-reads
+     (mapcar (lambda (slot)
+               (uint256-to-hash32
+                (block-access-rlp-uint slot "storage read")
+                "storage read"))
+             (require-block-access-rlp-list (third items)
+                                            "storage reads"))
+     :balance-changes
+     (mapcar #'decode-block-access-balance-change-rlp-object
+             (require-block-access-rlp-list (fourth items)
+                                            "balance changes"))
+     :nonce-changes
+     (mapcar #'decode-block-access-nonce-change-rlp-object
+             (require-block-access-rlp-list (fifth items)
+                                            "nonce changes"))
+     :code-changes
+     (mapcar #'decode-block-access-code-change-rlp-object
+             (require-block-access-rlp-list (sixth items)
+                                            "code changes")))))
+
+(defun decode-block-access-list-rlp-object (value)
+  (mapcar #'decode-block-access-account-rlp-object
+          (require-block-access-rlp-list value "root")))
+
+(defun block-access-list-from-rlp
+    (bytes &key max-code-size max-items)
+  (let ((access-list (decode-block-access-list-rlp-object
+                      (rlp-decode-one bytes))))
+    (validate-block-access-list-fields access-list
+                                       :max-code-size max-code-size
+                                       :max-items max-items)
+    access-list))
+
 (defun block-access-list-hash (block-access-list)
   (validate-block-access-list-fields block-access-list)
   (keccak-256-hash (block-access-list-rlp block-access-list)))

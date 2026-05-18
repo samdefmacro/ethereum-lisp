@@ -1638,6 +1638,63 @@
        access-list
        :max-code-size 3))))
 
+(deftest block-access-list-rlp-decodes-round-trip
+  (let* ((slot-1 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000001"))
+         (slot-2 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (slot-writes
+           (make-block-access-slot-writes
+            :slot slot-1
+            :accesses
+            (list (make-block-access-storage-write
+                   :tx-index 1
+                   :value-after 2)
+                  (make-block-access-storage-write
+                   :tx-index 3
+                   :value-after 4))))
+         (account
+           (make-block-access-account
+            :address (address-from-hex
+                      "0x0000000000000000000000000000000000000001")
+            :storage-writes (list slot-writes)
+            :storage-reads (list slot-2)
+            :balance-changes
+            (list (make-block-access-balance-change
+                   :tx-index 1
+                   :balance 100))
+            :nonce-changes
+            (list (make-block-access-nonce-change
+                   :tx-index 2
+                   :nonce 7))
+            :code-changes
+            (list (make-block-access-code-change
+                   :tx-index 4
+                   :code #(96 0 96 1)))))
+         (access-list (list account))
+         (encoded (block-access-list-rlp access-list))
+         (decoded (block-access-list-from-rlp
+                   encoded
+                   :max-code-size 4
+                   :max-items 3)))
+    (is (= 3 (block-access-list-item-count decoded)))
+    (is (bytes= encoded (block-access-list-rlp decoded)))
+    (is (string= (hash32-to-hex (block-access-list-hash access-list))
+                 (hash32-to-hex (block-access-list-hash decoded))))
+    (signals block-validation-error
+      (block-access-list-from-rlp encoded :max-code-size 3))
+    (signals block-validation-error
+      (block-access-list-from-rlp encoded :max-items 2))))
+
+(deftest block-access-list-rlp-decode-rejects-malformed-shape
+  (signals block-validation-error
+    (block-access-list-from-rlp (rlp-encode (ensure-byte-vector '(1 2 3)))))
+  (signals block-validation-error
+    (block-access-list-from-rlp
+     (rlp-encode
+      (list (make-rlp-list
+             (make-byte-vector 20)))))))
+
 (deftest block-access-list-validates-account-order
   (let ((first (make-block-access-account
                 :address (address-from-hex

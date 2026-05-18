@@ -325,9 +325,11 @@ and account shells plus sorted storage-read/storage-write/balance-change lists
 plus nonce-change/code-change lists can now contribute to `balHash`; block
 body validation also enforces the fork-specific code-change size limit (24 KiB
 before Amsterdam, 32 KiB at Amsterdam) and the Amsterdam BAL item budget
-(`accounts + changed/read storage slots <= block_gas_limit / 2000`). Amsterdam
-header validation also now requires child slot numbers to strictly exceed the
-parent once the parent is already Amsterdam-shaped.
+(`accounts + changed/read storage slots <= block_gas_limit / 2000`). BAL RLP
+wire payloads can now decode back into typed account/change structures and are
+validated through the same ordering, size, and item-budget checks before being
+accepted. Amsterdam header validation also now requires child slot numbers to
+strictly exceed the parent once the parent is already Amsterdam-shaped.
 A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.

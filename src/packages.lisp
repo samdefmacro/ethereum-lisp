@@ -454,6 +454,7 @@
    #:block-access-code-change-code
    #:block-access-account-rlp
    #:block-access-list-rlp
+   #:block-access-list-from-rlp
    #:block-access-list-hash
    #:block-access-list-item-count
    #:block-validation-error
@@ -1073,6 +1074,7 @@
    #:block-access-code-change-code
    #:block-access-account-rlp
    #:block-access-list-rlp
+   #:block-access-list-from-rlp
    #:block-access-list-hash
    #:block-access-list-item-count
    #:block-validation-error
@@ -1653,6 +1655,7 @@
    #:block-access-code-change-code
    #:block-access-account-rlp
    #:block-access-list-rlp
+   #:block-access-list-from-rlp
    #:block-access-list-hash
    #:block-access-list-item-count
    #:block-validation-error
