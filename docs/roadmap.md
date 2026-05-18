@@ -296,9 +296,10 @@ header/body validation and execution blob-fee debits; config-aware body
 validation and block execution therefore allow the higher 9-, 15-, 21-, and
 32-blob aggregate limits at the appropriate schedule points while preserving
 the lower per-blob transaction cap. Chain configs can also carry an explicit
-timestamp-keyed custom blob schedule; config-derived chain-rules snapshot the
-active target/max/update-fraction values so execution paths that only receive
-rules still use the same blob limits and fee update fraction. A first-pass geth
+timestamp-keyed custom blob schedule, including geth-style `bpo5Time` plus
+`blobSchedule.bpo5`; config-derived chain-rules snapshot the active
+target/max/update-fraction values so execution paths that only receive rules
+still use the same blob limits and fee update fraction. A first-pass geth
 genesis config conversion layer now accepts parsed `config` objects, including
 the `blobSchedule` fork map, and builds the same chain-config/custom-schedule
 model used by validation and execution. A small dependency-free genesis JSON

@@ -73,6 +73,7 @@
                                    bpo2-time
                                    bpo3-time
                                    bpo4-time
+                                   bpo5-time
                                    terminal-total-difficulty
                                    custom-blob-schedule)))
   (chain-id 1 :type (integer 0 *))
@@ -94,6 +95,7 @@
   bpo2-time
   bpo3-time
   bpo4-time
+  bpo5-time
   terminal-total-difficulty
   custom-blob-schedule)
 
@@ -117,6 +119,7 @@
                                   bpo2-p
                                   bpo3-p
                                   bpo4-p
+                                  bpo5-p
                                   blob-schedule-target-gas
                                   blob-schedule-max-gas
                                   blob-schedule-update-fraction)))
@@ -139,6 +142,7 @@
   bpo2-p
   bpo3-p
   bpo4-p
+  bpo5-p
   blob-schedule-target-gas
   blob-schedule-max-gas
   blob-schedule-update-fraction)
@@ -214,6 +218,10 @@
 (defun chain-config-bpo4-p (config block-number timestamp)
   (and (chain-config-london-p config block-number)
        (fork-time-active-p (chain-config-bpo4-time config) timestamp)))
+
+(defun chain-config-bpo5-p (config block-number timestamp)
+  (and (chain-config-london-p config block-number)
+       (fork-time-active-p (chain-config-bpo5-time config) timestamp)))
 
 (defun chain-config-expanded-blob-schedule-p (config block-number timestamp)
   (or (chain-config-prague-p config block-number timestamp)
@@ -337,6 +345,7 @@
     ((string-equal fork-name "bpo2") "bpo2Time")
     ((string-equal fork-name "bpo3") "bpo3Time")
     ((string-equal fork-name "bpo4") "bpo4Time")
+    ((string-equal fork-name "bpo5") "bpo5Time")
     (t nil)))
 
 (defun genesis-object-entries (object label)
@@ -635,6 +644,7 @@
    :bpo2-time (parse-genesis-field object "bpo2Time")
    :bpo3-time (parse-genesis-field object "bpo3Time")
    :bpo4-time (parse-genesis-field object "bpo4Time")
+   :bpo5-time (parse-genesis-field object "bpo5Time")
    :terminal-total-difficulty
    (parse-genesis-field object "terminalTotalDifficulty")
    :custom-blob-schedule (parse-genesis-blob-schedule object)))
@@ -936,6 +946,7 @@
      :bpo2-p (chain-config-bpo2-p config block-number timestamp)
      :bpo3-p (chain-config-bpo3-p config block-number timestamp)
      :bpo4-p (chain-config-bpo4-p config block-number timestamp)
+     :bpo5-p (chain-config-bpo5-p config block-number timestamp)
      :blob-schedule-target-gas target-blob-gas
      :blob-schedule-max-gas max-blob-gas
      :blob-schedule-update-fraction update-fraction)))

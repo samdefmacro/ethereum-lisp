@@ -176,6 +176,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-bpo5-time
    #:chain-config-terminal-total-difficulty
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
@@ -198,6 +199,7 @@
    #:chain-config-bpo2-p
    #:chain-config-bpo3-p
    #:chain-config-bpo4-p
+   #:chain-config-bpo5-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
@@ -239,6 +241,7 @@
    #:chain-rules-bpo2-p
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
+   #:chain-rules-bpo5-p
    #:chain-rules-blob-schedule-target-gas
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction
@@ -731,6 +734,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-bpo5-time
    #:chain-config-terminal-total-difficulty
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
@@ -753,6 +757,7 @@
    #:chain-config-bpo2-p
    #:chain-config-bpo3-p
    #:chain-config-bpo4-p
+   #:chain-config-bpo5-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
@@ -794,6 +799,7 @@
    #:chain-rules-bpo2-p
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
+   #:chain-rules-bpo5-p
    #:chain-rules-blob-schedule-target-gas
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction
@@ -1247,6 +1253,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-bpo5-time
    #:chain-config-terminal-total-difficulty
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
@@ -1269,6 +1276,7 @@
    #:chain-config-bpo2-p
    #:chain-config-bpo3-p
    #:chain-config-bpo4-p
+   #:chain-config-bpo5-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
@@ -1310,6 +1318,7 @@
    #:chain-rules-bpo2-p
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
+   #:chain-rules-bpo5-p
    #:chain-rules-blob-schedule-target-gas
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction
