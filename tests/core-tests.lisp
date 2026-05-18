@@ -1004,6 +1004,40 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
+(deftest block-body-validates-transaction-scalars-before-root-derivation
+  (let* ((recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000001"))
+         (block (make-block))
+         (bad-nonce-tx
+           (make-legacy-transaction :nonce (ash 1 64)
+                                    :to recipient))
+         (bad-gas-limit-tx
+           (make-legacy-transaction :gas-limit (ash 1 64)
+                                    :to recipient))
+         (bad-value-tx
+           (make-legacy-transaction :value (1+ +uint256-max+)
+                                    :to recipient))
+         (bad-fee-tx
+           (make-dynamic-fee-transaction
+            :to recipient
+            :max-priority-fee-per-gas 2
+            :max-fee-per-gas 1))
+         (bad-blob-fee-tx
+           (make-blob-transaction
+            :to recipient
+            :blob-versioned-hashes
+            (list (hash32-from-hex
+                   "0x0100000000000000000000000000000000000000000000000000000000000000"))
+            :max-fee-per-blob-gas (1+ +uint256-max+))))
+    (dolist (transaction (list bad-nonce-tx
+                               bad-gas-limit-tx
+                               bad-value-tx
+                               bad-fee-tx
+                               bad-blob-fee-tx))
+      (setf (block-transactions block) (list transaction))
+      (signals block-validation-error
+        (validate-block-body-roots block)))))
+
 (deftest block-body-validates-set-code-fields-before-root-derivation
   (let* ((recipient (address-from-hex
                      "0x0000000000000000000000000000000000000001"))

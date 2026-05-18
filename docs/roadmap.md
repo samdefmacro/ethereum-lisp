@@ -241,6 +241,9 @@ derivation.
 Transaction recipient fields are also validated before transaction root
 derivation, and message execution rejects non-address recipients before sender
 nonce or balance mutation.
+Block body validation now checks transaction nonce/gas-limit uint64 bounds,
+value uint256 bounds, and execution/blob fee-cap uint256 bounds before
+transaction root derivation.
 A first-pass chain configuration model is present for block-number forks
 through London and timestamp forks through Prague, including geth-compatible
 activation predicates and config-driven header validation for Shanghai,

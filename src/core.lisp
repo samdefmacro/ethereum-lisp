@@ -1503,6 +1503,30 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail
        "Transaction recipient must be nil or a 20-byte value"))))
 
+(defun uint64-value-p (value)
+  (and (integerp value)
+       (<= 0 value (1- (ash 1 64)))))
+
+(defun validate-transaction-scalar-fields (transaction)
+  (unless (uint64-value-p (transaction-nonce transaction))
+    (block-validation-fail "Transaction nonce must be uint64"))
+  (unless (uint64-value-p (transaction-gas-limit transaction))
+    (block-validation-fail "Transaction gas limit must be uint64"))
+  (unless (uint256-p (transaction-value transaction))
+    (block-validation-fail "Transaction value must be uint256"))
+  (let ((max-priority-fee (transaction-max-priority-fee-per-gas transaction))
+        (max-fee (transaction-max-fee-per-gas transaction)))
+    (unless (uint256-p max-priority-fee)
+      (block-validation-fail "Max priority fee must be uint256"))
+    (unless (uint256-p max-fee)
+      (block-validation-fail "Max fee per gas must be uint256"))
+    (when (< max-fee max-priority-fee)
+      (block-validation-fail "Max priority fee exceeds max fee")))
+  (when (typep transaction 'blob-transaction)
+    (unless (uint256-p (blob-transaction-max-fee-per-blob-gas transaction))
+      (block-validation-fail "Max fee per blob gas must be uint256")))
+  t)
+
 (defun validate-access-list-fields (transaction)
   (dolist (entry (transaction-access-list transaction) t)
     (unless (typep entry 'access-list-entry)
@@ -1664,6 +1688,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (dolist (transaction transactions)
       (validate-transaction-recipient-field transaction)
       (validate-transaction-data-field transaction)
+      (validate-transaction-scalar-fields transaction)
       (validate-access-list-fields transaction)
       (validate-set-code-transaction-fields transaction)
       (when base-fee
