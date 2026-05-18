@@ -3148,6 +3148,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (when (execution-payload-envelope-override-p envelope)
      (list (cons "shouldOverrideBuilder" t)))))
 
+(defun engine-rpc-payload-body-v1-object (block)
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "Engine RPC payload body block must be a block"))
+  (append
+   (list
+    (cons "transactions"
+          (mapcar (lambda (transaction)
+                    (bytes-to-hex (transaction-encoding transaction)))
+                  (block-transactions block))))
+   (when (block-withdrawals-present-p block)
+     (list
+      (cons "withdrawals"
+            (mapcar #'engine-rpc-withdrawal-object
+                    (block-withdrawals block)))))))
+
 (defun engine-rpc-payload-status-object (status)
   (list (cons "status" (payload-status-status status))
         (cons "latestValidHash"
@@ -3254,6 +3269,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defparameter +engine-rpc-capabilities+
   '("engine_exchangeTransitionConfigurationV1"
     "engine_forkchoiceUpdatedV1"
+    "engine_getPayloadBodiesByHashV1"
     "engine_getPayloadV1"
     "engine_getPayloadV2"
     "engine_getClientVersionV1"
@@ -3380,6 +3396,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
+(defconstant +engine-rpc-error-too-large-request+ -38004)
 
 (define-condition engine-rpc-error (error)
   ((code :initarg :code :reader engine-rpc-error-code)
@@ -3440,6 +3457,27 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail "payload id is not for engine_getPayloadV2"))
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload))))
+
+(defconstant +engine-rpc-max-payload-bodies-request+ 1024)
+
+(defun engine-rpc-handle-get-payload-bodies-by-hash-v1 (params store)
+  (unless (and (listp params) params)
+    (block-validation-fail
+     "engine_getPayloadBodiesByHashV1 params must include block hashes"))
+  (let ((hashes
+          (engine-rpc-hash32-list
+           (engine-rpc-required-param
+            params 0 "blockHashes" "engine_getPayloadBodiesByHashV1")
+           "blockHashes")))
+    (when (> (length hashes) +engine-rpc-max-payload-bodies-request+)
+      (engine-rpc-fail
+       +engine-rpc-error-too-large-request+
+       "The number of requested bodies must not exceed 1024"))
+    (mapcar (lambda (hash)
+              (let ((block (engine-payload-store-known-block store hash)))
+                (when block
+                  (engine-rpc-payload-body-v1-object block))))
+            hashes)))
 
 (defun engine-rpc-handle-forkchoice-updated-v1 (params store)
   (unless (and (listp params) params)
@@ -3558,6 +3596,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-v2 params store)))
+              ((string= method "engine_getPayloadBodiesByHashV1")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-bodies-by-hash-v1
+                 params store)))
               ((string= method "engine_getClientVersionV1")
                (engine-rpc-response
                 id

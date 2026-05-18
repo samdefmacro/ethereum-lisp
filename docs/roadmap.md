@@ -554,7 +554,10 @@ returns the execution payload object for the prepared block and reports missing
 ids with the Engine API `Unknown payload` error code `-38001`. The first
 `engine_getPayloadV2` path is also wired through the same prepared-payload
 store and returns a geth/Nethermind-shaped payload envelope with
-`executionPayload` and `blockValue`; payload build
+`executionPayload` and `blockValue`. `engine_getPayloadBodiesByHashV1` can now
+serve transaction/withdrawal bodies from the same memory store, preserving
+request order, returning `null` for unknown hashes, and rejecting over-1024
+body requests with Engine `Too large request` error code `-38004`; payload build
 requests with semantically invalid V1 attributes, such as a timestamp not
 greater than the parent head, now report Engine API `Invalid payload attributes`
 with error code `-38003`. A first HTTP POST adapter now

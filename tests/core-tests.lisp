@@ -2889,6 +2889,78 @@
              (error (field response "error")))
         (is (= -32602 (field error "code"))))))))
 
+(deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((recipient
+             (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (withdrawal-address
+             (address-from-hex "0x0000000000000000000000000000000000000003"))
+           (transaction
+             (make-legacy-transaction :nonce 1
+                                      :gas-price 2
+                                      :gas-limit 21000
+                                      :to recipient
+                                      :value 4
+                                      :v 27
+                                      :r 6
+                                      :s 7))
+           (withdrawal
+             (make-withdrawal :index 1
+                              :validator-index 2
+                              :address withdrawal-address
+                              :amount 3))
+           (block (make-block :transactions (list transaction)
+                              :withdrawals (list withdrawal)))
+           (empty-withdrawals-block (make-block :withdrawals '()))
+           (unknown-hash
+             (hash32-from-hex
+              "0x2222222222222222222222222222222222222222222222222222222222222222"))
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (engine-payload-store-put-block
+       store empty-withdrawals-block :state-available-p t)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 28)
+                      (cons "method" "engine_getPayloadBodiesByHashV1")
+                      (cons "params"
+                            (list
+                             (list (hash32-to-hex (block-hash block))
+                                   (hash32-to-hex unknown-hash)
+                                   (hash32-to-hex
+                                    (block-hash empty-withdrawals-block))))))
+                store
+                config))
+             (bodies (field response "result"))
+             (first-body (first bodies))
+             (third-body (third bodies)))
+        (is (= 28 (field response "id")))
+        (is (= 3 (length bodies)))
+        (is (string= (bytes-to-hex (transaction-encoding transaction))
+                     (first (field first-body "transactions"))))
+        (is (= 1 (length (field first-body "withdrawals"))))
+        (is (not (second bodies)))
+        (is (not (field third-body "transactions")))
+        (is (listp (field third-body "withdrawals")))
+        (is (= 0 (length (field third-body "withdrawals")))))
+      (let* ((too-many-hashes
+               (loop repeat 1025 collect (hash32-to-hex (block-hash block))))
+             (response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 29)
+                      (cons "method" "engine_getPayloadBodiesByHashV1")
+                      (cons "params" (list too-many-hashes)))
+                store
+                config))
+             (error (field response "error")))
+        (is (= -38004 (field error "code")))
+        (is (string= "The number of requested bodies must not exceed 1024"
+                     (field error "message")))))))
+
 (deftest engine-rpc-exchange-capabilities-advertises-supported-methods
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -2905,6 +2977,9 @@
       (is (member "engine_newPayloadV5" capabilities :test #'string=))
       (is (member "engine_getPayloadV1" capabilities :test #'string=))
       (is (member "engine_getPayloadV2" capabilities :test #'string=))
+      (is (member "engine_getPayloadBodiesByHashV1"
+                  capabilities
+                  :test #'string=))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))
       (is (member "engine_exchangeTransitionConfigurationV1"
                   capabilities
