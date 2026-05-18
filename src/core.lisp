@@ -2901,6 +2901,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor make-engine-payload-memory-store
                 (&key (blocks (make-hash-table :test 'equal))
                       (number-blocks (make-hash-table :test 'eql))
+                      (transaction-locations (make-hash-table :test 'equal))
                       (head-number 0)
                       (state-blocks (make-hash-table :test 'equal))
                       (remote-blocks (make-hash-table :test 'equal))
@@ -2909,12 +2910,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (blob-sidecars (make-hash-table :test 'equal)))))
   blocks
   number-blocks
+  transaction-locations
   (head-number 0 :type (integer 0 *))
   state-blocks
   remote-blocks
   invalid-tipsets
   prepared-payloads
   blob-sidecars)
+
+(defstruct (engine-transaction-location
+            (:constructor make-engine-transaction-location
+                (&key block index transaction)))
+  block
+  (index 0 :type (integer 0 *))
+  transaction)
 
 (defstruct (engine-blob-and-proofs
             (:constructor make-engine-blob-and-proofs
@@ -2943,6 +2952,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               block)
         (when (> number (engine-payload-memory-store-head-number store))
           (setf (engine-payload-memory-store-head-number store) number))))
+    (loop for transaction in (block-transactions block)
+          for index from 0
+          do (setf (gethash
+                    (engine-payload-store-key (transaction-hash transaction))
+                    (engine-payload-memory-store-transaction-locations store))
+                   (make-engine-transaction-location
+                    :block block
+                    :index index
+                    :transaction transaction)))
     (if state-available-p
         (setf (gethash key
                        (engine-payload-memory-store-state-blocks store))
@@ -2959,6 +2977,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (unless (and (integerp number) (not (minusp number)))
     (block-validation-fail "Engine payload store block number must be non-negative"))
   (gethash number (engine-payload-memory-store-number-blocks store)))
+
+(defun engine-payload-store-transaction-location (store hash)
+  (gethash (engine-payload-store-key hash)
+           (engine-payload-memory-store-transaction-locations store)))
 
 (defun engine-payload-store-state-available-p
     (store hash)
@@ -4159,6 +4181,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (eth-rpc-transaction-object
      (nth index (block-transactions block)) block index)))
 
+(defun eth-rpc-transaction-from-location (location)
+  (when location
+    (eth-rpc-transaction-object
+     (engine-transaction-location-transaction location)
+     (engine-transaction-location-block location)
+     (engine-transaction-location-index location))))
+
+(defun eth-rpc-raw-transaction-from-location (location)
+  (when location
+    (bytes-to-hex
+     (transaction-encoding
+      (engine-transaction-location-transaction location)))))
+
 (defun engine-rpc-handle-eth-get-raw-transaction-by-block-number-and-index
     (params store)
   (let* ((number (eth-rpc-block-number-param
@@ -4180,6 +4215,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (block (engine-payload-store-known-block store hash)))
     (eth-rpc-raw-transaction-by-index block index)))
 
+(defun engine-rpc-handle-eth-get-raw-transaction-by-hash (params store)
+  (let* ((hash (eth-rpc-hash-param
+                params "eth_getRawTransactionByHash" "transaction hash"))
+         (location (engine-payload-store-transaction-location store hash)))
+    (eth-rpc-raw-transaction-from-location location)))
+
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
   (let* ((number (eth-rpc-block-number-param
@@ -4200,6 +4241,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  params "eth_getTransactionByBlockHashAndIndex"))
          (block (engine-payload-store-known-block store hash)))
     (eth-rpc-transaction-by-index block index)))
+
+(defun engine-rpc-handle-eth-get-transaction-by-hash (params store)
+  (let* ((hash (eth-rpc-hash-param
+                params "eth_getTransactionByHash" "transaction hash"))
+         (location (engine-payload-store-transaction-location store hash)))
+    (eth-rpc-transaction-from-location location)))
 
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
@@ -4734,6 +4781,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 :result
                 (engine-rpc-handle-eth-get-transaction-by-block-hash-and-index
                  params store)))
+              ((string= method "eth_getTransactionByHash")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-transaction-by-hash
+                 params store)))
               ((string= method
                         "eth_getRawTransactionByBlockNumberAndIndex")
                (engine-rpc-response
@@ -4747,6 +4800,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-raw-transaction-by-block-hash-and-index
+                 params store)))
+              ((string= method "eth_getRawTransactionByHash")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-raw-transaction-by-hash
                  params store)))
               (t
                (engine-rpc-response

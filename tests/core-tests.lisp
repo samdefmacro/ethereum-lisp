@@ -4528,6 +4528,110 @@
         (is (null (field out-of-range-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-get-transaction-by-hash
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (make-address (make-byte-vector 20 :initial-element #x44)))
+           (tx-1 (make-legacy-transaction :nonce 3
+                                          :gas-price 8
+                                          :gas-limit 21000
+                                          :to recipient
+                                          :value 5
+                                          :data #(4 5)))
+           (tx-2 (make-dynamic-fee-transaction
+                  :chain-id 1
+                  :nonce 4
+                  :max-priority-fee-per-gas 3
+                  :max-fee-per-gas 10
+                  :gas-limit 23000
+                  :to recipient
+                  :value 6
+                  :data #(6)
+                  :y-parity 1
+                  :r 4
+                  :s 5))
+           (block
+             (make-block
+              :header (make-block-header :number 14
+                                         :timestamp 140
+                                         :gas-limit 30000000
+                                         :base-fee-per-gas 6)
+              :transactions (list tx-1 tx-2)))
+           (block-hash-hex (hash32-to-hex (block-hash block)))
+           (tx-2-hash-hex (hash32-to-hex (transaction-hash tx-2)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((transaction-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":55,"
+                  "\"method\":\"eth_getTransactionByHash\","
+                  "\"params\":[\"" tx-2-hash-hex "\"]}")
+                 store
+                 config)))
+             (transaction-result (field transaction-response "result"))
+             (raw-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":56,"
+                  "\"method\":\"eth_getRawTransactionByHash\","
+                  "\"params\":[\"" tx-2-hash-hex "\"]}")
+                 store
+                 config)))
+             (missing-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":57,"
+                  "\"method\":\"eth_getTransactionByHash\","
+                  "\"params\":[\""
+                  (hash32-to-hex (zero-hash32)) "\"]}")
+                 store
+                 config)))
+             (missing-raw-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":58,"
+                  "\"method\":\"eth_getRawTransactionByHash\","
+                  "\"params\":[\""
+                  (hash32-to-hex (zero-hash32)) "\"]}")
+                 store
+                 config)))
+             (invalid-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":59,\"method\":\"eth_getTransactionByHash\",\"params\":[\"0x1234\"]}"
+                 store
+                 config)))
+             (invalid-error (field invalid-response "error")))
+        (is (string= tx-2-hash-hex (field transaction-result "hash")))
+        (is (string= block-hash-hex
+                     (field transaction-result "blockHash")))
+        (is (string= (quantity-to-hex 14)
+                     (field transaction-result "blockNumber")))
+        (is (string= (quantity-to-hex 140)
+                     (field transaction-result "blockTimestamp")))
+        (is (string= (quantity-to-hex 1)
+                     (field transaction-result "transactionIndex")))
+        (is (string= (quantity-to-hex 9)
+                     (field transaction-result "gasPrice")))
+        (is (string= (quantity-to-hex 2)
+                     (field transaction-result "type")))
+        (is (string= (bytes-to-hex (transaction-encoding tx-2))
+                     (field raw-response "result")))
+        (is (null (field missing-response "result")))
+        (is (null (field missing-raw-response "result")))
+        (is (= -32602 (field invalid-error "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
