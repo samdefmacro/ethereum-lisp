@@ -2772,10 +2772,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor make-engine-payload-memory-store
                 (&key (blocks (make-hash-table :test 'equal))
                       (state-blocks (make-hash-table :test 'equal))
-                      (remote-blocks (make-hash-table :test 'equal)))))
+                      (remote-blocks (make-hash-table :test 'equal))
+                      (invalid-tipsets (make-hash-table :test 'equal)))))
   blocks
   state-blocks
-  remote-blocks)
+  remote-blocks
+  invalid-tipsets)
 
 (defun engine-payload-store-key (hash)
   (unless (hash32-p hash)
@@ -2820,6 +2822,38 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         block)
   block)
 
+(defun engine-payload-store-mark-invalid
+    (store invalid-block &key head-hash)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep invalid-block 'ethereum-block)
+    (block-validation-fail "Engine payload invalid marker must be a block"))
+  (let* ((invalid-hash (block-hash invalid-block))
+         (key (engine-payload-store-key (or head-hash invalid-hash))))
+    (setf (gethash key (engine-payload-memory-store-invalid-tipsets store))
+          invalid-block)
+    invalid-block))
+
+(defun engine-payload-store-invalid-block
+    (store hash)
+  (gethash (engine-payload-store-key hash)
+           (engine-payload-memory-store-invalid-tipsets store)))
+
+(defun engine-payload-store-invalid-ancestor-status
+    (store check-hash head-hash)
+  (let ((invalid-block
+          (engine-payload-store-invalid-block store check-hash)))
+    (when invalid-block
+      (unless (string= (engine-payload-store-key check-hash)
+                       (engine-payload-store-key head-hash))
+        (engine-payload-store-mark-invalid
+         store invalid-block :head-hash head-hash))
+      (make-payload-status
+       :status +payload-status-invalid+
+       :latest-valid-hash
+       (block-header-parent-hash (block-header invalid-block))
+       :validation-error "links to previously rejected block"))))
+
 (defun engine-new-payload-memory-status
     (store version payload config
      &key (parent-beacon-root nil parent-beacon-root-supplied-p)
@@ -2847,7 +2881,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (return-from engine-new-payload-memory-status
         (values status nil)))
     (let* ((hash (block-hash block))
+           (invalid-status
+             (engine-payload-store-invalid-ancestor-status
+              store hash hash))
            (known-block (engine-payload-store-known-block store hash)))
+      (when invalid-status
+        (return-from engine-new-payload-memory-status
+          (values invalid-status nil)))
       (when known-block
         (return-from engine-new-payload-memory-status
           (values (make-payload-status
@@ -2860,6 +2900,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (parent-block (and (plusp number)
                                 (engine-payload-store-known-block
                                  store parent-hash))))
+        (when (plusp number)
+          (let ((parent-invalid-status
+                  (engine-payload-store-invalid-ancestor-status
+                   store parent-hash hash)))
+            (when parent-invalid-status
+              (return-from engine-new-payload-memory-status
+                (values parent-invalid-status nil)))))
         (when (and (plusp number) (null parent-block))
           (engine-payload-store-put-remote-block store block)
           (return-from engine-new-payload-memory-status
@@ -2879,6 +2926,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                block
                config)
             (block-validation-error (condition)
+              (engine-payload-store-mark-invalid store block)
               (return-from engine-new-payload-memory-status
                 (values
                  (make-payload-status

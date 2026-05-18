@@ -508,6 +508,9 @@
    #:engine-payload-store-known-block
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
+   #:engine-payload-store-mark-invalid
+   #:engine-payload-store-invalid-block
+   #:engine-payload-store-invalid-ancestor-status
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1215,6 +1218,9 @@
    #:engine-payload-store-known-block
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
+   #:engine-payload-store-mark-invalid
+   #:engine-payload-store-invalid-block
+   #:engine-payload-store-invalid-ancestor-status
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1883,6 +1889,9 @@
    #:engine-payload-store-known-block
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
+   #:engine-payload-store-mark-invalid
+   #:engine-payload-store-invalid-block
+   #:engine-payload-store-invalid-ancestor-status
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
