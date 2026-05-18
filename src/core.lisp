@@ -1448,6 +1448,40 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun dynamic-fee-transaction-encoding (transaction)
   (concat-bytes #(2) (rlp-encode (dynamic-fee-transaction-payload transaction))))
 
+(defun dynamic-fee-transaction-from-rlp (bytes)
+  (handler-case
+      (let ((value (rlp-decode-one bytes)))
+        (unless (rlp-list-p value)
+          (block-validation-fail
+           "Dynamic-fee transaction payload must be an RLP list"))
+        (let ((fields (rlp-list-items value)))
+          (unless (= (length fields) 12)
+            (block-validation-fail
+             "Dynamic-fee transaction payload must contain 12 fields"))
+          (make-dynamic-fee-transaction
+           :chain-id (rlp-uint-field (first fields)
+                                     "Transaction chain id")
+           :nonce (rlp-uint-field (second fields) "Transaction nonce")
+           :max-priority-fee-per-gas
+           (rlp-uint-field (third fields)
+                           "Transaction max priority fee")
+           :max-fee-per-gas
+           (rlp-uint-field (fourth fields) "Transaction max fee")
+           :gas-limit (rlp-uint-field (fifth fields)
+                                      "Transaction gas limit")
+           :to (legacy-transaction-recipient-from-rlp (sixth fields))
+           :value (rlp-uint-field (seventh fields) "Transaction value")
+           :data (rlp-bytes-field (eighth fields) "Transaction data")
+           :access-list (access-list-from-rlp-object (ninth fields))
+           :y-parity (rlp-uint-field (tenth fields) "Transaction y parity")
+           :r (rlp-uint-field (nth 10 fields) "Transaction r")
+           :s (rlp-uint-field (nth 11 fields) "Transaction s"))))
+    (block-validation-error (condition)
+      (error condition))
+    (rlp-error (condition)
+      (block-validation-fail "Invalid dynamic-fee transaction RLP: ~A"
+                             condition))))
+
 (defun dynamic-fee-transaction-signing-payload (transaction)
   (make-rlp-list
    (ensure-uint256 (dynamic-fee-transaction-chain-id transaction) "Transaction chain id")
@@ -1895,6 +1929,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (legacy-transaction-from-rlp bytes)
         (case (aref bytes 0)
           (1 (access-list-transaction-from-rlp (subseq bytes 1)))
+          (2 (dynamic-fee-transaction-from-rlp (subseq bytes 1)))
           (otherwise
            (block-validation-fail
             "Typed transaction decoding is not implemented yet"))))))

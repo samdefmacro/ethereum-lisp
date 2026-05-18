@@ -3105,6 +3105,43 @@
                          (make-byte-vector 19)
                          (make-rlp-list)))
                        1 7 8))))
+    (let ((decoded (transaction-from-encoding
+                    (dynamic-fee-transaction-encoding tx2))))
+      (is (typep decoded 'dynamic-fee-transaction))
+      (is (= 1 (dynamic-fee-transaction-chain-id decoded)))
+      (is (= 2 (dynamic-fee-transaction-nonce decoded)))
+      (is (= 3 (dynamic-fee-transaction-max-priority-fee-per-gas decoded)))
+      (is (= 4 (dynamic-fee-transaction-max-fee-per-gas decoded)))
+      (is (= 5 (dynamic-fee-transaction-gas-limit decoded)))
+      (is (string= (address-to-hex recipient)
+                   (address-to-hex (dynamic-fee-transaction-to decoded))))
+      (is (= 6 (dynamic-fee-transaction-value decoded)))
+      (is (bytes= #(7) (dynamic-fee-transaction-data decoded)))
+      (is (= 1 (length (dynamic-fee-transaction-access-list decoded))))
+      (is (bytes= (hash32-bytes slot)
+                  (hash32-bytes
+                   (first (access-list-entry-storage-keys
+                           (first (dynamic-fee-transaction-access-list
+                                   decoded)))))))
+      (is (= 1 (dynamic-fee-transaction-y-parity decoded)))
+      (is (= 8 (dynamic-fee-transaction-r decoded)))
+      (is (= 9 (dynamic-fee-transaction-s decoded)))
+      (is (bytes= (dynamic-fee-transaction-encoding tx2)
+                  (dynamic-fee-transaction-encoding decoded))))
+    (signals block-validation-error
+      (dynamic-fee-transaction-from-rlp (rlp-encode (list 1 2 3))))
+    (signals block-validation-error
+      (dynamic-fee-transaction-from-rlp
+       (rlp-encode
+        (make-rlp-list 1 2 3 4 5
+                       (make-byte-vector 20)
+                       6
+                       (make-byte-vector 1 :initial-element 7)
+                       (make-rlp-list
+                        (make-rlp-list
+                         (make-byte-vector 20)
+                         (make-rlp-list (make-byte-vector 31))))
+                       1 8 9))))
     (is (hash32-p (transaction-hash tx1)))
     (is (hash32-p (blob-transaction-signing-hash tx3)))
     (is (not (string= (hash32-to-hex (blob-transaction-signing-hash tx3))

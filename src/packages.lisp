@@ -321,13 +321,20 @@
    #:access-list-transaction-sender
    #:dynamic-fee-transaction
    #:make-dynamic-fee-transaction
+   #:dynamic-fee-transaction-chain-id
+   #:dynamic-fee-transaction-nonce
    #:dynamic-fee-transaction-max-priority-fee-per-gas
    #:dynamic-fee-transaction-max-fee-per-gas
-   #:dynamic-fee-transaction-chain-id
+   #:dynamic-fee-transaction-gas-limit
+   #:dynamic-fee-transaction-to
+   #:dynamic-fee-transaction-value
+   #:dynamic-fee-transaction-data
+   #:dynamic-fee-transaction-access-list
    #:dynamic-fee-transaction-y-parity
    #:dynamic-fee-transaction-r
    #:dynamic-fee-transaction-s
    #:dynamic-fee-transaction-encoding
+   #:dynamic-fee-transaction-from-rlp
    #:dynamic-fee-transaction-hash
    #:dynamic-fee-transaction-signing-payload
    #:dynamic-fee-transaction-signing-hash
@@ -981,13 +988,20 @@
    #:access-list-transaction-sender
    #:dynamic-fee-transaction
    #:make-dynamic-fee-transaction
+   #:dynamic-fee-transaction-chain-id
+   #:dynamic-fee-transaction-nonce
    #:dynamic-fee-transaction-max-priority-fee-per-gas
    #:dynamic-fee-transaction-max-fee-per-gas
-   #:dynamic-fee-transaction-chain-id
+   #:dynamic-fee-transaction-gas-limit
+   #:dynamic-fee-transaction-to
+   #:dynamic-fee-transaction-value
+   #:dynamic-fee-transaction-data
+   #:dynamic-fee-transaction-access-list
    #:dynamic-fee-transaction-y-parity
    #:dynamic-fee-transaction-r
    #:dynamic-fee-transaction-s
    #:dynamic-fee-transaction-encoding
+   #:dynamic-fee-transaction-from-rlp
    #:dynamic-fee-transaction-hash
    #:dynamic-fee-transaction-signing-payload
    #:dynamic-fee-transaction-signing-hash
@@ -1602,13 +1616,20 @@
    #:access-list-transaction-sender
    #:dynamic-fee-transaction
    #:make-dynamic-fee-transaction
+   #:dynamic-fee-transaction-chain-id
+   #:dynamic-fee-transaction-nonce
    #:dynamic-fee-transaction-max-priority-fee-per-gas
    #:dynamic-fee-transaction-max-fee-per-gas
-   #:dynamic-fee-transaction-chain-id
+   #:dynamic-fee-transaction-gas-limit
+   #:dynamic-fee-transaction-to
+   #:dynamic-fee-transaction-value
+   #:dynamic-fee-transaction-data
+   #:dynamic-fee-transaction-access-list
    #:dynamic-fee-transaction-y-parity
    #:dynamic-fee-transaction-r
    #:dynamic-fee-transaction-s
    #:dynamic-fee-transaction-encoding
+   #:dynamic-fee-transaction-from-rlp
    #:dynamic-fee-transaction-hash
    #:dynamic-fee-transaction-signing-payload
    #:dynamic-fee-transaction-signing-hash
