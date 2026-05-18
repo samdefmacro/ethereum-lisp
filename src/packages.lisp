@@ -516,6 +516,7 @@
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
    #:engine-rpc-client-version
+   #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
@@ -1237,6 +1238,7 @@
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
    #:engine-rpc-client-version
+   #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
@@ -1919,6 +1921,7 @@
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
    #:engine-rpc-client-version
+   #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request

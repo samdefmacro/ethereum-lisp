@@ -3030,7 +3030,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (cons "witness" (payload-status-witness status))))
 
 (defparameter +engine-rpc-capabilities+
-  '("engine_getClientVersionV1"
+  '("engine_exchangeTransitionConfigurationV1"
+    "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
     "engine_newPayloadV3"
@@ -3048,6 +3049,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-client-version ()
   (copy-tree +engine-rpc-client-version+))
+
+(defun engine-rpc-transition-configuration-object (config)
+  (unless (typep config 'chain-config)
+    (block-validation-fail
+     "engine_exchangeTransitionConfigurationV1 config must be chain-config"))
+  (list (cons "terminalTotalDifficulty"
+              (quantity-to-hex
+               (or (chain-config-terminal-total-difficulty config) 0)))
+        (cons "terminalBlockHash" (hash32-to-hex (zero-hash32)))
+        (cons "terminalBlockNumber" (quantity-to-hex 0))))
 
 (defun engine-rpc-new-payload-version (method)
   (cond
@@ -3124,6 +3135,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              "engine_getClientVersionV1 client version fields must be strings"))))))
   (list (engine-rpc-client-version)))
 
+(defun engine-rpc-validate-transition-configuration (object)
+  (unless (json-object-p object)
+    (block-validation-fail
+     "engine_exchangeTransitionConfigurationV1 params must contain transition configuration object"))
+  (engine-rpc-required-quantity-field object "terminalTotalDifficulty")
+  (engine-rpc-required-hash32-field object "terminalBlockHash")
+  (engine-rpc-required-quantity-field object "terminalBlockNumber")
+  t)
+
+(defun engine-rpc-handle-exchange-transition-configuration (params config)
+  (unless params
+    (block-validation-fail
+     "engine_exchangeTransitionConfigurationV1 params must include transition configuration"))
+  (engine-rpc-validate-transition-configuration (first params))
+  (engine-rpc-transition-configuration-object config))
+
 (defun engine-rpc-response (id &key result error)
   (append (list (cons "jsonrpc" "2.0")
                 (cons "id" id))
@@ -3173,6 +3200,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-client-version params)))
+              ((string= method "engine_exchangeTransitionConfigurationV1")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-exchange-transition-configuration
+                 params config)))
               (t
                (engine-rpc-response
                 id

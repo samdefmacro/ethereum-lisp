@@ -2722,6 +2722,9 @@
       (is (member "engine_newPayloadV1" capabilities :test #'string=))
       (is (member "engine_newPayloadV5" capabilities :test #'string=))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))
+      (is (member "engine_exchangeTransitionConfigurationV1"
+                  capabilities
+                  :test #'string=))
       (is (not (member "engine_exchangeCapabilities"
                        capabilities
                        :test #'string=)))
@@ -2764,6 +2767,43 @@
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"engine_getClientVersionV1\",\"params\":[7]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))))
+
+(deftest engine-rpc-exchange-transition-configuration-returns-local-config
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((config (make-chain-config :terminal-total-difficulty 12345))
+           (request-json
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":15,"
+              "\"method\":\"engine_exchangeTransitionConfigurationV1\","
+              "\"params\":[{\"terminalTotalDifficulty\":\"0x3039\","
+              "\"terminalBlockHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\","
+              "\"terminalBlockNumber\":\"0x0\"}]}"))
+           (response
+             (parse-json
+              (engine-rpc-handle-request-json
+               request-json
+               (make-engine-payload-memory-store)
+               config)))
+           (result (field response "result")))
+      (is (= 15 (field response "id")))
+      (is (string= "0x3039" (field result "terminalTotalDifficulty")))
+      (is (string= (hash32-to-hex (zero-hash32))
+                   (field result "terminalBlockHash")))
+      (is (string= "0x0" (field result "terminalBlockNumber"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":16,"
+                "\"method\":\"engine_exchangeTransitionConfigurationV1\","
+                "\"params\":[{\"terminalTotalDifficulty\":\"bad\"}]}")
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))
