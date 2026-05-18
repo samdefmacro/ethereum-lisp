@@ -748,7 +748,8 @@
                 "\"londonBlock\":0,"
                 "\"shanghaiTime\":0,"
                 "\"cancunTime\":0,"
-                "\"pragueTime\":0"
+                "\"pragueTime\":0,"
+                "\"amsterdamTime\":0"
                 "},"
                 "\"nonce\":\"0x0102030405060708\","
                 "\"timestamp\":0,"
@@ -781,7 +782,11 @@
     (is (= 0 (block-header-excess-blob-gas header)))
     (is (= 0 (block-header-blob-gas-used header)))
     (is (string= (hash32-to-hex (execution-requests-hash '()))
-                 (hash32-to-hex (block-header-requests-hash header))))))
+                 (hash32-to-hex (block-header-requests-hash header))))
+    (is (string= (hash32-to-hex +empty-ommers-hash+)
+                 (hash32-to-hex
+                  (block-header-block-access-list-hash header))))
+    (is (= 0 (block-header-slot-number header)))))
 
 (deftest genesis-header-from-json-accepts-geth-field-aliases
   (let* ((mix-hash (hash32-from-hex
@@ -1107,7 +1112,8 @@
   (let* ((config (make-chain-config :london-block 0
                                     :shanghai-time 150
                                     :cancun-time 200
-                                    :prague-time 300))
+                                    :prague-time 300
+                                    :amsterdam-time 400))
          (parent (make-block-header :number 7
                                     :gas-limit 1024000
                                     :gas-used 512000
@@ -1119,7 +1125,9 @@
                         blob-gas-used
                         excess-blob-gas
                         parent-beacon-root
-                        requests-hash)
+                        requests-hash
+                        block-access-list-hash
+                        slot-number)
              (make-block-header
               :parent-hash parent-hash
               :number 8
@@ -1131,7 +1139,9 @@
               :blob-gas-used blob-gas-used
               :excess-blob-gas excess-blob-gas
               :parent-beacon-root parent-beacon-root
-              :requests-hash requests-hash)))
+              :requests-hash requests-hash
+              :block-access-list-hash block-access-list-hash
+              :slot-number slot-number)))
       (is (validate-block-header-against-config
            parent
            (child :blob-gas-used 0
@@ -1147,6 +1157,17 @@
                   :parent-beacon-root (zero-hash32)
                   :withdrawals-root (withdrawal-list-root '())
                   :requests-hash (execution-requests-hash '()))
+           config))
+      (is (validate-block-header-against-config
+           parent
+           (child :timestamp 400
+                  :blob-gas-used 0
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32)
+                  :withdrawals-root (withdrawal-list-root '())
+                  :requests-hash (execution-requests-hash '())
+                  :block-access-list-hash +empty-ommers-hash+
+                  :slot-number 0)
            config))
       (is (validate-block-header-against-config
            parent
@@ -1188,6 +1209,28 @@
                 :excess-blob-gas 0
                 :parent-beacon-root (zero-hash32)
                 :withdrawals-root (withdrawal-list-root '()))
+         config))
+      (signals block-validation-error
+        (validate-block-header-against-config
+         parent
+         (child :timestamp 300
+                :blob-gas-used 0
+                :excess-blob-gas 0
+                :parent-beacon-root (zero-hash32)
+                :withdrawals-root (withdrawal-list-root '())
+                :requests-hash (execution-requests-hash '())
+                :block-access-list-hash +empty-ommers-hash+
+                :slot-number 0)
+         config))
+      (signals block-validation-error
+        (validate-block-header-against-config
+         parent
+         (child :timestamp 400
+                :blob-gas-used 0
+                :excess-blob-gas 0
+                :parent-beacon-root (zero-hash32)
+                :withdrawals-root (withdrawal-list-root '())
+                :requests-hash (execution-requests-hash '()))
          config)))))
 
 (deftest london-fork-block-validates-gas-limit-against-elastic-parent

@@ -310,6 +310,11 @@ difficulty-bomb delay fork fields, and recognizes Nethermind's
 and EIP-158 transitions. Amsterdam and UBT activation timestamps are now
 represented in chain configs and rules snapshots, with geth-style
 `enableUBTAtGenesis` preserved for future Verkle/Binary-tree genesis handling.
+Amsterdam header shape is now represented as well: genesis parsing accepts
+geth-style `balHash`/`blockAccessListHash` plus `slotNumber`, active Amsterdam
+genesis headers default the block access-list hash to the empty RLP list hash
+and slot number to zero, and config-driven header validation gates those fields
+at the Amsterdam timestamp.
 A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.

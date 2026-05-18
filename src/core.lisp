@@ -857,6 +857,12 @@
                               object '("parentBeaconBlockRoot"
                                        "parentBeaconRoot")
                               "Genesis parent beacon block root"))
+         (block-access-list-hash (parse-genesis-hash32-field
+                                  object '("balHash"
+                                           "blockAccessListHash")
+                                  "Genesis block access list hash"))
+         (slot-number (genesis-uint64-field object "slotNumber"
+                                            "Genesis slot number"))
          (header
            (make-block-header
             :parent-hash (parse-genesis-hash32-field
@@ -892,7 +898,9 @@
                             object "blobGasUsed" "Genesis blob gas used")
             :excess-blob-gas (genesis-uint64-field
                               object "excessBlobGas"
-                              "Genesis excess blob gas"))))
+                              "Genesis excess blob gas")
+            :block-access-list-hash block-access-list-hash
+            :slot-number slot-number)))
     (when (and config
                (chain-config-london-p config number)
                (null (block-header-base-fee-per-gas header)))
@@ -908,6 +916,11 @@
         (setf (block-header-blob-gas-used header) 0)))
     (when (and config (chain-config-prague-p config number timestamp))
       (setf (block-header-requests-hash header) (execution-requests-hash '())))
+    (when (and config (chain-config-amsterdam-p config number timestamp))
+      (unless (block-header-block-access-list-hash header)
+        (setf (block-header-block-access-list-hash header) +empty-ommers-hash+))
+      (unless (block-header-slot-number header)
+        (setf (block-header-slot-number header) 0)))
     header))
 
 (defun genesis-header-from-genesis-json-string (string &key state-root config)
@@ -1850,7 +1863,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   blob-gas-used
                                   excess-blob-gas
                                   parent-beacon-root
-                                  requests-hash)))
+                                  requests-hash
+                                  block-access-list-hash
+                                  slot-number)))
   parent-hash
   ommers-hash
   beneficiary
@@ -1871,7 +1886,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   blob-gas-used
   excess-blob-gas
   parent-beacon-root
-  requests-hash)
+  requests-hash
+  block-access-list-hash
+  slot-number)
 
 (defun hash-or-zero (hash)
   (hash32-bytes (or hash (zero-hash32))))
@@ -1924,6 +1941,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (setf fields (append fields
                            (list (hash32-bytes
                                   (block-header-requests-hash header))))))
+    (when (or (block-header-block-access-list-hash header)
+              (block-header-slot-number header))
+      (setf fields (append fields
+                           (list (if (block-header-block-access-list-hash
+                                      header)
+                                     (hash32-bytes
+                                      (block-header-block-access-list-hash
+                                       header))
+                                     (make-byte-vector 0))))))
+    (when (block-header-slot-number header)
+      (setf fields (append fields
+                           (list (ensure-uint256
+                                  (block-header-slot-number header)
+                                  "Header slot number")))))
     fields))
 
 (defun block-header-rlp (header)
@@ -2034,6 +2065,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun validate-optional-uint256-field (value label)
   (when (and value (not (uint256-p value)))
     (block-validation-fail "~A must be uint256" label))
+  t)
+
+(defun validate-optional-uint64-field (value label)
+  (when (and value
+             (not (and (integerp value)
+                       (<= 0 value)
+                       (< value (expt 2 64)))))
+    (block-validation-fail "~A must be uint64" label))
   t)
 
 (defun validate-execution-request-fields (request)
@@ -2241,6 +2280,28 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (block-validation-fail "Requests hash present before Prague")))
   t)
 
+(defun block-header-amsterdam-fields-present-p (header)
+  (or (block-header-block-access-list-hash header)
+      (block-header-slot-number header)))
+
+(defun validate-block-amsterdam-fields
+    (header &key (amsterdam-enabled-p
+                  (block-header-amsterdam-fields-present-p header)))
+  (if amsterdam-enabled-p
+      (progn
+        (unless (block-header-block-access-list-hash header)
+          (block-validation-fail
+           "Header is missing block access list hash"))
+        (unless (block-header-slot-number header)
+          (block-validation-fail "Header is missing slot number")))
+      (progn
+        (when (block-header-block-access-list-hash header)
+          (block-validation-fail
+           "Block access list hash present before Amsterdam"))
+        (when (block-header-slot-number header)
+          (block-validation-fail "Slot number present before Amsterdam"))))
+  t)
+
 (defun block-header-post-merge-p (header)
   (and (plusp (block-header-number header))
        (zerop (block-header-difficulty header))))
@@ -2325,6 +2386,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   "Header parent beacon root")
   (validate-optional-hash32-field (block-header-requests-hash header)
                                   "Header requests hash")
+  (validate-optional-hash32-field (block-header-block-access-list-hash header)
+                                  "Header block access list hash")
+  (validate-optional-uint64-field (block-header-slot-number header)
+                                  "Header slot number")
   t)
 
 (defun validate-block-header-basics
@@ -2337,6 +2402,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           cancun-enabled-p-supplied-p)
                          (requests-enabled-p nil
                           requests-enabled-p-supplied-p)
+                         (amsterdam-enabled-p nil
+                          amsterdam-enabled-p-supplied-p)
                          (osaka-enabled-p nil)
                          (expanded-blob-schedule-p nil
                           expanded-blob-schedule-p-supplied-p)
@@ -2362,6 +2429,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (if requests-enabled-p-supplied-p
               requests-enabled-p
               (block-header-requests-hash header)))
+        (amsterdam-enabled-p
+          (if amsterdam-enabled-p-supplied-p
+              amsterdam-enabled-p
+              (block-header-amsterdam-fields-present-p header)))
         (expanded-blob-schedule-p
           (if expanded-blob-schedule-p-supplied-p
               expanded-blob-schedule-p
@@ -2423,6 +2494,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      header :withdrawals-enabled-p withdrawals-enabled-p)
     (validate-block-requests-hash-field
      header :requests-enabled-p requests-enabled-p)
+    (validate-block-amsterdam-fields
+     header :amsterdam-enabled-p amsterdam-enabled-p)
     (when validate-base-fee-p
       (validate-block-base-fee parent-header header
                                :london-parent-p london-parent-p)))
@@ -2441,6 +2514,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        :withdrawals-enabled-p (chain-config-shanghai-p config number timestamp)
        :cancun-enabled-p (chain-config-cancun-p config number timestamp)
        :requests-enabled-p (chain-config-prague-p config number timestamp)
+       :amsterdam-enabled-p (chain-config-amsterdam-p config number timestamp)
        :osaka-enabled-p (chain-config-osaka-p config number timestamp)
        :expanded-blob-schedule-p
        (chain-config-expanded-blob-schedule-p config number timestamp)

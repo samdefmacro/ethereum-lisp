@@ -404,6 +404,8 @@
    #:block-header-excess-blob-gas
    #:block-header-parent-beacon-root
    #:block-header-requests-hash
+   #:block-header-block-access-list-hash
+   #:block-header-slot-number
    #:block-header-rlp
    #:block-header-hash
    #:ethereum-block
@@ -433,6 +435,8 @@
    #:validate-block-cancun-fields
    #:validate-block-withdrawals-field
    #:validate-block-requests-hash-field
+   #:block-header-amsterdam-fields-present-p
+   #:validate-block-amsterdam-fields
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash
@@ -979,6 +983,8 @@
    #:block-header-excess-blob-gas
    #:block-header-parent-beacon-root
    #:block-header-requests-hash
+   #:block-header-block-access-list-hash
+   #:block-header-slot-number
    #:block-header-rlp
    #:block-header-hash
    #:ethereum-block
@@ -1008,6 +1014,8 @@
    #:validate-block-cancun-fields
    #:validate-block-withdrawals-field
    #:validate-block-requests-hash-field
+   #:block-header-amsterdam-fields-present-p
+   #:validate-block-amsterdam-fields
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash
@@ -1515,6 +1523,8 @@
    #:block-header-excess-blob-gas
    #:block-header-parent-beacon-root
    #:block-header-requests-hash
+   #:block-header-block-access-list-hash
+   #:block-header-slot-number
    #:block-header-rlp
    #:block-header-hash
    #:ethereum-block
@@ -1544,6 +1554,8 @@
    #:validate-block-cancun-fields
    #:validate-block-withdrawals-field
    #:validate-block-requests-hash-field
+   #:block-header-amsterdam-fields-present-p
+   #:validate-block-amsterdam-fields
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash
