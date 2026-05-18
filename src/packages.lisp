@@ -523,6 +523,7 @@
    #:make-engine-payload-memory-store
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
+   #:engine-payload-store-put-account-balance
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
    #:engine-payload-store-mark-invalid
@@ -1305,6 +1306,7 @@
    #:make-engine-payload-memory-store
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
+   #:engine-payload-store-put-account-balance
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
    #:engine-payload-store-mark-invalid
@@ -2048,6 +2050,7 @@
    #:make-engine-payload-memory-store
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
+   #:engine-payload-store-put-account-balance
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
    #:engine-payload-store-mark-invalid

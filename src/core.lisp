@@ -2905,6 +2905,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (&key (blocks (make-hash-table :test 'equal))
                       (number-blocks (make-hash-table :test 'eql))
                       (transaction-locations (make-hash-table :test 'equal))
+                      (account-balances (make-hash-table :test 'equal))
                       (head-number 0)
                       (state-blocks (make-hash-table :test 'equal))
                       (remote-blocks (make-hash-table :test 'equal))
@@ -2914,6 +2915,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   blocks
   number-blocks
   transaction-locations
+  account-balances
   (head-number 0 :type (integer 0 *))
   state-blocks
   remote-blocks
@@ -2995,6 +2997,36 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-transaction-location (store hash)
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-transaction-locations store)))
+
+(defun engine-payload-store-account-key (block-hash address)
+  (format nil "~A:~A"
+          (engine-payload-store-key block-hash)
+          (address-to-hex address)))
+
+(defun engine-payload-store-put-account-balance
+    (store block-hash address balance)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (address-p address)
+    (block-validation-fail "Engine account balance address must be an address"))
+  (unless (uint256-p balance)
+    (block-validation-fail "Engine account balance must be uint256"))
+  (let ((block (engine-payload-store-known-block store block-hash)))
+    (unless block
+      (block-validation-fail
+       "Engine account balance block must be known by the memory store"))
+    (setf (gethash (engine-payload-store-account-key block-hash address)
+                   (engine-payload-memory-store-account-balances store))
+          balance
+          (gethash (engine-payload-store-key block-hash)
+                   (engine-payload-memory-store-state-blocks store))
+          t)
+    balance))
+
+(defun engine-payload-store-account-balance (store block-hash address)
+  (gethash (engine-payload-store-account-key block-hash address)
+           (engine-payload-memory-store-account-balances store)
+           0))
 
 (defun engine-payload-store-state-available-p
     (store hash)
@@ -3730,6 +3762,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "eth_blockNumber params must be empty"))
   (quantity-to-hex (engine-payload-memory-store-head-number store)))
 
+(defun eth-rpc-address-param (value method label)
+  (handler-case
+      (engine-rpc-address value label)
+    (block-validation-error ()
+      (block-validation-fail "~A ~A must be an address" method label))))
+
 (defun eth-rpc-block-number-param (params store method)
   (unless (= 1 (length params))
     (block-validation-fail "~A params must contain exactly one block number"
@@ -3760,6 +3798,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-store-block-by-number
          store
          (eth-rpc-block-number-param params store method)))))
+
+(defun engine-rpc-handle-eth-get-balance (params store)
+  (unless (= 2 (length params))
+    (block-validation-fail
+     "eth_getBalance params must contain address and block id"))
+  (let* ((address (eth-rpc-address-param
+                   (first params) "eth_getBalance" "address"))
+         (block (eth-rpc-block-param
+                 (list (second params)) store "eth_getBalance")))
+    (when (and block
+               (engine-payload-store-state-available-p
+                store (block-hash block)))
+      (quantity-to-hex
+       (engine-payload-store-account-balance
+        store (block-hash block) address)))))
 
 (defun eth-rpc-header-object (header)
   (unless (block-header-p header)
@@ -4900,6 +4953,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-block-number params store)))
+              ((string= method "eth_getBalance")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-balance params store)))
               ((string= method "eth_getHeaderByNumber")
                (engine-rpc-response
                 id

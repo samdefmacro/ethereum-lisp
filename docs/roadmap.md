@@ -601,11 +601,13 @@ cell-proof sidecars with 128 proofs per blob and serves
 returns `null`, while V3 keeps request order and allows per-item `null`
 partial responses. The first public `eth_*` read methods are now wired through
 the same JSON-RPC dispatcher: `eth_chainId` returns the configured EIP-155
-chain id, `eth_blockNumber` returns the current memory-store head number, and
-`eth_getHeaderByNumber`/`eth_getHeaderByHash` can return canonical memory-store
-headers for `latest`, `earliest`, hex block quantities, or block hashes using
-the geth-style header object shape while returning JSON `null` for unknown
-blocks. `eth_getBlockByNumber`/`eth_getBlockByHash` now handle both the
+chain id, `eth_blockNumber` returns the current memory-store head number,
+`eth_getBalance` can read retained per-block account balance snapshots by
+block tag, number, or hash while returning `null` when the block or retained
+state is unavailable, and `eth_getHeaderByNumber`/`eth_getHeaderByHash` can
+return canonical memory-store headers for `latest`, `earliest`, hex block
+quantities, or block hashes using the geth-style header object shape while
+returning JSON `null` for unknown blocks. `eth_getBlockByNumber`/`eth_getBlockByHash` now handle both the
 transaction-hash form (`fullTx=false`) and full mined transaction object form
 (`fullTx=true`) for memory-store blocks, adding block size, ommer hashes, and
 Shanghai withdrawals while returning `null` for unknown block ids. The matching

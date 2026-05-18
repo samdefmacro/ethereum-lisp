@@ -3890,6 +3890,111 @@
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
 
+(deftest eth-rpc-get-balance
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (address
+             (address-from-hex "0x00000000000000000000000000000000000000aa"))
+           (empty-address
+             (address-from-hex "0x00000000000000000000000000000000000000bb"))
+           (state-block
+             (make-block
+              :header (make-block-header :number 20
+                                         :timestamp 200
+                                         :gas-limit 30000000)))
+           (missing-state-block
+             (make-block
+              :header (make-block-header :number 21
+                                         :timestamp 210
+                                         :gas-limit 30000000)))
+           (state-block-hash-hex (hash32-to-hex (block-hash state-block)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store state-block)
+      (engine-payload-store-put-account-balance
+       store (block-hash state-block) address 12345)
+      (engine-payload-store-put-block store missing-state-block)
+      (let* ((number-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":73,"
+                  "\"method\":\"eth_getBalance\","
+                  "\"params\":[\"" (address-to-hex address) "\",\"0x14\"]}")
+                 store
+                 config)))
+             (hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":74,"
+                  "\"method\":\"eth_getBalance\","
+                  "\"params\":[\"" (address-to-hex address) "\",\""
+                  state-block-hash-hex "\"]}")
+                 store
+                 config)))
+             (empty-account-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":75,"
+                  "\"method\":\"eth_getBalance\","
+                  "\"params\":[\"" (address-to-hex empty-address)
+                  "\",\"0x14\"]}")
+                 store
+                 config)))
+             (missing-state-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":76,"
+                  "\"method\":\"eth_getBalance\","
+                  "\"params\":[\"" (address-to-hex address) "\",\"0x15\"]}")
+                 store
+                 config)))
+             (missing-block-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":77,"
+                  "\"method\":\"eth_getBalance\","
+                  "\"params\":[\"" (address-to-hex address) "\",\"0x63\"]}")
+                 store
+                 config)))
+             (invalid-address-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":78,\"method\":\"eth_getBalance\",\"params\":[\"0x1234\",\"0x14\"]}"
+                 store
+                 config)))
+             (invalid-params-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":79,"
+                  "\"method\":\"eth_getBalance\","
+                  "\"params\":[\"" (address-to-hex address) "\"]}")
+                 store
+                 config)))
+             (invalid-address-error (field invalid-address-response "error"))
+             (invalid-params-error (field invalid-params-response "error")))
+        (is (string= (quantity-to-hex 12345)
+                     (field number-response "result")))
+        (is (string= (quantity-to-hex 12345)
+                     (field hash-response "result")))
+        (is (string= (quantity-to-hex 0)
+                     (field empty-account-response "result")))
+        (is (null (field missing-state-response "result")))
+        (is (null (field missing-block-response "result")))
+        (is (= -32602 (field invalid-address-error "code")))
+        (is (= -32602 (field invalid-params-error "code")))))))
+
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
