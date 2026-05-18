@@ -3871,16 +3871,21 @@
                   "[{\"jsonrpc\":\"2.0\",\"id\":17,"
                   "\"method\":\"eth_chainId\",\"params\":[]},"
                   "{\"jsonrpc\":\"2.0\",\"id\":18,"
-                  "\"method\":\"eth_blockNumber\",\"params\":[]}]")
+                  "\"method\":\"eth_blockNumber\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":33,"
+                  "\"method\":\"eth_protocolVersion\",\"params\":[]}]")
                  store
                  config))))
-        (is (= 2 (length responses)))
+        (is (= 3 (length responses)))
         (is (= 17 (field (first responses) "id")))
         (is (string= (quantity-to-hex 1701)
                      (field (first responses) "result")))
         (is (= 18 (field (second responses) "id")))
         (is (string= (quantity-to-hex 12)
-                     (field (second responses) "result")))))
+                     (field (second responses) "result")))
+        (is (= 33 (field (third responses) "id")))
+        (is (string= (quantity-to-hex 70)
+                     (field (third responses) "result")))))
     (let* ((response-json
              (engine-rpc-handle-request-json
               "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"eth_syncing\",\"params\":[]}"
@@ -4029,6 +4034,14 @@
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"eth_blobBaseFee\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"eth_protocolVersion\",\"params\":[\"unexpected\"]}"
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))

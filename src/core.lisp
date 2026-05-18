@@ -2470,6 +2470,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defconstant +payload-status-invalid+ "INVALID")
 (defconstant +payload-status-syncing+ "SYNCING")
 (defconstant +payload-status-accepted+ "ACCEPTED")
+(defconstant +eth-protocol-version+ 70)
 
 (defstruct (payload-status
             (:constructor make-payload-status
@@ -3862,6 +3863,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "eth_blockNumber params must be empty"))
   (quantity-to-hex (engine-payload-memory-store-head-number store)))
 
+(defun engine-rpc-handle-eth-protocol-version (params)
+  (when params
+    (block-validation-fail "eth_protocolVersion params must be empty"))
+  (quantity-to-hex +eth-protocol-version+))
+
 (defun engine-rpc-handle-eth-syncing (params)
   (when params
     (block-validation-fail "eth_syncing params must be empty"))
@@ -5181,6 +5187,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-block-number params store)))
+              ((string= method "eth_protocolVersion")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-protocol-version params)))
               ((string= method "eth_syncing")
                (engine-rpc-response
                 id

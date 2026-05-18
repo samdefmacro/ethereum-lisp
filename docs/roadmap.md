@@ -602,6 +602,8 @@ returns `null`, while V3 keeps request order and allows per-item `null`
 partial responses. The first public `eth_*` read methods are now wired through
 the same JSON-RPC dispatcher: `eth_chainId` returns the configured EIP-155
 chain id, `eth_blockNumber` returns the current memory-store head number,
+`eth_protocolVersion` reports the current highest supported devp2p `eth`
+protocol as `0x46`/ETH70,
 `eth_syncing` returns JSON `false` for the current local non-networked
 memory-store execution node, `eth_accounts` returns an empty local-wallet
 account list until wallet support exists, `eth_coinbase` returns the zero
