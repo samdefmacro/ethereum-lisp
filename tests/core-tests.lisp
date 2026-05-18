@@ -2372,6 +2372,23 @@
                             :parent-beacon-root parent-beacon-root
                             :requests-hash (execution-requests-hash requests)
                             :slot-number 7))
+         (amsterdam-header-without-block-access-list
+           (make-block-header
+            :parent-hash (zero-hash32)
+            :beneficiary address
+            :state-root +empty-trie-hash+
+            :mix-hash (zero-hash32)
+            :number 42
+            :gas-limit 50000
+            :gas-used 21000
+            :timestamp 99
+            :base-fee-per-gas 100
+            :withdrawals-root (withdrawal-list-root (list withdrawal))
+            :blob-gas-used 0
+            :excess-blob-gas 0
+            :parent-beacon-root parent-beacon-root
+            :requests-hash (execution-requests-hash requests)
+            :slot-number 7))
          (legacy-payload
            (execution-payload-envelope-execution-payload
             (block-to-executable-data
@@ -2397,6 +2414,15 @@
            (execution-payload-envelope-execution-payload
             (block-to-executable-data
              (make-block :header amsterdam-header
+                         :transactions (list transaction)
+                         :receipts (list receipt)
+                         :withdrawals (list withdrawal)
+                         :requests requests
+                         :block-access-list '()))))
+         (amsterdam-payload-without-block-access-list
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data
+             (make-block :header amsterdam-header-without-block-access-list
                          :transactions (list transaction)
                          :receipts (list receipt)
                          :withdrawals (list withdrawal)
@@ -2456,6 +2482,16 @@
          :versioned-hashes '()
          :requests requests)
       (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (not block)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-version-status
+         5 amsterdam-payload-without-block-access-list amsterdam-config
+         :parent-beacon-root parent-beacon-root
+         :versioned-hashes '()
+         :requests requests)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (string= "blockAccessList required after Amsterdam"
+                   (payload-status-validation-error status)))
       (is (not block)))))
 
 (deftest engine-new-payload-memory-status-tracks-parent-availability

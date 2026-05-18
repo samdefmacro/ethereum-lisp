@@ -2855,6 +2855,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           "executionRequests required after Prague")
          ((null (executable-data-slot-number payload))
           "slotNumber required after Amsterdam")
+         ((null (executable-data-block-access-list payload))
+          "blockAccessList required after Amsterdam")
          ((not amsterdam-p)
           "newPayloadV5 requires Amsterdam")))
       (t "unsupported newPayload version"))))
