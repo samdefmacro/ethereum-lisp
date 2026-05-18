@@ -545,7 +545,9 @@ difficulty with zero terminal-block defaults. A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
 Bearer authentication with HS256 signatures, 32-byte secrets, `iat` freshness,
-and optional `exp` rejection, leaving socket binding as the next outer shell.
+and optional `exp` rejection. A single-connection stream adapter now reads one
+HTTP request from an input stream and writes the response to an output stream,
+leaving the TCP accept loop as the next outer shell.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.

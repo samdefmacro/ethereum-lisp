@@ -528,6 +528,7 @@
    #:+engine-rpc-jwt-expiry-seconds+
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
+   #:engine-rpc-handle-http-stream
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1255,6 +1256,7 @@
    #:+engine-rpc-jwt-expiry-seconds+
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
+   #:engine-rpc-handle-http-stream
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1943,6 +1945,7 @@
    #:+engine-rpc-jwt-expiry-seconds+
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
+   #:engine-rpc-handle-http-stream
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account

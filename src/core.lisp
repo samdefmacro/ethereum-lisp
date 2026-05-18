@@ -3488,6 +3488,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (subseq body 0 length))
         body)))
 
+(defun engine-rpc-http-content-length (headers)
+  (let ((content-length (engine-rpc-http-header headers "content-length")))
+    (if content-length
+        (let ((length (parse-integer content-length :junk-allowed t)))
+          (unless (and length (<= 0 length))
+            (block-validation-fail "HTTP content length is invalid"))
+          length)
+        0)))
+
+(defun engine-rpc-read-http-request-string (input-stream)
+  (let ((lines '()))
+    (loop for line = (read-line input-stream nil nil)
+          while line
+          do (push line lines)
+             (when (string= "" (engine-rpc-http-trim line))
+               (return)))
+    (unless (and lines (string= "" (engine-rpc-http-trim (first lines))))
+      (block-validation-fail "HTTP request is missing header boundary"))
+    (let* ((lines (nreverse lines))
+           (headers (engine-rpc-http-headers (rest lines)))
+           (content-length (engine-rpc-http-content-length headers))
+           (body (make-string content-length))
+           (read-count (read-sequence body input-stream)))
+      (unless (= read-count content-length)
+        (block-validation-fail "HTTP request body is shorter than content length"))
+      (with-output-to-string (request)
+        (dolist (line lines)
+          (write-string (engine-rpc-http-trim line) request)
+          (format request "~C~C" #\Return #\Newline))
+        (write-string body request)))))
+
 (defun engine-rpc-http-response-string (status-code reason body
                                         &key
                                           (content-type "application/json"))
@@ -3552,6 +3583,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-rpc-http-error-response
        400 "Bad Request"
        (format nil "~A" condition)))))
+
+(defun engine-rpc-handle-http-stream
+    (input-stream output-stream store config &key jwt-secret now)
+  (let ((response
+          (handler-case
+              (engine-rpc-handle-http-request-string
+               (engine-rpc-read-http-request-string input-stream)
+               store
+               config
+               :jwt-secret jwt-secret
+               :now now)
+            (error (condition)
+              (engine-rpc-http-error-response
+               400 "Bad Request"
+               (format nil "~A" condition))))))
+    (write-string response output-stream)
+    response))
 
 (defun engine-new-payload-memory-status
     (store version payload config
