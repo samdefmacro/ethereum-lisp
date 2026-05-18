@@ -4669,12 +4669,28 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                              #'string<)
             collect (cons key (gethash key table)))))
 
+(defun txpool-rpc-transaction-sender (transaction)
+  (or (transaction-sender transaction)
+      (zero-address)))
+
+(defun txpool-rpc-transaction-sender-p (transaction address)
+  (bytes= (address-bytes (txpool-rpc-transaction-sender transaction))
+          (address-bytes address)))
+
+(defun txpool-rpc-nonce-transactions (transactions)
+  (let ((nonce-transactions (make-hash-table :test 'equal)))
+    (dolist (transaction transactions)
+      (setf (gethash
+             (write-to-string (transaction-nonce transaction) :base 10)
+             nonce-transactions)
+            (eth-rpc-pending-transaction-object transaction)))
+    (eth-rpc-hash-table-object nonce-transactions)))
+
 (defun txpool-rpc-content-transactions (transactions)
   (let ((senders (make-hash-table :test 'equal)))
     (dolist (transaction transactions)
       (let* ((sender (address-to-hex
-                      (or (transaction-sender transaction)
-                          (zero-address))))
+                      (txpool-rpc-transaction-sender transaction)))
              (nonce (write-to-string (transaction-nonce transaction)
                                      :base 10))
              (sender-transactions (or (gethash sender senders)
@@ -5009,6 +5025,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (txpool-rpc-content-transactions
           (engine-payload-store-pending-transactions store)))
    (cons "queued" +json-empty-object+)))
+
+(defun engine-rpc-handle-txpool-content-from (params store)
+  (unless (= 1 (length params))
+    (block-validation-fail
+     "txpool_contentFrom params must contain exactly one address"))
+  (let ((address (eth-rpc-address-param
+                  (first params) "txpool_contentFrom" "address")))
+    (list
+     (cons "pending"
+           (txpool-rpc-nonce-transactions
+            (remove-if-not
+             (lambda (transaction)
+               (txpool-rpc-transaction-sender-p transaction address))
+             (engine-payload-store-pending-transactions store))))
+     (cons "queued" +json-empty-object+))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
@@ -5756,6 +5787,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-txpool-content params store)))
+              ((string= method "txpool_contentFrom")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-txpool-content-from params store)))
               (t
                (engine-rpc-response
                 id

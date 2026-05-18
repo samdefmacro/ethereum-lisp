@@ -672,8 +672,9 @@ same local pending placeholder as a deterministic hash-sorted array of pending
 transaction objects, and `txpool_status` reports the local pending count with
 zero queued transactions until a queued pool exists. `txpool_content` now
 exposes the same local pending transactions grouped by sender address and
-decimal nonce, with an empty queued object placeholder. Full txpool admission
-rules remain a later networking/txpool slice.
+decimal nonce, with an empty queued object placeholder; `txpool_contentFrom`
+returns the same nonce-keyed pending/queued shape filtered to one sender
+address. Full txpool admission rules remain a later networking/txpool slice.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

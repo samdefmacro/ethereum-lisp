@@ -5488,6 +5488,32 @@
                 store
                 config))
              (txpool-content-response (parse-json txpool-content-json))
+             (txpool-content-from-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":71,"
+                 "\"method\":\"txpool_contentFrom\",\"params\":[\""
+                 (address-to-hex
+                  (or (transaction-sender transaction)
+                      (zero-address)))
+                 "\"]}")
+                store
+                config))
+             (txpool-content-from-response
+               (parse-json txpool-content-from-json))
+             (txpool-content-from-missing-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":72,"
+                 "\"method\":\"txpool_contentFrom\",\"params\":[\""
+                 (address-to-hex
+                  (make-address
+                   (make-byte-vector 20 :initial-element #x99)))
+                 "\"]}")
+                store
+                config))
              (invalid-rlp-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -5516,6 +5542,18 @@
                (parse-json
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"txpool_content\",\"params\":[\"unexpected\"]}"
+                 store
+                 config)))
+             (invalid-txpool-content-from-count-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":73,\"method\":\"txpool_contentFrom\",\"params\":[]}"
+                 store
+                 config)))
+             (invalid-txpool-content-from-address-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":74,\"method\":\"txpool_contentFrom\",\"params\":[\"0x1234\"]}"
                  store
                  config))))
         (is (string= transaction-hash (field send-response "result")))
@@ -5553,6 +5591,14 @@
                        (field nonce-transaction "hash")))
           (is (null (field nonce-transaction "blockHash")))
           (is (search "\"queued\":{}" txpool-content-json)))
+        (let* ((txpool-content-from
+                 (field txpool-content-from-response "result"))
+               (pending (field txpool-content-from "pending"))
+               (nonce-transaction (field pending "9")))
+          (is (string= transaction-hash
+                       (field nonce-transaction "hash")))
+          (is (search "\"queued\":{}" txpool-content-from-json))
+          (is (search "\"pending\":{}" txpool-content-from-missing-json)))
         (is (= -32602
                (field (field invalid-rlp-response "error") "code")))
         (is (= -32602
@@ -5564,6 +5610,14 @@
                       "code")))
         (is (= -32602
                (field (field invalid-txpool-content-response "error")
+                      "code")))
+        (is (= -32602
+               (field (field invalid-txpool-content-from-count-response
+                             "error")
+                      "code")))
+        (is (= -32602
+               (field (field invalid-txpool-content-from-address-response
+                             "error")
                       "code")))))))
 
 (deftest eth-rpc-get-transaction-receipt
