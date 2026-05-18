@@ -2907,6 +2907,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (transaction-locations (make-hash-table :test 'equal))
                       (account-balances (make-hash-table :test 'equal))
                       (account-nonces (make-hash-table :test 'equal))
+                      (account-codes (make-hash-table :test 'equal))
                       (head-number 0)
                       (state-blocks (make-hash-table :test 'equal))
                       (remote-blocks (make-hash-table :test 'equal))
@@ -2918,6 +2919,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   transaction-locations
   account-balances
   account-nonces
+  account-codes
   (head-number 0 :type (integer 0 *))
   state-blocks
   remote-blocks
@@ -3054,6 +3056,33 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (gethash (engine-payload-store-account-key block-hash address)
            (engine-payload-memory-store-account-nonces store)
            0))
+
+(defun engine-payload-store-put-account-code
+    (store block-hash address code)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (address-p address)
+    (block-validation-fail "Engine account code address must be an address"))
+  (let ((block (engine-payload-store-known-block store block-hash))
+        (code (ensure-byte-vector code)))
+    (unless block
+      (block-validation-fail
+       "Engine account code block must be known by the memory store"))
+    (setf (gethash (engine-payload-store-account-key block-hash address)
+                   (engine-payload-memory-store-account-codes store))
+          (copy-seq code)
+          (gethash (engine-payload-store-key block-hash)
+                   (engine-payload-memory-store-state-blocks store))
+          t)
+    code))
+
+(defun engine-payload-store-account-code (store block-hash address)
+  (let ((code
+          (gethash (engine-payload-store-account-key block-hash address)
+                   (engine-payload-memory-store-account-codes store))))
+    (if code
+        (copy-seq code)
+        (make-byte-vector 0))))
 
 (defun engine-payload-store-state-available-p
     (store hash)
@@ -3854,6 +3883,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 store (block-hash block)))
       (quantity-to-hex
        (engine-payload-store-account-nonce
+        store (block-hash block) address)))))
+
+(defun engine-rpc-handle-eth-get-code (params store)
+  (unless (= 2 (length params))
+    (block-validation-fail
+     "eth_getCode params must contain address and block id"))
+  (let* ((address (eth-rpc-address-param
+                   (first params) "eth_getCode" "address"))
+         (block (eth-rpc-block-param
+                 (list (second params)) store "eth_getCode")))
+    (when (and block
+               (engine-payload-store-state-available-p
+                store (block-hash block)))
+      (bytes-to-hex
+       (engine-payload-store-account-code
         store (block-hash block) address)))))
 
 (defun eth-rpc-header-object (header)
@@ -5005,6 +5049,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-transaction-count params store)))
+              ((string= method "eth_getCode")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-code params store)))
               ((string= method "eth_getHeaderByNumber")
                (engine-rpc-response
                 id
