@@ -3129,6 +3129,25 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (cons "slotNumber"
             (quantity-to-hex (executable-data-slot-number payload)))))))
 
+(defun engine-rpc-execution-payload-envelope-object (envelope)
+  (unless (typep envelope 'execution-payload-envelope)
+    (block-validation-fail
+     "Engine RPC payload envelope must be execution-payload-envelope"))
+  (append
+   (list
+    (cons "executionPayload"
+          (engine-rpc-executable-data-object
+           (execution-payload-envelope-execution-payload envelope)))
+    (cons "blockValue"
+          (quantity-to-hex (execution-payload-envelope-block-value envelope))))
+   (when (execution-payload-envelope-requests envelope)
+     (list
+      (cons "executionRequests"
+            (mapcar #'bytes-to-hex
+                    (execution-payload-envelope-requests envelope)))))
+   (when (execution-payload-envelope-override-p envelope)
+     (list (cons "shouldOverrideBuilder" t)))))
+
 (defun engine-rpc-payload-status-object (status)
   (list (cons "status" (payload-status-status status))
         (cons "latestValidHash"
@@ -3236,6 +3255,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   '("engine_exchangeTransitionConfigurationV1"
     "engine_forkchoiceUpdatedV1"
     "engine_getPayloadV1"
+    "engine_getPayloadV2"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3372,35 +3392,54 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-payload-id-from-value (value)
   (unless (stringp value)
-    (block-validation-fail "engine_getPayloadV1 payload id must be a hex string"))
+    (block-validation-fail "engine_getPayload payload id must be a hex string"))
   (let ((payload-id
           (handler-case
               (hex-to-bytes value)
             (error ()
               (block-validation-fail
-               "engine_getPayloadV1 payload id must be hex bytes")))))
+               "engine_getPayload payload id must be hex bytes")))))
     (unless (= 8 (length payload-id))
-      (block-validation-fail "engine_getPayloadV1 payload id must be 8 bytes"))
+      (block-validation-fail "engine_getPayload payload id must be 8 bytes"))
     payload-id))
 
-(defun engine-rpc-handle-get-payload-v1 (params store)
+(defun engine-rpc-prepared-payload (params store method)
   (unless (and (listp params) params)
-    (block-validation-fail "engine_getPayloadV1 params must include payload id"))
+    (block-validation-fail "~A params must include payload id" method))
   (let* ((payload-id
            (engine-rpc-payload-id-from-value
             (engine-rpc-required-param
-             params 0 "payloadId" "engine_getPayloadV1")))
+             params 0 "payloadId" method)))
          (prepared-payload
            (engine-payload-store-prepared-payload store payload-id)))
     (unless prepared-payload
       (engine-rpc-fail +engine-rpc-error-unknown-payload+
                        "Unknown payload"))
+    prepared-payload))
+
+(defun engine-rpc-prepared-payload-envelope (prepared-payload)
+  (block-to-executable-data
+   (engine-prepared-payload-block prepared-payload)))
+
+(defun engine-rpc-handle-get-payload-v1 (params store)
+  (let ((prepared-payload
+          (engine-rpc-prepared-payload
+           params store "engine_getPayloadV1")))
     (unless (= 1 (engine-prepared-payload-version prepared-payload))
       (block-validation-fail "payload id is not for engine_getPayloadV1"))
     (engine-rpc-executable-data-object
      (execution-payload-envelope-execution-payload
-      (block-to-executable-data
-       (engine-prepared-payload-block prepared-payload))))))
+      (engine-rpc-prepared-payload-envelope prepared-payload)))))
+
+(defun engine-rpc-handle-get-payload-v2 (params store)
+  (let ((prepared-payload
+          (engine-rpc-prepared-payload
+           params store "engine_getPayloadV2")))
+    (unless (member (engine-prepared-payload-version prepared-payload)
+                    '(1 2))
+      (block-validation-fail "payload id is not for engine_getPayloadV2"))
+    (engine-rpc-execution-payload-envelope-object
+     (engine-rpc-prepared-payload-envelope prepared-payload))))
 
 (defun engine-rpc-handle-forkchoice-updated-v1 (params store)
   (unless (and (listp params) params)
@@ -3514,6 +3553,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-v1 params store)))
+              ((string= method "engine_getPayloadV2")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-v2 params store)))
               ((string= method "engine_getClientVersionV1")
                (engine-rpc-response
                 id

@@ -2777,7 +2777,23 @@
                        (field payload "prevRandao")))
           (is (string= (address-to-hex (zero-address))
                        (field payload "feeRecipient")))
-          (is (not (field payload "transactions")))))
+          (is (not (field payload "transactions"))))
+        (let* ((get-payload-v2-response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 22)
+                        (cons "method" "engine_getPayloadV2")
+                        (cons "params" (list (field result "payloadId"))))
+                  store
+                  config))
+               (envelope (field get-payload-v2-response "result"))
+               (payload (field envelope "executionPayload")))
+          (is (= 22 (field get-payload-v2-response "id")))
+          (is (string= "0x0" (field envelope "blockValue")))
+          (is (string= (hash32-to-hex known-hash)
+                       (field payload "parentHash")))
+          (is (= 1 (hex-to-quantity (field payload "blockNumber"))))
+          (is (not (field payload "transactions"))))
       (let* ((get-payload-response
                (engine-rpc-handle-request
                 (list (cons "jsonrpc" "2.0")
@@ -2788,6 +2804,18 @@
                 config))
              (error (field get-payload-response "error")))
         (is (= 25 (field get-payload-response "id")))
+        (is (= -38001 (field error "code")))
+        (is (string= "Unknown payload" (field error "message"))))
+      (let* ((get-payload-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 27)
+                      (cons "method" "engine_getPayloadV2")
+                      (cons "params" (list "0x0200000000000000")))
+                store
+                config))
+             (error (field get-payload-response "error")))
+        (is (= 27 (field get-payload-response "id")))
         (is (= -38001 (field error "code")))
         (is (string= "Unknown payload" (field error "message"))))
       (let* ((response
@@ -2859,7 +2887,7 @@
                 store
                 config))
              (error (field response "error")))
-        (is (= -32602 (field error "code")))))))
+        (is (= -32602 (field error "code"))))))))
 
 (deftest engine-rpc-exchange-capabilities-advertises-supported-methods
   (labels ((field (object name)
@@ -2876,6 +2904,7 @@
       (is (member "engine_newPayloadV1" capabilities :test #'string=))
       (is (member "engine_newPayloadV5" capabilities :test #'string=))
       (is (member "engine_getPayloadV1" capabilities :test #'string=))
+      (is (member "engine_getPayloadV2" capabilities :test #'string=))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))
       (is (member "engine_exchangeTransitionConfigurationV1"
                   capabilities
