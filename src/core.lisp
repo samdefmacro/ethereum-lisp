@@ -2476,12 +2476,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defstruct (payload-attributes-v1
             (:constructor make-payload-attributes-v1
                 (&key timestamp prev-randao suggested-fee-recipient
-                      withdrawals withdrawals-present-p)))
+                      withdrawals withdrawals-present-p
+                      parent-beacon-root parent-beacon-root-present-p)))
   timestamp
   prev-randao
   suggested-fee-recipient
   withdrawals
-  withdrawals-present-p)
+  withdrawals-present-p
+  parent-beacon-root
+  parent-beacon-root-present-p)
 
 (defstruct (engine-prepared-payload
             (:constructor make-engine-prepared-payload
@@ -3302,6 +3305,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-rpc-validate-payload-attributes-v1
    object :method "engine_forkchoiceUpdatedV2"))
 
+(defun engine-rpc-validate-payload-attributes-v3 (object)
+  (let ((attributes
+          (engine-rpc-validate-payload-attributes-v1
+           object
+           :method "engine_forkchoiceUpdatedV3"
+           :withdrawals-field-required-p t)))
+    (unless (genesis-object-field-present-p object "parentBeaconBlockRoot")
+      (block-validation-fail
+       "engine_forkchoiceUpdatedV3 payloadAttributes parentBeaconBlockRoot is missing"))
+    (setf (payload-attributes-v1-parent-beacon-root attributes)
+          (engine-rpc-required-hash32-field object "parentBeaconBlockRoot")
+          (payload-attributes-v1-parent-beacon-root-present-p attributes)
+          t)
+    attributes))
+
 (defun engine-payload-id (version parent-hash attributes)
   (unless (and (integerp version) (<= 0 version 255))
     (block-validation-fail "Engine payload version must fit in one byte"))
@@ -3318,6 +3336,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (hash32-bytes
                  (withdrawal-list-root
                   (payload-attributes-v1-withdrawals attributes)))
+                #())
+            (if (payload-attributes-v1-parent-beacon-root-present-p attributes)
+                (hash32-bytes
+                 (payload-attributes-v1-parent-beacon-root attributes))
                 #())))
          (payload-id (make-byte-vector 8)))
     (setf (aref payload-id 0) version)
@@ -3352,7 +3374,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              :base-fee-per-gas
              (if (block-header-base-fee-per-gas parent-header)
                  (expected-base-fee-per-gas parent-header)
-                 0))))
+                 0)
+             :parent-beacon-root
+             (when (payload-attributes-v1-parent-beacon-root-present-p
+                    attributes)
+               (payload-attributes-v1-parent-beacon-root attributes))
+             :blob-gas-used
+             (when (payload-attributes-v1-parent-beacon-root-present-p
+                    attributes)
+               0)
+             :excess-blob-gas
+             (when (payload-attributes-v1-parent-beacon-root-present-p
+                    attributes)
+               0))))
       (if (payload-attributes-v1-withdrawals-present-p attributes)
           (make-block
            :header header
@@ -3397,6 +3431,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   '("engine_exchangeTransitionConfigurationV1"
     "engine_forkchoiceUpdatedV1"
     "engine_forkchoiceUpdatedV2"
+    "engine_forkchoiceUpdatedV3"
     "engine_getPayloadBodiesByHashV1"
     "engine_getPayloadBodiesByHashV2"
     "engine_getPayloadBodiesByRangeV1"
@@ -3782,6 +3817,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    params store "engine_forkchoiceUpdatedV2" 2
    #'engine-rpc-validate-payload-attributes-v2))
 
+(defun engine-rpc-handle-forkchoice-updated-v3 (params store)
+  (engine-rpc-handle-forkchoice-updated
+   params store "engine_forkchoiceUpdatedV3" 3
+   #'engine-rpc-validate-payload-attributes-v3))
+
 (defun engine-rpc-response (id &key result error)
   (append (list (cons "jsonrpc" "2.0")
                 (cons "id" id))
@@ -3836,6 +3876,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-forkchoice-updated-v2 params store)))
+              ((string= method "engine_forkchoiceUpdatedV3")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-forkchoice-updated-v3 params store)))
               ((string= method "engine_getPayloadV1")
                (engine-rpc-response
                 id

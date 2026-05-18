@@ -537,6 +537,7 @@ single and batch JSON-RPC response strings for request-string entry points,
 and advertises the currently implemented `engine_newPayloadV1` through
 `engine_newPayloadV5` plus `engine_forkchoiceUpdatedV1`,
 `engine_forkchoiceUpdatedV2`,
+`engine_forkchoiceUpdatedV3`,
 `engine_getClientVersionV1`, and
 `engine_exchangeTransitionConfigurationV1` methods through
 `engine_exchangeCapabilities`; `engine_getClientVersionV1` now returns the
@@ -555,7 +556,11 @@ returns the execution payload object for the prepared block and reports missing
 ids with the Engine API `Unknown payload` error code `-38001`.
 `engine_forkchoiceUpdatedV2` now reuses the same forkchoice status machinery,
 prepares deterministic V2 child payloads, and carries PayloadAttributesV2
-withdrawals into the prepared block. The first `engine_getPayloadV2` path is
+withdrawals into the prepared block. `engine_forkchoiceUpdatedV3` extends that
+prepared-payload path with required PayloadAttributesV3
+`parentBeaconBlockRoot`, retaining it on the prepared Cancun header and
+initializing zero blob-gas fields for `engine_getPayloadV3`. The first
+`engine_getPayloadV2` path is
 also wired through the same prepared-payload
 store and returns a geth/Nethermind-shaped payload envelope with
 `executionPayload` and `blockValue`; `engine_getPayloadV3` now returns the
