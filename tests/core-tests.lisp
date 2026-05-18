@@ -370,7 +370,10 @@
                                    :bpo2-time 600
                                    :bpo3-time 700
                                    :bpo4-time 800
-                                   :bpo5-time 900)))
+                                   :bpo5-time 900
+                                   :amsterdam-time 1000
+                                   :ubt-time 1100
+                                   :enable-ubt-at-genesis-p t)))
     (is (not (fork-block-active-p nil 10)))
     (is (not (fork-block-active-p 10 9)))
     (is (fork-block-active-p 10 10))
@@ -400,6 +403,11 @@
     (is (chain-config-bpo4-p config 10 800))
     (is (not (chain-config-bpo5-p config 10 899)))
     (is (chain-config-bpo5-p config 10 900))
+    (is (not (chain-config-amsterdam-p config 10 999)))
+    (is (chain-config-amsterdam-p config 10 1000))
+    (is (not (chain-config-ubt-p config 10 1099)))
+    (is (chain-config-ubt-p config 10 1100))
+    (is (chain-config-ubt-genesis-p config))
     (is (not (chain-config-petersburg-p config 6)))
     (is (chain-config-petersburg-p config 7))))
 
@@ -415,7 +423,9 @@
                                     :bpo2-time 70
                                     :bpo3-time 80
                                     :bpo4-time 90
-                                    :bpo5-time 100))
+                                    :bpo5-time 100
+                                    :amsterdam-time 110
+                                    :ubt-time 120))
          (recipient (address-from-hex
                      "0x0000000000000000000000000000000000000001"))
          (access-list (make-access-list-transaction :to recipient))
@@ -437,7 +447,9 @@
          (bpo2-rules (chain-config-rules config 10 70))
          (bpo3-rules (chain-config-rules config 10 80))
          (bpo4-rules (chain-config-rules config 10 90))
-         (bpo5-rules (chain-config-rules config 10 100)))
+         (bpo5-rules (chain-config-rules config 10 100))
+         (amsterdam-rules (chain-config-rules config 10 110))
+         (ubt-rules (chain-config-rules config 10 120)))
     (is (= 5 (chain-rules-chain-id london-rules)))
     (is (chain-rules-berlin-p london-rules))
     (is (chain-rules-london-p london-rules))
@@ -458,6 +470,9 @@
     (is (chain-rules-bpo3-p bpo3-rules))
     (is (chain-rules-bpo4-p bpo4-rules))
     (is (chain-rules-bpo5-p bpo5-rules))
+    (is (chain-rules-amsterdam-p amsterdam-rules))
+    (is (not (chain-rules-ubt-p amsterdam-rules)))
+    (is (chain-rules-ubt-p ubt-rules))
     (is (chain-rules-transaction-type-supported-p prague-rules blob))
     (is (chain-rules-transaction-type-supported-p prague-rules set-code))
     (multiple-value-bind (target max update-fraction)
@@ -534,6 +549,9 @@
              ("cancunTime" . "0x10")
              ("bpo3Time" . 30)
              ("bpo5Time" . 40)
+             ("amsterdamTime" . 50)
+             ("ubtTime" . 60)
+             ("enableUBTAtGenesis" . t)
              ("terminalTotalDifficulty" . 0)
              ("terminalTotalDifficultyPassed" . t)
              ("mergeNetsplitBlock" . "9")
@@ -565,6 +583,9 @@
     (is (= 16 (chain-config-cancun-time config)))
     (is (= 30 (chain-config-bpo3-time config)))
     (is (= 40 (chain-config-bpo5-time config)))
+    (is (= 50 (chain-config-amsterdam-time config)))
+    (is (= 60 (chain-config-ubt-time config)))
+    (is (chain-config-enable-ubt-at-genesis-p config))
     (is (= 0 (chain-config-terminal-total-difficulty config)))
     (is (chain-config-terminal-total-difficulty-passed config))
     (is (= 9 (chain-config-merge-netsplit-block config)))

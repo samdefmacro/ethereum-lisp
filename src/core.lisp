@@ -79,6 +79,9 @@
                                    bpo3-time
                                    bpo4-time
                                    bpo5-time
+                                   amsterdam-time
+                                   ubt-time
+                                   enable-ubt-at-genesis-p
                                    terminal-total-difficulty
                                    terminal-total-difficulty-passed
                                    merge-netsplit-block
@@ -109,6 +112,9 @@
   bpo3-time
   bpo4-time
   bpo5-time
+  amsterdam-time
+  ubt-time
+  enable-ubt-at-genesis-p
   terminal-total-difficulty
   terminal-total-difficulty-passed
   merge-netsplit-block
@@ -136,6 +142,8 @@
                                   bpo3-p
                                   bpo4-p
                                   bpo5-p
+                                  amsterdam-p
+                                  ubt-p
                                   blob-schedule-target-gas
                                   blob-schedule-max-gas
                                   blob-schedule-update-fraction)))
@@ -159,6 +167,8 @@
   bpo3-p
   bpo4-p
   bpo5-p
+  amsterdam-p
+  ubt-p
   blob-schedule-target-gas
   blob-schedule-max-gas
   blob-schedule-update-fraction)
@@ -241,6 +251,17 @@
 (defun chain-config-bpo5-p (config block-number timestamp)
   (and (chain-config-london-p config block-number)
        (fork-time-active-p (chain-config-bpo5-time config) timestamp)))
+
+(defun chain-config-amsterdam-p (config block-number timestamp)
+  (and (chain-config-london-p config block-number)
+       (fork-time-active-p (chain-config-amsterdam-time config) timestamp)))
+
+(defun chain-config-ubt-p (config block-number timestamp)
+  (and (chain-config-london-p config block-number)
+       (fork-time-active-p (chain-config-ubt-time config) timestamp)))
+
+(defun chain-config-ubt-genesis-p (config)
+  (chain-config-enable-ubt-at-genesis-p config))
 
 (defun chain-config-expanded-blob-schedule-p (config block-number timestamp)
   (or (chain-config-prague-p config block-number timestamp)
@@ -388,6 +409,8 @@
     ((string-equal fork-name "bpo3") "bpo3Time")
     ((string-equal fork-name "bpo4") "bpo4Time")
     ((string-equal fork-name "bpo5") "bpo5Time")
+    ((string-equal fork-name "amsterdam") "amsterdamTime")
+    ((string-equal fork-name "ubt") "ubtTime")
     (t nil)))
 
 (defun genesis-object-entries (object label)
@@ -699,6 +722,11 @@
    :bpo3-time (parse-genesis-field object "bpo3Time")
    :bpo4-time (parse-genesis-field object "bpo4Time")
    :bpo5-time (parse-genesis-field object "bpo5Time")
+   :amsterdam-time (parse-genesis-field object "amsterdamTime")
+   :ubt-time (parse-genesis-field object "ubtTime")
+   :enable-ubt-at-genesis-p
+   (parse-genesis-boolean-field object "enableUBTAtGenesis"
+                                "enableUBTAtGenesis")
    :terminal-total-difficulty
    (parse-genesis-field object "terminalTotalDifficulty")
    :terminal-total-difficulty-passed
@@ -1008,6 +1036,8 @@
      :bpo3-p (chain-config-bpo3-p config block-number timestamp)
      :bpo4-p (chain-config-bpo4-p config block-number timestamp)
      :bpo5-p (chain-config-bpo5-p config block-number timestamp)
+     :amsterdam-p (chain-config-amsterdam-p config block-number timestamp)
+     :ubt-p (chain-config-ubt-p config block-number timestamp)
      :blob-schedule-target-gas target-blob-gas
      :blob-schedule-max-gas max-blob-gas
      :blob-schedule-update-fraction update-fraction)))

@@ -182,6 +182,9 @@
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
    #:chain-config-bpo5-time
+   #:chain-config-amsterdam-time
+   #:chain-config-ubt-time
+   #:chain-config-enable-ubt-at-genesis-p
    #:chain-config-terminal-total-difficulty
    #:chain-config-terminal-total-difficulty-passed
    #:chain-config-merge-netsplit-block
@@ -209,6 +212,9 @@
    #:chain-config-bpo3-p
    #:chain-config-bpo4-p
    #:chain-config-bpo5-p
+   #:chain-config-amsterdam-p
+   #:chain-config-ubt-p
+   #:chain-config-ubt-genesis-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
@@ -251,6 +257,8 @@
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
    #:chain-rules-bpo5-p
+   #:chain-rules-amsterdam-p
+   #:chain-rules-ubt-p
    #:chain-rules-blob-schedule-target-gas
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction
@@ -749,6 +757,9 @@
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
    #:chain-config-bpo5-time
+   #:chain-config-amsterdam-time
+   #:chain-config-ubt-time
+   #:chain-config-enable-ubt-at-genesis-p
    #:chain-config-terminal-total-difficulty
    #:chain-config-terminal-total-difficulty-passed
    #:chain-config-merge-netsplit-block
@@ -776,6 +787,9 @@
    #:chain-config-bpo3-p
    #:chain-config-bpo4-p
    #:chain-config-bpo5-p
+   #:chain-config-amsterdam-p
+   #:chain-config-ubt-p
+   #:chain-config-ubt-genesis-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
@@ -818,6 +832,8 @@
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
    #:chain-rules-bpo5-p
+   #:chain-rules-amsterdam-p
+   #:chain-rules-ubt-p
    #:chain-rules-blob-schedule-target-gas
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction
@@ -1277,6 +1293,9 @@
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
    #:chain-config-bpo5-time
+   #:chain-config-amsterdam-time
+   #:chain-config-ubt-time
+   #:chain-config-enable-ubt-at-genesis-p
    #:chain-config-terminal-total-difficulty
    #:chain-config-terminal-total-difficulty-passed
    #:chain-config-merge-netsplit-block
@@ -1304,6 +1323,9 @@
    #:chain-config-bpo3-p
    #:chain-config-bpo4-p
    #:chain-config-bpo5-p
+   #:chain-config-amsterdam-p
+   #:chain-config-ubt-p
+   #:chain-config-ubt-genesis-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
@@ -1346,6 +1368,8 @@
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
    #:chain-rules-bpo5-p
+   #:chain-rules-amsterdam-p
+   #:chain-rules-ubt-p
    #:chain-rules-blob-schedule-target-gas
    #:chain-rules-blob-schedule-max-gas
    #:chain-rules-blob-schedule-update-fraction

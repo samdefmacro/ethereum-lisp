@@ -307,7 +307,10 @@ Merge-era config fields such as `terminalTotalDifficultyPassed`,
 `mergeNetsplitBlock`, and `depositContractAddress`, carries DAO and
 difficulty-bomb delay fork fields, and recognizes Nethermind's
 `tangerineWhistleBlock`/`spuriousDragonBlock` aliases for EIP-150, EIP-155,
-and EIP-158 transitions. A small dependency-free genesis JSON
+and EIP-158 transitions. Amsterdam and UBT activation timestamps are now
+represented in chain configs and rules snapshots, with geth-style
+`enableUBTAtGenesis` preserved for future Verkle/Binary-tree genesis handling.
+A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.
 Blob transaction body validation rejects empty blob hash lists, missing or
