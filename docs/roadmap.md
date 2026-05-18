@@ -316,7 +316,9 @@ EVM context. Signed transaction lists can now produce execution results with
 state/transaction/receipt roots, and a first-pass signed block execution entry
 point applies the same sender recovery per transaction while preserving header
 environment, gas-limit, receipt/root, withdrawal, and blob-gas accounting
-behavior. Historical Ethash block beneficiary and ommer rewards now have a
+behavior; signed transaction list execution now preflights the full batch of
+signatures before mutating state, so a later invalid signature cannot leave
+earlier transactions applied. Historical Ethash block beneficiary and ommer rewards now have a
 first-pass execution hook, with Frontier, Byzantium, and Constantinople base
 reward selection behind an explicit block-execution option; post-Merge
 zero-difficulty headers skip those Ethash rewards on the same execution path.

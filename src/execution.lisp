@@ -640,6 +640,11 @@
       (error 'transaction-validation-error
              :message "Invalid transaction signature")))
 
+(defun signed-transaction-senders-or-error (transactions expected-chain-id)
+  (mapcar (lambda (tx)
+            (signed-transaction-sender-or-error tx expected-chain-id))
+          transactions))
+
 (defun apply-signed-message
     (state tx
      &key expected-chain-id
@@ -730,28 +735,33 @@
         (receipts '())
         (cumulative-gas 0))
     (validate-execution-transaction-types transactions effective-chain-rules)
-    (dolist (tx transactions)
-      (when (and block-gas-limit
-                 (> (+ cumulative-gas (transaction-gas-limit tx))
-                    block-gas-limit))
-        (error 'block-validation-error :message "Block gas limit exceeded"))
-      (let ((receipt (apply-signed-message
-                      state tx
-                      :expected-chain-id expected-chain-id
-                      :base-fee base-fee
-                      :blob-base-fee blob-base-fee
-                      :chain-rules effective-chain-rules
-                      :chain-config chain-config
-                      :coinbase coinbase
-                      :timestamp timestamp
-                      :block-number block-number
-                      :prev-randao prev-randao
-                      :context-gas-limit context-gas-limit)))
-        (incf cumulative-gas (receipt-cumulative-gas-used receipt))
-        (push (make-receipt :status (receipt-status receipt)
-                            :cumulative-gas-used cumulative-gas
-                            :logs (receipt-logs receipt))
-              receipts)))
+    (let ((senders (signed-transaction-senders-or-error transactions
+                                                        expected-chain-id)))
+      (loop for tx in transactions
+            for sender in senders
+            do
+        (when (and block-gas-limit
+                   (> (+ cumulative-gas (transaction-gas-limit tx))
+                      block-gas-limit))
+          (error 'block-validation-error :message "Block gas limit exceeded"))
+        (let ((receipt (apply-message
+                        state sender tx
+                        :base-fee base-fee
+                        :blob-base-fee blob-base-fee
+                        :chain-id (transaction-context-chain-id
+                                   tx expected-chain-id)
+                        :chain-rules effective-chain-rules
+                        :chain-config chain-config
+                        :coinbase coinbase
+                        :timestamp timestamp
+                        :block-number block-number
+                        :prev-randao prev-randao
+                        :context-gas-limit context-gas-limit)))
+          (incf cumulative-gas (receipt-cumulative-gas-used receipt))
+          (push (make-receipt :status (receipt-status receipt)
+                              :cumulative-gas-used cumulative-gas
+                              :logs (receipt-logs receipt))
+                receipts))))
     (values (nreverse receipts) cumulative-gas)))
 
 (defun apply-legacy-message-list (state sender transactions)
