@@ -176,6 +176,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-terminal-total-difficulty
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p
@@ -730,6 +731,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-terminal-total-difficulty
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p
@@ -1245,6 +1247,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-terminal-total-difficulty
    #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p

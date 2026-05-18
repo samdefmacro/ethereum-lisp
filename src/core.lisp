@@ -73,6 +73,7 @@
                                    bpo2-time
                                    bpo3-time
                                    bpo4-time
+                                   terminal-total-difficulty
                                    custom-blob-schedule)))
   (chain-id 1 :type (integer 0 *))
   homestead-block
@@ -93,6 +94,7 @@
   bpo2-time
   bpo3-time
   bpo4-time
+  terminal-total-difficulty
   custom-blob-schedule)
 
 (defstruct (chain-rules (:constructor make-chain-rules
@@ -633,6 +635,8 @@
    :bpo2-time (parse-genesis-field object "bpo2Time")
    :bpo3-time (parse-genesis-field object "bpo3Time")
    :bpo4-time (parse-genesis-field object "bpo4Time")
+   :terminal-total-difficulty
+   (parse-genesis-field object "terminalTotalDifficulty")
    :custom-blob-schedule (parse-genesis-blob-schedule object)))
 
 (defun chain-config-from-genesis-json-string (string)
@@ -742,6 +746,11 @@
                                          :default 0))
          (difficulty (or (parse-genesis-field object "difficulty"
                                               :label "Genesis difficulty")
+                         (and config
+                              (eql 0
+                                   (chain-config-terminal-total-difficulty
+                                    config))
+                              0)
                          +genesis-difficulty+))
          (base-fee (parse-genesis-field object "baseFeePerGas"
                                         :label "Genesis base fee"))

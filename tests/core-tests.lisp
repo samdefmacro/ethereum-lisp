@@ -522,6 +522,7 @@
              ("londonBlock" . "5")
              ("cancunTime" . "0x10")
              ("bpo3Time" . 30)
+             ("terminalTotalDifficulty" . 0)
              ("blobSchedule" .
               (("bpo3" .
                 (("target" . 8)
@@ -537,6 +538,7 @@
     (is (= 5 (chain-config-london-block config)))
     (is (= 16 (chain-config-cancun-time config)))
     (is (= 30 (chain-config-bpo3-time config)))
+    (is (= 0 (chain-config-terminal-total-difficulty config)))
     (is (= 1 (length (chain-config-custom-blob-schedule config))))
     (multiple-value-bind (target max update-fraction)
         (chain-config-blob-schedule config 6 30)
@@ -738,6 +740,15 @@
                 "}"))
          (header (genesis-header-from-genesis-json-string json)))
     (is (null (block-header-parent-beacon-root header)))))
+
+(deftest genesis-header-defaults-difficulty-to-zero-at-merge-genesis
+  (let* ((json (concatenate
+                'string
+                "{\"config\":{\"terminalTotalDifficulty\":0},"
+                "\"timestamp\":0"
+                "}"))
+         (header (genesis-header-from-genesis-json-string json)))
+    (is (= 0 (block-header-difficulty header)))))
 
 (deftest genesis-block-from-json-carries-empty-fork-bodies
   (let* ((state-root (hash32-from-hex

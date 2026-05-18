@@ -403,7 +403,9 @@ and Prague execution-request bodies whenever those header commitments are
 active. Genesis header JSON parsing now also accepts the `mixhash` alias used
 by Nethermind's geth-style loader and preserves supplied
 `parentBeaconBlockRoot` values only for Cancun-active genesis headers, while
-still defaulting that Cancun root to zero when absent.
+still defaulting that Cancun root to zero when absent. Chain config parsing now
+preserves `terminalTotalDifficulty`, and TTD=0 genesis configs default a
+missing genesis difficulty to zero for merge-at-genesis fixtures.
 Typed transaction execution semantics, full nested contract creation/inter-
 contract calls, storage/selfdestruct refund counters and richer EVM gas
 scheduling, full header validation including difficulty/seal rules and fork
