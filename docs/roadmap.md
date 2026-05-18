@@ -290,11 +290,12 @@ Engine API scaffolding.
 Osaka activation is now represented in chain config and chain-rules snapshots,
 and config-driven header validation applies the first-pass EIP-7918
 `excessBlobGas` update when the blob reserve price is above the current blob
-price. Prague and Osaka both use the expanded target/max blob schedule defaults
-and blob base-fee update fraction for header/body validation and execution
-blob-fee debits; config-aware body validation and block execution therefore
-allow the higher 9-blob aggregate from Prague onward while preserving the lower
-per-blob transaction cap.
+price. Prague, Osaka, BPO1, and BPO2 now select their fork-specific target/max
+blob schedule defaults and blob base-fee update fractions for header/body
+validation and execution blob-fee debits; config-aware body validation and
+block execution therefore allow the higher 9-, 15-, and 21-blob aggregate
+limits at the appropriate schedule points while preserving the lower per-blob
+transaction cap.
 Blob transaction body validation rejects empty blob hash lists, missing or
 wrong-sized versioned hashes, and non-`0x01` versioned hashes, rejects blob
 transactions of type contract creation, and enforces first-pass Cancun blob
@@ -380,7 +381,7 @@ beacon maximum of `2^63 - 1`.
 Typed transaction execution semantics, full nested contract creation/inter-
 contract calls, storage/selfdestruct refund counters and richer EVM gas
 scheduling, full header validation including difficulty/seal rules and fork
-schedules, richer post-Osaka BPO blob schedule transitions, and deeper blob
+schedules, later post-Osaka BPO blob schedule transitions, and deeper blob
 transaction validation remain. EIP-7702 set-code execution has a first-pass
 transaction-shape layer: set-code messages reject contract creation and empty
 authorization lists, and intrinsic gas now charges the authorization-list

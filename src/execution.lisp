@@ -417,23 +417,23 @@
     (chain-rules chain-config block-number timestamp)
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
-    (if (and effective-chain-rules
-             (chain-rules-expanded-blob-schedule-p effective-chain-rules))
-        +osaka-blob-base-fee-update-fraction+
+    (if effective-chain-rules
+        (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+            (chain-rules-blob-schedule effective-chain-rules)
+          (declare (ignore target-blob-gas max-blob-gas))
+          update-fraction)
         +blob-base-fee-update-fraction+)))
 
 (defun execution-max-blob-gas
     (chain-rules chain-config block-number timestamp)
-  (* (if (let ((effective-chain-rules
-                 (execution-chain-rules chain-rules
-                                        chain-config
-                                        block-number
-                                        timestamp)))
-           (and effective-chain-rules
-                (chain-rules-expanded-blob-schedule-p effective-chain-rules)))
-         +osaka-max-blobs-per-block+
-         +max-blobs-per-block+)
-     +blob-gas-per-blob+))
+  (let ((effective-chain-rules
+          (execution-chain-rules chain-rules chain-config block-number timestamp)))
+    (if effective-chain-rules
+        (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+            (chain-rules-blob-schedule effective-chain-rules)
+          (declare (ignore target-blob-gas update-fraction))
+          max-blob-gas)
+        (* +max-blobs-per-block+ +blob-gas-per-blob+))))
 
 (defun execution-block-blob-base-fee (header chain-rules chain-config)
   (if (block-header-excess-blob-gas header)

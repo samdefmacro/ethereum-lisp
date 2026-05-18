@@ -2476,6 +2476,75 @@
              (block-header-blob-gas-used (block-header block))))
       (is (validate-block-body-against-config block config)))))
 
+(deftest bpo1-blob-block-execution-allows-scheduled-aggregate-blob-limit
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (first-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (second-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000003"))
+         (third-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000004"))
+         (blob-hash (hash32-from-hex
+                     "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
+         (six-hashes (loop repeat +max-blobs-per-block+
+                           collect blob-hash))
+         (three-hashes (loop repeat (- +bpo1-max-blobs-per-block+
+                                       (* 2 +max-blobs-per-block+))
+                             collect blob-hash))
+         (config (make-chain-config :london-block 0
+                                    :cancun-time 0
+                                    :bpo1-time 10))
+         (header (make-block-header
+                  :number 1
+                  :timestamp 10
+                  :gas-limit 100000
+                  :base-fee-per-gas 2
+                  :blob-gas-used (* +bpo1-max-blobs-per-block+
+                                    +blob-gas-per-blob+)
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32)))
+         (first-transaction
+           (make-blob-transaction
+            :nonce 0
+            :max-priority-fee-per-gas 1
+            :max-fee-per-gas 10
+            :gas-limit 21000
+            :to first-recipient
+            :max-fee-per-blob-gas 1
+            :blob-versioned-hashes six-hashes))
+         (second-transaction
+           (make-blob-transaction
+            :nonce 1
+            :max-priority-fee-per-gas 1
+            :max-fee-per-gas 10
+            :gas-limit 21000
+            :to second-recipient
+            :max-fee-per-blob-gas 1
+            :blob-versioned-hashes six-hashes))
+         (third-transaction
+           (make-blob-transaction
+            :nonce 2
+            :max-priority-fee-per-gas 1
+            :max-fee-per-gas 10
+            :gas-limit 21000
+            :to third-recipient
+            :max-fee-per-blob-gas 1
+            :blob-versioned-hashes three-hashes)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 10000000))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state sender
+                              (list first-transaction
+                                    second-transaction
+                                    third-transaction)
+                              :header header
+                              :chain-config config)
+      (is (= 3 (length receipts)))
+      (is (= (* +bpo1-max-blobs-per-block+ +blob-gas-per-blob+)
+             (block-header-blob-gas-used (block-header block))))
+      (is (validate-block-body-against-config block config)))))
+
 (deftest blob-block-execution-rejects-aggregate-blob-limit-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

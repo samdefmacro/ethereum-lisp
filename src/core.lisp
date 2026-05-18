@@ -11,10 +11,16 @@
 (defconstant +max-blobs-per-block+ 6)
 (defconstant +osaka-target-blobs-per-block+ 6)
 (defconstant +osaka-max-blobs-per-block+ 9)
+(defconstant +bpo1-target-blobs-per-block+ 10)
+(defconstant +bpo1-max-blobs-per-block+ 15)
+(defconstant +bpo2-target-blobs-per-block+ 14)
+(defconstant +bpo2-max-blobs-per-block+ 21)
 (defconstant +min-blobs-per-transaction+ 1)
 (defconstant +min-blob-gas-price+ 1)
 (defconstant +blob-base-fee-update-fraction+ 3338477)
 (defconstant +osaka-blob-base-fee-update-fraction+ 5007716)
+(defconstant +bpo1-blob-base-fee-update-fraction+ 8346193)
+(defconstant +bpo2-blob-base-fee-update-fraction+ 11684671)
 (defconstant +blob-base-cost+ 8192)
 (defconstant +maximum-extra-data-size+ 32)
 (defconstant +gas-limit-bound-divisor+ 1024)
@@ -36,7 +42,9 @@
                                    shanghai-time
                                    cancun-time
                                    prague-time
-                                   osaka-time)))
+                                   osaka-time
+                                   bpo1-time
+                                   bpo2-time)))
   (chain-id 1 :type (integer 0 *))
   homestead-block
   eip150-block
@@ -51,7 +59,9 @@
   shanghai-time
   cancun-time
   prague-time
-  osaka-time)
+  osaka-time
+  bpo1-time
+  bpo2-time)
 
 (defstruct (chain-rules (:constructor make-chain-rules
                             (&key (chain-id 1)
@@ -68,7 +78,9 @@
                                   shanghai-p
                                   cancun-p
                                   prague-p
-                                  osaka-p)))
+                                  osaka-p
+                                  bpo1-p
+                                  bpo2-p)))
   (chain-id 1 :type (integer 0 *))
   homestead-p
   eip150-p
@@ -83,7 +95,9 @@
   shanghai-p
   cancun-p
   prague-p
-  osaka-p)
+  osaka-p
+  bpo1-p
+  bpo2-p)
 
 (defun fork-block-active-p (fork-block block-number)
   (and fork-block block-number (>= block-number fork-block)))
@@ -141,13 +155,68 @@
   (and (chain-config-london-p config block-number)
        (fork-time-active-p (chain-config-osaka-time config) timestamp)))
 
+(defun chain-config-bpo1-p (config block-number timestamp)
+  (and (chain-config-london-p config block-number)
+       (fork-time-active-p (chain-config-bpo1-time config) timestamp)))
+
+(defun chain-config-bpo2-p (config block-number timestamp)
+  (and (chain-config-london-p config block-number)
+       (fork-time-active-p (chain-config-bpo2-time config) timestamp)))
+
 (defun chain-config-expanded-blob-schedule-p (config block-number timestamp)
   (or (chain-config-prague-p config block-number timestamp)
-      (chain-config-osaka-p config block-number timestamp)))
+      (chain-config-osaka-p config block-number timestamp)
+      (chain-config-bpo1-p config block-number timestamp)
+      (chain-config-bpo2-p config block-number timestamp)))
 
 (defun chain-rules-expanded-blob-schedule-p (rules)
   (or (chain-rules-prague-p rules)
-      (chain-rules-osaka-p rules)))
+      (chain-rules-osaka-p rules)
+      (chain-rules-bpo1-p rules)
+      (chain-rules-bpo2-p rules)))
+
+(defun blob-schedule-values (target-blobs max-blobs update-fraction)
+  (values (* target-blobs +blob-gas-per-blob+)
+          (* max-blobs +blob-gas-per-blob+)
+          update-fraction))
+
+(defun chain-config-blob-schedule (config block-number timestamp)
+  (cond
+    ((chain-config-bpo2-p config block-number timestamp)
+     (blob-schedule-values +bpo2-target-blobs-per-block+
+                           +bpo2-max-blobs-per-block+
+                           +bpo2-blob-base-fee-update-fraction+))
+    ((chain-config-bpo1-p config block-number timestamp)
+     (blob-schedule-values +bpo1-target-blobs-per-block+
+                           +bpo1-max-blobs-per-block+
+                           +bpo1-blob-base-fee-update-fraction+))
+    ((chain-config-expanded-blob-schedule-p config block-number timestamp)
+     (blob-schedule-values +osaka-target-blobs-per-block+
+                           +osaka-max-blobs-per-block+
+                           +osaka-blob-base-fee-update-fraction+))
+    (t
+     (blob-schedule-values +target-blobs-per-block+
+                           +max-blobs-per-block+
+                           +blob-base-fee-update-fraction+))))
+
+(defun chain-rules-blob-schedule (rules)
+  (cond
+    ((chain-rules-bpo2-p rules)
+     (blob-schedule-values +bpo2-target-blobs-per-block+
+                           +bpo2-max-blobs-per-block+
+                           +bpo2-blob-base-fee-update-fraction+))
+    ((chain-rules-bpo1-p rules)
+     (blob-schedule-values +bpo1-target-blobs-per-block+
+                           +bpo1-max-blobs-per-block+
+                           +bpo1-blob-base-fee-update-fraction+))
+    ((chain-rules-expanded-blob-schedule-p rules)
+     (blob-schedule-values +osaka-target-blobs-per-block+
+                           +osaka-max-blobs-per-block+
+                           +osaka-blob-base-fee-update-fraction+))
+    (t
+     (blob-schedule-values +target-blobs-per-block+
+                           +max-blobs-per-block+
+                           +blob-base-fee-update-fraction+))))
 
 (defun chain-config-rules (config block-number timestamp)
   (make-chain-rules
@@ -165,7 +234,9 @@
    :shanghai-p (chain-config-shanghai-p config block-number timestamp)
    :cancun-p (chain-config-cancun-p config block-number timestamp)
    :prague-p (chain-config-prague-p config block-number timestamp)
-   :osaka-p (chain-config-osaka-p config block-number timestamp)))
+   :osaka-p (chain-config-osaka-p config block-number timestamp)
+   :bpo1-p (chain-config-bpo1-p config block-number timestamp)
+   :bpo2-p (chain-config-bpo2-p config block-number timestamp)))
 
 (defun chain-rules-transaction-type-supported-p (rules transaction)
   (case (transaction-type transaction)
@@ -1465,6 +1536,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                          (osaka-enabled-p nil)
                          (expanded-blob-schedule-p nil
                           expanded-blob-schedule-p-supplied-p)
+                         blob-schedule-target-gas
+                         blob-schedule-max-gas
+                         blob-schedule-update-fraction
                          (post-merge-p nil post-merge-p-supplied-p))
   (validate-block-header-field-shapes parent-header)
   (validate-block-header-field-shapes header :require-parent-hash-p t)
@@ -1515,19 +1589,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail "Extra data too long"))
     (if cancun-enabled-p
         (let ((target-blob-gas
-                (* (if expanded-blob-schedule-p
-                       +osaka-target-blobs-per-block+
-                       +target-blobs-per-block+)
-                   +blob-gas-per-blob+))
+                (or blob-schedule-target-gas
+                    (* (if expanded-blob-schedule-p
+                           +osaka-target-blobs-per-block+
+                           +target-blobs-per-block+)
+                       +blob-gas-per-blob+)))
               (max-blob-gas
-                (* (if expanded-blob-schedule-p
-                       +osaka-max-blobs-per-block+
-                       +max-blobs-per-block+)
-                   +blob-gas-per-blob+))
+                (or blob-schedule-max-gas
+                    (* (if expanded-blob-schedule-p
+                           +osaka-max-blobs-per-block+
+                           +max-blobs-per-block+)
+                       +blob-gas-per-blob+)))
               (update-fraction
-                (if expanded-blob-schedule-p
-                    +osaka-blob-base-fee-update-fraction+
-                    +blob-base-fee-update-fraction+)))
+                (or blob-schedule-update-fraction
+                    (if expanded-blob-schedule-p
+                        +osaka-blob-base-fee-update-fraction+
+                        +blob-base-fee-update-fraction+))))
           (validate-block-cancun-fields header :cancun-enabled-p t)
           (validate-block-excess-blob-gas
            parent-header header
@@ -1550,18 +1627,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun validate-block-header-against-config (parent-header header config)
   (let ((number (block-header-number header))
         (timestamp (block-header-timestamp header)))
-    (validate-block-header-basics
-     parent-header header
-     :validate-base-fee-p (chain-config-london-p config number)
-     :london-parent-p (chain-config-london-p
-                       config (block-header-number parent-header))
-     :withdrawals-enabled-p (chain-config-shanghai-p config number timestamp)
-     :cancun-enabled-p (chain-config-cancun-p config number timestamp)
-     :requests-enabled-p (chain-config-prague-p config number timestamp)
-     :osaka-enabled-p (chain-config-osaka-p config number timestamp)
-     :expanded-blob-schedule-p
-     (chain-config-expanded-blob-schedule-p config number timestamp)
-     :post-merge-p (block-header-post-merge-p header))))
+    (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+        (chain-config-blob-schedule config number timestamp)
+      (validate-block-header-basics
+       parent-header header
+       :validate-base-fee-p (chain-config-london-p config number)
+       :london-parent-p (chain-config-london-p
+                         config (block-header-number parent-header))
+       :withdrawals-enabled-p (chain-config-shanghai-p config number timestamp)
+       :cancun-enabled-p (chain-config-cancun-p config number timestamp)
+       :requests-enabled-p (chain-config-prague-p config number timestamp)
+       :osaka-enabled-p (chain-config-osaka-p config number timestamp)
+       :expanded-blob-schedule-p
+       (chain-config-expanded-blob-schedule-p config number timestamp)
+       :blob-schedule-target-gas target-blob-gas
+       :blob-schedule-max-gas max-blob-gas
+       :blob-schedule-update-fraction update-fraction
+       :post-merge-p (block-header-post-merge-p header)))))
 
 (defun hash32= (left right)
   (and left
@@ -1865,21 +1947,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun validate-block-body-against-config (block config)
   (let* ((header (block-header block))
          (number (block-header-number header))
-         (timestamp (block-header-timestamp header))
-         (update-fraction
-           (if (chain-config-expanded-blob-schedule-p config number timestamp)
-               +osaka-blob-base-fee-update-fraction+
-               +blob-base-fee-update-fraction+))
-         (max-blob-gas
-           (* (if (chain-config-expanded-blob-schedule-p config number timestamp)
-                  +osaka-max-blobs-per-block+
-                  +max-blobs-per-block+)
-              +blob-gas-per-blob+)))
-    (validate-block-transactions-against-config block config)
-    (validate-block-body-roots block
-                               :blob-base-fee-update-fraction
-                               update-fraction
-                               :max-blob-gas max-blob-gas)))
+         (timestamp (block-header-timestamp header)))
+    (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+        (chain-config-blob-schedule config number timestamp)
+      (declare (ignore target-blob-gas))
+      (validate-block-transactions-against-config block config)
+      (validate-block-body-roots block
+                                 :blob-base-fee-update-fraction
+                                 update-fraction
+                                 :max-blob-gas max-blob-gas))))
 
 (defun validate-block-against-config (parent-header block config)
   (validate-block-header-against-config parent-header (block-header block)

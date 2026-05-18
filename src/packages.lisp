@@ -120,10 +120,16 @@
    #:+max-blobs-per-block+
    #:+osaka-target-blobs-per-block+
    #:+osaka-max-blobs-per-block+
+   #:+bpo1-target-blobs-per-block+
+   #:+bpo1-max-blobs-per-block+
+   #:+bpo2-target-blobs-per-block+
+   #:+bpo2-max-blobs-per-block+
    #:+min-blobs-per-transaction+
    #:+min-blob-gas-price+
    #:+blob-base-fee-update-fraction+
    #:+osaka-blob-base-fee-update-fraction+
+   #:+bpo1-blob-base-fee-update-fraction+
+   #:+bpo2-blob-base-fee-update-fraction+
    #:+blob-base-cost+
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
@@ -145,6 +151,8 @@
    #:chain-config-cancun-time
    #:chain-config-prague-time
    #:chain-config-osaka-time
+   #:chain-config-bpo1-time
+   #:chain-config-bpo2-time
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -161,7 +169,10 @@
    #:chain-config-cancun-p
    #:chain-config-prague-p
    #:chain-config-osaka-p
+   #:chain-config-bpo1-p
+   #:chain-config-bpo2-p
    #:chain-config-expanded-blob-schedule-p
+   #:chain-config-blob-schedule
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -180,7 +191,10 @@
    #:chain-rules-cancun-p
    #:chain-rules-prague-p
    #:chain-rules-osaka-p
+   #:chain-rules-bpo1-p
+   #:chain-rules-bpo2-p
    #:chain-rules-expanded-blob-schedule-p
+   #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
    #:state-account
    #:make-state-account
@@ -596,10 +610,16 @@
    #:+max-blobs-per-block+
    #:+osaka-target-blobs-per-block+
    #:+osaka-max-blobs-per-block+
+   #:+bpo1-target-blobs-per-block+
+   #:+bpo1-max-blobs-per-block+
+   #:+bpo2-target-blobs-per-block+
+   #:+bpo2-max-blobs-per-block+
    #:+min-blobs-per-transaction+
    #:+min-blob-gas-price+
    #:+blob-base-fee-update-fraction+
    #:+osaka-blob-base-fee-update-fraction+
+   #:+bpo1-blob-base-fee-update-fraction+
+   #:+bpo2-blob-base-fee-update-fraction+
    #:+blob-base-cost+
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
@@ -621,6 +641,8 @@
    #:chain-config-cancun-time
    #:chain-config-prague-time
    #:chain-config-osaka-time
+   #:chain-config-bpo1-time
+   #:chain-config-bpo2-time
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -637,7 +659,10 @@
    #:chain-config-cancun-p
    #:chain-config-prague-p
    #:chain-config-osaka-p
+   #:chain-config-bpo1-p
+   #:chain-config-bpo2-p
    #:chain-config-expanded-blob-schedule-p
+   #:chain-config-blob-schedule
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -656,7 +681,10 @@
    #:chain-rules-cancun-p
    #:chain-rules-prague-p
    #:chain-rules-osaka-p
+   #:chain-rules-bpo1-p
+   #:chain-rules-bpo2-p
    #:chain-rules-expanded-blob-schedule-p
+   #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
    #:state-account
    #:make-state-account
@@ -1033,10 +1061,16 @@
    #:+max-blobs-per-block+
    #:+osaka-target-blobs-per-block+
    #:+osaka-max-blobs-per-block+
+   #:+bpo1-target-blobs-per-block+
+   #:+bpo1-max-blobs-per-block+
+   #:+bpo2-target-blobs-per-block+
+   #:+bpo2-max-blobs-per-block+
    #:+min-blobs-per-transaction+
    #:+min-blob-gas-price+
    #:+blob-base-fee-update-fraction+
    #:+osaka-blob-base-fee-update-fraction+
+   #:+bpo1-blob-base-fee-update-fraction+
+   #:+bpo2-blob-base-fee-update-fraction+
    #:+blob-base-cost+
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
@@ -1058,6 +1092,8 @@
    #:chain-config-cancun-time
    #:chain-config-prague-time
    #:chain-config-osaka-time
+   #:chain-config-bpo1-time
+   #:chain-config-bpo2-time
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -1074,7 +1110,10 @@
    #:chain-config-cancun-p
    #:chain-config-prague-p
    #:chain-config-osaka-p
+   #:chain-config-bpo1-p
+   #:chain-config-bpo2-p
    #:chain-config-expanded-blob-schedule-p
+   #:chain-config-blob-schedule
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1093,7 +1132,10 @@
    #:chain-rules-cancun-p
    #:chain-rules-prague-p
    #:chain-rules-osaka-p
+   #:chain-rules-bpo1-p
+   #:chain-rules-bpo2-p
    #:chain-rules-expanded-blob-schedule-p
+   #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
    #:state-account
    #:make-state-account

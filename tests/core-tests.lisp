@@ -365,7 +365,9 @@
                                    :shanghai-time 100
                                    :cancun-time 200
                                    :prague-time 300
-                                   :osaka-time 400)))
+                                   :osaka-time 400
+                                   :bpo1-time 500
+                                   :bpo2-time 600)))
     (is (not (fork-block-active-p nil 10)))
     (is (not (fork-block-active-p 10 9)))
     (is (fork-block-active-p 10 10))
@@ -385,6 +387,10 @@
     (is (chain-config-expanded-blob-schedule-p config 10 300))
     (is (not (chain-config-osaka-p config 10 399)))
     (is (chain-config-osaka-p config 10 400))
+    (is (not (chain-config-bpo1-p config 10 499)))
+    (is (chain-config-bpo1-p config 10 500))
+    (is (not (chain-config-bpo2-p config 10 599)))
+    (is (chain-config-bpo2-p config 10 600))
     (is (not (chain-config-petersburg-p config 6)))
     (is (chain-config-petersburg-p config 7))))
 
@@ -395,7 +401,9 @@
                                     :shanghai-time 20
                                     :cancun-time 30
                                     :prague-time 40
-                                    :osaka-time 50))
+                                    :osaka-time 50
+                                    :bpo1-time 60
+                                    :bpo2-time 70))
          (recipient (address-from-hex
                      "0x0000000000000000000000000000000000000001"))
          (access-list (make-access-list-transaction :to recipient))
@@ -412,7 +420,9 @@
                            :address recipient))))
          (london-rules (chain-config-rules config 10 20))
          (prague-rules (chain-config-rules config 10 40))
-         (osaka-rules (chain-config-rules config 10 50)))
+         (osaka-rules (chain-config-rules config 10 50))
+         (bpo1-rules (chain-config-rules config 10 60))
+         (bpo2-rules (chain-config-rules config 10 70)))
     (is (= 5 (chain-rules-chain-id london-rules)))
     (is (chain-rules-berlin-p london-rules))
     (is (chain-rules-london-p london-rules))
@@ -428,8 +438,22 @@
     (is (chain-rules-expanded-blob-schedule-p prague-rules))
     (is (chain-rules-osaka-p osaka-rules))
     (is (chain-rules-expanded-blob-schedule-p osaka-rules))
+    (is (chain-rules-bpo1-p bpo1-rules))
+    (is (chain-rules-bpo2-p bpo2-rules))
     (is (chain-rules-transaction-type-supported-p prague-rules blob))
-    (is (chain-rules-transaction-type-supported-p prague-rules set-code))))
+    (is (chain-rules-transaction-type-supported-p prague-rules set-code))
+    (multiple-value-bind (target max update-fraction)
+        (chain-config-blob-schedule config 10 60)
+      (is (= (* +bpo1-target-blobs-per-block+ +blob-gas-per-blob+)
+             target))
+      (is (= (* +bpo1-max-blobs-per-block+ +blob-gas-per-blob+) max))
+      (is (= +bpo1-blob-base-fee-update-fraction+ update-fraction)))
+    (multiple-value-bind (target max update-fraction)
+        (chain-rules-blob-schedule bpo2-rules)
+      (is (= (* +bpo2-target-blobs-per-block+ +blob-gas-per-blob+)
+             target))
+      (is (= (* +bpo2-max-blobs-per-block+ +blob-gas-per-blob+) max))
+      (is (= +bpo2-blob-base-fee-update-fraction+ update-fraction)))))
 
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
@@ -1444,6 +1468,58 @@
     (signals block-validation-error
       (validate-block-body-roots block))
     (is (validate-block-body-against-config block config))))
+
+(deftest bpo-block-body-uses-scheduled-blob-limits
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (blob-hash (hash32-from-hex
+                     "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (six-hashes (loop repeat +max-blobs-per-block+
+                           collect blob-hash))
+         (three-hashes (loop repeat 3 collect blob-hash))
+         (bpo1-transactions
+           (list (make-blob-transaction :to address
+                                        :max-fee-per-blob-gas 1
+                                        :blob-versioned-hashes six-hashes)
+                 (make-blob-transaction :to address
+                                        :max-fee-per-blob-gas 1
+                                        :blob-versioned-hashes six-hashes)
+                 (make-blob-transaction :to address
+                                        :max-fee-per-blob-gas 1
+                                        :blob-versioned-hashes three-hashes)))
+         (bpo2-transactions
+           (append bpo1-transactions
+                   (list (make-blob-transaction
+                          :to address
+                          :max-fee-per-blob-gas 1
+                          :blob-versioned-hashes six-hashes))))
+         (config (make-chain-config :london-block 0
+                                    :cancun-time 0
+                                    :bpo1-time 30
+                                    :bpo2-time 40))
+         (bpo1-block
+           (make-block :header (make-block-header
+                                :number 1
+                                :timestamp 30
+                                :blob-gas-used
+                                (* +bpo1-max-blobs-per-block+
+                                   +blob-gas-per-blob+)
+                                :excess-blob-gas 0)
+                       :transactions bpo1-transactions))
+         (bpo2-block
+           (make-block :header (make-block-header
+                                :number 2
+                                :timestamp 40
+                                :blob-gas-used
+                                (* +bpo2-max-blobs-per-block+
+                                   +blob-gas-per-blob+)
+                                :excess-blob-gas 0)
+                       :transactions bpo2-transactions)))
+    (signals block-validation-error
+      (validate-block-body-roots bpo1-block))
+    (signals block-validation-error
+      (validate-block-body-roots bpo2-block))
+    (is (validate-block-body-against-config bpo1-block config))
+    (is (validate-block-body-against-config bpo2-block config))))
 
 (deftest blob-sidecar-field-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
