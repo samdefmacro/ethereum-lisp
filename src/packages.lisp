@@ -523,6 +523,9 @@
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
    #:engine-rpc-handle-request-json
+   #:+engine-rpc-http-accepted-content-types+
+   #:engine-rpc-http-accepted-content-type-p
+   #:engine-rpc-handle-http-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1245,6 +1248,9 @@
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
    #:engine-rpc-handle-request-json
+   #:+engine-rpc-http-accepted-content-types+
+   #:engine-rpc-http-accepted-content-type-p
+   #:engine-rpc-handle-http-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1928,6 +1934,9 @@
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
    #:engine-rpc-handle-request-json
+   #:+engine-rpc-http-accepted-content-types+
+   #:engine-rpc-http-accepted-content-type-p
+   #:engine-rpc-handle-http-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account

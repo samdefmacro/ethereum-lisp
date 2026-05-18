@@ -3238,6 +3238,134 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (json-encode
    (engine-rpc-handle-request-string request-json store config)))
 
+(defparameter +engine-rpc-http-accepted-content-types+
+  '("application/json" "application/json-rpc" "application/jsonrequest"))
+
+(defun engine-rpc-http-trim (string)
+  (string-trim '(#\Space #\Tab #\Return #\Newline) string))
+
+(defun engine-rpc-http-split-lines (string)
+  (loop with start = 0
+        for end = (position #\Newline string :start start)
+        collect (engine-rpc-http-trim
+                 (subseq string start (or end (length string))))
+        while end
+        do (setf start (1+ end))))
+
+(defun engine-rpc-http-request-target (request-line)
+  (let* ((first-space (position #\Space request-line))
+         (second-space
+           (and first-space
+                (position #\Space request-line :start (1+ first-space)))))
+    (unless (and first-space second-space)
+      (block-validation-fail "HTTP request line is malformed"))
+    (values (subseq request-line 0 first-space)
+            (subseq request-line (1+ first-space) second-space))))
+
+(defun engine-rpc-http-headers (lines)
+  (loop for line in lines
+        unless (string= line "")
+          collect
+          (let ((colon (position #\: line)))
+            (unless colon
+              (block-validation-fail "HTTP header is malformed"))
+            (cons (string-downcase
+                   (engine-rpc-http-trim (subseq line 0 colon)))
+                  (engine-rpc-http-trim (subseq line (1+ colon)))))))
+
+(defun engine-rpc-http-header (headers name)
+  (cdr (assoc (string-downcase name) headers :test #'string=)))
+
+(defun engine-rpc-http-media-type (content-type)
+  (when content-type
+    (string-downcase
+     (engine-rpc-http-trim
+      (subseq content-type
+              0
+              (or (position #\; content-type)
+                  (length content-type)))))))
+
+(defun engine-rpc-http-accepted-content-type-p (content-type)
+  (let ((media-type (engine-rpc-http-media-type content-type)))
+    (and media-type
+         (member media-type
+                 +engine-rpc-http-accepted-content-types+
+                 :test #'string=))))
+
+(defun engine-rpc-http-header-boundary (request)
+  (let ((crlf-boundary
+          (search (format nil "~C~C~C~C"
+                          #\Return #\Newline #\Return #\Newline)
+                  request))
+        (lf-boundary (search (format nil "~C~C" #\Newline #\Newline)
+                             request)))
+    (cond
+      (crlf-boundary (values crlf-boundary 4))
+      (lf-boundary (values lf-boundary 2))
+      (t (block-validation-fail "HTTP request is missing header boundary")))))
+
+(defun engine-rpc-http-body (body headers)
+  (let ((content-length (engine-rpc-http-header headers "content-length")))
+    (if content-length
+        (let ((length (parse-integer content-length :junk-allowed t)))
+          (unless (and length (<= 0 length (length body)))
+            (block-validation-fail "HTTP content length is invalid"))
+          (subseq body 0 length))
+        body)))
+
+(defun engine-rpc-http-response-string (status-code reason body
+                                        &key
+                                          (content-type "application/json"))
+  (with-output-to-string (stream)
+    (format stream "HTTP/1.1 ~D ~A~C~C" status-code reason
+            #\Return #\Newline)
+    (when content-type
+      (format stream "Content-Type: ~A~C~C" content-type #\Return #\Newline))
+    (format stream "Content-Length: ~D~C~C" (length body) #\Return #\Newline)
+    (format stream "~C~C" #\Return #\Newline)
+    (write-string body stream)))
+
+(defun engine-rpc-http-error-response (status-code reason message)
+  (engine-rpc-http-response-string
+   status-code reason message :content-type "text/plain"))
+
+(defun engine-rpc-handle-http-request-string (request store config)
+  (handler-case
+      (multiple-value-bind (boundary boundary-length)
+          (engine-rpc-http-header-boundary request)
+        (let* ((head (subseq request 0 boundary))
+               (body (subseq request (+ boundary boundary-length)))
+               (lines (engine-rpc-http-split-lines head)))
+          (unless lines
+            (block-validation-fail "HTTP request is empty"))
+          (multiple-value-bind (method target)
+              (engine-rpc-http-request-target (first lines))
+            (declare (ignore target))
+            (let ((headers (engine-rpc-http-headers (rest lines))))
+              (cond
+                ((and (string= method "GET") (string= body ""))
+                 (engine-rpc-http-response-string
+                  200 "OK" "" :content-type nil))
+                ((not (string= method "POST"))
+                 (engine-rpc-http-error-response
+                  405 "Method Not Allowed" "method not allowed"))
+                ((not (engine-rpc-http-accepted-content-type-p
+                       (engine-rpc-http-header headers "content-type")))
+                 (engine-rpc-http-error-response
+                  415 "Unsupported Media Type"
+                  "invalid content type, only application/json is supported"))
+                (t
+                 (engine-rpc-http-response-string
+                  200 "OK"
+                  (engine-rpc-handle-request-json
+                   (engine-rpc-http-body body headers)
+                   store
+                   config))))))))
+    (error (condition)
+      (engine-rpc-http-error-response
+       400 "Bad Request"
+       (format nil "~A" condition)))))
+
 (defun engine-new-payload-memory-status
     (store version payload config
      &key (parent-beacon-root nil parent-beacon-root-supplied-p)

@@ -2809,6 +2809,60 @@
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
 
+(deftest engine-rpc-http-post-dispatches-json-rpc
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (http-body (response)
+             (let ((boundary (search (format nil "~C~C~C~C"
+                                             #\Return #\Newline
+                                             #\Return #\Newline)
+                                     response)))
+               (subseq response (+ boundary 4))))
+           (http-status (response)
+             (let* ((line-end (position #\Return response))
+                    (status-line (subseq response 0 line-end)))
+               (parse-integer status-line :start 9 :end 12))))
+    (let* ((body
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":17,"
+              "\"method\":\"engine_getClientVersionV1\","
+              "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+              "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+           (request
+             (format nil
+                     "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json; charset=utf-8~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (http-response
+             (engine-rpc-handle-http-request-string
+              request
+              (make-engine-payload-memory-store)
+              (make-chain-config)))
+           (rpc-response (parse-json (http-body http-response)))
+           (local (first (field rpc-response "result"))))
+      (is (= 200 (http-status http-response)))
+      (is (= 17 (field rpc-response "id")))
+      (is (string= "ethereum-lisp" (field local "name"))))
+    (let* ((response
+             (engine-rpc-handle-http-request-string
+              "POST / HTTP/1.1
+Content-Type: text/plain
+
+{}"
+              (make-engine-payload-memory-store)
+              (make-chain-config))))
+      (is (= 415 (http-status response))))
+    (let* ((response
+             (engine-rpc-handle-http-request-string
+              "PUT / HTTP/1.1
+Content-Type: application/json
+
+{}"
+              (make-engine-payload-memory-store)
+              (make-chain-config))))
+      (is (= 405 (http-status response))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

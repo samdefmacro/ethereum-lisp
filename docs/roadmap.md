@@ -541,8 +541,10 @@ and advertises the currently implemented `engine_newPayloadV1` through
 `engine_exchangeCapabilities`; `engine_getClientVersionV1` now returns the
 local Common Lisp client identity, and
 `engine_exchangeTransitionConfigurationV1` returns the local terminal
-difficulty with zero terminal-block defaults, leaving HTTP transport as the
-next outer shell.
+difficulty with zero terminal-block defaults. A first HTTP POST adapter now
+validates request method and JSON content type before handing the body to the
+shared JSON-RPC dispatcher, leaving socket binding/JWT auth as the next outer
+shell.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.
