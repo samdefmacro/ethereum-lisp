@@ -6082,7 +6082,74 @@
                      (field (first block-hash-logs) "blockNumber")))
         (is (search "\"result\":[]" empty-json))
         (is (= -32602 (field invalid-range-error "code")))
-        (is (= -32602 (field invalid-address-error "code")))))))
+        (is (= -32602 (field invalid-address-error "code"))))
+      (let* ((new-filter-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":72,"
+                  "\"method\":\"eth_newFilter\","
+                  "\"params\":[{\"fromBlock\":\"0x28\","
+                  "\"toBlock\":\"0x29\","
+                  "\"address\":\"" (address-to-hex address-a) "\","
+                  "\"topics\":[\"" (hash32-to-hex topic-a) "\"]}]}")
+                 store
+                 config)))
+             (filter-id (field new-filter-response "result"))
+             (filter-logs-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":73,"
+                  "\"method\":\"eth_getFilterLogs\","
+                  "\"params\":[\"" filter-id "\"]}")
+                 store
+                 config)))
+             (filter-logs (field filter-logs-response "result"))
+             (uninstall-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":74,"
+                  "\"method\":\"eth_uninstallFilter\","
+                  "\"params\":[\"" filter-id "\"]}")
+                 store
+                 config)))
+             (missing-filter-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":75,"
+                  "\"method\":\"eth_getFilterLogs\","
+                  "\"params\":[\"" filter-id "\"]}")
+                 store
+                 config)))
+             (missing-filter-error (field missing-filter-response "error"))
+             (uninstall-missing-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":76,"
+                 "\"method\":\"eth_uninstallFilter\","
+                 "\"params\":[\"" filter-id "\"]}")
+                store
+                config))
+             (uninstall-missing-response
+               (parse-json uninstall-missing-json)))
+        (is (string= (quantity-to-hex 1) filter-id))
+        (is (= 2 (length filter-logs)))
+        (is (string= (quantity-to-hex 40)
+                     (field (first filter-logs) "blockNumber")))
+        (is (string= (quantity-to-hex 41)
+                     (field (second filter-logs) "blockNumber")))
+        (is (eq t (field uninstall-response "result")))
+        (is (= -32602 (field missing-filter-error "code")))
+        (is (null (field uninstall-missing-response "result")))
+        (is (search "\"result\":false" uninstall-missing-json))))))
 
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)

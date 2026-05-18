@@ -664,7 +664,11 @@ effective gas price. `eth_getBlockReceipts` now exposes the same retained
 receipt objects by block tag, number, or hash for known memory-store blocks;
 `eth_getLogs` can scan retained memory-store receipts by block range or
 `blockHash`, address filter, and positional topic filters, returning canonical
-log objects and empty JSON arrays for no matches. `eth_sendRawTransaction` now
+log objects and empty JSON arrays for no matches. The first stateful log
+filter methods are also present: `eth_newFilter` registers memory-store log
+criteria, `eth_getFilterLogs` replays the matching retained logs, and
+`eth_uninstallFilter` removes registered filters while returning false for
+unknown ids. `eth_sendRawTransaction` now
 decodes raw transaction bytes, records the decoded transaction in a local
 pending-transaction placeholder, and returns the transaction hash; locally
 submitted pending raw bytes are also visible through

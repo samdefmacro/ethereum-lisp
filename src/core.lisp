@@ -2964,7 +2964,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (invalid-tipsets (make-hash-table :test 'equal))
                       (prepared-payloads (make-hash-table :test 'equal))
                       (blob-sidecars (make-hash-table :test 'equal))
-                      (pending-transactions (make-hash-table :test 'equal)))))
+                      (pending-transactions (make-hash-table :test 'equal))
+                      (log-filters (make-hash-table :test 'eql))
+                      (next-log-filter-id 1))))
   blocks
   number-blocks
   transaction-locations
@@ -2978,7 +2980,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   invalid-tipsets
   prepared-payloads
   blob-sidecars
-  pending-transactions)
+  pending-transactions
+  log-filters
+  (next-log-filter-id 1 :type (integer 1 *)))
 
 (defstruct (engine-transaction-location
             (:constructor make-engine-transaction-location
@@ -3088,6 +3092,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-pending-transaction-count (store)
   (hash-table-count
    (engine-payload-memory-store-pending-transactions store)))
+
+(defun engine-payload-store-put-log-filter (store filter)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (let ((id (engine-payload-memory-store-next-log-filter-id store)))
+    (setf (gethash id (engine-payload-memory-store-log-filters store))
+          filter)
+    (incf (engine-payload-memory-store-next-log-filter-id store))
+    id))
+
+(defun engine-payload-store-log-filter (store id)
+  (gethash id (engine-payload-memory-store-log-filters store)))
+
+(defun engine-payload-store-uninstall-log-filter (store id)
+  (remhash id (engine-payload-memory-store-log-filters store)))
 
 (defun engine-payload-store-account-key (block-hash address)
   (format nil "~A:~A"
@@ -5208,16 +5227,49 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   log-index))
           do (incf log-index-start (length (receipt-logs receipt))))))
 
-(defun engine-rpc-handle-eth-get-logs (params store)
-  (let* ((method "eth_getLogs")
-         (filter (eth-rpc-log-filter-object params method))
-         (addresses (eth-rpc-log-filter-addresses filter method))
+(defun eth-rpc-filter-logs (filter store method)
+  (let* ((addresses (eth-rpc-log-filter-addresses filter method))
          (topic-filters (eth-rpc-log-filter-topics filter method))
          (blocks (eth-rpc-log-filter-blocks filter store method))
          (logs (loop for block in blocks
                      append (eth-rpc-block-logs-object
                              block addresses topic-filters))))
     (eth-rpc-json-array logs)))
+
+(defun engine-rpc-handle-eth-get-logs (params store)
+  (let* ((method "eth_getLogs")
+         (filter (eth-rpc-log-filter-object params method)))
+    (eth-rpc-filter-logs filter store method)))
+
+(defun engine-rpc-handle-eth-new-filter (params store)
+  (let* ((method "eth_newFilter")
+         (filter (eth-rpc-log-filter-object params method)))
+    (eth-rpc-log-filter-addresses filter method)
+    (eth-rpc-log-filter-topics filter method)
+    (eth-rpc-log-filter-blocks filter store method)
+    (quantity-to-hex
+     (engine-payload-store-put-log-filter store filter))))
+
+(defun eth-rpc-filter-id-param (params method)
+  (unless (= 1 (length params))
+    (block-validation-fail "~A params must contain exactly one filter id"
+                           method))
+  (engine-rpc-quantity-param params 0 "filter id" method))
+
+(defun engine-rpc-handle-eth-get-filter-logs (params store)
+  (let* ((method "eth_getFilterLogs")
+         (id (eth-rpc-filter-id-param params method))
+         (filter (engine-payload-store-log-filter store id)))
+    (unless filter
+      (block-validation-fail "~A filter not found" method))
+    (eth-rpc-filter-logs filter store method)))
+
+(defun engine-rpc-handle-eth-uninstall-filter (params store)
+  (let* ((method "eth_uninstallFilter")
+         (id (eth-rpc-filter-id-param params method)))
+    (if (engine-payload-store-uninstall-log-filter store id)
+        t
+        :false)))
 
 (defun engine-rpc-handle-eth-get-raw-transaction-by-block-number-and-index
     (params store)
@@ -6017,6 +6069,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-logs params store)))
+              ((string= method "eth_newFilter")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-new-filter params store)))
+              ((string= method "eth_getFilterLogs")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-filter-logs params store)))
+              ((string= method "eth_uninstallFilter")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-uninstall-filter params store)))
               ((string= method
                         "eth_getRawTransactionByBlockNumberAndIndex")
                (engine-rpc-response
