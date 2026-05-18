@@ -1527,6 +1527,65 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail "Max fee per blob gas must be uint256")))
   t)
 
+(defun validate-transaction-signature-fields (transaction)
+  (etypecase transaction
+    (legacy-transaction
+     (unless (uint256-p (legacy-transaction-v transaction))
+       (block-validation-fail "Transaction v must be uint256"))
+     (unless (uint256-p (legacy-transaction-r transaction))
+       (block-validation-fail "Transaction r must be uint256"))
+     (unless (uint256-p (legacy-transaction-s transaction))
+       (block-validation-fail "Transaction s must be uint256")))
+    ((or access-list-transaction
+         dynamic-fee-transaction
+         blob-transaction
+         set-code-transaction)
+     (unless (uint256-p
+              (etypecase transaction
+                (access-list-transaction
+                 (access-list-transaction-chain-id transaction))
+                (dynamic-fee-transaction
+                 (dynamic-fee-transaction-chain-id transaction))
+                (blob-transaction
+                 (blob-transaction-chain-id transaction))
+                (set-code-transaction
+                 (set-code-transaction-chain-id transaction))))
+       (block-validation-fail "Transaction chain id must be uint256"))
+     (unless (uint256-p
+              (etypecase transaction
+                (access-list-transaction
+                 (access-list-transaction-y-parity transaction))
+                (dynamic-fee-transaction
+                 (dynamic-fee-transaction-y-parity transaction))
+                (blob-transaction
+                 (blob-transaction-y-parity transaction))
+                (set-code-transaction
+                 (set-code-transaction-y-parity transaction))))
+       (block-validation-fail "Transaction y parity must be uint256"))
+     (unless (uint256-p
+              (etypecase transaction
+                (access-list-transaction
+                 (access-list-transaction-r transaction))
+                (dynamic-fee-transaction
+                 (dynamic-fee-transaction-r transaction))
+                (blob-transaction
+                 (blob-transaction-r transaction))
+                (set-code-transaction
+                 (set-code-transaction-r transaction))))
+       (block-validation-fail "Transaction r must be uint256"))
+     (unless (uint256-p
+              (etypecase transaction
+                (access-list-transaction
+                 (access-list-transaction-s transaction))
+                (dynamic-fee-transaction
+                 (dynamic-fee-transaction-s transaction))
+                (blob-transaction
+                 (blob-transaction-s transaction))
+                (set-code-transaction
+                 (set-code-transaction-s transaction))))
+       (block-validation-fail "Transaction s must be uint256"))))
+  t)
+
 (defun validate-access-list-fields (transaction)
   (dolist (entry (transaction-access-list transaction) t)
     (unless (typep entry 'access-list-entry)
@@ -1689,6 +1748,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (validate-transaction-recipient-field transaction)
       (validate-transaction-data-field transaction)
       (validate-transaction-scalar-fields transaction)
+      (validate-transaction-signature-fields transaction)
       (validate-access-list-fields transaction)
       (validate-set-code-transaction-fields transaction)
       (when base-fee

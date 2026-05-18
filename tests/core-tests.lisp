@@ -1038,6 +1038,34 @@
       (signals block-validation-error
         (validate-block-body-roots block)))))
 
+(deftest block-body-validates-transaction-signature-fields-before-root-derivation
+  (let* ((recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000001"))
+         (block (make-block))
+         (bad-legacy-v-tx
+           (make-legacy-transaction :to recipient
+                                    :v (1+ +uint256-max+)))
+         (bad-typed-chain-tx
+           (make-dynamic-fee-transaction :to recipient
+                                         :chain-id (1+ +uint256-max+)))
+         (bad-typed-y-parity-tx
+           (make-dynamic-fee-transaction :to recipient
+                                         :y-parity (1+ +uint256-max+)))
+         (bad-typed-r-tx
+           (make-dynamic-fee-transaction :to recipient
+                                         :r (1+ +uint256-max+)))
+         (bad-typed-s-tx
+           (make-dynamic-fee-transaction :to recipient
+                                         :s (1+ +uint256-max+))))
+    (dolist (transaction (list bad-legacy-v-tx
+                               bad-typed-chain-tx
+                               bad-typed-y-parity-tx
+                               bad-typed-r-tx
+                               bad-typed-s-tx))
+      (setf (block-transactions block) (list transaction))
+      (signals block-validation-error
+        (validate-block-body-roots block)))))
+
 (deftest block-body-validates-set-code-fields-before-root-derivation
   (let* ((recipient (address-from-hex
                      "0x0000000000000000000000000000000000000001"))

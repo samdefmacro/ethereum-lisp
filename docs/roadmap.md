@@ -244,6 +244,8 @@ nonce or balance mutation.
 Block body validation now checks transaction nonce/gas-limit uint64 bounds,
 value uint256 bounds, and execution/blob fee-cap uint256 bounds before
 transaction root derivation.
+Transaction signature scalar fields (`chainId`, `v`, `yParity`, `r`, and `s`)
+are likewise checked for uint256 shape before transaction root derivation.
 A first-pass chain configuration model is present for block-number forks
 through London and timestamp forks through Prague, including geth-compatible
 activation predicates and config-driven header validation for Shanghai,
