@@ -2721,6 +2721,7 @@
       (is (= 11 (field response "id")))
       (is (member "engine_newPayloadV1" capabilities :test #'string=))
       (is (member "engine_newPayloadV5" capabilities :test #'string=))
+      (is (member "engine_getClientVersionV1" capabilities :test #'string=))
       (is (not (member "engine_exchangeCapabilities"
                        capabilities
                        :test #'string=)))
@@ -2732,6 +2733,39 @@
                        "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"engine_exchangeCapabilities\",\"params\":[7]}"
                        (make-engine-payload-memory-store)
                        (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))))
+
+(deftest engine-rpc-get-client-version-returns-local-identity
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((request-json
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":13,"
+              "\"method\":\"engine_getClientVersionV1\","
+              "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+              "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+           (response
+             (parse-json
+              (engine-rpc-handle-request-json
+               request-json
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (versions (field response "result"))
+           (local (first versions)))
+      (is (= 13 (field response "id")))
+      (is (= 1 (length versions)))
+      (is (string= "CL" (field local "code")))
+      (is (string= "ethereum-lisp" (field local "name")))
+      (is (string= "0.1.0" (field local "version")))
+      (is (string= "0x00000000" (field local "commit"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"engine_getClientVersionV1\",\"params\":[7]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
 

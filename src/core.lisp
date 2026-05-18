@@ -3030,7 +3030,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (cons "witness" (payload-status-witness status))))
 
 (defparameter +engine-rpc-capabilities+
-  '("engine_newPayloadV1"
+  '("engine_getClientVersionV1"
+    "engine_newPayloadV1"
     "engine_newPayloadV2"
     "engine_newPayloadV3"
     "engine_newPayloadV4"
@@ -3038,6 +3039,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-capabilities ()
   (copy-list +engine-rpc-capabilities+))
+
+(defparameter +engine-rpc-client-version+
+  '(("code" . "CL")
+    ("name" . "ethereum-lisp")
+    ("version" . "0.1.0")
+    ("commit" . "0x00000000")))
+
+(defun engine-rpc-client-version ()
+  (copy-tree +engine-rpc-client-version+))
 
 (defun engine-rpc-new-payload-version (method)
   (cond
@@ -3101,6 +3111,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          "engine_exchangeCapabilities params must contain a string list"))))
   (engine-rpc-capabilities))
 
+(defun engine-rpc-handle-get-client-version (params)
+  (when params
+    (let ((caller (first params)))
+      (unless (json-object-p caller)
+        (block-validation-fail
+         "engine_getClientVersionV1 params must contain a client version object"))
+      (dolist (field '("code" "name" "version" "commit"))
+        (let ((value (engine-rpc-required-field caller field)))
+          (unless (stringp value)
+            (block-validation-fail
+             "engine_getClientVersionV1 client version fields must be strings"))))))
+  (list (engine-rpc-client-version)))
+
 (defun engine-rpc-response (id &key result error)
   (append (list (cons "jsonrpc" "2.0")
                 (cons "id" id))
@@ -3145,6 +3168,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-exchange-capabilities params)))
+              ((string= method "engine_getClientVersionV1")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-client-version params)))
               (t
                (engine-rpc-response
                 id

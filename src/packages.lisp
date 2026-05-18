@@ -514,6 +514,8 @@
    #:engine-payload-store-invalid-ancestor-status
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
+   #:+engine-rpc-client-version+
+   #:engine-rpc-client-version
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
@@ -1233,6 +1235,8 @@
    #:engine-payload-store-invalid-ancestor-status
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
+   #:+engine-rpc-client-version+
+   #:engine-rpc-client-version
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
@@ -1913,6 +1917,8 @@
    #:engine-payload-store-invalid-ancestor-status
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
+   #:+engine-rpc-client-version+
+   #:engine-rpc-client-version
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request

@@ -536,8 +536,10 @@ database-backed import path. A parsed JSON-RPC object dispatcher can now route
 return Engine-style payload status result objects. The same core can now encode
 single and batch JSON-RPC response strings for request-string entry points,
 and advertises the currently implemented `engine_newPayloadV1` through
-`engine_newPayloadV5` methods through `engine_exchangeCapabilities`, leaving
-HTTP transport as the next outer shell.
+`engine_newPayloadV5` plus `engine_getClientVersionV1` methods through
+`engine_exchangeCapabilities`; `engine_getClientVersionV1` now returns the
+local Common Lisp client identity, leaving HTTP transport as the next outer
+shell.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.
