@@ -159,6 +159,8 @@
    #:make-chain-config
    #:chain-config-chain-id
    #:chain-config-homestead-block
+   #:chain-config-dao-fork-block
+   #:chain-config-dao-fork-support
    #:chain-config-eip150-block
    #:chain-config-eip155-block
    #:chain-config-eip158-block
@@ -166,8 +168,11 @@
    #:chain-config-constantinople-block
    #:chain-config-petersburg-block
    #:chain-config-istanbul-block
+   #:chain-config-muir-glacier-block
    #:chain-config-berlin-block
    #:chain-config-london-block
+   #:chain-config-arrow-glacier-block
+   #:chain-config-gray-glacier-block
    #:chain-config-shanghai-time
    #:chain-config-cancun-time
    #:chain-config-prague-time
@@ -185,6 +190,7 @@
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
+   #:chain-config-dao-fork-p
    #:chain-config-eip150-p
    #:chain-config-eip155-p
    #:chain-config-eip158-p
@@ -720,6 +726,8 @@
    #:make-chain-config
    #:chain-config-chain-id
    #:chain-config-homestead-block
+   #:chain-config-dao-fork-block
+   #:chain-config-dao-fork-support
    #:chain-config-eip150-block
    #:chain-config-eip155-block
    #:chain-config-eip158-block
@@ -727,8 +735,11 @@
    #:chain-config-constantinople-block
    #:chain-config-petersburg-block
    #:chain-config-istanbul-block
+   #:chain-config-muir-glacier-block
    #:chain-config-berlin-block
    #:chain-config-london-block
+   #:chain-config-arrow-glacier-block
+   #:chain-config-gray-glacier-block
    #:chain-config-shanghai-time
    #:chain-config-cancun-time
    #:chain-config-prague-time
@@ -746,6 +757,7 @@
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
+   #:chain-config-dao-fork-p
    #:chain-config-eip150-p
    #:chain-config-eip155-p
    #:chain-config-eip158-p
@@ -1242,6 +1254,8 @@
    #:make-chain-config
    #:chain-config-chain-id
    #:chain-config-homestead-block
+   #:chain-config-dao-fork-block
+   #:chain-config-dao-fork-support
    #:chain-config-eip150-block
    #:chain-config-eip155-block
    #:chain-config-eip158-block
@@ -1249,8 +1263,11 @@
    #:chain-config-constantinople-block
    #:chain-config-petersburg-block
    #:chain-config-istanbul-block
+   #:chain-config-muir-glacier-block
    #:chain-config-berlin-block
    #:chain-config-london-block
+   #:chain-config-arrow-glacier-block
+   #:chain-config-gray-glacier-block
    #:chain-config-shanghai-time
    #:chain-config-cancun-time
    #:chain-config-prague-time
@@ -1268,6 +1285,7 @@
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
+   #:chain-config-dao-fork-p
    #:chain-config-eip150-p
    #:chain-config-eip155-p
    #:chain-config-eip158-p

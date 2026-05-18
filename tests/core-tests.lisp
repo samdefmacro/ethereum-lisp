@@ -525,7 +525,12 @@
   (let* ((genesis-config
            '(("chainId" . "123")
              ("homesteadBlock" . 0)
+             ("daoForkBlock" . 2)
+             ("daoForkSupport" . t)
              ("londonBlock" . "5")
+             ("muirGlacierBlock" . 6)
+             ("arrowGlacierBlock" . 7)
+             ("grayGlacierBlock" . 8)
              ("cancunTime" . "0x10")
              ("bpo3Time" . 30)
              ("bpo5Time" . 40)
@@ -550,7 +555,13 @@
          (config (chain-config-from-genesis-config genesis-config)))
     (is (= 123 (chain-config-chain-id config)))
     (is (= 0 (chain-config-homestead-block config)))
+    (is (= 2 (chain-config-dao-fork-block config)))
+    (is (chain-config-dao-fork-support config))
+    (is (chain-config-dao-fork-p config 2))
     (is (= 5 (chain-config-london-block config)))
+    (is (= 6 (chain-config-muir-glacier-block config)))
+    (is (= 7 (chain-config-arrow-glacier-block config)))
+    (is (= 8 (chain-config-gray-glacier-block config)))
     (is (= 16 (chain-config-cancun-time config)))
     (is (= 30 (chain-config-bpo3-time config)))
     (is (= 40 (chain-config-bpo5-time config)))
@@ -571,6 +582,15 @@
       (is (= (* 34 +blob-gas-per-blob+) target))
       (is (= (* 55 +blob-gas-per-blob+) max))
       (is (= 98765 update-fraction)))))
+
+(deftest chain-config-from-genesis-config-parses-nethermind-fork-aliases
+  (let ((config (chain-config-from-genesis-config
+                 '(("chainId" . 1)
+                   ("tangerineWhistleBlock" . 11)
+                   ("spuriousDragonBlock" . 22)))))
+    (is (= 11 (chain-config-eip150-block config)))
+    (is (= 22 (chain-config-eip155-block config)))
+    (is (= 22 (chain-config-eip158-block config)))))
 
 (deftest chain-config-from-genesis-config-rejects-bad-blob-schedule
   (signals block-validation-error

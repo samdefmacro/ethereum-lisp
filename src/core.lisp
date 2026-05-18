@@ -56,6 +56,8 @@
 (defstruct (chain-config (:constructor make-chain-config
                              (&key (chain-id 1)
                                    homestead-block
+                                   dao-fork-block
+                                   dao-fork-support
                                    eip150-block
                                    eip155-block
                                    eip158-block
@@ -63,8 +65,11 @@
                                    constantinople-block
                                    petersburg-block
                                    istanbul-block
+                                   muir-glacier-block
                                    berlin-block
                                    london-block
+                                   arrow-glacier-block
+                                   gray-glacier-block
                                    shanghai-time
                                    cancun-time
                                    prague-time
@@ -81,6 +86,8 @@
                                    custom-blob-schedule)))
   (chain-id 1 :type (integer 0 *))
   homestead-block
+  dao-fork-block
+  dao-fork-support
   eip150-block
   eip155-block
   eip158-block
@@ -88,8 +95,11 @@
   constantinople-block
   petersburg-block
   istanbul-block
+  muir-glacier-block
   berlin-block
   london-block
+  arrow-glacier-block
+  gray-glacier-block
   shanghai-time
   cancun-time
   prague-time
@@ -161,6 +171,9 @@
 
 (defun chain-config-homestead-p (config block-number)
   (fork-block-active-p (chain-config-homestead-block config) block-number))
+
+(defun chain-config-dao-fork-p (config block-number)
+  (fork-block-active-p (chain-config-dao-fork-block config) block-number))
 
 (defun chain-config-eip150-p (config block-number)
   (fork-block-active-p (chain-config-eip150-block config) block-number))
@@ -656,15 +669,27 @@
   (make-chain-config
    :chain-id (or (parse-genesis-field object "chainId") 1)
    :homestead-block (parse-genesis-field object "homesteadBlock")
-   :eip150-block (parse-genesis-field object "eip150Block")
-   :eip155-block (parse-genesis-field object "eip155Block")
-   :eip158-block (parse-genesis-field object "eip158Block")
+   :dao-fork-block (parse-genesis-field object "daoForkBlock")
+   :dao-fork-support
+   (parse-genesis-boolean-field object "daoForkSupport" "daoForkSupport")
+   :eip150-block (parse-genesis-field
+                  object '("eip150Block" "tangerineWhistleBlock")
+                  :label "eip150Block")
+   :eip155-block (parse-genesis-field
+                  object '("eip155Block" "spuriousDragonBlock")
+                  :label "eip155Block")
+   :eip158-block (parse-genesis-field
+                  object '("eip158Block" "spuriousDragonBlock")
+                  :label "eip158Block")
    :byzantium-block (parse-genesis-field object "byzantiumBlock")
    :constantinople-block (parse-genesis-field object "constantinopleBlock")
    :petersburg-block (parse-genesis-field object "petersburgBlock")
    :istanbul-block (parse-genesis-field object "istanbulBlock")
+   :muir-glacier-block (parse-genesis-field object "muirGlacierBlock")
    :berlin-block (parse-genesis-field object "berlinBlock")
    :london-block (parse-genesis-field object "londonBlock")
+   :arrow-glacier-block (parse-genesis-field object "arrowGlacierBlock")
+   :gray-glacier-block (parse-genesis-field object "grayGlacierBlock")
    :shanghai-time (parse-genesis-field object "shanghaiTime")
    :cancun-time (parse-genesis-field object "cancunTime")
    :prague-time (parse-genesis-field object "pragueTime")

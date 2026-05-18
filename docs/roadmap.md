@@ -304,7 +304,10 @@ genesis config conversion layer now accepts parsed `config` objects, including
 the `blobSchedule` fork map, and builds the same chain-config/custom-schedule
 model used by validation and execution. It also preserves geth/Nethermind
 Merge-era config fields such as `terminalTotalDifficultyPassed`,
-`mergeNetsplitBlock`, and `depositContractAddress`. A small dependency-free genesis JSON
+`mergeNetsplitBlock`, and `depositContractAddress`, carries DAO and
+difficulty-bomb delay fork fields, and recognizes Nethermind's
+`tangerineWhistleBlock`/`spuriousDragonBlock` aliases for EIP-150, EIP-155,
+and EIP-158 transitions. A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.
 Blob transaction body validation rejects empty blob hash lists, missing or
