@@ -618,7 +618,11 @@ return ommer counts from the in-memory block body with the same unknown-block
 `null` behavior. Raw transaction lookup by block id and index is now present
 for both `eth_getRawTransactionByBlockNumberAndIndex` and
 `eth_getRawTransactionByBlockHashAndIndex`, returning consensus transaction
-bytes or JSON `null` for unknown blocks and out-of-range indexes.
+bytes or JSON `null` for unknown blocks and out-of-range indexes. The
+structured companions `eth_getTransactionByBlockNumberAndIndex` and
+`eth_getTransactionByBlockHashAndIndex` now return mined transaction RPC
+objects with block location metadata, effective gas price, typed transaction
+fee/access-list fields, and the same unknown/out-of-range `null` behavior.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
