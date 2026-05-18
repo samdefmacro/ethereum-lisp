@@ -958,6 +958,7 @@
 
 (defun validate-block-fork-body-shape-before-execution
     (header chain-config &key withdrawals-supplied-p requests-supplied-p
+                              block-access-list-supplied-p
                               max-blob-gas)
   (when chain-config
     (let* ((number (block-header-number header))
@@ -965,7 +966,8 @@
            (london-p (chain-config-london-p chain-config number))
            (shanghai-p (chain-config-shanghai-p chain-config number timestamp))
            (cancun-p (chain-config-cancun-p chain-config number timestamp))
-           (prague-p (chain-config-prague-p chain-config number timestamp)))
+           (prague-p (chain-config-prague-p chain-config number timestamp))
+           (amsterdam-p (chain-config-amsterdam-p chain-config number timestamp)))
       (cond
         (london-p
          (unless (block-header-base-fee-per-gas header)
@@ -999,7 +1001,17 @@
         ((or requests-supplied-p
              (block-header-requests-hash header))
          (error 'block-validation-error
-                :message "Execution requests present before Prague")))))
+                :message "Execution requests present before Prague")))
+      (cond
+        (amsterdam-p
+         (unless (or block-access-list-supplied-p
+                     (block-header-block-access-list-hash header))
+           (error 'block-validation-error
+                  :message "Header is missing block access list hash")))
+        ((or block-access-list-supplied-p
+             (block-header-block-access-list-hash header))
+         (error 'block-validation-error
+                :message "Block access list present before Amsterdam")))))
   t)
 
 (defun validate-block-body-commitments-before-execution
@@ -1008,6 +1020,8 @@
                               withdrawals-supplied-p
                               requests
                               requests-supplied-p
+                              block-access-list
+                              block-access-list-supplied-p
                               max-blob-gas)
   (let ((actual-blob-gas-used (blob-gas-used transactions))
         (header-blob-gas-used (block-header-blob-gas-used header)))
@@ -1045,6 +1059,18 @@
     (when (and requests-supplied-p
                (not (block-header-requests-hash header)))
       (validate-execution-request-list-fields requests))
+    (when (block-header-block-access-list-hash header)
+      (unless block-access-list-supplied-p
+        (error 'block-validation-error
+               :message "Missing block access list in block body"))
+      (validate-block-access-list-fields block-access-list)
+      (unless (execution-hash32= (block-header-block-access-list-hash header)
+                                 (block-access-list-hash block-access-list))
+        (error 'block-validation-error
+               :message "Block access list hash mismatch")))
+    (when (and block-access-list-supplied-p
+               (not (block-header-block-access-list-hash header)))
+      (validate-block-access-list-fields block-access-list))
     (when (and header-blob-gas-used
                (/= header-blob-gas-used actual-blob-gas-used))
       (error 'block-validation-error :message "Blob gas used mismatch"))
@@ -1101,7 +1127,9 @@
    :blob-gas-used (block-header-blob-gas-used header)
    :excess-blob-gas (block-header-excess-blob-gas header)
    :parent-beacon-root (block-header-parent-beacon-root header)
-   :requests-hash (block-header-requests-hash header)))
+   :requests-hash (block-header-requests-hash header)
+   :block-access-list-hash (block-header-block-access-list-hash header)
+   :slot-number (block-header-slot-number header)))
 
 (defun restore-block-header-for-execution (header snapshot)
   (setf (block-header-parent-hash header) (block-header-parent-hash snapshot)
@@ -1130,7 +1158,10 @@
         (block-header-excess-blob-gas snapshot)
         (block-header-parent-beacon-root header)
         (block-header-parent-beacon-root snapshot)
-        (block-header-requests-hash header) (block-header-requests-hash snapshot))
+        (block-header-requests-hash header) (block-header-requests-hash snapshot)
+        (block-header-block-access-list-hash header)
+        (block-header-block-access-list-hash snapshot)
+        (block-header-slot-number header) (block-header-slot-number snapshot))
   header)
 
 (defun execute-legacy-block (state sender transactions
@@ -1140,7 +1171,9 @@
                                   (apply-block-rewards-p nil)
                                   (ommers '())
                                   (withdrawals nil withdrawals-supplied-p)
-                                  (requests nil requests-supplied-p))
+                                  (requests nil requests-supplied-p)
+                                  (block-access-list nil
+                                   block-access-list-supplied-p))
   (let* ((max-blob-gas
            (execution-max-blob-gas chain-rules
                                    chain-config
@@ -1154,11 +1187,14 @@
            :withdrawals-supplied-p withdrawals-supplied-p
            :requests requests
            :requests-supplied-p requests-supplied-p
+           :block-access-list block-access-list
+           :block-access-list-supplied-p block-access-list-supplied-p
            :max-blob-gas max-blob-gas)))
     (validate-block-fork-body-shape-before-execution
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
      :requests-supplied-p requests-supplied-p
+     :block-access-list-supplied-p block-access-list-supplied-p
      :max-blob-gas max-blob-gas)
     (let ((snapshot (state-db-copy state))
           (header-snapshot (copy-block-header-for-execution header)))
@@ -1208,7 +1244,9 @@
                             (when withdrawals-supplied-p
                               (list :withdrawals withdrawals))
                             (when requests-supplied-p
-                              (list :requests requests))))
+                              (list :requests requests))
+                            (when block-access-list-supplied-p
+                              (list :block-access-list block-access-list))))
              receipts))
         (error (condition)
           (state-db-restore state snapshot)
@@ -1223,7 +1261,9 @@
                                   (apply-block-rewards-p nil)
                                   (ommers '())
                                   (withdrawals nil withdrawals-supplied-p)
-                                  (requests nil requests-supplied-p))
+                                  (requests nil requests-supplied-p)
+                                  (block-access-list nil
+                                   block-access-list-supplied-p))
   "Execute a block by recovering each transaction sender from its signature."
   (let* ((max-blob-gas
            (execution-max-blob-gas chain-rules
@@ -1238,11 +1278,14 @@
            :withdrawals-supplied-p withdrawals-supplied-p
            :requests requests
            :requests-supplied-p requests-supplied-p
+           :block-access-list block-access-list
+           :block-access-list-supplied-p block-access-list-supplied-p
            :max-blob-gas max-blob-gas)))
     (validate-block-fork-body-shape-before-execution
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
      :requests-supplied-p requests-supplied-p
+     :block-access-list-supplied-p block-access-list-supplied-p
      :max-blob-gas max-blob-gas)
     (let ((snapshot (state-db-copy state))
           (header-snapshot (copy-block-header-for-execution header)))
@@ -1293,7 +1336,9 @@
                             (when withdrawals-supplied-p
                               (list :withdrawals withdrawals))
                             (when requests-supplied-p
-                              (list :requests requests))))
+                              (list :requests requests))
+                            (when block-access-list-supplied-p
+                              (list :block-access-list block-access-list))))
              receipts))
         (error (condition)
           (state-db-restore state snapshot)

@@ -1113,6 +1113,86 @@
            (state-account-balance (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
+(deftest block-execution-preflights-block-access-list-fork-shape
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 10))
+         (header (make-block-header :timestamp 9
+                                    :gas-limit 50000
+                                    :base-fee-per-gas 1))
+         (transaction (make-legacy-transaction :nonce 0
+                                               :gas-price 1
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 100000))
+    (signals block-validation-error
+      (execute-legacy-block state sender (list transaction)
+                            :header header
+                            :chain-config config
+                            :block-access-list '()))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+    (is (= 100000
+           (state-account-balance (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
+(deftest block-execution-requires-block-access-list-after-amsterdam-before-state-mutation
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 10))
+         (header (make-block-header :timestamp 10
+                                    :gas-limit 50000
+                                    :base-fee-per-gas 1))
+         (transaction (make-legacy-transaction :nonce 0
+                                               :gas-price 1
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 100000))
+    (signals block-validation-error
+      (execute-legacy-block state sender (list transaction)
+                            :header header
+                            :chain-config config))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+    (is (= 100000
+           (state-account-balance (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
+(deftest legacy-block-execution-carries-empty-block-access-list
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 10))
+         (header (make-block-header :timestamp 10
+                                    :gas-limit 50000
+                                    :base-fee-per-gas 1))
+         (transaction (make-legacy-transaction :nonce 0
+                                               :gas-price 1
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 100000))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state sender (list transaction)
+                              :header header
+                              :chain-config config
+                              :block-access-list '())
+      (is (= 1 (length receipts)))
+      (is (block-block-access-list-present-p block))
+      (is (null (block-block-access-list block)))
+      (is (string= (hash32-to-hex (block-access-list-hash '()))
+                   (hash32-to-hex
+                    (block-header-block-access-list-hash
+                     (block-header block))))))))
+
 (deftest block-execution-supplies-header-environment-to-evm
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
