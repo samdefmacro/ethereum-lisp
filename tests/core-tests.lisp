@@ -2572,6 +2572,95 @@
         (is (string= (hash32-to-hex (block-hash invalid-child-block))
                      (hash32-to-hex (block-hash cached-head))))))))
 
+(deftest engine-rpc-handle-request-dispatches-new-payload
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (payload-object (payload)
+             (list
+              (cons "parentHash"
+                    (hash32-to-hex (executable-data-parent-hash payload)))
+              (cons "feeRecipient"
+                    (address-to-hex (executable-data-fee-recipient payload)))
+              (cons "stateRoot"
+                    (hash32-to-hex (executable-data-state-root payload)))
+              (cons "receiptsRoot"
+                    (hash32-to-hex (executable-data-receipts-root payload)))
+              (cons "logsBloom"
+                    (bytes-to-hex (executable-data-logs-bloom payload)))
+              (cons "prevRandao"
+                    (hash32-to-hex (executable-data-random payload)))
+              (cons "blockNumber"
+                    (quantity-to-hex (executable-data-number payload)))
+              (cons "gasLimit"
+                    (quantity-to-hex (executable-data-gas-limit payload)))
+              (cons "gasUsed"
+                    (quantity-to-hex (executable-data-gas-used payload)))
+              (cons "timestamp"
+                    (quantity-to-hex (executable-data-timestamp payload)))
+              (cons "extraData"
+                    (bytes-to-hex (executable-data-extra-data payload)))
+              (cons "baseFeePerGas"
+                    (quantity-to-hex
+                     (executable-data-base-fee-per-gas payload)))
+              (cons "blockHash"
+                    (hash32-to-hex (executable-data-block-hash payload)))
+              (cons "transactions"
+                    (mapcar #'bytes-to-hex
+                            (executable-data-transactions payload))))))
+    (let* ((address
+             (address-from-hex "0x0000000000000000000000000000000000000001"))
+           (config (make-chain-config :london-block 0))
+           (parent-header (make-block-header
+                           :parent-hash (zero-hash32)
+                           :beneficiary address
+                           :state-root +empty-trie-hash+
+                           :mix-hash (zero-hash32)
+                           :number 1
+                           :gas-limit 50000
+                           :gas-used 25000
+                           :timestamp 10
+                           :base-fee-per-gas 100))
+           (parent-block (make-block :header parent-header))
+           (child-header (make-block-header
+                          :parent-hash (block-hash parent-block)
+                          :beneficiary address
+                          :state-root +empty-trie-hash+
+                          :receipts-root +empty-trie-hash+
+                          :logs-bloom (make-byte-vector 256)
+                          :mix-hash (zero-hash32)
+                          :number 2
+                          :gas-limit 50000
+                          :gas-used 0
+                          :timestamp 11
+                          :base-fee-per-gas 100))
+           (child-block (make-block :header child-header))
+           (payload
+             (execution-payload-envelope-execution-payload
+              (block-to-executable-data child-block)))
+           (store (make-engine-payload-memory-store))
+           (request
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 7)
+                   (cons "method" "engine_newPayloadV1")
+                   (cons "params" (list (payload-object payload))))))
+      (engine-payload-store-put-block store parent-block :state-available-p t)
+      (let* ((response (engine-rpc-handle-request request store config))
+             (result (field response "result")))
+        (is (string= "2.0" (field response "jsonrpc")))
+        (is (= 7 (field response "id")))
+        (is (string= +payload-status-valid+ (field result "status")))
+        (is (string= (hash32-to-hex (block-hash child-block))
+                     (field result "latestValidHash")))
+        (is (engine-payload-store-known-block store
+                                              (block-hash child-block))))
+      (let* ((response
+               (engine-rpc-handle-request-string
+                "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config))
+             (error (field response "error")))
+        (is (= -32601 (field error "code")))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

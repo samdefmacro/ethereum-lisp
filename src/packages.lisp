@@ -511,6 +511,10 @@
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
    #:engine-payload-store-invalid-ancestor-status
+   #:engine-rpc-executable-data-from-object
+   #:engine-rpc-payload-status-object
+   #:engine-rpc-handle-request
+   #:engine-rpc-handle-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1221,6 +1225,10 @@
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
    #:engine-payload-store-invalid-ancestor-status
+   #:engine-rpc-executable-data-from-object
+   #:engine-rpc-payload-status-object
+   #:engine-rpc-handle-request
+   #:engine-rpc-handle-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1892,6 +1900,10 @@
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
    #:engine-payload-store-invalid-ancestor-status
+   #:engine-rpc-executable-data-from-object
+   #:engine-rpc-payload-status-object
+   #:engine-rpc-handle-request
+   #:engine-rpc-handle-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account

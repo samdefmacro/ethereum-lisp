@@ -531,7 +531,10 @@ errors into Engine-style payload status objects. Version-specific `newPayload`
 parameter gates now cover V1 through V5 fork requirements before block import.
 A small in-memory Engine payload store now models known-block, missing-parent,
 missing-parent-state, and invalid-ancestor status branches for the future
-database-backed import path.
+database-backed import path. A parsed JSON-RPC object dispatcher can now route
+`engine_newPayloadV1` through `engine_newPayloadV5` calls into that store and
+return Engine-style payload status result objects, leaving HTTP transport and
+JSON response encoding as the next outer shell.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.

@@ -2854,6 +2854,221 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (block-header-parent-hash (block-header invalid-block))
        :validation-error "links to previously rejected block"))))
 
+(defun engine-rpc-required-field (object name)
+  (unless (genesis-object-field-present-p object name)
+    (block-validation-fail "Engine RPC field ~A is missing" name))
+  (genesis-object-field object name))
+
+(defun engine-rpc-optional-quantity-field (object name)
+  (when (genesis-object-field-present-p object name)
+    (parse-genesis-field object name :label name)))
+
+(defun engine-rpc-required-quantity-field (object name)
+  (parse-genesis-field object name :label name :required-p t))
+
+(defun engine-rpc-hash32 (value label)
+  (unless (stringp value)
+    (block-validation-fail "~A must be a hex hash" label))
+  (handler-case
+      (hash32-from-hex value)
+    (error ()
+      (block-validation-fail "~A must be a hash32" label))))
+
+(defun engine-rpc-address (value label)
+  (unless (stringp value)
+    (block-validation-fail "~A must be a hex address" label))
+  (handler-case
+      (address-from-hex value)
+    (error ()
+      (block-validation-fail "~A must be an address" label))))
+
+(defun engine-rpc-bytes (value label)
+  (unless (stringp value)
+    (block-validation-fail "~A must be a hex byte string" label))
+  (handler-case
+      (hex-to-bytes value)
+    (error ()
+      (block-validation-fail "~A must be a hex byte string" label))))
+
+(defun engine-rpc-required-hash32-field (object name)
+  (engine-rpc-hash32 (engine-rpc-required-field object name) name))
+
+(defun engine-rpc-optional-hash32-value (value label)
+  (when value
+    (engine-rpc-hash32 value label)))
+
+(defun engine-rpc-required-address-field (object name)
+  (engine-rpc-address (engine-rpc-required-field object name) name))
+
+(defun engine-rpc-required-bytes-field (object name)
+  (engine-rpc-bytes (engine-rpc-required-field object name) name))
+
+(defun engine-rpc-byte-list (values label)
+  (unless (listp values)
+    (block-validation-fail "~A must be a list" label))
+  (loop for value in values
+        for index from 0
+        collect (engine-rpc-bytes value (format nil "~A ~D" label index))))
+
+(defun engine-rpc-hash32-list (values label)
+  (unless (listp values)
+    (block-validation-fail "~A must be a list" label))
+  (loop for value in values
+        for index from 0
+        collect (engine-rpc-hash32 value (format nil "~A ~D" label index))))
+
+(defun engine-rpc-withdrawal-from-object (object)
+  (make-withdrawal
+   :index (engine-rpc-required-quantity-field object "index")
+   :validator-index
+   (engine-rpc-required-quantity-field object "validatorIndex")
+   :address (engine-rpc-required-address-field object "address")
+   :amount (engine-rpc-required-quantity-field object "amount")))
+
+(defun engine-rpc-withdrawals-field (object)
+  (when (genesis-object-field-present-p object "withdrawals")
+    (let ((withdrawals (genesis-object-field object "withdrawals")))
+      (unless (listp withdrawals)
+        (block-validation-fail "withdrawals must be a list"))
+      (loop for withdrawal in withdrawals
+            collect (engine-rpc-withdrawal-from-object withdrawal)))))
+
+(defun engine-rpc-executable-data-from-object (object)
+  (unless (listp object)
+    (block-validation-fail "Engine RPC payload must be an object"))
+  (make-executable-data
+   :parent-hash (engine-rpc-required-hash32-field object "parentHash")
+   :fee-recipient (engine-rpc-required-address-field object "feeRecipient")
+   :state-root (engine-rpc-required-hash32-field object "stateRoot")
+   :receipts-root (engine-rpc-required-hash32-field object "receiptsRoot")
+   :logs-bloom (engine-rpc-required-bytes-field object "logsBloom")
+   :random (engine-rpc-required-hash32-field object "prevRandao")
+   :number (engine-rpc-required-quantity-field object "blockNumber")
+   :gas-limit (engine-rpc-required-quantity-field object "gasLimit")
+   :gas-used (engine-rpc-required-quantity-field object "gasUsed")
+   :timestamp (engine-rpc-required-quantity-field object "timestamp")
+   :extra-data (engine-rpc-required-bytes-field object "extraData")
+   :base-fee-per-gas
+   (engine-rpc-required-quantity-field object "baseFeePerGas")
+   :block-hash (engine-rpc-required-hash32-field object "blockHash")
+   :transactions
+   (engine-rpc-byte-list
+    (engine-rpc-required-field object "transactions")
+    "transactions")
+   :withdrawals (engine-rpc-withdrawals-field object)
+   :blob-gas-used (engine-rpc-optional-quantity-field object "blobGasUsed")
+   :excess-blob-gas
+   (engine-rpc-optional-quantity-field object "excessBlobGas")
+   :slot-number (engine-rpc-optional-quantity-field object "slotNumber")))
+
+(defun engine-rpc-payload-status-object (status)
+  (list (cons "status" (payload-status-status status))
+        (cons "latestValidHash"
+              (when (payload-status-latest-valid-hash status)
+                (hash32-to-hex (payload-status-latest-valid-hash status))))
+        (cons "validationError" (payload-status-validation-error status))
+        (cons "witness" (payload-status-witness status))))
+
+(defun engine-rpc-new-payload-version (method)
+  (cond
+    ((string= method "engine_newPayloadV1") 1)
+    ((string= method "engine_newPayloadV2") 2)
+    ((string= method "engine_newPayloadV3") 3)
+    ((string= method "engine_newPayloadV4") 4)
+    ((string= method "engine_newPayloadV5") 5)
+    (t nil)))
+
+(defun engine-rpc-required-param (params index label)
+  (unless (< index (length params))
+    (block-validation-fail "engine_newPayload param ~A is missing" label))
+  (nth index params))
+
+(defun engine-rpc-handle-new-payload (version params store config)
+  (unless (and (listp params) params)
+    (block-validation-fail "engine_newPayload params must include payload"))
+  (let* ((payload
+           (engine-rpc-executable-data-from-object
+            (engine-rpc-required-param params 0 "payload")))
+         (versioned-hashes
+           (when (>= version 3)
+             (engine-rpc-hash32-list
+              (engine-rpc-required-param params 1 "versionedHashes")
+              "versionedHashes")))
+         (parent-beacon-root
+           (when (>= version 3)
+             (engine-rpc-optional-hash32-value
+              (engine-rpc-required-param params 2 "parentBeaconBlockRoot")
+              "parentBeaconBlockRoot")))
+         (requests
+           (when (>= version 4)
+             (engine-rpc-byte-list
+              (engine-rpc-required-param params 3 "executionRequests")
+              "executionRequests"))))
+    (multiple-value-bind (status block)
+        (cond
+          ((<= version 2)
+           (engine-new-payload-memory-status store version payload config))
+          ((= version 3)
+           (engine-new-payload-memory-status
+            store version payload config
+            :versioned-hashes versioned-hashes
+            :parent-beacon-root parent-beacon-root))
+          (t
+           (engine-new-payload-memory-status
+            store version payload config
+            :versioned-hashes versioned-hashes
+            :parent-beacon-root parent-beacon-root
+            :requests requests)))
+      (declare (ignore block))
+      (engine-rpc-payload-status-object status))))
+
+(defun engine-rpc-response (id &key result error)
+  (append (list (cons "jsonrpc" "2.0")
+                (cons "id" id))
+          (if error
+              (list (cons "error" error))
+              (list (cons "result" result)))))
+
+(defun engine-rpc-error-object (code message)
+  (list (cons "code" code)
+        (cons "message" message)))
+
+(defun engine-rpc-handle-request (request store config)
+  (let ((id (and (listp request)
+                 (genesis-object-field request "id"))))
+    (handler-case
+        (progn
+          (unless (listp request)
+            (block-validation-fail "JSON-RPC request must be an object"))
+          (let* ((method (engine-rpc-required-field request "method"))
+                 (params (or (genesis-object-field request "params") '()))
+                 (version (and (stringp method)
+                               (engine-rpc-new-payload-version method))))
+            (unless (stringp method)
+              (block-validation-fail "JSON-RPC method must be a string"))
+            (unless (listp params)
+              (block-validation-fail "JSON-RPC params must be a list"))
+            (if version
+                (engine-rpc-response
+                 id
+                 :result
+                 (engine-rpc-handle-new-payload
+                  version params store config))
+                (engine-rpc-response
+                 id
+                 :error
+                 (engine-rpc-error-object -32601 "Method not found")))))
+      (block-validation-error (condition)
+        (engine-rpc-response
+         id
+         :error
+         (engine-rpc-error-object
+          -32602
+          (block-validation-error-message condition)))))))
+
+(defun engine-rpc-handle-request-string (request-json store config)
+  (engine-rpc-handle-request (parse-json request-json) store config))
+
 (defun engine-new-payload-memory-status
     (store version payload config
      &key (parent-beacon-root nil parent-beacon-root-supplied-p)
