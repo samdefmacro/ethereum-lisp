@@ -2072,6 +2072,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   tx-index
   balance)
 
+(defstruct (block-access-nonce-change
+            (:constructor make-block-access-nonce-change
+                (&key tx-index nonce)))
+  tx-index
+  nonce)
+
 (defun hash32-uint256 (hash)
   (bytes-to-integer (hash32-bytes hash)))
 
@@ -2092,6 +2098,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (block-access-balance-change-tx-index change)
    (block-access-balance-change-balance change)))
 
+(defun block-access-nonce-change-rlp-object (change)
+  (make-rlp-list
+   (block-access-nonce-change-tx-index change)
+   (block-access-nonce-change-nonce change)))
+
 (defun block-access-account-rlp-object (account)
   (make-rlp-list
    (address-bytes (block-access-account-address account))
@@ -2100,7 +2111,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (mapcar #'hash32-uint256 (block-access-account-storage-reads account))
    (mapcar #'block-access-balance-change-rlp-object
            (block-access-account-balance-changes account))
-   (block-access-account-nonce-changes account)
+   (mapcar #'block-access-nonce-change-rlp-object
+           (block-access-account-nonce-changes account))
    (block-access-account-code-changes account)))
 
 (defun block-access-account-rlp (account)
@@ -2236,6 +2248,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      "Block access list balance change balance must be uint256"))
   t)
 
+(defun validate-block-access-nonce-change-fields (change)
+  (unless (block-access-nonce-change-p change)
+    (block-validation-fail
+     "Block access list nonce change must be a nonce change"))
+  (unless (uint32-value-p (block-access-nonce-change-tx-index change))
+    (block-validation-fail
+     "Block access list nonce change tx index must be uint32"))
+  (unless (uint64-value-p (block-access-nonce-change-nonce change))
+    (block-validation-fail
+     "Block access list nonce change nonce must be uint64"))
+  t)
+
 (defun validate-block-access-indexed-change-list
     (changes validate-change tx-index-fn label)
   (unless (listp changes)
@@ -2266,6 +2290,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    #'validate-block-access-balance-change-fields
    #'block-access-balance-change-tx-index
    "balance changes")
+  (validate-block-access-indexed-change-list
+   (block-access-account-nonce-changes account)
+   #'validate-block-access-nonce-change-fields
+   #'block-access-nonce-change-tx-index
+   "nonce changes")
   (let ((previous-slot-bytes nil)
         (write-slot-table (make-hash-table :test #'equal)))
     (dolist (slot-writes (block-access-account-storage-writes account))
@@ -2294,8 +2323,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (block-validation-fail
            "Block access list storage read duplicates a storage write slot"))
         (setf previous-slot-bytes slot-bytes))))
-  (dolist (field (list (block-access-account-nonce-changes account)
-                       (block-access-account-code-changes account)))
+  (dolist (field (list (block-access-account-code-changes account)))
     (unless (null field)
       (block-validation-fail
        "Non-empty block access list account changes are not implemented yet")))

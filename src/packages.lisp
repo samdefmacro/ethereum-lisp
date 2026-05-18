@@ -441,6 +441,10 @@
    #:make-block-access-balance-change
    #:block-access-balance-change-tx-index
    #:block-access-balance-change-balance
+   #:block-access-nonce-change
+   #:make-block-access-nonce-change
+   #:block-access-nonce-change-tx-index
+   #:block-access-nonce-change-nonce
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
@@ -1048,6 +1052,10 @@
    #:make-block-access-balance-change
    #:block-access-balance-change-tx-index
    #:block-access-balance-change-balance
+   #:block-access-nonce-change
+   #:make-block-access-nonce-change
+   #:block-access-nonce-change-tx-index
+   #:block-access-nonce-change-nonce
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
@@ -1616,6 +1624,10 @@
    #:make-block-access-balance-change
    #:block-access-balance-change-tx-index
    #:block-access-balance-change-balance
+   #:block-access-nonce-change
+   #:make-block-access-nonce-change
+   #:block-access-nonce-change-tx-index
+   #:block-access-nonce-change-nonce
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
