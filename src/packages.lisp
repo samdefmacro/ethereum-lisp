@@ -422,6 +422,7 @@
    #:block-requests-present-p
    #:block-block-access-list
    #:block-block-access-list-present-p
+   #:block-encoded-block-access-list
    #:block-hash
    #:execution-requests-hash
    #:block-access-account
@@ -1043,6 +1044,7 @@
    #:block-requests-present-p
    #:block-block-access-list
    #:block-block-access-list-present-p
+   #:block-encoded-block-access-list
    #:block-hash
    #:execution-requests-hash
    #:block-access-account
@@ -1625,6 +1627,7 @@
    #:block-requests-present-p
    #:block-block-access-list
    #:block-block-access-list-present-p
+   #:block-encoded-block-access-list
    #:block-hash
    #:execution-requests-hash
    #:block-access-account

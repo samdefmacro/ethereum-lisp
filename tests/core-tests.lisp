@@ -2137,6 +2137,8 @@
                              "0x0000000000000000000000000000000000000001")))
          (block (make-block :block-access-list (list account))))
     (is (validate-block-body-roots block))
+    (is (bytes= (block-access-list-rlp (list account))
+                (block-encoded-block-access-list block)))
     (is (string= (hash32-to-hex (block-access-list-hash (list account)))
                  (hash32-to-hex
                   (block-header-block-access-list-hash
@@ -2147,6 +2149,7 @@
          (encoded (block-access-list-rlp (list account)))
          (block (make-block :block-access-list-rlp encoded)))
     (is (block-block-access-list-present-p block))
+    (is (bytes= encoded (block-encoded-block-access-list block)))
     (is (bytes= encoded
                 (block-access-list-rlp (block-block-access-list block))))
     (is (string= (hash32-to-hex (block-access-list-rlp-hash encoded))

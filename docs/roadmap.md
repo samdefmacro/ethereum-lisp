@@ -332,8 +332,9 @@ same ordering, size, and item-budget checks before being accepted, and a
 wire-RLP hash helper verifies then hashes encoded BAL bytes for Engine payload
 and database paths. Blocks can also be constructed from encoded BAL RLP,
 decoding the body while deriving the header commitment from the supplied wire
-bytes. Amsterdam header validation also now requires child slot numbers to
-strictly exceed the parent once the parent is already Amsterdam-shaped.
+bytes and retaining the encoded bytes for later payload/database serving.
+Amsterdam header validation also now requires child slot numbers to strictly
+exceed the parent once the parent is already Amsterdam-shaped.
 A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.
