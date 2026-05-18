@@ -298,7 +298,10 @@ validation and block execution therefore allow the higher 9-, 15-, 21-, and
 the lower per-blob transaction cap. Chain configs can also carry an explicit
 timestamp-keyed custom blob schedule; config-derived chain-rules snapshot the
 active target/max/update-fraction values so execution paths that only receive
-rules still use the same blob limits and fee update fraction.
+rules still use the same blob limits and fee update fraction. A first-pass geth
+genesis config conversion layer now accepts parsed `config` objects, including
+the `blobSchedule` fork map, and builds the same chain-config/custom-schedule
+model used by validation and execution.
 Blob transaction body validation rejects empty blob hash lists, missing or
 wrong-sized versioned hashes, and non-`0x01` versioned hashes, rejects blob
 transactions of type contract creation, and enforces first-pass Cancun blob
@@ -384,7 +387,7 @@ beacon maximum of `2^63 - 1`.
 Typed transaction execution semantics, full nested contract creation/inter-
 contract calls, storage/selfdestruct refund counters and richer EVM gas
 scheduling, full header validation including difficulty/seal rules and fork
-schedules, genesis JSON/custom blob schedule parsing, and deeper blob
+schedules, raw genesis JSON file parsing, and deeper blob
 transaction validation remain. EIP-7702 set-code execution has a first-pass
 transaction-shape layer: set-code messages reject contract creation and empty
 authorization lists, and intrinsic gas now charges the authorization-list

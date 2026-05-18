@@ -255,6 +255,123 @@
                         (blob-schedule-entry-max-blobs entry)
                         (blob-schedule-entry-update-fraction entry)))
 
+(defun genesis-key= (key name)
+  (cond
+    ((stringp key) (string= key name))
+    ((symbolp key) (string-equal (symbol-name key) name))
+    (t nil)))
+
+(defun genesis-object-field (object name)
+  (cond
+    ((null object) nil)
+    ((and (listp object) (every #'consp object))
+     (cdr (find name object
+                :key #'car
+                :test (lambda (expected key)
+                        (genesis-key= key expected)))))
+    ((listp object)
+     (loop for (key value) on object by #'cddr
+           when (genesis-key= key name)
+             return value))
+    (t nil)))
+
+(defun genesis-hex-quantity-string-p (value)
+  (and (stringp value)
+       (>= (length value) 2)
+       (char= (char value 0) #\0)
+       (member (char value 1) '(#\x #\X))))
+
+(defun parse-genesis-quantity (value label &key required-p)
+  (cond
+    ((null value)
+     (when required-p
+       (block-validation-fail "~A is missing" label))
+     nil)
+    ((and (integerp value) (not (minusp value))) value)
+    ((stringp value)
+     (handler-case
+         (if (genesis-hex-quantity-string-p value)
+             (hex-to-quantity value)
+             (parse-integer value :radix 10))
+       (error ()
+         (block-validation-fail "~A must be a non-negative quantity" label))))
+    (t (block-validation-fail "~A must be a non-negative quantity" label))))
+
+(defun parse-genesis-field (object name &key label required-p)
+  (parse-genesis-quantity (genesis-object-field object name)
+                          (or label name)
+                          :required-p required-p))
+
+(defun genesis-blob-schedule-timestamp-field (fork-name)
+  (cond
+    ((string-equal fork-name "cancun") "cancunTime")
+    ((string-equal fork-name "prague") "pragueTime")
+    ((string-equal fork-name "osaka") "osakaTime")
+    ((string-equal fork-name "bpo1") "bpo1Time")
+    ((string-equal fork-name "bpo2") "bpo2Time")
+    ((string-equal fork-name "bpo3") "bpo3Time")
+    ((string-equal fork-name "bpo4") "bpo4Time")
+    (t nil)))
+
+(defun genesis-object-entries (object label)
+  (unless (and (listp object) (every #'consp object))
+    (block-validation-fail "~A must be an object" label))
+  object)
+
+(defun parse-genesis-blob-schedule-entry (timestamp entry-object fork-name)
+  (make-blob-schedule-entry
+   :timestamp timestamp
+   :target-blobs (parse-genesis-field entry-object "target"
+                                      :label (format nil "~A blob target" fork-name)
+                                      :required-p t)
+   :max-blobs (parse-genesis-field entry-object "max"
+                                   :label (format nil "~A blob max" fork-name)
+                                   :required-p t)
+   :update-fraction
+   (parse-genesis-field entry-object "baseFeeUpdateFraction"
+                        :label (format nil "~A blob base fee update fraction"
+                                       fork-name)
+                        :required-p t)))
+
+(defun parse-genesis-blob-schedule (object)
+  (let ((schedule-object (genesis-object-field object "blobSchedule")))
+    (when schedule-object
+      (loop for (fork-name . entry-object)
+              in (genesis-object-entries schedule-object "blobSchedule")
+            for timestamp-field = (and (or (stringp fork-name) (symbolp fork-name))
+                                       (genesis-blob-schedule-timestamp-field
+                                        (if (stringp fork-name)
+                                            fork-name
+                                            (symbol-name fork-name))))
+            for timestamp = (and timestamp-field
+                                 (parse-genesis-field object timestamp-field))
+            when timestamp
+              collect (parse-genesis-blob-schedule-entry
+                       timestamp entry-object fork-name)))))
+
+(defun chain-config-from-genesis-config (object)
+  (make-chain-config
+   :chain-id (or (parse-genesis-field object "chainId") 1)
+   :homestead-block (parse-genesis-field object "homesteadBlock")
+   :eip150-block (parse-genesis-field object "eip150Block")
+   :eip155-block (parse-genesis-field object "eip155Block")
+   :eip158-block (parse-genesis-field object "eip158Block")
+   :byzantium-block (parse-genesis-field object "byzantiumBlock")
+   :constantinople-block (parse-genesis-field object "constantinopleBlock")
+   :petersburg-block (parse-genesis-field object "petersburgBlock")
+   :istanbul-block (parse-genesis-field object "istanbulBlock")
+   :berlin-block (parse-genesis-field object "berlinBlock")
+   :london-block (parse-genesis-field object "londonBlock")
+   :shanghai-time (parse-genesis-field object "shanghaiTime")
+   :cancun-time (parse-genesis-field object "cancunTime")
+   :prague-time (parse-genesis-field object "pragueTime")
+   :osaka-time (parse-genesis-field object "osakaTime")
+   :bpo1-time (parse-genesis-field object "bpo1Time")
+   :bpo2-time (parse-genesis-field object "bpo2Time")
+   :bpo3-time (parse-genesis-field object "bpo3Time")
+   :bpo4-time (parse-genesis-field object "bpo4Time")
+   :custom-blob-schedule (parse-genesis-blob-schedule object)))
+
 (defun chain-config-blob-schedule (config block-number timestamp)
   (let ((custom-entry (active-custom-blob-schedule-entry config timestamp)))
     (if custom-entry

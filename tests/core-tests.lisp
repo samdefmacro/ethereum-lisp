@@ -515,6 +515,45 @@
         (is (= (* 7 +blob-gas-per-blob+) max))
         (is (= 424242 update-fraction))))))
 
+(deftest chain-config-from-genesis-config-parses-geth-fields
+  (let* ((genesis-config
+           '(("chainId" . "123")
+             ("homesteadBlock" . 0)
+             ("londonBlock" . "5")
+             ("cancunTime" . "0x10")
+             ("bpo3Time" . 30)
+             ("blobSchedule" .
+              (("bpo3" .
+                (("target" . 8)
+                 ("max" . 11)
+                 ("baseFeeUpdateFraction" . "12345")))
+               ("bpo4" .
+                (("target" . 13)
+                 ("max" . 17)
+                 ("baseFeeUpdateFraction" . 67890)))))))
+         (config (chain-config-from-genesis-config genesis-config)))
+    (is (= 123 (chain-config-chain-id config)))
+    (is (= 0 (chain-config-homestead-block config)))
+    (is (= 5 (chain-config-london-block config)))
+    (is (= 16 (chain-config-cancun-time config)))
+    (is (= 30 (chain-config-bpo3-time config)))
+    (is (= 1 (length (chain-config-custom-blob-schedule config))))
+    (multiple-value-bind (target max update-fraction)
+        (chain-config-blob-schedule config 6 30)
+      (is (= (* 8 +blob-gas-per-blob+) target))
+      (is (= (* 11 +blob-gas-per-blob+) max))
+      (is (= 12345 update-fraction)))))
+
+(deftest chain-config-from-genesis-config-rejects-bad-blob-schedule
+  (signals block-validation-error
+    (chain-config-from-genesis-config
+     '(("chainId" . 1)
+       ("cancunTime" . 0)
+       ("blobSchedule" .
+        (("cancun" .
+          (("target" . 3)
+           ("max" . 6)))))))))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10
