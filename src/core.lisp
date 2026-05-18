@@ -692,8 +692,12 @@
         value))))
 
 (defun json-object-p (value)
-  (and (listp value)
-       (every #'consp value)))
+  (and (consp value)
+       (every (lambda (entry)
+                (and (consp entry)
+                     (or (stringp (car entry))
+                         (symbolp (car entry)))))
+              value)))
 
 (defun write-json-string (string stream)
   (write-char #\" stream)
@@ -3089,6 +3093,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (list (cons "code" code)
         (cons "message" message)))
 
+(defun engine-rpc-invalid-request-response ()
+  (engine-rpc-response
+   nil
+   :error
+   (engine-rpc-error-object -32600 "Invalid Request")))
+
 (defun engine-rpc-handle-request (request store config)
   (let ((id (and (listp request)
                  (genesis-object-field request "id"))))
@@ -3122,8 +3132,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           -32602
           (block-validation-error-message condition)))))))
 
+(defun engine-rpc-handle-request-value (request store config)
+  (cond
+    ((json-object-p request)
+     (engine-rpc-handle-request request store config))
+    ((and (listp request) request)
+     (mapcar (lambda (item)
+               (if (json-object-p item)
+                   (engine-rpc-handle-request item store config)
+                   (engine-rpc-invalid-request-response)))
+             request))
+    (t (engine-rpc-invalid-request-response))))
+
 (defun engine-rpc-handle-request-string (request-json store config)
-  (engine-rpc-handle-request (parse-json request-json) store config))
+  (engine-rpc-handle-request-value (parse-json request-json) store config))
 
 (defun engine-rpc-handle-request-json (request-json store config)
   (json-encode

@@ -2692,7 +2692,20 @@
         (is (string= "2.0" (field response "jsonrpc")))
         (is (= 9 (field response "id")))
         (is (= -32601 (field error "code")))
-        (is (string= "Method not found" (field error "message")))))))
+        (is (string= "Method not found" (field error "message"))))
+      (let* ((batch-json
+               (engine-rpc-handle-request-json
+                "[{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"engine_nope\",\"params\":[]},7]"
+                store
+                config))
+             (responses (parse-json batch-json))
+             (first-error (field (first responses) "error"))
+             (second-error (field (second responses) "error")))
+        (is (= 2 (length responses)))
+        (is (= 10 (field (first responses) "id")))
+        (is (= -32601 (field first-error "code")))
+        (is (not (field (second responses) "id")))
+        (is (= -32600 (field second-error "code")))))))
 
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))

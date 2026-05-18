@@ -515,6 +515,7 @@
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
+   #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
    #:engine-rpc-handle-request-json
    #:engine-new-payload-memory-status
@@ -1231,6 +1232,7 @@
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
+   #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
    #:engine-rpc-handle-request-json
    #:engine-new-payload-memory-status
@@ -1908,6 +1910,7 @@
    #:engine-rpc-executable-data-from-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
+   #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
    #:engine-rpc-handle-request-json
    #:engine-new-payload-memory-status
