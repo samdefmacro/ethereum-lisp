@@ -896,6 +896,12 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
+(deftest block-body-validates-transaction-list-before-derived-fields
+  (let ((block (make-block)))
+    (setf (block-transactions block) (list "not a transaction"))
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-body-validation-uses-chain-config-transaction-types
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10

@@ -1685,6 +1685,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (dolist (withdrawal withdrawals t)
     (validate-withdrawal-fields withdrawal)))
 
+(defun transaction-object-p (value)
+  (typep value
+         '(or legacy-transaction
+              access-list-transaction
+              dynamic-fee-transaction
+              blob-transaction
+              set-code-transaction)))
+
+(defun validate-block-transaction-list-fields (transactions)
+  (unless (listp transactions)
+    (block-validation-fail "Block transactions must be a list"))
+  (dolist (transaction transactions t)
+    (unless (transaction-object-p transaction)
+      (block-validation-fail "Block transaction must be a transaction"))))
+
 (defun transaction-blob-count (transaction)
   (typecase transaction
     (blob-transaction
@@ -1698,6 +1713,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun validate-block-transactions-against-config (block config)
   (let ((header (block-header block)))
+    (validate-block-transaction-list-fields (block-transactions block))
     (dolist (transaction (block-transactions block) t)
       (validate-transaction-type-for-config
        transaction config
@@ -1737,13 +1753,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (ommers-root (ommers-hash (block-ommers block)))
          (transactions (block-transactions block))
          (transactions-root nil)
-         (blob-gas-used (blob-gas-used transactions))
+         (blob-gas-used nil)
          (base-fee (block-header-base-fee-per-gas header))
          (blob-base-fee (when (block-header-excess-blob-gas header)
                           (block-header-blob-base-fee
                            header
                            :update-fraction
                            blob-base-fee-update-fraction))))
+    (validate-block-transaction-list-fields transactions)
+    (setf blob-gas-used (blob-gas-used transactions))
     (dolist (transaction transactions)
       (validate-transaction-recipient-field transaction)
       (validate-transaction-data-field transaction)

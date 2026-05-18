@@ -246,6 +246,8 @@ value uint256 bounds, and execution/blob fee-cap uint256 bounds before
 transaction root derivation.
 Transaction signature scalar fields (`chainId`, `v`, `yParity`, `r`, and `s`)
 are likewise checked for uint256 shape before transaction root derivation.
+Block body validation now also checks that the transactions body is a list of
+transaction objects before blob-gas aggregation or transaction root derivation.
 A first-pass chain configuration model is present for block-number forks
 through London and timestamp forks through Prague, including geth-compatible
 activation predicates and config-driven header validation for Shanghai,
