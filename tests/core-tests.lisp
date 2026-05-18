@@ -646,6 +646,18 @@
       "010000000000000000000000000000000000000000000000000000000000000000"
       "\"}}}}"))))
 
+(deftest genesis-expected-state-root-from-json-parses-hash
+  (let* ((root "0x0000000000000000000000000000000000000000000000000000000000000007")
+         (json (format nil "{\"stateRoot\":\"~A\"}" root)))
+    (is (string= root
+                 (hash32-to-hex
+                  (genesis-expected-state-root-from-genesis-json-string json))))))
+
+(deftest genesis-expected-state-root-from-json-rejects-bad-hash
+  (signals block-validation-error
+    (genesis-expected-state-root-from-genesis-json-string
+     "{\"stateRoot\":\"0x1234\"}")))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10

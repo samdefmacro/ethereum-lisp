@@ -204,6 +204,9 @@
    #:genesis-alloc-from-genesis-object
    #:genesis-alloc-from-genesis-json-string
    #:genesis-alloc-from-genesis-json-file
+   #:genesis-expected-state-root-from-genesis-object
+   #:genesis-expected-state-root-from-genesis-json-string
+   #:genesis-expected-state-root-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -477,6 +480,11 @@
    #:state-db-from-genesis-alloc
    #:state-db-from-genesis-json-string
    #:state-db-from-genesis-json-file
+   #:genesis-state-root-from-genesis-alloc
+   #:genesis-state-root-from-genesis-json-string
+   #:genesis-state-root-from-genesis-json-file
+   #:validate-genesis-state-root
+   #:validate-genesis-json-state-root
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal
@@ -735,6 +743,9 @@
    #:genesis-alloc-from-genesis-object
    #:genesis-alloc-from-genesis-json-string
    #:genesis-alloc-from-genesis-json-file
+   #:genesis-expected-state-root-from-genesis-object
+   #:genesis-expected-state-root-from-genesis-json-string
+   #:genesis-expected-state-root-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1039,6 +1050,11 @@
    #:state-db-from-genesis-alloc
    #:state-db-from-genesis-json-string
    #:state-db-from-genesis-json-file
+   #:genesis-state-root-from-genesis-alloc
+   #:genesis-state-root-from-genesis-json-string
+   #:genesis-state-root-from-genesis-json-file
+   #:validate-genesis-state-root
+   #:validate-genesis-json-state-root
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal
@@ -1227,6 +1243,9 @@
    #:genesis-alloc-from-genesis-object
    #:genesis-alloc-from-genesis-json-string
    #:genesis-alloc-from-genesis-json-file
+   #:genesis-expected-state-root-from-genesis-object
+   #:genesis-expected-state-root-from-genesis-json-string
+   #:genesis-expected-state-root-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1529,6 +1548,11 @@
    #:state-db-from-genesis-alloc
    #:state-db-from-genesis-json-string
    #:state-db-from-genesis-json-file
+   #:genesis-state-root-from-genesis-alloc
+   #:genesis-state-root-from-genesis-json-string
+   #:genesis-state-root-from-genesis-json-file
+   #:validate-genesis-state-root
+   #:validate-genesis-json-state-root
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal

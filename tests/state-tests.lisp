@@ -59,6 +59,41 @@
                 "0x0000000000000000000000000000000000000000000000000000000000000007")))
     (is (= 42 (state-db-get-storage state address slot)))))
 
+(deftest genesis-state-root-from-json-matches-state-db-root
+  (let* ((json (concatenate
+                'string
+                "{\"alloc\":{"
+                "\"0x0000000000000000000000000000000000000001\":{"
+                "\"balance\":\"0x10\","
+                "\"nonce\":\"2\","
+                "\"code\":\"0x60016000\","
+                "\"storage\":{\"0x07\":\"0x2a\"}"
+                "}}}"))
+         (state (state-db-from-genesis-json-string json)))
+    (is (string= (state-db-root-hex state)
+                 (hash32-to-hex
+                  (genesis-state-root-from-genesis-json-string json))))))
+
+(deftest validate-genesis-json-state-root-compares-expected-root
+  (let* ((alloc-json (concatenate
+                      'string
+                      "\"alloc\":{"
+                      "\"0x0000000000000000000000000000000000000001\":{"
+                      "\"balance\":\"0x10\","
+                      "\"storage\":{\"0x07\":\"0x2a\"}"
+                      "}}"))
+         (computed-root
+           (genesis-state-root-from-genesis-json-string
+            (format nil "{~A}" alloc-json)))
+         (valid-json
+           (format nil "{~A,\"stateRoot\":\"~A\"}"
+                   alloc-json (hash32-to-hex computed-root))))
+    (is (validate-genesis-json-state-root valid-json))
+    (signals block-validation-error
+      (validate-genesis-json-state-root
+       (format nil "{~A,\"stateRoot\":\"~A\"}"
+               alloc-json (hash32-to-hex (zero-hash32)))))))
+
 (deftest withdrawals-credit-state-balances-in-wei
   (let* ((state (make-state-db))
          (existing (address-from-hex "0x0000000000000000000000000000000000000011"))

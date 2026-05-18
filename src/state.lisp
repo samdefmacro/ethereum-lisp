@@ -184,6 +184,39 @@
   (state-db-from-genesis-alloc
    (genesis-alloc-from-genesis-json-file path)))
 
+(defun genesis-state-root-from-genesis-alloc (alloc)
+  (state-db-root (state-db-from-genesis-alloc alloc)))
+
+(defun genesis-state-root-from-genesis-json-string (string)
+  (genesis-state-root-from-genesis-alloc
+   (genesis-alloc-from-genesis-json-string string)))
+
+(defun genesis-state-root-from-genesis-json-file (path)
+  (genesis-state-root-from-genesis-alloc
+   (genesis-alloc-from-genesis-json-file path)))
+
+(defun validate-genesis-state-root (computed-root expected-root)
+  (unless (hash32-p computed-root)
+    (error 'block-validation-error
+           :message "Computed genesis state root must be a hash32"))
+  (unless (hash32-p expected-root)
+    (error 'block-validation-error
+           :message "Expected genesis state root must be a hash32"))
+  (unless (bytes= (hash32-bytes computed-root) (hash32-bytes expected-root))
+    (error 'block-validation-error :message "Genesis state root mismatch"))
+  t)
+
+(defun validate-genesis-json-state-root (string)
+  (let* ((genesis-object (parse-json string))
+         (expected-root
+           (genesis-expected-state-root-from-genesis-object genesis-object)))
+    (unless expected-root
+      (error 'block-validation-error :message "Genesis stateRoot is missing"))
+    (validate-genesis-state-root
+     (genesis-state-root-from-genesis-alloc
+      (genesis-alloc-from-genesis-object genesis-object))
+     expected-root)))
+
 (define-condition transaction-validation-error (error)
   ((message :initarg :message :reader transaction-validation-error-message))
   (:report (lambda (condition stream)

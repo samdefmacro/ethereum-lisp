@@ -391,12 +391,14 @@ objects are parsed into genesis account descriptors with balance, nonce, code,
 and storage, and those descriptors can initialize the in-memory state DB with
 deterministic account/code/storage roots. Genesis storage entries now follow
 geth's account JSON compatibility for short hex keys and values by left-padding
-them to 32 bytes before state insertion.
+them to 32 bytes before state insertion. The genesis path can now compute the
+state root directly from `alloc` and validate an optional JSON `stateRoot`
+against that computed root.
 Typed transaction execution semantics, full nested contract creation/inter-
 contract calls, storage/selfdestruct refund counters and richer EVM gas
 scheduling, full header validation including difficulty/seal rules and fork
-schedules, full genesis header construction/state-root cross-checking and
-allocation edge-case compatibility, and deeper blob
+schedules, full genesis header construction, remaining allocation edge-case
+compatibility, and deeper blob
 transaction validation remain. EIP-7702 set-code execution has a first-pass
 transaction-shape layer: set-code messages reject contract creation and empty
 authorization lists, and intrinsic gas now charges the authorization-list
