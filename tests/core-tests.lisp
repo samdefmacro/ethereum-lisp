@@ -3058,6 +3058,75 @@ Content-Length: 4
         (make-engine-rpc-http-service
          :jwt-secret (make-byte-vector 31 :initial-element 1))))))
 
+(deftest engine-rpc-http-service-serves-listener-connections
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (http-body (response)
+             (let ((boundary (search (format nil "~C~C~C~C"
+                                             #\Return #\Newline
+                                             #\Return #\Newline)
+                                     response)))
+               (subseq response (+ boundary 4))))
+           (http-status (response)
+             (let* ((line-end (position #\Return response))
+                    (status-line (subseq response 0 line-end)))
+               (parse-integer status-line :start 9 :end 12)))
+           (request (id)
+             (let ((body
+                     (format nil
+                             "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"TT\",\"name\":\"test\",\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"
+                             id)))
+               (format nil
+                       "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                       (length body)
+                       body))))
+    (let* ((service (make-engine-rpc-http-service))
+           (output-a (make-string-output-stream))
+           (output-b (make-string-output-stream))
+           (closed-connections 0)
+           (closed-listener-p nil)
+           (connections
+             (list
+              (make-engine-rpc-http-connection
+               :input-stream (make-string-input-stream (request 21))
+               :output-stream output-a
+               :close-function (lambda () (incf closed-connections)))
+              (make-engine-rpc-http-connection
+               :input-stream (make-string-input-stream (request 22))
+               :output-stream output-b
+               :close-function (lambda () (incf closed-connections)))))
+           (listener
+             (make-engine-rpc-http-listener
+              :endpoint (engine-rpc-http-service-endpoint service)
+              :accept-function
+              (lambda ()
+                (when connections
+                  (pop connections)))
+              :close-function
+              (lambda () (setf closed-listener-p t)))))
+      (is (string= "localhost:8551"
+                   (engine-rpc-http-listener-endpoint listener)))
+      (is (= 2 (engine-rpc-http-service-serve-listener
+                service listener :max-connections 10)))
+      (is (= 2 closed-connections))
+      (is closed-listener-p)
+      (let* ((response-a (get-output-stream-string output-a))
+             (response-b (get-output-stream-string output-b))
+             (rpc-a (parse-json (http-body response-a)))
+             (rpc-b (parse-json (http-body response-b))))
+        (is (= 200 (http-status response-a)))
+        (is (= 200 (http-status response-b)))
+        (is (= 21 (field rpc-a "id")))
+        (is (= 22 (field rpc-b "id"))))
+      (signals block-validation-error
+        (engine-rpc-http-listener-accept
+         (make-engine-rpc-http-listener
+          :endpoint "localhost:8551"
+          :accept-function (lambda () "not-a-connection"))))
+      (signals block-validation-error
+        (engine-rpc-http-service-serve-listener
+         service listener :max-connections -1)))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

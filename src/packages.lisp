@@ -537,10 +537,24 @@
    #:engine-rpc-http-service-jwt-secret
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-endpoint
+   #:engine-rpc-http-connection
+   #:make-engine-rpc-http-connection
+   #:engine-rpc-http-connection-input-stream
+   #:engine-rpc-http-connection-output-stream
+   #:engine-rpc-http-connection-close-function
+   #:engine-rpc-http-connection-close
+   #:engine-rpc-http-listener
+   #:make-engine-rpc-http-listener
+   #:engine-rpc-http-listener-endpoint
+   #:engine-rpc-http-listener-accept-function
+   #:engine-rpc-http-listener-close-function
+   #:engine-rpc-http-listener-accept
+   #:engine-rpc-http-listener-close
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-rpc-handle-http-stream
    #:engine-rpc-http-service-handle-stream
+   #:engine-rpc-http-service-serve-listener
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1277,10 +1291,24 @@
    #:engine-rpc-http-service-jwt-secret
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-endpoint
+   #:engine-rpc-http-connection
+   #:make-engine-rpc-http-connection
+   #:engine-rpc-http-connection-input-stream
+   #:engine-rpc-http-connection-output-stream
+   #:engine-rpc-http-connection-close-function
+   #:engine-rpc-http-connection-close
+   #:engine-rpc-http-listener
+   #:make-engine-rpc-http-listener
+   #:engine-rpc-http-listener-endpoint
+   #:engine-rpc-http-listener-accept-function
+   #:engine-rpc-http-listener-close-function
+   #:engine-rpc-http-listener-accept
+   #:engine-rpc-http-listener-close
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-rpc-handle-http-stream
    #:engine-rpc-http-service-handle-stream
+   #:engine-rpc-http-service-serve-listener
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1978,10 +2006,24 @@
    #:engine-rpc-http-service-jwt-secret
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-endpoint
+   #:engine-rpc-http-connection
+   #:make-engine-rpc-http-connection
+   #:engine-rpc-http-connection-input-stream
+   #:engine-rpc-http-connection-output-stream
+   #:engine-rpc-http-connection-close-function
+   #:engine-rpc-http-connection-close
+   #:engine-rpc-http-listener
+   #:make-engine-rpc-http-listener
+   #:engine-rpc-http-listener-endpoint
+   #:engine-rpc-http-listener-accept-function
+   #:engine-rpc-http-listener-close-function
+   #:engine-rpc-http-listener-accept
+   #:engine-rpc-http-listener-close
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-rpc-handle-http-stream
    #:engine-rpc-http-service-handle-stream
+   #:engine-rpc-http-service-serve-listener
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
