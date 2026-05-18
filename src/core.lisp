@@ -3201,6 +3201,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (expected-base-fee-per-gas parent-header)
           0)))))
 
+(defun engine-forkchoice-checkpoint-status (store hash label)
+  (when (and (not (hash32= hash (zero-hash32)))
+             (not (engine-payload-store-known-block store hash)))
+    (invalid-payload-status
+     (format nil "forkchoice ~A block is not available" label))))
+
 (defun engine-forkchoice-memory-status (store state)
   (unless (typep store 'engine-payload-memory-store)
     (return-from engine-forkchoice-memory-status
@@ -3216,9 +3222,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       ((engine-payload-store-invalid-ancestor-status
         store head-hash head-hash))
       ((engine-payload-store-known-block store head-hash)
-       (make-payload-status
-        :status +payload-status-valid+
-        :latest-valid-hash head-hash))
+       (or
+        (engine-forkchoice-checkpoint-status
+         store (forkchoice-state-finalized-block-hash state) "finalized")
+        (engine-forkchoice-checkpoint-status
+         store (forkchoice-state-safe-block-hash state) "safe")
+        (make-payload-status
+         :status +payload-status-valid+
+         :latest-valid-hash head-hash)))
       (t
        (make-payload-status :status +payload-status-syncing+)))))
 

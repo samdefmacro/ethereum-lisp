@@ -2710,11 +2710,14 @@
 (deftest engine-rpc-forkchoice-updated-v1-reports-memory-status
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
-           (forkchoice-state-object (head)
+           (forkchoice-state-object
+               (head &key
+                     (safe (zero-hash32))
+                     (finalized (zero-hash32)))
              (list (cons "headBlockHash" (hash32-to-hex head))
-                   (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                   (cons "safeBlockHash" (hash32-to-hex safe))
                    (cons "finalizedBlockHash"
-                         (hash32-to-hex (zero-hash32)))))
+                         (hash32-to-hex finalized))))
            (payload-attributes-object ()
              (list (cons "timestamp" "0x1")
                    (cons "prevRandao" (hash32-to-hex (zero-hash32)))
@@ -2795,11 +2798,40 @@
                      (field payload-status "status")))
         (is (string= "forkchoice head block hash is zero"
                      (field payload-status "validationError"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 22
+                 (forkchoice-state-object known-hash :safe unknown-hash))
+                store
+                config))
+             (result (field response "result"))
+             (payload-status (field result "payloadStatus")))
+        (is (string= +payload-status-invalid+
+                     (field payload-status "status")))
+        (is (string= "forkchoice safe block is not available"
+                     (field payload-status "validationError")))
+        (is (not (field result "payloadId"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 23
+                 (forkchoice-state-object
+                  known-hash :finalized unknown-hash))
+                store
+                config))
+             (result (field response "result"))
+             (payload-status (field result "payloadStatus")))
+        (is (string= +payload-status-invalid+
+                     (field payload-status "status")))
+        (is (string= "forkchoice finalized block is not available"
+                     (field payload-status "validationError")))
+        (is (not (field result "payloadId"))))
       (let* ((bad-state
                (list (cons "headBlockHash" (hash32-to-hex known-hash))))
              (response
                (engine-rpc-handle-request
-                (forkchoice-request 20 bad-state)
+                (forkchoice-request 24 bad-state)
                 store
                 config))
              (error (field response "error")))
