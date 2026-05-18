@@ -1679,12 +1679,18 @@
                    :max-items 3)))
     (is (= 3 (block-access-list-item-count decoded)))
     (is (bytes= encoded (block-access-list-rlp decoded)))
+    (is (string= (hash32-to-hex (keccak-256-hash encoded))
+                 (hash32-to-hex (block-access-list-rlp-hash encoded))))
     (is (string= (hash32-to-hex (block-access-list-hash access-list))
                  (hash32-to-hex (block-access-list-hash decoded))))
     (signals block-validation-error
       (block-access-list-from-rlp encoded :max-code-size 3))
     (signals block-validation-error
-      (block-access-list-from-rlp encoded :max-items 2))))
+      (block-access-list-from-rlp encoded :max-items 2))
+    (signals block-validation-error
+      (block-access-list-rlp-hash encoded :max-code-size 3))
+    (signals block-validation-error
+      (block-access-list-rlp-hash "not bytes"))))
 
 (deftest block-access-list-rlp-decode-rejects-malformed-shape
   (signals block-validation-error

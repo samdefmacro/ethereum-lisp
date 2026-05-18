@@ -328,9 +328,11 @@ before Amsterdam, 32 KiB at Amsterdam) and the Amsterdam BAL item budget
 wire payloads can now decode back into typed account/change structures and are
 rejected with block-validation errors for malformed RLP, malformed account
 shape, and invalid address lengths; decoded payloads are validated through the
-same ordering, size, and item-budget checks before being accepted. Amsterdam
-header validation also now requires child slot numbers to strictly exceed the
-parent once the parent is already Amsterdam-shaped.
+same ordering, size, and item-budget checks before being accepted, and a
+wire-RLP hash helper verifies then hashes encoded BAL bytes for Engine payload
+and database paths. Amsterdam header validation also now requires child slot
+numbers to strictly exceed the parent once the parent is already
+Amsterdam-shaped.
 A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.

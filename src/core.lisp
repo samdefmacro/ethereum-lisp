@@ -2262,19 +2262,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (error 'block-validation-error
          :message (apply #'format nil control args)))
 
+(defun block-access-list-rlp-input-bytes (bytes)
+  (handler-case
+      (ensure-byte-vector bytes)
+    (error ()
+      (block-validation-fail
+       "Block access list RLP must be a byte sequence"))))
+
 (defun block-access-list-from-rlp
     (bytes &key max-code-size max-items)
-  (handler-case
-      (let ((access-list (decode-block-access-list-rlp-object
-                          (rlp-decode-one bytes))))
-        (validate-block-access-list-fields access-list
-                                           :max-code-size max-code-size
-                                           :max-items max-items)
-        access-list)
-    (block-validation-error (condition)
-      (error condition))
-    (rlp-error (condition)
-      (block-validation-fail "Invalid block access list RLP: ~A" condition))))
+  (let ((bytes (block-access-list-rlp-input-bytes bytes)))
+    (handler-case
+        (let ((access-list (decode-block-access-list-rlp-object
+                            (rlp-decode-one bytes))))
+          (validate-block-access-list-fields access-list
+                                             :max-code-size max-code-size
+                                             :max-items max-items)
+          access-list)
+      (block-validation-error (condition)
+        (error condition))
+      (rlp-error (condition)
+        (block-validation-fail "Invalid block access list RLP: ~A" condition)))))
+
+(defun block-access-list-rlp-hash
+    (bytes &key max-code-size max-items)
+  (let ((bytes (block-access-list-rlp-input-bytes bytes)))
+    (block-access-list-from-rlp bytes
+                                :max-code-size max-code-size
+                                :max-items max-items)
+    (keccak-256-hash bytes)))
 
 (defun validate-byte-sequence-field (value label &key size)
   (let ((bytes (handler-case
