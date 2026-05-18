@@ -3327,6 +3327,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     "engine_getPayloadV1"
     "engine_getPayloadV2"
     "engine_getPayloadV3"
+    "engine_getPayloadV4"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3519,6 +3520,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            params store "engine_getPayloadV3")))
     (unless (= 3 (engine-prepared-payload-version prepared-payload))
       (block-validation-fail "payload id is not for engine_getPayloadV3"))
+    (engine-rpc-execution-payload-envelope-object
+     (engine-rpc-prepared-payload-envelope prepared-payload)
+     :include-blobs-bundle-p t
+     :include-override-p t)))
+
+(defun engine-rpc-handle-get-payload-v4 (params store)
+  (let ((prepared-payload
+          (engine-rpc-prepared-payload
+           params store "engine_getPayloadV4")))
+    (unless (= 4 (engine-prepared-payload-version prepared-payload))
+      (block-validation-fail "payload id is not for engine_getPayloadV4"))
     (engine-rpc-execution-payload-envelope-object
      (engine-rpc-prepared-payload-envelope prepared-payload)
      :include-blobs-bundle-p t
@@ -3720,6 +3732,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-v3 params store)))
+              ((string= method "engine_getPayloadV4")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-v4 params store)))
               ((string= method "engine_getPayloadBodiesByHashV1")
                (engine-rpc-response
                 id

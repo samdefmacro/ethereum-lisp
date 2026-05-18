@@ -2935,6 +2935,48 @@
                 config)))
         (is (search "\"shouldOverrideBuilder\":false" response-json))))))
 
+(deftest engine-rpc-get-payload-v4-returns-prague-execution-requests
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((payload-id #(4 0 0 0 0 0 0 1))
+           (requests (list #(#x00 #xaa) #(#x01 #xbb)))
+           (block
+             (make-block
+              :header
+              (make-block-header :number 8
+                                 :timestamp 13
+                                 :blob-gas-used 0
+                                 :excess-blob-gas 0)
+              :requests requests))
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (engine-payload-store-put-prepared-payload
+       store
+       (make-engine-prepared-payload
+        :payload-id payload-id
+        :version 4
+        :block block))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 39)
+                      (cons "method" "engine_getPayloadV4")
+                      (cons "params" (list (bytes-to-hex payload-id))))
+                store
+                config))
+             (envelope (field response "result"))
+             (payload (field envelope "executionPayload"))
+             (bundle (field envelope "blobsBundle"))
+             (encoded-requests (field envelope "executionRequests")))
+        (is (= 39 (field response "id")))
+        (is (eq :false (field envelope "shouldOverrideBuilder")))
+        (is (string= "0x0" (field payload "blobGasUsed")))
+        (is (string= "0x0" (field payload "excessBlobGas")))
+        (is (= 0 (length (field bundle "blobs"))))
+        (is (= 2 (length encoded-requests)))
+        (is (string= "0x00aa" (first encoded-requests)))
+        (is (string= "0x01bb" (second encoded-requests)))))))
+
 (deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3196,6 +3238,7 @@
       (is (member "engine_getPayloadV1" capabilities :test #'string=))
       (is (member "engine_getPayloadV2" capabilities :test #'string=))
       (is (member "engine_getPayloadV3" capabilities :test #'string=))
+      (is (member "engine_getPayloadV4" capabilities :test #'string=))
       (is (member "engine_getPayloadBodiesByHashV1"
                   capabilities
                   :test #'string=))
