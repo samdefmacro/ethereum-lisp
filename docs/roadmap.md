@@ -400,7 +400,9 @@ limit, allowing Osaka's higher 9-blob block aggregate while keeping the prior
 6-blob limit before Osaka. Prague execution requests hash derivation is present
 using SHA-256 over non-empty request payload hashes, and request bodies are
 field-validated before hash derivation, body-root validation, or execution
-state mutation; blocks can now carry requests bodies whose header
+state mutation; Engine-style request bodies now must contain both a request
+type and payload, and request types must be strictly increasing so each type
+appears at most once. Blocks can now carry requests bodies whose header
 `requestsHash` is derived and validated, and the legacy and signed block
 execution entry points can now carry those requests bodies into the produced
 block as well. Receipt trie derivation now uses EIP-2718 typed

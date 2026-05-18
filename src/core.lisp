@@ -2377,8 +2377,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun validate-execution-request-list-fields (requests)
   (unless (listp requests)
     (block-validation-fail "Execution requests must be a list"))
-  (dolist (request requests t)
-    (validate-execution-request-fields request)))
+  (loop with previous-type = nil
+        for request in requests
+        for bytes = (validate-execution-request-fields request)
+        for request-type = (aref bytes 0)
+        do (when (< (length bytes) 2)
+             (block-validation-fail
+              "Execution request must contain request type and payload"))
+           (when (and previous-type
+                      (<= request-type previous-type))
+             (block-validation-fail
+              "Execution requests must be ordered by unique request type"))
+           (setf previous-type request-type)
+        finally (return t)))
 
 (defun byte-vector-lexicographic< (left right)
   (let ((left (ensure-byte-vector left))

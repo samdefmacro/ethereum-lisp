@@ -525,7 +525,7 @@
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (header (make-block-header :gas-limit 50000))
-         (requests (list #(#x00) #(#x01 #xaa))))
+         (requests (list #(#x00 #xbb) #(#x01 #xaa))))
     (multiple-value-bind (block receipts)
         (execute-legacy-block state sender '()
                               :header header
@@ -1107,7 +1107,7 @@
     (signals block-validation-error
       (execute-legacy-block state sender (list transaction)
                             :header header
-                            :requests (list #())))
+                            :requests (list #(#x00))))
     (is (= 0 (state-account-nonce (state-db-get-account state sender))))
     (is (= 100000
            (state-account-balance (state-db-get-account state sender))))

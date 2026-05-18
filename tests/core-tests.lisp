@@ -265,7 +265,17 @@
           (block-header-requests-hash (block-header block))
           (execution-requests-hash '()))
     (signals block-validation-error
-      (validate-block-body-roots block))))
+      (validate-block-body-roots block))
+    (is (validate-execution-request-list-fields
+         (list #(#x00 #xaa) #(#x01 #xbb))))
+    (signals block-validation-error
+      (validate-execution-request-list-fields (list #(#x00))))
+    (signals block-validation-error
+      (validate-execution-request-list-fields
+       (list #(#x00 #xaa) #(#x00 #xbb))))
+    (signals block-validation-error
+      (validate-execution-request-list-fields
+       (list #(#x01 #xaa) #(#x00 #xbb))))))
 
 (deftest eip1559-base-fee-calculation-and-validation
   (let* ((parent (make-block-header :gas-limit 2000
@@ -1749,7 +1759,7 @@
          (block (make-block :transactions (list transaction)
                             :receipts (list receipt)
                             :withdrawals (list withdrawal)
-                            :requests (list #(#x00) #(#x01 #xaa))
+                            :requests (list #(#x00 #xbb) #(#x01 #xaa))
                             :block-access-list '()))
          (header (block-header block)))
     (is (hash32-p (block-hash block)))
@@ -1764,7 +1774,8 @@
     (is (string= (hash32-to-hex (withdrawal-list-root (list withdrawal)))
                  (hash32-to-hex (block-header-withdrawals-root header))))
     (is (string= (hash32-to-hex
-                  (execution-requests-hash (list #(#x00) #(#x01 #xaa))))
+                  (execution-requests-hash
+                   (list #(#x00 #xbb) #(#x01 #xaa))))
                  (hash32-to-hex (block-header-requests-hash header))))
     (is (string= (hash32-to-hex (block-access-list-hash '()))
                  (hash32-to-hex
@@ -2095,7 +2106,7 @@
                                      (make-chain-config :london-block 10)))))
 
 (deftest block-body-validates-execution-requests-hash
-  (let* ((block (make-block :requests (list #(#x00) #(#x01 #xaa))))
+  (let* ((block (make-block :requests (list #(#x00 #xbb) #(#x01 #xaa))))
          (header (block-header block)))
     (is (validate-block-body-roots block))
     (is (string= (hash32-to-hex
