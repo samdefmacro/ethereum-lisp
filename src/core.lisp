@@ -2008,8 +2008,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun validate-receipt-list-fields (receipts)
   (unless (listp receipts)
     (block-validation-fail "Block receipts must be a list"))
-  (dolist (receipt receipts t)
-    (validate-receipt-fields receipt)))
+  (let ((previous-gas-used nil))
+    (dolist (receipt receipts t)
+      (validate-receipt-fields receipt)
+      (let ((gas-used (receipt-cumulative-gas-used receipt)))
+        (when (and previous-gas-used (<= gas-used previous-gas-used))
+          (block-validation-fail
+           "Receipt cumulative gas used must increase"))
+        (setf previous-gas-used gas-used)))))
 
 (defun validate-block-execution-roots
     (block receipts state-root &key (transactions nil transactions-supplied-p))

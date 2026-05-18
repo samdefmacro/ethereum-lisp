@@ -1636,6 +1636,34 @@
               :logs (list (make-log-entry :data "not bytes"))))
        state-root))))
 
+(deftest block-execution-validates-receipt-cumulative-gas-order
+  (let* ((first-receipt (make-receipt :status 1
+                                      :cumulative-gas-used 30000))
+         (second-receipt (make-receipt :status 1
+                                       :cumulative-gas-used 21000))
+         (receipts (list first-receipt second-receipt))
+         (state-root (hash32-from-hex
+                      "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (block (make-block :receipts receipts))
+         (header (block-header block)))
+    (setf (block-header-gas-used header) 21000
+          (block-header-state-root header) state-root)
+    (signals block-validation-error
+      (validate-block-execution-roots block receipts state-root)))
+  (let* ((first-receipt (make-receipt :status 1
+                                      :cumulative-gas-used 21000))
+         (second-receipt (make-receipt :status 1
+                                       :cumulative-gas-used 21000))
+         (receipts (list first-receipt second-receipt))
+         (state-root (hash32-from-hex
+                      "0x2222222222222222222222222222222222222222222222222222222222222222"))
+         (block (make-block :receipts receipts))
+         (header (block-header block)))
+    (setf (block-header-gas-used header) 21000
+          (block-header-state-root header) state-root)
+    (signals block-validation-error
+      (validate-block-execution-roots block receipts state-root))))
+
 (deftest bloom-add-and-lookup-log-values
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (topic (hash32-from-hex

@@ -263,7 +263,8 @@ the executed results.
 Receipt and log bodies are now field-validated before execution-root
 derivation, including receipt list/object shape, cumulative gas bounds,
 post-state root bytes, log address/topic/data shapes, and supplied typed
-transaction list shape.
+transaction list shape. Receipt list validation also rejects non-increasing
+cumulative gas sequences before deriving roots.
 A first-pass chain configuration model is present for block-number forks
 through London and timestamp forks through Prague, including geth-compatible
 activation predicates and config-driven header validation for Shanghai,
