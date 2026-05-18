@@ -729,6 +729,28 @@
     (chain-config-from-genesis-json-string
      "{\"config\":{\"chainId\":1.5}}")))
 
+(deftest json-encode-round-trips-rpc-shaped-objects
+  (let* ((object
+           (list (cons "jsonrpc" "2.0")
+                 (cons "id" 4)
+                 (cons "result"
+                       (list (cons "status" +payload-status-valid+)
+                             (cons "latestValidHash" nil)
+                             (cons "labels" '("engine" "newPayload"))
+                             (cons "quote" (format nil "line~%break"))))))
+         (encoded (json-encode object))
+         (decoded (parse-json encoded))
+         (result (cdr (assoc "result" decoded :test #'string=))))
+    (is (string= "2.0" (cdr (assoc "jsonrpc" decoded :test #'string=))))
+    (is (= 4 (cdr (assoc "id" decoded :test #'string=))))
+    (is (string= +payload-status-valid+
+                 (cdr (assoc "status" result :test #'string=))))
+    (is (not (cdr (assoc "latestValidHash" result :test #'string=))))
+    (is (equal '("engine" "newPayload")
+               (cdr (assoc "labels" result :test #'string=))))
+    (is (string= (format nil "line~%break")
+                 (cdr (assoc "quote" result :test #'string=))))))
+
 (deftest genesis-alloc-from-json-parses-account-fields
   (let* ((json (concatenate
                 'string
@@ -2659,7 +2681,18 @@
                 store
                 config))
              (error (field response "error")))
-        (is (= -32601 (field error "code")))))))
+        (is (= -32601 (field error "code"))))
+      (let* ((response-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config))
+             (response (parse-json response-json))
+             (error (field response "error")))
+        (is (string= "2.0" (field response "jsonrpc")))
+        (is (= 9 (field response "id")))
+        (is (= -32601 (field error "code")))
+        (is (string= "Method not found" (field error "message")))))))
 
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))

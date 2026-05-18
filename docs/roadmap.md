@@ -533,8 +533,9 @@ A small in-memory Engine payload store now models known-block, missing-parent,
 missing-parent-state, and invalid-ancestor status branches for the future
 database-backed import path. A parsed JSON-RPC object dispatcher can now route
 `engine_newPayloadV1` through `engine_newPayloadV5` calls into that store and
-return Engine-style payload status result objects, leaving HTTP transport and
-JSON response encoding as the next outer shell.
+return Engine-style payload status result objects. The same core can now encode
+JSON-RPC response strings for request-string entry points, leaving HTTP
+transport as the next outer shell.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.

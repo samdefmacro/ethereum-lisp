@@ -221,6 +221,7 @@
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
+   #:json-encode
    #:chain-config-from-genesis-config
    #:chain-config-from-genesis-json-string
    #:chain-config-from-genesis-json-file
@@ -515,6 +516,7 @@
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-string
+   #:engine-rpc-handle-request-json
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -935,6 +937,7 @@
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
+   #:json-encode
    #:chain-config-from-genesis-config
    #:chain-config-from-genesis-json-string
    #:chain-config-from-genesis-json-file
@@ -1229,6 +1232,7 @@
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-string
+   #:engine-rpc-handle-request-json
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1610,6 +1614,7 @@
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:parse-json
+   #:json-encode
    #:chain-config-from-genesis-config
    #:chain-config-from-genesis-json-string
    #:chain-config-from-genesis-json-file
@@ -1904,6 +1909,7 @@
    #:engine-rpc-payload-status-object
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-string
+   #:engine-rpc-handle-request-json
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account

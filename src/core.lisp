@@ -691,6 +691,62 @@
           (fail "trailing data"))
         value))))
 
+(defun json-object-p (value)
+  (and (listp value)
+       (every #'consp value)))
+
+(defun write-json-string (string stream)
+  (write-char #\" stream)
+  (loop for char across string
+        for code = (char-code char)
+        do (case char
+             (#\" (write-string "\\\"" stream))
+             (#\\ (write-string "\\\\" stream))
+             (#\Backspace (write-string "\\b" stream))
+             (#\Page (write-string "\\f" stream))
+             (#\Newline (write-string "\\n" stream))
+             (#\Return (write-string "\\r" stream))
+             (#\Tab (write-string "\\t" stream))
+             (otherwise
+              (if (< code #x20)
+                  (format stream "\\u~4,'0x" code)
+                  (write-char char stream)))))
+  (write-char #\" stream))
+
+(defun write-json-value (value stream)
+  (cond
+    ((null value) (write-string "null" stream))
+    ((eq value t) (write-string "true" stream))
+    ((stringp value) (write-json-string value stream))
+    ((integerp value) (write-string (write-to-string value :base 10) stream))
+    ((json-object-p value)
+     (write-char #\{ stream)
+     (loop for (key . item) in value
+           for first-p = t then nil
+           do (progn
+                (unless first-p
+                  (write-char #\, stream))
+                (write-json-string
+                 (if (stringp key) key (string-downcase (symbol-name key)))
+                 stream)
+                (write-char #\: stream)
+                (write-json-value item stream)))
+     (write-char #\} stream))
+    ((listp value)
+     (write-char #\[ stream)
+     (loop for item in value
+           for first-p = t then nil
+           do (progn
+                (unless first-p
+                  (write-char #\, stream))
+                (write-json-value item stream)))
+     (write-char #\] stream))
+    (t (block-validation-fail "Cannot encode value as JSON"))))
+
+(defun json-encode (value)
+  (with-output-to-string (stream)
+    (write-json-value value stream)))
+
 (defun chain-config-from-genesis-config (object)
   (make-chain-config
    :chain-id (or (parse-genesis-field object "chainId") 1)
@@ -3068,6 +3124,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-handle-request-string (request-json store config)
   (engine-rpc-handle-request (parse-json request-json) store config))
+
+(defun engine-rpc-handle-request-json (request-json store config)
+  (json-encode
+   (engine-rpc-handle-request-string request-json store config)))
 
 (defun engine-new-payload-memory-status
     (store version payload config
