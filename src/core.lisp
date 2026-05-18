@@ -3863,6 +3863,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (engine-rpc-required-field version "code")
             (engine-rpc-required-field version "commit"))))
 
+(defun engine-rpc-handle-web3-sha3 (params)
+  (unless (= 1 (length params))
+    (block-validation-fail "web3_sha3 params must contain exactly one data value"))
+  (bytes-to-hex (keccak-256 (engine-rpc-bytes (first params) "web3_sha3 data"))))
+
 (defun engine-rpc-handle-net-version (params config)
   (when params
     (block-validation-fail "net_version params must be empty"))
@@ -5373,6 +5378,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-web3-client-version params)))
+              ((string= method "web3_sha3")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-web3-sha3 params)))
               ((string= method "net_version")
                (engine-rpc-response
                 id
