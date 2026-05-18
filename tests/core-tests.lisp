@@ -479,6 +479,42 @@
       (is (= (* +bpo4-max-blobs-per-block+ +blob-gas-per-blob+) max))
       (is (= +bpo4-blob-base-fee-update-fraction+ update-fraction)))))
 
+(deftest custom-blob-schedule-overrides-fork-defaults
+  (let* ((early-entry (make-blob-schedule-entry :timestamp 40
+                                                :target-blobs 5
+                                                :max-blobs 7
+                                                :update-fraction 424242))
+         (late-entry (make-blob-schedule-entry :timestamp 90
+                                               :target-blobs 2
+                                               :max-blobs 4
+                                               :update-fraction 999999))
+         (config (make-chain-config :london-block 0
+                                    :cancun-time 0
+                                    :bpo3-time 80
+                                    :custom-blob-schedule
+                                    (list late-entry early-entry))))
+    (multiple-value-bind (target max update-fraction)
+        (chain-config-blob-schedule config 1 39)
+      (is (= (* +target-blobs-per-block+ +blob-gas-per-blob+) target))
+      (is (= (* +max-blobs-per-block+ +blob-gas-per-blob+) max))
+      (is (= +blob-base-fee-update-fraction+ update-fraction)))
+    (multiple-value-bind (target max update-fraction)
+        (chain-config-blob-schedule config 1 80)
+      (is (= (* 5 +blob-gas-per-blob+) target))
+      (is (= (* 7 +blob-gas-per-blob+) max))
+      (is (= 424242 update-fraction)))
+    (multiple-value-bind (target max update-fraction)
+        (chain-config-blob-schedule config 1 90)
+      (is (= (* 2 +blob-gas-per-blob+) target))
+      (is (= (* 4 +blob-gas-per-blob+) max))
+      (is (= 999999 update-fraction)))
+    (let ((rules (chain-config-rules config 1 80)))
+      (multiple-value-bind (target max update-fraction)
+          (chain-rules-blob-schedule rules)
+        (is (= (* 5 +blob-gas-per-blob+) target))
+        (is (= (* 7 +blob-gas-per-blob+) max))
+        (is (= 424242 update-fraction))))))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10
@@ -1581,6 +1617,38 @@
     (is (validate-block-body-against-config bpo2-block config))
     (is (validate-block-body-against-config bpo3-block config))
     (is (validate-block-body-against-config bpo4-block config))))
+
+(deftest custom-blob-schedule-body-validation-uses-active-entry
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (blob-hash (hash32-from-hex
+                     "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (six-hashes (loop repeat +max-blobs-per-block+
+                           collect blob-hash))
+         (one-hash (list blob-hash))
+         (config (make-chain-config
+                  :london-block 0
+                  :cancun-time 0
+                  :custom-blob-schedule
+                  (list (make-blob-schedule-entry :timestamp 20
+                                                  :target-blobs 5
+                                                  :max-blobs 7
+                                                  :update-fraction 424242))))
+         (transactions
+           (list (make-blob-transaction :to address
+                                        :max-fee-per-blob-gas 1
+                                        :blob-versioned-hashes six-hashes)
+                 (make-blob-transaction :to address
+                                        :max-fee-per-blob-gas 1
+                                        :blob-versioned-hashes one-hash)))
+         (block (make-block :header (make-block-header
+                                      :number 1
+                                      :timestamp 20
+                                      :blob-gas-used (* 7 +blob-gas-per-blob+)
+                                      :excess-blob-gas 0)
+                            :transactions transactions)))
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (is (validate-block-body-against-config block config))))
 
 (deftest blob-sidecar-field-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))

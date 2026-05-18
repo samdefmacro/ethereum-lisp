@@ -2598,6 +2598,64 @@
              (block-header-blob-gas-used (block-header block))))
       (is (validate-block-body-against-config block config)))))
 
+(deftest custom-blob-schedule-block-execution-uses-configured-limit
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (first-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (second-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000003"))
+         (blob-hash (hash32-from-hex
+                     "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
+         (six-hashes (loop repeat +max-blobs-per-block+
+                           collect blob-hash))
+         (one-hash (list blob-hash))
+         (config (make-chain-config
+                  :london-block 0
+                  :cancun-time 0
+                  :custom-blob-schedule
+                  (list (make-blob-schedule-entry :timestamp 20
+                                                  :target-blobs 5
+                                                  :max-blobs 7
+                                                  :update-fraction 424242))))
+         (header (make-block-header
+                  :number 1
+                  :timestamp 20
+                  :gas-limit 100000
+                  :base-fee-per-gas 2
+                  :blob-gas-used (* 7 +blob-gas-per-blob+)
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32)))
+         (first-transaction
+           (make-blob-transaction
+            :nonce 0
+            :max-priority-fee-per-gas 1
+            :max-fee-per-gas 10
+            :gas-limit 21000
+            :to first-recipient
+            :max-fee-per-blob-gas 1
+            :blob-versioned-hashes six-hashes))
+         (second-transaction
+           (make-blob-transaction
+            :nonce 1
+            :max-priority-fee-per-gas 1
+            :max-fee-per-gas 10
+            :gas-limit 21000
+            :to second-recipient
+            :max-fee-per-blob-gas 1
+            :blob-versioned-hashes one-hash)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 10000000))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state sender
+                              (list first-transaction second-transaction)
+                              :header header
+                              :chain-config config)
+      (is (= 2 (length receipts)))
+      (is (= (* 7 +blob-gas-per-blob+)
+             (block-header-blob-gas-used (block-header block))))
+      (is (validate-block-body-against-config block config)))))
+
 (deftest blob-block-execution-rejects-aggregate-blob-limit-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

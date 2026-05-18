@@ -140,6 +140,12 @@
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
+   #:blob-schedule-entry
+   #:make-blob-schedule-entry
+   #:blob-schedule-entry-timestamp
+   #:blob-schedule-entry-target-blobs
+   #:blob-schedule-entry-max-blobs
+   #:blob-schedule-entry-update-fraction
    #:chain-config
    #:make-chain-config
    #:chain-config-chain-id
@@ -161,6 +167,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -205,6 +212,9 @@
    #:chain-rules-bpo2-p
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
+   #:chain-rules-blob-schedule-target-gas
+   #:chain-rules-blob-schedule-max-gas
+   #:chain-rules-blob-schedule-update-fraction
    #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
@@ -642,6 +652,12 @@
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
+   #:blob-schedule-entry
+   #:make-blob-schedule-entry
+   #:blob-schedule-entry-timestamp
+   #:blob-schedule-entry-target-blobs
+   #:blob-schedule-entry-max-blobs
+   #:blob-schedule-entry-update-fraction
    #:chain-config
    #:make-chain-config
    #:chain-config-chain-id
@@ -663,6 +679,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -707,6 +724,9 @@
    #:chain-rules-bpo2-p
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
+   #:chain-rules-blob-schedule-target-gas
+   #:chain-rules-blob-schedule-max-gas
+   #:chain-rules-blob-schedule-update-fraction
    #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
@@ -1105,6 +1125,12 @@
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
+   #:blob-schedule-entry
+   #:make-blob-schedule-entry
+   #:blob-schedule-entry-timestamp
+   #:blob-schedule-entry-target-blobs
+   #:blob-schedule-entry-max-blobs
+   #:blob-schedule-entry-update-fraction
    #:chain-config
    #:make-chain-config
    #:chain-config-chain-id
@@ -1126,6 +1152,7 @@
    #:chain-config-bpo2-time
    #:chain-config-bpo3-time
    #:chain-config-bpo4-time
+   #:chain-config-custom-blob-schedule
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -1170,6 +1197,9 @@
    #:chain-rules-bpo2-p
    #:chain-rules-bpo3-p
    #:chain-rules-bpo4-p
+   #:chain-rules-blob-schedule-target-gas
+   #:chain-rules-blob-schedule-max-gas
+   #:chain-rules-blob-schedule-update-fraction
    #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
