@@ -745,6 +745,10 @@
                          +genesis-difficulty+))
          (base-fee (parse-genesis-field object "baseFeePerGas"
                                         :label "Genesis base fee"))
+         (parent-beacon-root (parse-genesis-hash32-field
+                              object '("parentBeaconBlockRoot"
+                                       "parentBeaconRoot")
+                              "Genesis parent beacon block root"))
          (header
            (make-block-header
             :parent-hash (parse-genesis-hash32-field
@@ -780,11 +784,7 @@
                             object "blobGasUsed" "Genesis blob gas used")
             :excess-blob-gas (genesis-uint64-field
                               object "excessBlobGas"
-                              "Genesis excess blob gas")
-            :parent-beacon-root (parse-genesis-hash32-field
-                                 object '("parentBeaconBlockRoot"
-                                          "parentBeaconRoot")
-                                 "Genesis parent beacon block root"))))
+                              "Genesis excess blob gas"))))
     (when (and config
                (chain-config-london-p config number)
                (null (block-header-base-fee-per-gas header)))
@@ -792,8 +792,8 @@
     (when (and config (chain-config-shanghai-p config number timestamp))
       (setf (block-header-withdrawals-root header) (withdrawal-list-root '())))
     (when (and config (chain-config-cancun-p config number timestamp))
-      (unless (block-header-parent-beacon-root header)
-        (setf (block-header-parent-beacon-root header) (zero-hash32)))
+      (setf (block-header-parent-beacon-root header)
+            (or parent-beacon-root (zero-hash32)))
       (unless (block-header-excess-blob-gas header)
         (setf (block-header-excess-blob-gas header) 0))
       (unless (block-header-blob-gas-used header)

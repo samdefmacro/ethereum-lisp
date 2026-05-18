@@ -401,8 +401,9 @@ genesis header or geth-style genesis JSON into a `block`, using the computed
 allocation state root when requested and carrying empty Shanghai withdrawals
 and Prague execution-request bodies whenever those header commitments are
 active. Genesis header JSON parsing now also accepts the `mixhash` alias used
-by Nethermind's geth-style loader and preserves supplied Cancun
-`parentBeaconBlockRoot` values while still defaulting that root to zero.
+by Nethermind's geth-style loader and preserves supplied
+`parentBeaconBlockRoot` values only for Cancun-active genesis headers, while
+still defaulting that Cancun root to zero when absent.
 Typed transaction execution semantics, full nested contract creation/inter-
 contract calls, storage/selfdestruct refund counters and richer EVM gas
 scheduling, full header validation including difficulty/seal rules and fork
