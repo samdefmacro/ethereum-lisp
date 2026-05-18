@@ -21,6 +21,54 @@
     (is (string= "0xcb01020380048260001b0506"
                  (bytes-to-hex (legacy-transaction-rlp tx))))))
 
+(deftest legacy-transaction-rlp-decodes-round-trip
+  (let* ((recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (tx (make-legacy-transaction :nonce 9
+                                      :gas-price 20000000000
+                                      :gas-limit 21000
+                                      :to recipient
+                                      :value 1000000000000000000
+                                      :data #(1 2 3)
+                                      :v 37
+                                      :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+                                      :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+         (encoded (legacy-transaction-rlp tx))
+         (decoded (legacy-transaction-from-rlp encoded)))
+    (is (typep (transaction-from-encoding encoded) 'legacy-transaction))
+    (is (= 9 (legacy-transaction-nonce decoded)))
+    (is (= 20000000000 (legacy-transaction-gas-price decoded)))
+    (is (= 21000 (legacy-transaction-gas-limit decoded)))
+    (is (string= (address-to-hex recipient)
+                 (address-to-hex (legacy-transaction-to decoded))))
+    (is (= 1000000000000000000 (legacy-transaction-value decoded)))
+    (is (bytes= #(1 2 3) (legacy-transaction-data decoded)))
+    (is (= 37 (legacy-transaction-v decoded)))
+    (is (= #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+           (legacy-transaction-r decoded)))
+    (is (= #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83
+           (legacy-transaction-s decoded)))
+    (is (bytes= encoded (legacy-transaction-rlp decoded))))
+  (let* ((tx (make-legacy-transaction :nonce 1
+                                      :gas-price 2
+                                      :gas-limit 3
+                                      :value 4
+                                      :data #(96 0)
+                                      :v 27
+                                      :r 5
+                                      :s 6))
+         (decoded (transaction-from-encoding (transaction-encoding tx))))
+    (is (null (legacy-transaction-to decoded)))
+    (is (bytes= (legacy-transaction-rlp tx)
+                (legacy-transaction-rlp decoded))))
+  (signals block-validation-error
+    (legacy-transaction-from-rlp (rlp-encode (list 1 2 3))))
+  (signals block-validation-error
+    (legacy-transaction-from-rlp
+     (rlp-encode (list 0 1 2 (make-byte-vector 19) 3 4 5 6 7))))
+  (signals block-validation-error
+    (transaction-from-encoding #())))
+
 (deftest legacy-transaction-signing-hash-vectors
   (let ((homestead
           (make-legacy-transaction

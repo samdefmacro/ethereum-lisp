@@ -288,6 +288,7 @@
    #:legacy-transaction-r
    #:legacy-transaction-s
    #:legacy-transaction-rlp
+   #:legacy-transaction-from-rlp
    #:legacy-transaction-hash
    #:legacy-transaction-signing-payload
    #:legacy-transaction-signing-hash
@@ -366,6 +367,7 @@
    #:set-code-transaction-signing-hash
    #:set-code-transaction-sender
    #:transaction-encoding
+   #:transaction-from-encoding
    #:transaction-hash
    #:transaction-sender
    #:transaction-nonce
@@ -938,6 +940,7 @@
    #:legacy-transaction-r
    #:legacy-transaction-s
    #:legacy-transaction-rlp
+   #:legacy-transaction-from-rlp
    #:legacy-transaction-hash
    #:legacy-transaction-signing-payload
    #:legacy-transaction-signing-hash
@@ -1016,6 +1019,7 @@
    #:set-code-transaction-signing-hash
    #:set-code-transaction-sender
    #:transaction-encoding
+   #:transaction-from-encoding
    #:transaction-hash
    #:transaction-sender
    #:transaction-nonce
@@ -1549,6 +1553,7 @@
    #:legacy-transaction-r
    #:legacy-transaction-s
    #:legacy-transaction-rlp
+   #:legacy-transaction-from-rlp
    #:legacy-transaction-hash
    #:legacy-transaction-signing-payload
    #:legacy-transaction-signing-hash
@@ -1627,6 +1632,7 @@
    #:set-code-transaction-signing-hash
    #:set-code-transaction-sender
    #:transaction-encoding
+   #:transaction-from-encoding
    #:transaction-hash
    #:transaction-sender
    #:transaction-nonce

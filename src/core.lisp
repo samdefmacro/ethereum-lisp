@@ -1144,6 +1144,51 @@
     (ensure-uint256 (legacy-transaction-r transaction) "Transaction r")
     (ensure-uint256 (legacy-transaction-s transaction) "Transaction s"))))
 
+(defun legacy-transaction-recipient-from-rlp (bytes)
+  (let ((bytes (ensure-byte-vector bytes)))
+    (cond
+      ((zerop (length bytes)) nil)
+      ((= (length bytes) 20) (make-address bytes))
+      (t (block-validation-fail
+          "Legacy transaction recipient must be empty or 20 bytes")))))
+
+(defun rlp-uint-field (value label)
+  (unless (byte-vector-p value)
+    (block-validation-fail "~A must be RLP bytes" label))
+  (bytes-to-integer value))
+
+(defun rlp-bytes-field (value label)
+  (unless (byte-vector-p value)
+    (block-validation-fail "~A must be RLP bytes" label))
+  (copy-seq value))
+
+(defun legacy-transaction-from-rlp (bytes)
+  (handler-case
+      (let ((value (rlp-decode-one bytes)))
+        (unless (rlp-list-p value)
+          (block-validation-fail "Legacy transaction must be an RLP list"))
+        (let ((fields (rlp-list-items value)))
+          (unless (= (length fields) 9)
+            (block-validation-fail
+             "Legacy transaction must contain 9 fields"))
+          (make-legacy-transaction
+           :nonce (rlp-uint-field (first fields) "Transaction nonce")
+           :gas-price (rlp-uint-field (second fields)
+                                      "Transaction gas price")
+           :gas-limit (rlp-uint-field (third fields)
+                                      "Transaction gas limit")
+           :to (legacy-transaction-recipient-from-rlp (fourth fields))
+           :value (rlp-uint-field (fifth fields) "Transaction value")
+           :data (rlp-bytes-field (sixth fields) "Transaction data")
+           :v (rlp-uint-field (seventh fields) "Transaction v")
+           :r (rlp-uint-field (eighth fields) "Transaction r")
+           :s (rlp-uint-field (ninth fields) "Transaction s"))))
+    (block-validation-error (condition)
+      (error condition))
+    (rlp-error (condition)
+      (block-validation-fail "Invalid legacy transaction RLP: ~A"
+                             condition))))
+
 (defun legacy-transaction-hash (transaction)
   (keccak-256-hash (legacy-transaction-rlp transaction)))
 
@@ -1773,6 +1818,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (dynamic-fee-transaction (dynamic-fee-transaction-encoding transaction))
     (blob-transaction (blob-transaction-encoding transaction))
     (set-code-transaction (set-code-transaction-encoding transaction))))
+
+(defun transaction-from-encoding (bytes)
+  (let ((bytes (ensure-byte-vector bytes)))
+    (when (zerop (length bytes))
+      (block-validation-fail "Transaction encoding is empty"))
+    (if (> (aref bytes 0) #x7f)
+        (legacy-transaction-from-rlp bytes)
+        (block-validation-fail
+         "Typed transaction decoding is not implemented yet"))))
 
 (defun transaction-hash (transaction)
   (keccak-256-hash (transaction-encoding transaction)))
