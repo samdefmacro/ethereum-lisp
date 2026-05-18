@@ -669,8 +669,9 @@ submitted pending raw bytes are also visible through
 geth-style pending transaction object with null block location metadata for
 those locally submitted transactions. `eth_pendingTransactions` exposes the
 same local pending placeholder as a deterministic hash-sorted array of pending
-transaction objects. Full txpool admission rules remain a later
-networking/txpool slice.
+transaction objects, and `txpool_status` reports the local pending count with
+zero queued transactions until a queued pool exists. Full txpool admission
+rules remain a later networking/txpool slice.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

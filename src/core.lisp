@@ -3046,6 +3046,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :key (lambda (transaction)
           (hash32-to-hex (transaction-hash transaction)))))
 
+(defun engine-payload-store-pending-transaction-count (store)
+  (hash-table-count
+   (engine-payload-memory-store-pending-transactions store)))
+
 (defun engine-payload-store-account-key (block-hash address)
   (format nil "~A:~A"
           (engine-payload-store-key block-hash)
@@ -4950,6 +4954,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (eth-rpc-pending-transaction-objects
    (engine-payload-store-pending-transactions store)))
 
+(defun engine-rpc-handle-txpool-status (params store)
+  (when params
+    (block-validation-fail "txpool_status params must be empty"))
+  (list
+   (cons "pending"
+         (quantity-to-hex
+          (engine-payload-store-pending-transaction-count store)))
+   (cons "queued" (quantity-to-hex 0))))
+
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
   (let* ((number (eth-rpc-block-number-param
@@ -5686,6 +5699,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 :result
                 (engine-rpc-handle-eth-pending-transactions
                  params store)))
+              ((string= method "txpool_status")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-txpool-status params store)))
               (t
                (engine-rpc-response
                 id

@@ -5476,6 +5476,12 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
                  store
                  config)))
+             (txpool-status-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":67,\"method\":\"txpool_status\",\"params\":[]}"
+                 store
+                 config)))
              (invalid-rlp-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -5492,6 +5498,12 @@
                (parse-json
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":66,\"method\":\"eth_pendingTransactions\",\"params\":[\"unexpected\"]}"
+                 store
+                 config)))
+             (invalid-txpool-status-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":68,\"method\":\"txpool_status\",\"params\":[\"unexpected\"]}"
                  store
                  config))))
         (is (string= transaction-hash (field send-response "result")))
@@ -5512,12 +5524,20 @@
           (is (string= transaction-hash
                        (field (first pending-transactions) "hash")))
           (is (null (field (first pending-transactions) "blockHash"))))
+        (let ((txpool-status (field txpool-status-response "result")))
+          (is (string= (quantity-to-hex 1)
+                       (field txpool-status "pending")))
+          (is (string= (quantity-to-hex 0)
+                       (field txpool-status "queued"))))
         (is (= -32602
                (field (field invalid-rlp-response "error") "code")))
         (is (= -32602
                (field (field invalid-count-response "error") "code")))
         (is (= -32602
-               (field (field invalid-pending-response "error") "code")))))))
+               (field (field invalid-pending-response "error") "code")))
+        (is (= -32602
+               (field (field invalid-txpool-status-response "error")
+                      "code")))))))
 
 (deftest eth-rpc-get-transaction-receipt
   (labels ((field (object name)
