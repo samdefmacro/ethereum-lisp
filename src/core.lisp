@@ -2418,7 +2418,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                     withdrawals
                                     blob-gas-used
                                     excess-blob-gas
-                                    slot-number)))
+                                    slot-number
+                                    block-access-list)))
   parent-hash
   fee-recipient
   state-root
@@ -2436,7 +2437,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   withdrawals
   blob-gas-used
   excess-blob-gas
-  slot-number)
+  slot-number
+  block-access-list)
 
 (defstruct (execution-payload-envelope
             (:constructor make-execution-payload-envelope
@@ -2539,7 +2541,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             (block-withdrawals block)))
             :blob-gas-used (block-header-blob-gas-used header)
             :excess-blob-gas (block-header-excess-blob-gas header)
-            :slot-number (block-header-slot-number header)))
+            :slot-number (block-header-slot-number header)
+            :block-access-list
+            (when (block-block-access-list-present-p block)
+              (maybe-copy-bytes (block-encoded-block-access-list block)))))
          (payload-requests
            (cond
              (requests (maybe-copy-requests requests))
@@ -2626,7 +2631,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (logs-bloom (validate-byte-sequence-field
                       (executable-data-logs-bloom payload)
                       "Executable data logs bloom"
-                      :size 256)))
+                      :size 256))
+         (encoded-block-access-list
+           (when (executable-data-block-access-list payload)
+             (block-access-list-rlp-input-bytes
+              (executable-data-block-access-list payload))))
+         (block-access-list
+           (when encoded-block-access-list
+             (block-access-list-from-rlp encoded-block-access-list))))
     (when (> (length extra-data) +maximum-extra-data-size+)
       (block-validation-fail "Executable data extra data too long"))
     (when withdrawals
@@ -2690,6 +2702,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              :parent-beacon-root parent-beacon-root
              :requests-hash (when requests-supplied-p
                               (execution-requests-hash requests))
+             :block-access-list-hash
+             (when encoded-block-access-list
+               (keccak-256-hash encoded-block-access-list))
              :slot-number (executable-data-slot-number payload))))
       (validate-optional-uint256-field (block-header-blob-gas-used header)
                                        "Executable data blob gas used")
@@ -2703,7 +2718,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    :withdrawals withdrawals
                    :withdrawals-present-p (not (null withdrawals))
                    :requests requests
-                   :requests-present-p requests-supplied-p))))
+                   :requests-present-p requests-supplied-p
+                   :block-access-list block-access-list
+                   :block-access-list-present-p
+                   (not (null encoded-block-access-list))
+                   :encoded-block-access-list encoded-block-access-list))))
 
 (defun executable-data-to-block
     (payload &key parent-beacon-root (versioned-hashes nil)
@@ -3046,6 +3065,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-required-bytes-field (object name)
   (engine-rpc-bytes (engine-rpc-required-field object name) name))
 
+(defun engine-rpc-optional-bytes-field (object name)
+  (when (genesis-object-field-present-p object name)
+    (engine-rpc-bytes (genesis-object-field object name) name)))
+
 (defun engine-rpc-byte-list (values label)
   (unless (listp values)
     (block-validation-fail "~A must be a list" label))
@@ -3109,7 +3132,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :blob-gas-used (engine-rpc-optional-quantity-field object "blobGasUsed")
    :excess-blob-gas
    (engine-rpc-optional-quantity-field object "excessBlobGas")
-   :slot-number (engine-rpc-optional-quantity-field object "slotNumber")))
+   :slot-number (engine-rpc-optional-quantity-field object "slotNumber")
+   :block-access-list
+   (engine-rpc-optional-bytes-field object "blockAccessList")))
 
 (defun engine-rpc-executable-data-object (payload)
   (unless (typep payload 'executable-data)
@@ -3157,7 +3182,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (when (executable-data-slot-number payload)
      (list
       (cons "slotNumber"
-            (quantity-to-hex (executable-data-slot-number payload)))))))
+            (quantity-to-hex (executable-data-slot-number payload)))))
+   (when (executable-data-block-access-list payload)
+     (list
+      (cons "blockAccessList"
+            (bytes-to-hex
+             (executable-data-block-access-list payload)))))))
 
 (defun engine-rpc-blobs-bundle-object (bundle)
   (let ((sidecar (or bundle (make-blob-sidecar))))
@@ -3342,6 +3372,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     "engine_getPayloadV3"
     "engine_getPayloadV4"
     "engine_getPayloadV5"
+    "engine_getPayloadV6"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3562,6 +3593,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :include-blobs-bundle-p t
      :include-override-p t)))
 
+(defun engine-rpc-handle-get-payload-v6 (params store)
+  (let ((prepared-payload
+          (engine-rpc-prepared-payload
+           params store "engine_getPayloadV6")))
+    (unless (= 6 (engine-prepared-payload-version prepared-payload))
+      (block-validation-fail "payload id is not for engine_getPayloadV6"))
+    (engine-rpc-execution-payload-envelope-object
+     (engine-rpc-prepared-payload-envelope prepared-payload)
+     :include-blobs-bundle-p t
+     :include-override-p t)))
+
 (defconstant +engine-rpc-max-payload-bodies-request+ 1024)
 
 (defun engine-rpc-handle-get-payload-bodies-by-hash
@@ -3768,6 +3810,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-v5 params store)))
+              ((string= method "engine_getPayloadV6")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-v6 params store)))
               ((string= method "engine_getPayloadBodiesByHashV1")
                (engine-rpc-response
                 id

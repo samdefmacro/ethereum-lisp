@@ -3023,6 +3023,55 @@
         (is (string= "0x0611" (second (field bundle "proofs"))))
         (is (string= "0x03dd" (first (field bundle "blobs"))))))))
 
+(deftest engine-rpc-get-payload-v6-returns-amsterdam-fields
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((payload-id #(6 0 0 0 0 0 0 1))
+           (sidecar
+             (make-blob-sidecar
+              :blobs (list #(#x07 #xaa))
+              :commitments (list #(#x08 #xbb))
+              :proofs (list #(#x09 #xcc))))
+           (block
+             (make-block
+              :header
+              (make-block-header :number 10
+                                 :timestamp 15
+                                 :blob-gas-used 0
+                                 :excess-blob-gas 0
+                                 :slot-number 42)
+              :requests (list #(#x03 #xdd))
+              :block-access-list '()))
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (engine-payload-store-put-prepared-payload
+       store
+       (make-engine-prepared-payload
+        :payload-id payload-id
+        :version 6
+        :block block
+        :blobs-bundle sidecar))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 41)
+                      (cons "method" "engine_getPayloadV6")
+                      (cons "params" (list (bytes-to-hex payload-id))))
+                store
+                config))
+             (envelope (field response "result"))
+             (payload (field envelope "executionPayload"))
+             (bundle (field envelope "blobsBundle")))
+        (is (= 41 (field response "id")))
+        (is (string= (quantity-to-hex 42) (field payload "slotNumber")))
+        (is (string= (bytes-to-hex (block-encoded-block-access-list block))
+                     (field payload "blockAccessList")))
+        (is (string= "0x03dd"
+                     (first (field envelope "executionRequests"))))
+        (is (string= "0x08bb" (first (field bundle "commitments"))))
+        (is (string= "0x09cc" (first (field bundle "proofs"))))
+        (is (string= "0x07aa" (first (field bundle "blobs"))))))))
+
 (deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -3286,6 +3335,7 @@
       (is (member "engine_getPayloadV3" capabilities :test #'string=))
       (is (member "engine_getPayloadV4" capabilities :test #'string=))
       (is (member "engine_getPayloadV5" capabilities :test #'string=))
+      (is (member "engine_getPayloadV6" capabilities :test #'string=))
       (is (member "engine_getPayloadBodiesByHashV1"
                   capabilities
                   :test #'string=))
