@@ -2863,6 +2863,80 @@ Content-Type: application/json
               (make-chain-config))))
       (is (= 405 (http-status response))))))
 
+(deftest engine-rpc-http-validates-jwt-bearer-auth
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (http-body (response)
+             (let ((boundary (search (format nil "~C~C~C~C"
+                                             #\Return #\Newline
+                                             #\Return #\Newline)
+                                     response)))
+               (subseq response (+ boundary 4))))
+           (http-status (response)
+             (let* ((line-end (position #\Return response))
+                    (status-line (subseq response 0 line-end)))
+               (parse-integer status-line :start 9 :end 12)))
+           (request (body &key token)
+             (with-output-to-string (stream)
+               (format stream "POST / HTTP/1.1~%Host: localhost~%")
+               (format stream "Content-Type: application/json~%")
+               (when token
+                 (format stream "Authorization: Bearer ~A~%" token))
+               (format stream "Content-Length: ~D~%~%~A" (length body) body))))
+    (let* ((secret (make-byte-vector 32 :initial-element #x42))
+           (now 1000)
+           (body
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":18,"
+              "\"method\":\"engine_getClientVersionV1\","
+              "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+              "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+           (token (engine-rpc-make-jwt-token secret now))
+           (http-response
+             (engine-rpc-handle-http-request-string
+              (request body :token token)
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :jwt-secret secret
+              :now now))
+           (rpc-response (parse-json (http-body http-response)))
+           (local (first (field rpc-response "result"))))
+      (is (string=
+           "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjEwMDB9.WR0G-_BFmXHetdB5_3grgcntOfG-gyUJd1ALOObOAbM"
+           token))
+      (is (= 200 (http-status http-response)))
+      (is (= 18 (field rpc-response "id")))
+      (is (string= "ethereum-lisp" (field local "name")))
+      (let ((missing-response
+              (engine-rpc-handle-http-request-string
+               (request body)
+               (make-engine-payload-memory-store)
+               (make-chain-config)
+               :jwt-secret secret
+               :now now)))
+        (is (= 401 (http-status missing-response))))
+      (let* ((stale-token (engine-rpc-make-jwt-token secret (- now 61)))
+             (stale-response
+               (engine-rpc-handle-http-request-string
+                (request body :token stale-token)
+                (make-engine-payload-memory-store)
+                (make-chain-config)
+                :jwt-secret secret
+                :now now)))
+        (is (= 401 (http-status stale-response))))
+      (let* ((expired-token
+               (engine-rpc-make-jwt-token
+                secret now :expires-at (1- now)))
+             (expired-response
+               (engine-rpc-handle-http-request-string
+                (request body :token expired-token)
+                (make-engine-payload-memory-store)
+                (make-chain-config)
+                :jwt-secret secret
+                :now now)))
+        (is (= 401 (http-status expired-response)))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

@@ -525,6 +525,8 @@
    #:engine-rpc-handle-request-json
    #:+engine-rpc-http-accepted-content-types+
    #:engine-rpc-http-accepted-content-type-p
+   #:+engine-rpc-jwt-expiry-seconds+
+   #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
@@ -1250,6 +1252,8 @@
    #:engine-rpc-handle-request-json
    #:+engine-rpc-http-accepted-content-types+
    #:engine-rpc-http-accepted-content-type-p
+   #:+engine-rpc-jwt-expiry-seconds+
+   #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
@@ -1936,6 +1940,8 @@
    #:engine-rpc-handle-request-json
    #:+engine-rpc-http-accepted-content-types+
    #:engine-rpc-http-accepted-content-type-p
+   #:+engine-rpc-jwt-expiry-seconds+
+   #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-new-payload-memory-status
    #:execution-requests-hash
