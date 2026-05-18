@@ -3845,7 +3845,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                (block-block-access-list block)))))))
     (eth-rpc-encoded-rlp-list items)))
 
-(defun eth-rpc-require-transaction-hashes (params method)
+(defun eth-rpc-block-full-transactions-param (params method)
   (unless (= 2 (length params))
     (block-validation-fail
      "~A params must contain block id and full transaction flag" method))
@@ -3854,11 +3854,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (eq full-transactions-p t))
       (block-validation-fail
        "~A full transaction flag must be a boolean" method))
-    (when full-transactions-p
-      (block-validation-fail
-       "~A full transaction objects are not implemented yet" method))))
+    full-transactions-p))
 
-(defun eth-rpc-block-object (block)
+(defun eth-rpc-block-transactions-object (block full-transactions-p)
+  (if full-transactions-p
+      (loop for transaction in (block-transactions block)
+            for index from 0
+            collect (eth-rpc-transaction-object transaction block index))
+      (mapcar (lambda (transaction)
+                (hash32-to-hex (transaction-hash transaction)))
+              (block-transactions block))))
+
+(defun eth-rpc-block-object (block full-transactions-p)
   (unless (typep block 'ethereum-block)
     (block-validation-fail "eth block result must be a block"))
   (append
@@ -3866,9 +3873,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (list
     (cons "size" (quantity-to-hex (length (eth-rpc-block-rlp block))))
     (cons "transactions"
-          (mapcar (lambda (transaction)
-                    (hash32-to-hex (transaction-hash transaction)))
-                  (block-transactions block)))
+          (eth-rpc-block-transactions-object block full-transactions-p))
     (cons "uncles"
           (mapcar (lambda (ommer)
                     (hash32-to-hex (block-header-hash ommer)))
@@ -3880,20 +3885,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                     (block-withdrawals block)))))))
 
 (defun engine-rpc-handle-eth-get-block-by-number (params store)
-  (eth-rpc-require-transaction-hashes params "eth_getBlockByNumber")
-  (let* ((number (eth-rpc-block-number-param
+  (let* ((full-transactions-p
+           (eth-rpc-block-full-transactions-param params "eth_getBlockByNumber"))
+         (number (eth-rpc-block-number-param
                   (list (first params)) store "eth_getBlockByNumber"))
          (block (engine-payload-store-block-by-number store number)))
     (when block
-      (eth-rpc-block-object block))))
+      (eth-rpc-block-object block full-transactions-p))))
 
 (defun engine-rpc-handle-eth-get-block-by-hash (params store)
-  (eth-rpc-require-transaction-hashes params "eth_getBlockByHash")
-  (let* ((hash (eth-rpc-hash-param
+  (let* ((full-transactions-p
+           (eth-rpc-block-full-transactions-param params "eth_getBlockByHash"))
+         (hash (eth-rpc-hash-param
                 (list (first params)) "eth_getBlockByHash" "block hash"))
          (block (engine-payload-store-known-block store hash)))
     (when block
-      (eth-rpc-block-object block))))
+      (eth-rpc-block-object block full-transactions-p))))
 
 (defun eth-rpc-block-transaction-count (block)
   (when block

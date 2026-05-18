@@ -605,11 +605,10 @@ chain id, `eth_blockNumber` returns the current memory-store head number, and
 `eth_getHeaderByNumber`/`eth_getHeaderByHash` can return canonical memory-store
 headers for `latest`, `earliest`, hex block quantities, or block hashes using
 the geth-style header object shape while returning JSON `null` for unknown
-blocks. `eth_getBlockByNumber`/`eth_getBlockByHash` now handle the
-transaction-hash form (`fullTx=false`) for memory-store blocks, adding block
-size, transaction hashes, ommer hashes, and Shanghai withdrawals while
-returning `null` for unknown block ids; full transaction object expansion
-remains a later RPC-object slice. The matching
+blocks. `eth_getBlockByNumber`/`eth_getBlockByHash` now handle both the
+transaction-hash form (`fullTx=false`) and full mined transaction object form
+(`fullTx=true`) for memory-store blocks, adding block size, ommer hashes, and
+Shanghai withdrawals while returning `null` for unknown block ids. The matching
 `eth_getBlockTransactionCountByNumber` and
 `eth_getBlockTransactionCountByHash` read endpoints now return transaction
 counts for canonical memory-store blocks and JSON `null` for unknown blocks.

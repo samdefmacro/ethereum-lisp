@@ -4102,7 +4102,9 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x8\",true]}"
                  store
                  config)))
-             (full-error (field full-response "error")))
+             (full-result (field full-response "result"))
+             (full-transactions (field full-result "transactions"))
+             (full-transaction (first full-transactions)))
         (is (string= (quantity-to-hex 8) (field result "number")))
         (is (string= (hash32-to-hex (block-hash block))
                      (field result "hash")))
@@ -4117,7 +4119,23 @@
         (is (string= (quantity-to-hex 1)
                      (field (first withdrawals) "index")))
         (is (null (field missing-response "result")))
-        (is (= -32602 (field full-error "code")))))))
+        (is (string= (field result "hash")
+                     (field full-result "hash")))
+        (is (= 1 (length full-transactions)))
+        (is (string= (hash32-to-hex (transaction-hash transaction))
+                     (field full-transaction "hash")))
+        (is (string= (field result "hash")
+                     (field full-transaction "blockHash")))
+        (is (string= (quantity-to-hex 8)
+                     (field full-transaction "blockNumber")))
+        (is (string= (quantity-to-hex 0)
+                     (field full-transaction "transactionIndex")))
+        (is (string= (address-to-hex recipient)
+                     (field full-transaction "to")))
+        (is (string= (address-to-hex (zero-address))
+                     (field full-transaction "from")))
+        (is (string= (quantity-to-hex 0)
+                     (field full-transaction "type")))))))
 
 (deftest eth-rpc-get-block-by-hash-with-transaction-hashes
   (labels ((field (object name)
@@ -4168,14 +4186,33 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"eth_getBlockByHash\",\"params\":[\"0x1234\",false]}"
                  store
                  config)))
-             (invalid-error (field invalid-response "error")))
+             (invalid-error (field invalid-response "error"))
+             (full-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":54,"
+                  "\"method\":\"eth_getBlockByHash\",\"params\":[\""
+                  hash-hex "\",true]}")
+                 store
+                 config)))
+             (full-result (field full-response "result"))
+             (full-transaction (first (field full-result "transactions"))))
         (is (string= (quantity-to-hex 9) (field result "number")))
         (is (string= hash-hex (field result "hash")))
         (is (= 1 (length transactions)))
         (is (string= (hash32-to-hex (transaction-hash transaction))
                      (first transactions)))
         (is (null (field missing-response "result")))
-        (is (= -32602 (field invalid-error "code")))))))
+        (is (= -32602 (field invalid-error "code")))
+        (is (string= hash-hex (field full-transaction "blockHash")))
+        (is (string= (hash32-to-hex (transaction-hash transaction))
+                     (field full-transaction "hash")))
+        (is (string= (quantity-to-hex 9)
+                     (field full-transaction "blockNumber")))
+        (is (string= (quantity-to-hex 0)
+                     (field full-transaction "transactionIndex")))))))
 
 (deftest eth-rpc-get-block-transaction-count
   (labels ((field (object name)
