@@ -455,7 +455,18 @@
 
 (defun validate-execution-transaction-list-fields
     (transactions rules blob-base-fee)
+  (unless (listp transactions)
+    (error 'transaction-validation-error
+           :message "Transactions must be a list"))
   (dolist (tx transactions t)
+    (unless (typep tx
+                   '(or legacy-transaction
+                        access-list-transaction
+                        dynamic-fee-transaction
+                        blob-transaction
+                        set-code-transaction))
+      (error 'transaction-validation-error
+             :message "Transaction list item must be a transaction"))
     (validate-execution-transaction-fields tx rules blob-base-fee)))
 
 (defun make-message-evm-context

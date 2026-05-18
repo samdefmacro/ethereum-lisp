@@ -237,6 +237,27 @@
         (is (null (state-db-get-account state first-recipient)))
         (is (null (state-db-get-account state second-recipient)))))))
 
+(deftest message-list-preflights-transaction-list-shape-before-state-mutation
+  (let* ((sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (first-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (first (make-legacy-transaction :nonce 0
+                                         :gas-price 1
+                                         :gas-limit 21000
+                                         :to first-recipient
+                                         :value 1)))
+    (dolist (transactions (list (vector first)
+                                (list first "not a transaction")))
+      (let ((state (make-state-db)))
+        (state-db-set-account state sender
+                              (make-state-account :balance 100000))
+        (signals transaction-validation-error
+          (apply-message-list state sender transactions))
+        (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+        (is (= 100000
+               (state-account-balance (state-db-get-account state sender))))
+        (is (null (state-db-get-account state first-recipient)))))))
+
 (deftest legacy-message-zero-value-to-empty-recipient-does-not-create-account
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
