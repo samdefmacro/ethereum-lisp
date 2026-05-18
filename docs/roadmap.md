@@ -609,7 +609,10 @@ blocks. `eth_getBlockByNumber`/`eth_getBlockByHash` now handle the
 transaction-hash form (`fullTx=false`) for memory-store blocks, adding block
 size, transaction hashes, ommer hashes, and Shanghai withdrawals while
 returning `null` for unknown block ids; full transaction object expansion
-remains a later RPC-object slice.
+remains a later RPC-object slice. The matching
+`eth_getBlockTransactionCountByNumber` and
+`eth_getBlockTransactionCountByHash` read endpoints now return transaction
+counts for canonical memory-store blocks and JSON `null` for unknown blocks.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

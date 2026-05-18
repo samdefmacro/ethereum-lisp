@@ -3895,6 +3895,27 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when block
       (eth-rpc-block-object block))))
 
+(defun eth-rpc-block-transaction-count (block)
+  (when block
+    (quantity-to-hex (length (block-transactions block)))))
+
+(defun engine-rpc-handle-eth-get-block-transaction-count-by-number
+    (params store)
+  (let* ((number (eth-rpc-block-number-param
+                  params store
+                  "eth_getBlockTransactionCountByNumber"))
+         (block (engine-payload-store-block-by-number store number)))
+    (eth-rpc-block-transaction-count block)))
+
+(defun engine-rpc-handle-eth-get-block-transaction-count-by-hash
+    (params store)
+  (let* ((hash (eth-rpc-hash-param
+                params
+                "eth_getBlockTransactionCountByHash"
+                "block hash"))
+         (block (engine-payload-store-known-block store hash)))
+    (eth-rpc-block-transaction-count block)))
+
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
@@ -4390,6 +4411,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-block-by-hash params store)))
+              ((string= method "eth_getBlockTransactionCountByNumber")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-block-transaction-count-by-number
+                 params store)))
+              ((string= method "eth_getBlockTransactionCountByHash")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-block-transaction-count-by-hash
+                 params store)))
               (t
                (engine-rpc-response
                 id

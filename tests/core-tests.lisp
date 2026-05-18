@@ -4177,6 +4177,69 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-get-block-transaction-count
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (tx-1 (make-legacy-transaction :nonce 1
+                                          :gas-price 7
+                                          :gas-limit 21000))
+           (tx-2 (make-legacy-transaction :nonce 2
+                                          :gas-price 8
+                                          :gas-limit 21000))
+           (block
+             (make-block
+              :header (make-block-header :number 10
+                                         :timestamp 100
+                                         :gas-limit 30000000)
+              :transactions (list tx-1 tx-2)))
+           (hash-hex (hash32-to-hex (block-hash block)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((number-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"eth_getBlockTransactionCountByNumber\",\"params\":[\"0xa\"]}"
+                 store
+                 config)))
+             (latest-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"eth_getBlockTransactionCountByNumber\",\"params\":[\"latest\"]}"
+                 store
+                 config)))
+             (hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":36,"
+                  "\"method\":\"eth_getBlockTransactionCountByHash\","
+                  "\"params\":[\"" hash-hex "\"]}")
+                 store
+                 config)))
+             (missing-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":37,\"method\":\"eth_getBlockTransactionCountByNumber\",\"params\":[\"0x63\"]}"
+                 store
+                 config)))
+             (invalid-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"eth_getBlockTransactionCountByHash\",\"params\":[\"0x1234\"]}"
+                 store
+                 config)))
+             (invalid-error (field invalid-response "error")))
+        (is (string= (quantity-to-hex 2)
+                     (field number-response "result")))
+        (is (string= (quantity-to-hex 2)
+                     (field latest-response "result")))
+        (is (string= (quantity-to-hex 2)
+                     (field hash-response "result")))
+        (is (null (field missing-response "result")))
+        (is (= -32602 (field invalid-error "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
