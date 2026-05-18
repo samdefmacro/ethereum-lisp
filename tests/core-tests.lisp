@@ -5961,6 +5961,11 @@
                                           :gas-limit 23000
                                           :to recipient
                                           :value 3))
+           (tx-4 (make-legacy-transaction :nonce 4
+                                          :gas-price 11
+                                          :gas-limit 24000
+                                          :to recipient
+                                          :value 4))
            (receipt-1
              (make-receipt
               :status 1
@@ -5985,6 +5990,14 @@
                            :address address-a
                            :topics (list topic-a topic-c)
                            :data #(4 5)))))
+           (receipt-4
+             (make-receipt
+              :status 1
+              :cumulative-gas-used 24000
+              :logs (list (make-log-entry
+                           :address address-a
+                           :topics (list topic-a topic-b)
+                           :data #(6)))))
            (block-1
              (make-block
               :header (make-block-header :number 40
@@ -5999,6 +6012,13 @@
                                          :gas-limit 30000000)
               :transactions (list tx-3)
               :receipts (list receipt-3)))
+           (block-3
+             (make-block
+              :header (make-block-header :number 42
+                                         :timestamp 420
+                                         :gas-limit 30000000)
+              :transactions (list tx-4)
+              :receipts (list receipt-4)))
            (config (make-chain-config))
            (block-2-hash-hex (hash32-to-hex (block-hash block-2))))
       (engine-payload-store-put-block store block-1 :state-available-p t)
@@ -6091,7 +6111,6 @@
                   "{\"jsonrpc\":\"2.0\",\"id\":72,"
                   "\"method\":\"eth_newFilter\","
                   "\"params\":[{\"fromBlock\":\"0x28\","
-                  "\"toBlock\":\"0x29\","
                   "\"address\":\"" (address-to-hex address-a) "\","
                   "\"topics\":[\"" (hash32-to-hex topic-a) "\"]}]}")
                  store
@@ -6108,6 +6127,40 @@
                  store
                  config)))
              (filter-logs (field filter-logs-response "result"))
+             (first-changes-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":77,"
+                  "\"method\":\"eth_getFilterChanges\","
+                  "\"params\":[\"" filter-id "\"]}")
+                 store
+                 config)))
+             (first-changes (field first-changes-response "result"))
+             (second-changes-response
+               (progn
+                 (engine-payload-store-put-block
+                  store block-3 :state-available-p t)
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   (concatenate
+                    'string
+                    "{\"jsonrpc\":\"2.0\",\"id\":78,"
+                    "\"method\":\"eth_getFilterChanges\","
+                    "\"params\":[\"" filter-id "\"]}")
+                   store
+                   config))))
+             (second-changes (field second-changes-response "result"))
+             (empty-changes-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":79,"
+                 "\"method\":\"eth_getFilterChanges\","
+                 "\"params\":[\"" filter-id "\"]}")
+                store
+                config))
              (uninstall-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -6146,6 +6199,15 @@
                      (field (first filter-logs) "blockNumber")))
         (is (string= (quantity-to-hex 41)
                      (field (second filter-logs) "blockNumber")))
+        (is (= 2 (length first-changes)))
+        (is (string= (quantity-to-hex 40)
+                     (field (first first-changes) "blockNumber")))
+        (is (string= (quantity-to-hex 41)
+                     (field (second first-changes) "blockNumber")))
+        (is (= 1 (length second-changes)))
+        (is (string= (quantity-to-hex 42)
+                     (field (first second-changes) "blockNumber")))
+        (is (search "\"result\":[]" empty-changes-json))
         (is (eq t (field uninstall-response "result")))
         (is (= -32602 (field missing-filter-error "code")))
         (is (null (field uninstall-missing-response "result")))

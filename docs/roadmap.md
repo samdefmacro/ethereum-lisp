@@ -666,9 +666,10 @@ receipt objects by block tag, number, or hash for known memory-store blocks;
 `blockHash`, address filter, and positional topic filters, returning canonical
 log objects and empty JSON arrays for no matches. The first stateful log
 filter methods are also present: `eth_newFilter` registers memory-store log
-criteria, `eth_getFilterLogs` replays the matching retained logs, and
-`eth_uninstallFilter` removes registered filters while returning false for
-unknown ids. `eth_sendRawTransaction` now
+criteria, `eth_getFilterLogs` replays the matching retained logs,
+`eth_getFilterChanges` advances a per-filter log cursor for polling retained
+block logs, and `eth_uninstallFilter` removes registered filters while
+returning false for unknown ids. `eth_sendRawTransaction` now
 decodes raw transaction bytes, records the decoded transaction in a local
 pending-transaction placeholder, and returns the transaction hash; locally
 submitted pending raw bytes are also visible through
