@@ -1276,7 +1276,39 @@
        (address-from-hex "0x0000000000000000000000000000000000000001")
        '()
        :block-access-list '()
-       :block-access-list-rlp encoded))))
+       :block-access-list-rlp encoded)))
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (account-address
+           (address-from-hex "0x0000000000000000000000000000000000000003"))
+         (encoded
+           (rlp-encode
+            (make-rlp-list
+             (make-rlp-list
+              (address-bytes account-address)
+              (make-rlp-list)
+              (make-rlp-list (ensure-byte-vector '(0)))
+              (make-rlp-list)
+              (make-rlp-list)
+              (make-rlp-list)))))
+         (header (make-block-header
+                  :timestamp 10
+                  :gas-limit 50000
+                  :base-fee-per-gas 1
+                  :block-access-list-hash (keccak-256-hash encoded)))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 10)))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state sender '()
+                              :header header
+                              :chain-config config
+                              :block-access-list-rlp encoded)
+      (is (null receipts))
+      (is (bytes= encoded (block-encoded-block-access-list block)))
+      (is (string= (hash32-to-hex (keccak-256-hash encoded))
+                   (hash32-to-hex
+                    (block-header-block-access-list-hash
+                     (block-header block))))))))
 
 (deftest block-execution-supplies-header-environment-to-evm
   (let* ((state (make-state-db))

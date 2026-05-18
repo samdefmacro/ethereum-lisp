@@ -990,6 +990,24 @@
               (ensure-byte-vector block-access-list-rlp))
       (values block-access-list block-access-list-supplied-p nil)))
 
+(defun execution-block-access-list-commitment
+    (block-access-list encoded-block-access-list &key max-code-size max-items)
+  (validate-block-access-list-fields block-access-list
+                                     :max-code-size max-code-size
+                                     :max-items max-items)
+  (if encoded-block-access-list
+      (let ((decoded (block-access-list-from-rlp
+                      encoded-block-access-list
+                      :max-code-size max-code-size
+                      :max-items max-items)))
+        (unless (bytes= (block-access-list-rlp decoded)
+                        (block-access-list-rlp block-access-list))
+          (error 'block-validation-error
+                 :message
+                 "Encoded block access list does not match block access list body"))
+        (keccak-256-hash encoded-block-access-list))
+      (block-access-list-hash block-access-list)))
+
 (defun validate-block-fork-body-shape-before-execution
     (header chain-config &key withdrawals-supplied-p requests-supplied-p
                               block-access-list-supplied-p
@@ -1056,6 +1074,7 @@
                               requests-supplied-p
                               block-access-list
                               block-access-list-supplied-p
+                              encoded-block-access-list
                               max-blob-gas
                               block-access-list-max-code-size)
   (let ((actual-blob-gas-used (blob-gas-used transactions))
@@ -1098,20 +1117,23 @@
       (unless block-access-list-supplied-p
         (error 'block-validation-error
                :message "Missing block access list in block body"))
-      (validate-block-access-list-fields
-       block-access-list
-       :max-code-size block-access-list-max-code-size
-       :max-items (when (plusp (block-header-gas-limit header))
-                    (floor (block-header-gas-limit header)
-                           +block-access-list-item-gas-cost+)))
       (unless (execution-hash32= (block-header-block-access-list-hash header)
-                                 (block-access-list-hash block-access-list))
+                                 (execution-block-access-list-commitment
+                                  block-access-list
+                                  encoded-block-access-list
+                                  :max-code-size
+                                  block-access-list-max-code-size
+                                  :max-items
+                                  (when (plusp (block-header-gas-limit header))
+                                    (floor (block-header-gas-limit header)
+                                           +block-access-list-item-gas-cost+))))
         (error 'block-validation-error
                :message "Block access list hash mismatch")))
     (when (and block-access-list-supplied-p
                (not (block-header-block-access-list-hash header)))
-      (validate-block-access-list-fields
+      (execution-block-access-list-commitment
        block-access-list
+       encoded-block-access-list
        :max-code-size block-access-list-max-code-size
        :max-items (when (plusp (block-header-gas-limit header))
                     (floor (block-header-gas-limit header)
@@ -1247,6 +1269,7 @@
              :requests-supplied-p requests-supplied-p
              :block-access-list block-access-list
              :block-access-list-supplied-p block-access-list-supplied-p
+             :encoded-block-access-list encoded-block-access-list
              :max-blob-gas max-blob-gas
              :block-access-list-max-code-size
              block-access-list-max-code-size)))
@@ -1356,6 +1379,7 @@
              :requests-supplied-p requests-supplied-p
              :block-access-list block-access-list
              :block-access-list-supplied-p block-access-list-supplied-p
+             :encoded-block-access-list encoded-block-access-list
              :max-blob-gas max-blob-gas
              :block-access-list-max-code-size
              block-access-list-max-code-size)))
