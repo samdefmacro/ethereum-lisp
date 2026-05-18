@@ -2157,6 +2157,9 @@
                   (block-header-block-access-list-hash
                    (block-header block)))))
     (is (validate-block-body-roots block))
+    (setf (block-encoded-block-access-list block) (block-access-list-rlp '()))
+    (signals block-validation-error
+      (validate-block-body-roots block))
     (signals block-validation-error
       (make-block :block-access-list (list account)
                   :block-access-list-rlp encoded)))

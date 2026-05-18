@@ -333,6 +333,8 @@ wire-RLP hash helper verifies then hashes encoded BAL bytes for Engine payload
 and database paths. Blocks can also be constructed from encoded BAL RLP,
 decoding the body while deriving the header commitment from the supplied wire
 bytes and retaining the encoded bytes for later payload/database serving.
+Body validation now checks that any retained encoded BAL bytes still decode to
+the same typed BAL body before accepting the `balHash` commitment.
 Amsterdam header validation also now requires child slot numbers to strictly
 exceed the parent once the parent is already Amsterdam-shaped.
 A small dependency-free genesis JSON

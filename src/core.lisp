@@ -2312,6 +2312,25 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                 :max-items max-items)
     (keccak-256-hash bytes)))
 
+(defun validated-block-access-list-commitment
+    (block &key max-code-size max-items)
+  (let ((access-list (block-block-access-list block))
+        (encoded (block-encoded-block-access-list block)))
+    (validate-block-access-list-fields access-list
+                                       :max-code-size max-code-size
+                                       :max-items max-items)
+    (if encoded
+        (let ((decoded (block-access-list-from-rlp
+                        encoded
+                        :max-code-size max-code-size
+                        :max-items max-items)))
+          (unless (bytes= (block-access-list-rlp decoded)
+                          (block-access-list-rlp access-list))
+            (block-validation-fail
+             "Encoded block access list does not match block access list body"))
+          (keccak-256-hash encoded))
+        (block-access-list-hash access-list))))
+
 (defun validate-byte-sequence-field (value label &key size)
   (let ((bytes (handler-case
                    (ensure-byte-vector value)
@@ -3376,8 +3395,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when (block-requests-present-p block)
       (validate-execution-request-list-fields (block-requests block)))
     (when (block-block-access-list-present-p block)
-      (validate-block-access-list-fields
-       (block-block-access-list block)
+      (validated-block-access-list-commitment
+       block
        :max-code-size block-access-list-max-code-size
        :max-items (when (plusp (block-header-gas-limit header))
                     (floor (block-header-gas-limit header)
@@ -3412,8 +3431,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       ((block-header-block-access-list-hash header)
        (unless (block-block-access-list-present-p block)
          (block-validation-fail "Missing block access list in block body"))
-       (unless (hash32= (block-access-list-hash
-                         (block-block-access-list block))
+       (unless (hash32= (validated-block-access-list-commitment
+                         block
+                         :max-code-size block-access-list-max-code-size
+                         :max-items
+                         (when (plusp (block-header-gas-limit header))
+                           (floor (block-header-gas-limit header)
+                                  +block-access-list-item-gas-cost+)))
                         (block-header-block-access-list-hash header))
          (block-validation-fail "Block access list hash mismatch")))
       ((block-block-access-list-present-p block)
