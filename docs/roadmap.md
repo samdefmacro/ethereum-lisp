@@ -520,7 +520,9 @@ requests, blob gas counters, and Amsterdam slot numbers. JSON-RPC transport and
 `newPayload` status handling remain. The reverse raw-transaction path has begun
 with legacy, EIP-2930 access-list, EIP-1559 dynamic-fee, EIP-4844 blob, and
 EIP-7702 set-code transaction RLP decoding, so Engine payload transaction bytes
-can start feeding back into local transaction/root validation.
+can start feeding back into local transaction/root validation; `ExecutableData`
+now has a helper that decodes its transaction byte list back into local
+transaction envelopes.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.

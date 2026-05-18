@@ -2445,6 +2445,25 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :requests payload-requests
      :override-p nil)))
 
+(defun executable-data-decoded-transactions (payload)
+  (unless (typep payload 'executable-data)
+    (block-validation-fail "Executable data payload must be executable-data"))
+  (let ((transactions (executable-data-transactions payload)))
+    (unless (listp transactions)
+      (block-validation-fail "Executable data transactions must be a list"))
+    (loop for encoded in transactions
+          for index from 0
+          collect
+          (handler-case
+              (transaction-from-encoding
+               (validate-byte-sequence-field
+                encoded
+                (format nil "Executable data transaction ~D" index)))
+            (block-validation-error (condition)
+              (block-validation-fail
+               "Invalid executable data transaction ~D: ~A"
+               index condition))))))
+
 (defun execution-requests-hash (requests)
   (sha256-hash
    (apply #'concat-bytes

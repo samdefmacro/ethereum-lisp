@@ -487,6 +487,7 @@
    #:execution-payload-envelope-requests
    #:execution-payload-envelope-override-p
    #:block-to-executable-data
+   #:executable-data-decoded-transactions
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1172,6 +1173,7 @@
    #:execution-payload-envelope-requests
    #:execution-payload-envelope-override-p
    #:block-to-executable-data
+   #:executable-data-decoded-transactions
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1818,6 +1820,7 @@
    #:execution-payload-envelope-requests
    #:execution-payload-envelope-override-p
    #:block-to-executable-data
+   #:executable-data-decoded-transactions
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account

@@ -1906,6 +1906,104 @@
     (is (bytes= (first requests)
                 (first (execution-payload-envelope-requests envelope))))))
 
+(deftest executable-data-decodes-transaction-bytes
+  (let* ((recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000002"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000003"))
+         (access (list (make-access-list-entry :address recipient
+                                               :storage-keys (list slot))))
+         (blob-hash
+           (hash32-from-hex
+            "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
+         (authorization
+           (make-set-code-authorization :chain-id 1
+                                        :address recipient
+                                        :nonce 11
+                                        :y-parity 1
+                                        :r 12
+                                        :s 13))
+         (transactions
+           (list
+            (make-legacy-transaction :nonce 1
+                                     :gas-price 2
+                                     :gas-limit 21000
+                                     :to recipient
+                                     :value 4
+                                     :v 27
+                                     :r 6
+                                     :s 7)
+            (make-access-list-transaction :chain-id 1
+                                          :nonce 2
+                                          :gas-price 3
+                                          :gas-limit 4
+                                          :to recipient
+                                          :value 5
+                                          :data #(6)
+                                          :access-list access
+                                          :y-parity 1
+                                          :r 7
+                                          :s 8)
+            (make-dynamic-fee-transaction :chain-id 1
+                                          :nonce 2
+                                          :max-priority-fee-per-gas 3
+                                          :max-fee-per-gas 4
+                                          :gas-limit 5
+                                          :to recipient
+                                          :value 6
+                                          :data #(7)
+                                          :access-list access
+                                          :y-parity 1
+                                          :r 8
+                                          :s 9)
+            (make-blob-transaction :chain-id 1
+                                   :nonce 2
+                                   :max-priority-fee-per-gas 3
+                                   :max-fee-per-gas 4
+                                   :gas-limit 5
+                                   :to recipient
+                                   :value 6
+                                   :data #(7)
+                                   :access-list access
+                                   :max-fee-per-blob-gas 10
+                                   :blob-versioned-hashes (list blob-hash)
+                                   :y-parity 1
+                                   :r 8
+                                   :s 9)
+            (make-set-code-transaction :chain-id 1
+                                       :nonce 2
+                                       :max-priority-fee-per-gas 3
+                                       :max-fee-per-gas 4
+                                       :gas-limit 5
+                                       :to recipient
+                                       :value 6
+                                       :data #(7)
+                                       :access-list access
+                                       :authorization-list
+                                       (list authorization)
+                                       :y-parity 1
+                                       :r 8
+                                       :s 9)))
+         (payload (make-executable-data
+                   :transactions (mapcar #'transaction-encoding
+                                         transactions)))
+         (decoded (executable-data-decoded-transactions payload)))
+    (is (= (length transactions) (length decoded)))
+    (loop for original in transactions
+          for decoded-transaction in decoded
+          do (is (typep decoded-transaction (type-of original)))
+             (is (bytes= (transaction-encoding original)
+                         (transaction-encoding decoded-transaction))))
+    (signals block-validation-error
+      (executable-data-decoded-transactions
+       (make-executable-data
+        :transactions (append (mapcar #'transaction-encoding
+                                      transactions)
+                              (list #())))))
+    (signals block-validation-error
+      (executable-data-decoded-transactions
+       (make-executable-data :transactions (list 5))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1
