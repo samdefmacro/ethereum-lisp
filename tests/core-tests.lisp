@@ -2998,6 +2998,66 @@ Content-Length: 4
        (make-chain-config))
       (is (= 400 (http-status (get-output-stream-string output)))))))
 
+(deftest engine-rpc-http-service-wraps-stream-configuration
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (http-body (response)
+             (let ((boundary (search (format nil "~C~C~C~C"
+                                             #\Return #\Newline
+                                             #\Return #\Newline)
+                                     response)))
+               (subseq response (+ boundary 4))))
+           (http-status (response)
+             (let* ((line-end (position #\Return response))
+                    (status-line (subseq response 0 line-end)))
+               (parse-integer status-line :start 9 :end 12))))
+    (let* ((default-service (make-engine-rpc-http-service))
+           (secret (make-byte-vector 32 :initial-element #x55))
+           (now 3000)
+           (service
+             (make-engine-rpc-http-service
+              :host "127.0.0.1"
+              :port 8551
+              :jwt-secret secret
+              :now-provider (lambda () now))))
+      (is (string= "localhost:8551"
+                   (engine-rpc-http-service-endpoint default-service)))
+      (is (string= "127.0.0.1:8551"
+                   (engine-rpc-http-service-endpoint service)))
+      (is (typep (engine-rpc-http-service-store service)
+                 'engine-payload-memory-store))
+      (is (typep (engine-rpc-http-service-config service) 'chain-config))
+      (let* ((body
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":20,"
+                "\"method\":\"engine_getClientVersionV1\","
+                "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+                "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+             (token (engine-rpc-make-jwt-token secret now))
+             (request
+               (format nil
+                       "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Authorization: Bearer ~A~%Content-Length: ~D~%~%~A"
+                       token
+                       (length body)
+                       body))
+             (input (make-string-input-stream request))
+             (output (make-string-output-stream))
+             (response
+               (engine-rpc-http-service-handle-stream
+                service input output))
+             (rpc-response (parse-json (http-body response)))
+             (local (first (field rpc-response "result"))))
+        (is (= 200 (http-status response)))
+        (is (string= response (get-output-stream-string output)))
+        (is (= 20 (field rpc-response "id")))
+        (is (string= "ethereum-lisp" (field local "name"))))
+      (signals block-validation-error
+        (make-engine-rpc-http-service :port 70000))
+      (signals block-validation-error
+        (make-engine-rpc-http-service
+         :jwt-secret (make-byte-vector 31 :initial-element 1))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

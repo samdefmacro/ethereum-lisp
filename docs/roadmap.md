@@ -547,6 +547,8 @@ shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
 Bearer authentication with HS256 signatures, 32-byte secrets, `iat` freshness,
 and optional `exp` rejection. A single-connection stream adapter now reads one
 HTTP request from an input stream and writes the response to an output stream,
+and an Engine HTTP service configuration object now bundles the authenticated
+endpoint defaults, payload store, chain config, JWT secret, and clock provider,
 leaving the TCP accept loop as the next outer shell.
 
 Networking, discovery, and txpool sophistication are intentionally later than

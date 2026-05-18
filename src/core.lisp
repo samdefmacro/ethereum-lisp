@@ -3241,10 +3241,62 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defparameter +engine-rpc-http-accepted-content-types+
   '("application/json" "application/json-rpc" "application/jsonrequest"))
 
+(defconstant +engine-rpc-default-http-host+ "localhost")
+(defconstant +engine-rpc-default-http-port+ 8551)
+
 (defconstant +engine-rpc-jwt-expiry-seconds+ 60)
 
 (defparameter +engine-rpc-base64url-alphabet+
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+
+(defstruct (engine-rpc-http-service
+            (:constructor %make-engine-rpc-http-service
+                (&key host port store config jwt-secret now-provider)))
+  host
+  port
+  store
+  config
+  jwt-secret
+  now-provider)
+
+(defun make-engine-rpc-http-service
+    (&key
+       (host +engine-rpc-default-http-host+)
+       (port +engine-rpc-default-http-port+)
+       (store (make-engine-payload-memory-store))
+       (config (make-chain-config))
+       jwt-secret
+       (now-provider (lambda () 0)))
+  (unless (stringp host)
+    (block-validation-fail "Engine RPC HTTP host must be a string"))
+  (unless (and (integerp port) (<= 0 port 65535))
+    (block-validation-fail "Engine RPC HTTP port must be between 0 and 65535"))
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail
+     "Engine RPC HTTP store must be engine-payload-memory-store"))
+  (unless (typep config 'chain-config)
+    (block-validation-fail "Engine RPC HTTP config must be chain-config"))
+  (when (and jwt-secret
+             (not (and (byte-vector-p jwt-secret)
+                       (= 32 (length jwt-secret)))))
+    (block-validation-fail "Engine JWT secret must be 32 bytes"))
+  (unless (functionp now-provider)
+    (block-validation-fail "Engine RPC HTTP now provider must be a function"))
+  (%make-engine-rpc-http-service
+   :host host
+   :port port
+   :store store
+   :config config
+   :jwt-secret jwt-secret
+   :now-provider now-provider))
+
+(defun engine-rpc-http-service-endpoint (service)
+  (unless (typep service 'engine-rpc-http-service)
+    (block-validation-fail
+     "Engine RPC HTTP service must be engine-rpc-http-service"))
+  (format nil "~A:~D"
+          (engine-rpc-http-service-host service)
+          (engine-rpc-http-service-port service)))
 
 (defun engine-rpc-http-trim (string)
   (string-trim '(#\Space #\Tab #\Return #\Newline) string))
@@ -3600,6 +3652,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (format nil "~A" condition))))))
     (write-string response output-stream)
     response))
+
+(defun engine-rpc-http-service-handle-stream
+    (service input-stream output-stream)
+  (unless (typep service 'engine-rpc-http-service)
+    (block-validation-fail
+     "Engine RPC HTTP service must be engine-rpc-http-service"))
+  (engine-rpc-handle-http-stream
+   input-stream
+   output-stream
+   (engine-rpc-http-service-store service)
+   (engine-rpc-http-service-config service)
+   :jwt-secret (engine-rpc-http-service-jwt-secret service)
+   :now (funcall (engine-rpc-http-service-now-provider service))))
 
 (defun engine-new-payload-memory-status
     (store version payload config

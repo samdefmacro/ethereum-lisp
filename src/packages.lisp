@@ -525,10 +525,22 @@
    #:engine-rpc-handle-request-json
    #:+engine-rpc-http-accepted-content-types+
    #:engine-rpc-http-accepted-content-type-p
+   #:+engine-rpc-default-http-host+
+   #:+engine-rpc-default-http-port+
    #:+engine-rpc-jwt-expiry-seconds+
+   #:engine-rpc-http-service
+   #:make-engine-rpc-http-service
+   #:engine-rpc-http-service-host
+   #:engine-rpc-http-service-port
+   #:engine-rpc-http-service-store
+   #:engine-rpc-http-service-config
+   #:engine-rpc-http-service-jwt-secret
+   #:engine-rpc-http-service-now-provider
+   #:engine-rpc-http-service-endpoint
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-rpc-handle-http-stream
+   #:engine-rpc-http-service-handle-stream
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1253,10 +1265,22 @@
    #:engine-rpc-handle-request-json
    #:+engine-rpc-http-accepted-content-types+
    #:engine-rpc-http-accepted-content-type-p
+   #:+engine-rpc-default-http-host+
+   #:+engine-rpc-default-http-port+
    #:+engine-rpc-jwt-expiry-seconds+
+   #:engine-rpc-http-service
+   #:make-engine-rpc-http-service
+   #:engine-rpc-http-service-host
+   #:engine-rpc-http-service-port
+   #:engine-rpc-http-service-store
+   #:engine-rpc-http-service-config
+   #:engine-rpc-http-service-jwt-secret
+   #:engine-rpc-http-service-now-provider
+   #:engine-rpc-http-service-endpoint
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-rpc-handle-http-stream
+   #:engine-rpc-http-service-handle-stream
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
@@ -1942,10 +1966,22 @@
    #:engine-rpc-handle-request-json
    #:+engine-rpc-http-accepted-content-types+
    #:engine-rpc-http-accepted-content-type-p
+   #:+engine-rpc-default-http-host+
+   #:+engine-rpc-default-http-port+
    #:+engine-rpc-jwt-expiry-seconds+
+   #:engine-rpc-http-service
+   #:make-engine-rpc-http-service
+   #:engine-rpc-http-service-host
+   #:engine-rpc-http-service-port
+   #:engine-rpc-http-service-store
+   #:engine-rpc-http-service-config
+   #:engine-rpc-http-service-jwt-secret
+   #:engine-rpc-http-service-now-provider
+   #:engine-rpc-http-service-endpoint
    #:engine-rpc-make-jwt-token
    #:engine-rpc-handle-http-request-string
    #:engine-rpc-handle-http-stream
+   #:engine-rpc-http-service-handle-stream
    #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
