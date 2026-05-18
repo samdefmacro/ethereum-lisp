@@ -700,6 +700,11 @@
                          (symbolp (car entry)))))
               value)))
 
+(defstruct (json-empty-object
+            (:constructor make-json-empty-object ())))
+
+(defparameter +json-empty-object+ (make-json-empty-object))
+
 (defun write-json-string (string stream)
   (write-char #\" stream)
   (loop for char across string
@@ -723,6 +728,7 @@
     ((null value) (write-string "null" stream))
     ((eq value t) (write-string "true" stream))
     ((eq value :false) (write-string "false" stream))
+    ((json-empty-object-p value) (write-string "{}" stream))
     ((stringp value) (write-json-string value stream))
     ((integerp value) (write-string (write-to-string value :base 10) stream))
     ((vectorp value)
@@ -4655,6 +4661,38 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (eth-rpc-json-array
    (mapcar #'eth-rpc-pending-transaction-object transactions)))
 
+(defun eth-rpc-hash-table-object (table)
+  (if (zerop (hash-table-count table))
+      +json-empty-object+
+      (loop for key in (sort (loop for key being the hash-keys of table
+                                   collect key)
+                             #'string<)
+            collect (cons key (gethash key table)))))
+
+(defun txpool-rpc-content-transactions (transactions)
+  (let ((senders (make-hash-table :test 'equal)))
+    (dolist (transaction transactions)
+      (let* ((sender (address-to-hex
+                      (or (transaction-sender transaction)
+                          (zero-address))))
+             (nonce (write-to-string (transaction-nonce transaction)
+                                     :base 10))
+             (sender-transactions (or (gethash sender senders)
+                                      (setf (gethash sender senders)
+                                            (make-hash-table :test 'equal)))))
+        (setf (gethash nonce sender-transactions)
+              (eth-rpc-pending-transaction-object transaction))))
+    (if (zerop (hash-table-count senders))
+        +json-empty-object+
+        (loop for sender in (sort (loop for sender being the hash-keys
+                                          of senders
+                                        collect sender)
+                                  #'string<)
+              collect
+              (cons sender
+                    (eth-rpc-hash-table-object
+                     (gethash sender senders)))))))
+
 (defun eth-rpc-raw-transaction-from-location (location)
   (when location
     (bytes-to-hex
@@ -4962,6 +5000,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (quantity-to-hex
           (engine-payload-store-pending-transaction-count store)))
    (cons "queued" (quantity-to-hex 0))))
+
+(defun engine-rpc-handle-txpool-content (params store)
+  (when params
+    (block-validation-fail "txpool_content params must be empty"))
+  (list
+   (cons "pending"
+         (txpool-rpc-content-transactions
+          (engine-payload-store-pending-transactions store)))
+   (cons "queued" +json-empty-object+)))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
@@ -5704,6 +5751,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-txpool-status params store)))
+              ((string= method "txpool_content")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-txpool-content params store)))
               (t
                (engine-rpc-response
                 id

@@ -5482,6 +5482,12 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":67,\"method\":\"txpool_status\",\"params\":[]}"
                  store
                  config)))
+             (txpool-content-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":69,\"method\":\"txpool_content\",\"params\":[]}"
+                store
+                config))
+             (txpool-content-response (parse-json txpool-content-json))
              (invalid-rlp-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -5504,6 +5510,12 @@
                (parse-json
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":68,\"method\":\"txpool_status\",\"params\":[\"unexpected\"]}"
+                 store
+                 config)))
+             (invalid-txpool-content-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"txpool_content\",\"params\":[\"unexpected\"]}"
                  store
                  config))))
         (is (string= transaction-hash (field send-response "result")))
@@ -5529,6 +5541,18 @@
                        (field txpool-status "pending")))
           (is (string= (quantity-to-hex 0)
                        (field txpool-status "queued"))))
+        (let* ((txpool-content (field txpool-content-response "result"))
+               (pending (field txpool-content "pending"))
+               (sender-transactions
+                 (field pending
+                        (address-to-hex
+                         (or (transaction-sender transaction)
+                             (zero-address)))))
+               (nonce-transaction (field sender-transactions "9")))
+          (is (string= transaction-hash
+                       (field nonce-transaction "hash")))
+          (is (null (field nonce-transaction "blockHash")))
+          (is (search "\"queued\":{}" txpool-content-json)))
         (is (= -32602
                (field (field invalid-rlp-response "error") "code")))
         (is (= -32602
@@ -5537,6 +5561,9 @@
                (field (field invalid-pending-response "error") "code")))
         (is (= -32602
                (field (field invalid-txpool-status-response "error")
+                      "code")))
+        (is (= -32602
+               (field (field invalid-txpool-content-response "error")
                       "code")))))))
 
 (deftest eth-rpc-get-transaction-receipt
