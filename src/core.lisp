@@ -2569,6 +2569,24 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    :requests requests
                    :requests-present-p requests-supplied-p))))
 
+(defun executable-data-to-block
+    (payload &key parent-beacon-root (requests nil requests-supplied-p))
+  (let* ((block (if requests-supplied-p
+                    (executable-data-to-block-no-hash
+                     payload
+                     :parent-beacon-root parent-beacon-root
+                     :requests requests)
+                    (executable-data-to-block-no-hash
+                     payload
+                     :parent-beacon-root parent-beacon-root)))
+         (expected-hash
+           (executable-data-required-hash32
+            (executable-data-block-hash payload)
+            "Executable data block hash")))
+    (unless (hash32= (block-hash block) expected-hash)
+      (block-validation-fail "Executable data block hash mismatch"))
+    block))
+
 (defun execution-requests-hash (requests)
   (sha256-hash
    (apply #'concat-bytes

@@ -2094,6 +2094,59 @@
         (signals block-validation-error
           (executable-data-to-block-no-hash bad-payload))))))
 
+(deftest executable-data-to-block-checks-payload-block-hash
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000002"))
+         (parent-hash (hash32-from-hex
+                       "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (state-root (hash32-from-hex
+                      "0x0200000000000000000000000000000000000000000000000000000000000000"))
+         (mix-hash (hash32-from-hex
+                    "0x0300000000000000000000000000000000000000000000000000000000000000"))
+         (transaction (make-legacy-transaction :nonce 1
+                                               :gas-price 2
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 4
+                                               :v 27
+                                               :r 6
+                                               :s 7))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (withdrawal (make-withdrawal :index 1
+                                      :validator-index 2
+                                      :address address
+                                      :amount 3))
+         (requests (list #(#x00 #xaa) #(#x01 #xbb)))
+         (header (make-block-header :parent-hash parent-hash
+                                    :beneficiary address
+                                    :state-root state-root
+                                    :mix-hash mix-hash
+                                    :number 42
+                                    :gas-limit 50000
+                                    :gas-used 21000
+                                    :timestamp 99
+                                    :extra-data #(1 2 3)
+                                    :base-fee-per-gas 100))
+         (source-block (make-block :header header
+                                   :transactions (list transaction)
+                                   :receipts (list receipt)
+                                   :withdrawals (list withdrawal)
+                                   :requests requests))
+         (payload (execution-payload-envelope-execution-payload
+                   (block-to-executable-data source-block)))
+         (reconstructed (executable-data-to-block payload :requests requests)))
+    (is (string= (hash32-to-hex (block-hash source-block))
+                 (hash32-to-hex (block-hash reconstructed))))
+    (setf (executable-data-block-hash payload)
+          (hash32-from-hex
+           "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
+    (signals block-validation-error
+      (executable-data-to-block payload :requests requests))
+    (setf (executable-data-block-hash payload) #(1 2))
+    (signals block-validation-error
+      (executable-data-to-block payload :requests requests))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

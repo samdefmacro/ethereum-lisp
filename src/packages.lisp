@@ -489,6 +489,7 @@
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
+   #:executable-data-to-block
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1176,6 +1177,7 @@
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
+   #:executable-data-to-block
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1824,6 +1826,7 @@
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
+   #:executable-data-to-block
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
