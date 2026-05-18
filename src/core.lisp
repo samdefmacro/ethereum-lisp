@@ -1541,6 +1541,24 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (byte-vector (optional-bytes hash 32 "Blob versioned hash"))
     (vector (optional-bytes hash 32 "Blob versioned hash"))))
 
+(defun required-transaction-recipient-from-rlp (value label)
+  (let ((recipient (legacy-transaction-recipient-from-rlp value)))
+    (unless recipient
+      (block-validation-fail "~A must be exactly 20 bytes" label))
+    recipient))
+
+(defun blob-versioned-hash-from-rlp (value)
+  (let ((bytes (rlp-bytes-field value "Blob versioned hash")))
+    (unless (= (length bytes) 32)
+      (block-validation-fail "Blob versioned hash must be exactly 32 bytes"))
+    (make-hash32 bytes)))
+
+(defun blob-versioned-hashes-from-rlp-object (value)
+  (unless (rlp-list-p value)
+    (block-validation-fail "Blob versioned hashes must be an RLP list"))
+  (mapcar #'blob-versioned-hash-from-rlp
+          (rlp-list-items value)))
+
 (defun blob-transaction-payload (transaction)
   (make-rlp-list
    (ensure-uint256 (blob-transaction-chain-id transaction) "Transaction chain id")
@@ -1584,6 +1602,47 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun blob-transaction-encoding (transaction)
   (concat-bytes #(3) (rlp-encode (blob-transaction-payload transaction))))
+
+(defun blob-transaction-from-rlp (bytes)
+  (handler-case
+      (let ((value (rlp-decode-one bytes)))
+        (unless (rlp-list-p value)
+          (block-validation-fail
+           "Blob transaction payload must be an RLP list"))
+        (let ((fields (rlp-list-items value)))
+          (unless (= (length fields) 14)
+            (block-validation-fail
+             "Blob transaction payload must contain 14 fields"))
+          (make-blob-transaction
+           :chain-id (rlp-uint-field (first fields)
+                                     "Transaction chain id")
+           :nonce (rlp-uint-field (second fields) "Transaction nonce")
+           :max-priority-fee-per-gas
+           (rlp-uint-field (third fields)
+                           "Transaction max priority fee")
+           :max-fee-per-gas
+           (rlp-uint-field (fourth fields) "Transaction max fee")
+           :gas-limit (rlp-uint-field (fifth fields)
+                                      "Transaction gas limit")
+           :to (required-transaction-recipient-from-rlp
+                (sixth fields)
+                "Blob transaction recipient")
+           :value (rlp-uint-field (seventh fields) "Transaction value")
+           :data (rlp-bytes-field (eighth fields) "Transaction data")
+           :access-list (access-list-from-rlp-object (ninth fields))
+           :max-fee-per-blob-gas
+           (rlp-uint-field (nth 9 fields) "Transaction max blob fee")
+           :blob-versioned-hashes
+           (blob-versioned-hashes-from-rlp-object (nth 10 fields))
+           :y-parity (rlp-uint-field (nth 11 fields)
+                                     "Transaction y parity")
+           :r (rlp-uint-field (nth 12 fields) "Transaction r")
+           :s (rlp-uint-field (nth 13 fields) "Transaction s"))))
+    (block-validation-error (condition)
+      (error condition))
+    (rlp-error (condition)
+      (block-validation-fail "Invalid blob transaction RLP: ~A"
+                             condition))))
 
 (defun blob-transaction-signing-hash (transaction)
   (keccak-256-hash
@@ -1930,6 +1989,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (case (aref bytes 0)
           (1 (access-list-transaction-from-rlp (subseq bytes 1)))
           (2 (dynamic-fee-transaction-from-rlp (subseq bytes 1)))
+          (3 (blob-transaction-from-rlp (subseq bytes 1)))
           (otherwise
            (block-validation-fail
             "Typed transaction decoding is not implemented yet"))))))

@@ -342,6 +342,12 @@
    #:blob-transaction
    #:make-blob-transaction
    #:blob-transaction-chain-id
+   #:blob-transaction-nonce
+   #:blob-transaction-gas-limit
+   #:blob-transaction-to
+   #:blob-transaction-value
+   #:blob-transaction-data
+   #:blob-transaction-access-list
    #:blob-transaction-y-parity
    #:blob-transaction-r
    #:blob-transaction-s
@@ -350,6 +356,7 @@
    #:blob-transaction-blob-versioned-hashes
    #:blob-transaction-max-fee-per-blob-gas
    #:blob-transaction-encoding
+   #:blob-transaction-from-rlp
    #:blob-transaction-hash
    #:blob-transaction-signing-hash
    #:blob-transaction-sender
@@ -1009,6 +1016,12 @@
    #:blob-transaction
    #:make-blob-transaction
    #:blob-transaction-chain-id
+   #:blob-transaction-nonce
+   #:blob-transaction-gas-limit
+   #:blob-transaction-to
+   #:blob-transaction-value
+   #:blob-transaction-data
+   #:blob-transaction-access-list
    #:blob-transaction-y-parity
    #:blob-transaction-r
    #:blob-transaction-s
@@ -1017,6 +1030,7 @@
    #:blob-transaction-blob-versioned-hashes
    #:blob-transaction-max-fee-per-blob-gas
    #:blob-transaction-encoding
+   #:blob-transaction-from-rlp
    #:blob-transaction-hash
    #:blob-transaction-signing-hash
    #:blob-transaction-sender
@@ -1637,6 +1651,12 @@
    #:blob-transaction
    #:make-blob-transaction
    #:blob-transaction-chain-id
+   #:blob-transaction-nonce
+   #:blob-transaction-gas-limit
+   #:blob-transaction-to
+   #:blob-transaction-value
+   #:blob-transaction-data
+   #:blob-transaction-access-list
    #:blob-transaction-y-parity
    #:blob-transaction-r
    #:blob-transaction-s
@@ -1645,6 +1665,7 @@
    #:blob-transaction-blob-versioned-hashes
    #:blob-transaction-max-fee-per-blob-gas
    #:blob-transaction-encoding
+   #:blob-transaction-from-rlp
    #:blob-transaction-hash
    #:blob-transaction-signing-hash
    #:blob-transaction-sender

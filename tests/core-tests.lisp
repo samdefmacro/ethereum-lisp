@@ -3142,6 +3142,53 @@
                          (make-byte-vector 20)
                          (make-rlp-list (make-byte-vector 31))))
                        1 8 9))))
+    (let ((decoded (transaction-from-encoding
+                    (blob-transaction-encoding tx3))))
+      (is (typep decoded 'blob-transaction))
+      (is (= 1 (blob-transaction-chain-id decoded)))
+      (is (= 2 (blob-transaction-nonce decoded)))
+      (is (= 3 (blob-transaction-max-priority-fee-per-gas decoded)))
+      (is (= 4 (blob-transaction-max-fee-per-gas decoded)))
+      (is (= 5 (blob-transaction-gas-limit decoded)))
+      (is (string= (address-to-hex recipient)
+                   (address-to-hex (blob-transaction-to decoded))))
+      (is (= 6 (blob-transaction-value decoded)))
+      (is (bytes= #(7) (blob-transaction-data decoded)))
+      (is (= 1 (length (blob-transaction-access-list decoded))))
+      (is (= 10 (blob-transaction-max-fee-per-blob-gas decoded)))
+      (is (= 1 (length (blob-transaction-blob-versioned-hashes decoded))))
+      (is (bytes= (hash32-bytes blob-hash)
+                  (hash32-bytes
+                   (first (blob-transaction-blob-versioned-hashes decoded)))))
+      (is (= 1 (blob-transaction-y-parity decoded)))
+      (is (= 8 (blob-transaction-r decoded)))
+      (is (= 9 (blob-transaction-s decoded)))
+      (is (bytes= (blob-transaction-encoding tx3)
+                  (blob-transaction-encoding decoded))))
+    (signals block-validation-error
+      (blob-transaction-from-rlp (rlp-encode (list 1 2 3))))
+    (signals block-validation-error
+      (blob-transaction-from-rlp
+       (rlp-encode
+        (make-rlp-list 1 2 3 4 5
+                       (make-byte-vector 0)
+                       6
+                       (make-byte-vector 1 :initial-element 7)
+                       (make-rlp-list)
+                       10
+                       (make-rlp-list (hash32-bytes blob-hash))
+                       1 8 9))))
+    (signals block-validation-error
+      (blob-transaction-from-rlp
+       (rlp-encode
+        (make-rlp-list 1 2 3 4 5
+                       (address-bytes recipient)
+                       6
+                       (make-byte-vector 1 :initial-element 7)
+                       (make-rlp-list)
+                       10
+                       (make-rlp-list (make-byte-vector 31))
+                       1 8 9))))
     (is (hash32-p (transaction-hash tx1)))
     (is (hash32-p (blob-transaction-signing-hash tx3)))
     (is (not (string= (hash32-to-hex (blob-transaction-signing-hash tx3))

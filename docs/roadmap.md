@@ -518,9 +518,9 @@ converted into geth-shaped `ExecutableData` payload envelopes, including
 header fields, encoded transactions, optional withdrawals, optional execution
 requests, blob gas counters, and Amsterdam slot numbers. JSON-RPC transport and
 `newPayload` status handling remain. The reverse raw-transaction path has begun
-with legacy, EIP-2930 access-list, and EIP-1559 dynamic-fee transaction RLP
-decoding, so Engine payload transaction bytes can start feeding back into local
-transaction/root validation.
+with legacy, EIP-2930 access-list, EIP-1559 dynamic-fee, and EIP-4844 blob
+transaction RLP decoding, so Engine payload transaction bytes can start feeding
+back into local transaction/root validation.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.
