@@ -3995,6 +3995,100 @@
         (is (= -32602 (field invalid-address-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
 
+(deftest eth-rpc-get-transaction-count
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (address
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           (empty-address
+             (address-from-hex "0x00000000000000000000000000000000000000dd"))
+           (state-block
+             (make-block
+              :header (make-block-header :number 22
+                                         :timestamp 220
+                                         :gas-limit 30000000)))
+           (missing-state-block
+             (make-block
+              :header (make-block-header :number 23
+                                         :timestamp 230
+                                         :gas-limit 30000000)))
+           (state-block-hash-hex (hash32-to-hex (block-hash state-block)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store state-block)
+      (engine-payload-store-put-account-nonce
+       store (block-hash state-block) address 7)
+      (engine-payload-store-put-block store missing-state-block)
+      (let* ((number-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":80,"
+                  "\"method\":\"eth_getTransactionCount\","
+                  "\"params\":[\"" (address-to-hex address) "\",\"0x16\"]}")
+                 store
+                 config)))
+             (hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":81,"
+                  "\"method\":\"eth_getTransactionCount\","
+                  "\"params\":[\"" (address-to-hex address) "\",\""
+                  state-block-hash-hex "\"]}")
+                 store
+                 config)))
+             (empty-account-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":82,"
+                  "\"method\":\"eth_getTransactionCount\","
+                  "\"params\":[\"" (address-to-hex empty-address)
+                  "\",\"0x16\"]}")
+                 store
+                 config)))
+             (missing-state-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":83,"
+                  "\"method\":\"eth_getTransactionCount\","
+                  "\"params\":[\"" (address-to-hex address) "\",\"0x17\"]}")
+                 store
+                 config)))
+             (invalid-address-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":84,\"method\":\"eth_getTransactionCount\",\"params\":[\"0x1234\",\"0x16\"]}"
+                 store
+                 config)))
+             (invalid-params-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":85,"
+                  "\"method\":\"eth_getTransactionCount\","
+                  "\"params\":[\"" (address-to-hex address) "\"]}")
+                 store
+                 config)))
+             (invalid-address-error (field invalid-address-response "error"))
+             (invalid-params-error (field invalid-params-response "error")))
+        (is (string= (quantity-to-hex 7)
+                     (field number-response "result")))
+        (is (string= (quantity-to-hex 7)
+                     (field hash-response "result")))
+        (is (string= (quantity-to-hex 0)
+                     (field empty-account-response "result")))
+        (is (null (field missing-state-response "result")))
+        (is (= -32602 (field invalid-address-error "code")))
+        (is (= -32602 (field invalid-params-error "code")))))))
+
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
