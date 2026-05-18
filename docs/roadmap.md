@@ -360,8 +360,9 @@ behavior; signed transaction list execution now preflights the full batch of
 signatures before mutating state, so a later invalid signature cannot leave
 earlier transactions applied. Transaction list execution also preflights
 list container/element shape, recipient, data, scalar bounds/fee caps,
-access-list, blob, and set-code authorization field shapes for the whole batch
-before applying the first transaction. Historical Ethash block beneficiary and ommer rewards now have a
+access-list, blob, set-code authorization field shapes, intrinsic gas
+sufficiency, and initcode size for the whole batch before applying the first
+transaction. Historical Ethash block beneficiary and ommer rewards now have a
 first-pass execution hook, with Frontier, Byzantium, and Constantinople base
 reward selection behind an explicit block-execution option; post-Merge
 zero-difficulty headers skip those Ethash rewards on the same execution path.

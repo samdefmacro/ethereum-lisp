@@ -451,6 +451,12 @@
     (validate-blob-transaction-fields tx)
     (validate-blob-transaction-fee-cap tx blob-base-fee))
   (validate-set-code-transaction-fields tx)
+  (when (< (transaction-gas-limit tx)
+           (execution-transaction-intrinsic-gas tx rules))
+    (error 'transaction-validation-error
+           :message "Gas limit below intrinsic gas"))
+  (unless (transaction-to tx)
+    (validate-contract-initcode-size tx rules))
   t)
 
 (defun validate-execution-transaction-list-fields

@@ -258,6 +258,38 @@
                (state-account-balance (state-db-get-account state sender))))
         (is (null (state-db-get-account state first-recipient)))))))
 
+(deftest message-list-preflights-transaction-static-gas-before-state-mutation
+  (let* ((sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (first-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (first (make-legacy-transaction :nonce 0
+                                         :gas-price 1
+                                         :gas-limit 21000
+                                         :to first-recipient
+                                         :value 1))
+         (bad-transactions
+           (list
+            (make-legacy-transaction :nonce 1
+                                     :gas-price 1
+                                     :gas-limit 21000
+                                     :to first-recipient
+                                     :data #(1))
+            (make-legacy-transaction :nonce 1
+                                     :gas-price 1
+                                     :gas-limit 1000000
+                                     :to nil
+                                     :data (make-byte-vector 49153)))))
+    (dolist (second bad-transactions)
+      (let ((state (make-state-db)))
+        (state-db-set-account state sender
+                              (make-state-account :balance 2000000))
+        (signals transaction-validation-error
+          (apply-message-list state sender (list first second)))
+        (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+        (is (= 2000000
+               (state-account-balance (state-db-get-account state sender))))
+        (is (null (state-db-get-account state first-recipient)))))))
+
 (deftest legacy-message-zero-value-to-empty-recipient-does-not-create-account
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
