@@ -257,9 +257,10 @@ fraction for blob transaction `maxFeePerBlobGas` checks and blob fee debits
 when Osaka rules are active; config-aware body validation now also uses Osaka's
 higher aggregate per-block blob gas limit while preserving the lower per-blob
 transaction cap.
-Blob transaction body validation rejects empty blob hash lists and non-`0x01`
-versioned hashes, rejects blob transactions of type contract creation, and
-enforces first-pass Cancun blob count/gas limits. Blob sidecars now validate
+Blob transaction body validation rejects empty blob hash lists, missing or
+wrong-sized versioned hashes, and non-`0x01` versioned hashes, rejects blob
+transactions of type contract creation, and enforces first-pass Cancun blob
+count/gas limits. Blob sidecars now validate
 blob, KZG commitment, and KZG proof byte sizes, require matching sidecar list
 lengths, and verify that sidecar commitments derive the versioned hashes
 declared by the blob transaction.

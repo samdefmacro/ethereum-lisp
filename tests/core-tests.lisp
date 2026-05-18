@@ -1118,6 +1118,14 @@
        (make-blob-transaction :to nil
                               :blob-versioned-hashes (list blob-hash))))
     (signals block-validation-error
+      (validate-blob-transaction-fields
+       (make-blob-transaction :to address
+                              :blob-versioned-hashes (list nil))))
+    (signals block-validation-error
+      (validate-blob-transaction-fields
+       (make-blob-transaction :to address
+                              :blob-versioned-hashes (list #(#x01 #x02)))))
+    (signals block-validation-error
       (validate-block-blob-gas-fields too-large-header))))
 
 (deftest osaka-block-body-allows-higher-aggregate-blob-limit

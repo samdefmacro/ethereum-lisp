@@ -1449,10 +1449,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (bytes= (hash32-bytes left) (hash32-bytes right))))
 
 (defun validate-blob-versioned-hash (hash)
+  (when (null hash)
+    (block-validation-fail "Missing blob versioned hash"))
   (let ((bytes (handler-case
-                   (blob-versioned-hash-bytes hash)
+                   (etypecase hash
+                     (hash32 (hash32-bytes hash))
+                     (byte-vector (ensure-byte-vector hash))
+                     (vector (ensure-byte-vector hash)))
                  (error ()
                    (block-validation-fail "Invalid blob versioned hash")))))
+    (unless (= 32 (length bytes))
+      (block-validation-fail "Invalid blob versioned hash size"))
     (unless (= +kzg-commitment-version+ (aref bytes 0))
       (block-validation-fail "Invalid blob versioned hash version"))
     t))
