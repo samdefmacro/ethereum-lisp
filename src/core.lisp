@@ -32,6 +32,8 @@
 (defconstant +gas-limit-bound-divisor+ 1024)
 (defconstant +minimum-gas-limit+ 5000)
 (defconstant +max-header-gas-limit+ #x7fffffffffffffff)
+(defconstant +genesis-gas-limit+ 4712388)
+(defconstant +genesis-difficulty+ 131072)
 
 (defstruct (blob-schedule-entry
             (:constructor make-blob-schedule-entry
@@ -661,6 +663,135 @@
 
 (defun genesis-expected-state-root-from-genesis-json-file (path)
   (genesis-expected-state-root-from-genesis-json-string (read-text-file path)))
+
+(defun parse-genesis-hash32-field (object name label &key default)
+  (let ((value (genesis-object-field object name)))
+    (cond
+      ((null value) default)
+      ((stringp value)
+       (handler-case
+           (hash32-from-hex value)
+         (error ()
+           (block-validation-fail "~A must be a hash32" label))))
+      (t (block-validation-fail "~A must be a hash32" label)))))
+
+(defun parse-genesis-address-field (object name label &key default)
+  (let ((value (genesis-object-field object name)))
+    (cond
+      ((null value) default)
+      (t (parse-genesis-address value label)))))
+
+(defun parse-genesis-bytes-field (object name label &key default)
+  (let ((value (genesis-object-field object name)))
+    (cond
+      ((null value) default)
+      ((stringp value)
+       (handler-case
+           (hex-to-bytes value)
+         (error ()
+           (block-validation-fail "~A must be hex bytes" label))))
+      (t (block-validation-fail "~A must be hex bytes" label)))))
+
+(defun genesis-uint64-field (object name label &key default)
+  (let ((value (parse-genesis-field object name :label label)))
+    (cond
+      ((null value) default)
+      ((< value (expt 2 64)) value)
+      (t (block-validation-fail "~A must be uint64" label)))))
+
+(defun uint64-to-8-byte-vector (value label)
+  (unless (and (integerp value) (<= 0 value) (< value (expt 2 64)))
+    (block-validation-fail "~A must be uint64" label))
+  (let ((out (make-byte-vector 8)))
+    (dotimes (index 8 out)
+      (setf (aref out (- 7 index)) (logand value #xff)
+            value (ash value -8)))))
+
+(defun genesis-config-from-genesis-object (object &key config)
+  (or config
+      (let ((config-object (genesis-object-field object "config")))
+        (and config-object (chain-config-from-genesis-config config-object)))))
+
+(defun genesis-header-from-genesis-object (object &key state-root config)
+  (let* ((config (genesis-config-from-genesis-object object :config config))
+         (number (genesis-uint64-field object "number" "Genesis number"
+                                       :default 0))
+         (timestamp (genesis-uint64-field object "timestamp" "Genesis timestamp"
+                                          :default 0))
+         (raw-gas-limit (genesis-uint64-field object "gasLimit"
+                                              "Genesis gas limit"
+                                              :default +genesis-gas-limit+))
+         (gas-limit (if (zerop raw-gas-limit)
+                        +genesis-gas-limit+
+                        raw-gas-limit))
+         (gas-used (genesis-uint64-field object "gasUsed" "Genesis gas used"
+                                         :default 0))
+         (difficulty (or (parse-genesis-field object "difficulty"
+                                              :label "Genesis difficulty")
+                         +genesis-difficulty+))
+         (base-fee (parse-genesis-field object "baseFeePerGas"
+                                        :label "Genesis base fee"))
+         (header
+           (make-block-header
+            :parent-hash (parse-genesis-hash32-field
+                          object "parentHash" "Genesis parent hash"
+                          :default (zero-hash32))
+            :ommers-hash +empty-ommers-hash+
+            :beneficiary (parse-genesis-address-field
+                          object "coinbase" "Genesis coinbase"
+                          :default (zero-address))
+            :state-root (or state-root
+                            (genesis-expected-state-root-from-genesis-object object)
+                            +empty-trie-hash+)
+            :transactions-root +empty-trie-hash+
+            :receipts-root +empty-trie-hash+
+            :logs-bloom (make-byte-vector 256)
+            :difficulty difficulty
+            :number number
+            :gas-limit gas-limit
+            :gas-used gas-used
+            :timestamp timestamp
+            :extra-data (parse-genesis-bytes-field
+                         object "extraData" "Genesis extra data"
+                         :default (make-byte-vector 0))
+            :mix-hash (parse-genesis-hash32-field
+                       object "mixHash" "Genesis mix hash"
+                       :default (zero-hash32))
+            :nonce (uint64-to-8-byte-vector
+                    (genesis-uint64-field object "nonce" "Genesis nonce"
+                                          :default 0)
+                    "Genesis nonce")
+            :base-fee-per-gas base-fee
+            :blob-gas-used (genesis-uint64-field
+                            object "blobGasUsed" "Genesis blob gas used")
+            :excess-blob-gas (genesis-uint64-field
+                              object "excessBlobGas"
+                              "Genesis excess blob gas"))))
+    (when (and config
+               (chain-config-london-p config number)
+               (null (block-header-base-fee-per-gas header)))
+      (setf (block-header-base-fee-per-gas header) +initial-base-fee+))
+    (when (and config (chain-config-shanghai-p config number timestamp))
+      (setf (block-header-withdrawals-root header) (withdrawal-list-root '())))
+    (when (and config (chain-config-cancun-p config number timestamp))
+      (setf (block-header-parent-beacon-root header) (zero-hash32))
+      (unless (block-header-excess-blob-gas header)
+        (setf (block-header-excess-blob-gas header) 0))
+      (unless (block-header-blob-gas-used header)
+        (setf (block-header-blob-gas-used header) 0)))
+    (when (and config (chain-config-prague-p config number timestamp))
+      (setf (block-header-requests-hash header) (execution-requests-hash '())))
+    header))
+
+(defun genesis-header-from-genesis-json-string (string &key state-root config)
+  (genesis-header-from-genesis-object (parse-json string)
+                                      :state-root state-root
+                                      :config config))
+
+(defun genesis-header-from-genesis-json-file (path &key state-root config)
+  (genesis-header-from-genesis-json-string (read-text-file path)
+                                           :state-root state-root
+                                           :config config))
 
 (defun chain-config-blob-schedule (config block-number timestamp)
   (let ((custom-entry (active-custom-blob-schedule-entry config timestamp)))

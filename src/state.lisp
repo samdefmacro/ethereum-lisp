@@ -217,6 +217,29 @@
       (genesis-alloc-from-genesis-object genesis-object))
      expected-root)))
 
+(defun genesis-header-from-state-genesis-object (object &key config)
+  (let* ((computed-root
+           (genesis-state-root-from-genesis-alloc
+            (genesis-alloc-from-genesis-object object)))
+         (expected-root
+           (genesis-expected-state-root-from-genesis-object object)))
+    (when expected-root
+      (validate-genesis-state-root computed-root expected-root))
+    (genesis-header-from-genesis-object object
+                                        :state-root computed-root
+                                        :config config)))
+
+(defun genesis-header-from-state-genesis-json-string (string &key config)
+  (genesis-header-from-state-genesis-object (parse-json string) :config config))
+
+(defun genesis-header-from-state-genesis-json-file (path &key config)
+  (genesis-header-from-state-genesis-json-string
+   (with-open-file (stream path :direction :input)
+     (let ((string (make-string (file-length stream))))
+       (read-sequence string stream)
+       string))
+   :config config))
+
 (define-condition transaction-validation-error (error)
   ((message :initarg :message :reader transaction-validation-error-message))
   (:report (lambda (condition stream)

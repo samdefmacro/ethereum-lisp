@@ -140,6 +140,8 @@
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
+   #:+genesis-gas-limit+
+   #:+genesis-difficulty+
    #:blob-schedule-entry
    #:make-blob-schedule-entry
    #:blob-schedule-entry-timestamp
@@ -207,6 +209,9 @@
    #:genesis-expected-state-root-from-genesis-object
    #:genesis-expected-state-root-from-genesis-json-string
    #:genesis-expected-state-root-from-genesis-json-file
+   #:genesis-header-from-genesis-object
+   #:genesis-header-from-genesis-json-string
+   #:genesis-header-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -485,6 +490,9 @@
    #:genesis-state-root-from-genesis-json-file
    #:validate-genesis-state-root
    #:validate-genesis-json-state-root
+   #:genesis-header-from-state-genesis-object
+   #:genesis-header-from-state-genesis-json-string
+   #:genesis-header-from-state-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal
@@ -679,6 +687,8 @@
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
+   #:+genesis-gas-limit+
+   #:+genesis-difficulty+
    #:blob-schedule-entry
    #:make-blob-schedule-entry
    #:blob-schedule-entry-timestamp
@@ -746,6 +756,9 @@
    #:genesis-expected-state-root-from-genesis-object
    #:genesis-expected-state-root-from-genesis-json-string
    #:genesis-expected-state-root-from-genesis-json-file
+   #:genesis-header-from-genesis-object
+   #:genesis-header-from-genesis-json-string
+   #:genesis-header-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1055,6 +1068,9 @@
    #:genesis-state-root-from-genesis-json-file
    #:validate-genesis-state-root
    #:validate-genesis-json-state-root
+   #:genesis-header-from-state-genesis-object
+   #:genesis-header-from-state-genesis-json-string
+   #:genesis-header-from-state-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal
@@ -1179,6 +1195,8 @@
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
    #:+minimum-gas-limit+
+   #:+genesis-gas-limit+
+   #:+genesis-difficulty+
    #:blob-schedule-entry
    #:make-blob-schedule-entry
    #:blob-schedule-entry-timestamp
@@ -1246,6 +1264,9 @@
    #:genesis-expected-state-root-from-genesis-object
    #:genesis-expected-state-root-from-genesis-json-string
    #:genesis-expected-state-root-from-genesis-json-file
+   #:genesis-header-from-genesis-object
+   #:genesis-header-from-genesis-json-string
+   #:genesis-header-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1553,6 +1574,9 @@
    #:genesis-state-root-from-genesis-json-file
    #:validate-genesis-state-root
    #:validate-genesis-json-state-root
+   #:genesis-header-from-state-genesis-object
+   #:genesis-header-from-state-genesis-json-string
+   #:genesis-header-from-state-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal

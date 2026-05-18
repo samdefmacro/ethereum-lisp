@@ -658,6 +658,52 @@
     (genesis-expected-state-root-from-genesis-json-string
      "{\"stateRoot\":\"0x1234\"}")))
 
+(deftest genesis-header-from-json-maps-geth-fields-and-fork-defaults
+  (let* ((state-root (hash32-from-hex
+                      "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (mix-hash (hash32-from-hex
+                    "0x0200000000000000000000000000000000000000000000000000000000000000"))
+         (json (concatenate
+                'string
+                "{\"config\":{"
+                "\"londonBlock\":0,"
+                "\"shanghaiTime\":0,"
+                "\"cancunTime\":0,"
+                "\"pragueTime\":0"
+                "},"
+                "\"nonce\":\"0x0102030405060708\","
+                "\"timestamp\":0,"
+                "\"extraData\":\"0x1234\","
+                "\"gasLimit\":0,"
+                "\"gasUsed\":\"0x09\","
+                "\"difficulty\":\"0x02\","
+                "\"mixHash\":\"" (hash32-to-hex mix-hash) "\","
+                "\"coinbase\":\"0x0000000000000000000000000000000000000001\""
+                "}"))
+         (header (genesis-header-from-genesis-json-string
+                  json :state-root state-root)))
+    (is (string= (hash32-to-hex state-root)
+                 (hash32-to-hex (block-header-state-root header))))
+    (is (= +genesis-gas-limit+ (block-header-gas-limit header)))
+    (is (= 9 (block-header-gas-used header)))
+    (is (= 2 (block-header-difficulty header)))
+    (is (= +initial-base-fee+ (block-header-base-fee-per-gas header)))
+    (is (string= "0x0102030405060708"
+                 (bytes-to-hex (block-header-nonce header))))
+    (is (string= "0x1234" (bytes-to-hex (block-header-extra-data header))))
+    (is (string= "0x0000000000000000000000000000000000000001"
+                 (address-to-hex (block-header-beneficiary header))))
+    (is (string= (hash32-to-hex mix-hash)
+                 (hash32-to-hex (block-header-mix-hash header))))
+    (is (string= (hash32-to-hex (withdrawal-list-root '()))
+                 (hash32-to-hex (block-header-withdrawals-root header))))
+    (is (string= (hash32-to-hex (zero-hash32))
+                 (hash32-to-hex (block-header-parent-beacon-root header))))
+    (is (= 0 (block-header-excess-blob-gas header)))
+    (is (= 0 (block-header-blob-gas-used header)))
+    (is (string= (hash32-to-hex (execution-requests-hash '()))
+                 (hash32-to-hex (block-header-requests-hash header))))))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10

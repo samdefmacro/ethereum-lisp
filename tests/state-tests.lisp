@@ -94,6 +94,30 @@
        (format nil "{~A,\"stateRoot\":\"~A\"}"
                alloc-json (hash32-to-hex (zero-hash32)))))))
 
+(deftest genesis-header-from-state-genesis-json-uses-computed-root
+  (let* ((json (concatenate
+                'string
+                "{\"config\":{\"londonBlock\":0},"
+                "\"alloc\":{"
+                "\"0x0000000000000000000000000000000000000001\":{"
+                "\"balance\":\"0x10\","
+                "\"storage\":{\"0x07\":\"0x2a\"}"
+                "}}}"))
+         (computed-root (genesis-state-root-from-genesis-json-string json))
+         (header (genesis-header-from-state-genesis-json-string json)))
+    (is (string= (hash32-to-hex computed-root)
+                 (hash32-to-hex (block-header-state-root header))))
+    (is (= +initial-base-fee+ (block-header-base-fee-per-gas header)))))
+
+(deftest genesis-header-from-state-genesis-json-rejects-root-mismatch
+  (signals block-validation-error
+    (genesis-header-from-state-genesis-json-string
+     (concatenate
+      'string
+      "{\"stateRoot\":\"0x0000000000000000000000000000000000000000000000000000000000000000\","
+      "\"alloc\":{\"0x0000000000000000000000000000000000000001\":"
+      "{\"balance\":\"0x10\"}}}"))))
+
 (deftest withdrawals-credit-state-balances-in-wei
   (let* ((state (make-state-db))
          (existing (address-from-hex "0x0000000000000000000000000000000000000011"))
