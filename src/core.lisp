@@ -15,12 +15,18 @@
 (defconstant +bpo1-max-blobs-per-block+ 15)
 (defconstant +bpo2-target-blobs-per-block+ 14)
 (defconstant +bpo2-max-blobs-per-block+ 21)
+(defconstant +bpo3-target-blobs-per-block+ 21)
+(defconstant +bpo3-max-blobs-per-block+ 32)
+(defconstant +bpo4-target-blobs-per-block+ 14)
+(defconstant +bpo4-max-blobs-per-block+ 21)
 (defconstant +min-blobs-per-transaction+ 1)
 (defconstant +min-blob-gas-price+ 1)
 (defconstant +blob-base-fee-update-fraction+ 3338477)
 (defconstant +osaka-blob-base-fee-update-fraction+ 5007716)
 (defconstant +bpo1-blob-base-fee-update-fraction+ 8346193)
 (defconstant +bpo2-blob-base-fee-update-fraction+ 11684671)
+(defconstant +bpo3-blob-base-fee-update-fraction+ 20609697)
+(defconstant +bpo4-blob-base-fee-update-fraction+ 13739630)
 (defconstant +blob-base-cost+ 8192)
 (defconstant +maximum-extra-data-size+ 32)
 (defconstant +gas-limit-bound-divisor+ 1024)
@@ -44,7 +50,9 @@
                                    prague-time
                                    osaka-time
                                    bpo1-time
-                                   bpo2-time)))
+                                   bpo2-time
+                                   bpo3-time
+                                   bpo4-time)))
   (chain-id 1 :type (integer 0 *))
   homestead-block
   eip150-block
@@ -61,7 +69,9 @@
   prague-time
   osaka-time
   bpo1-time
-  bpo2-time)
+  bpo2-time
+  bpo3-time
+  bpo4-time)
 
 (defstruct (chain-rules (:constructor make-chain-rules
                             (&key (chain-id 1)
@@ -80,7 +90,9 @@
                                   prague-p
                                   osaka-p
                                   bpo1-p
-                                  bpo2-p)))
+                                  bpo2-p
+                                  bpo3-p
+                                  bpo4-p)))
   (chain-id 1 :type (integer 0 *))
   homestead-p
   eip150-p
@@ -97,7 +109,9 @@
   prague-p
   osaka-p
   bpo1-p
-  bpo2-p)
+  bpo2-p
+  bpo3-p
+  bpo4-p)
 
 (defun fork-block-active-p (fork-block block-number)
   (and fork-block block-number (>= block-number fork-block)))
@@ -163,17 +177,29 @@
   (and (chain-config-london-p config block-number)
        (fork-time-active-p (chain-config-bpo2-time config) timestamp)))
 
+(defun chain-config-bpo3-p (config block-number timestamp)
+  (and (chain-config-london-p config block-number)
+       (fork-time-active-p (chain-config-bpo3-time config) timestamp)))
+
+(defun chain-config-bpo4-p (config block-number timestamp)
+  (and (chain-config-london-p config block-number)
+       (fork-time-active-p (chain-config-bpo4-time config) timestamp)))
+
 (defun chain-config-expanded-blob-schedule-p (config block-number timestamp)
   (or (chain-config-prague-p config block-number timestamp)
       (chain-config-osaka-p config block-number timestamp)
       (chain-config-bpo1-p config block-number timestamp)
-      (chain-config-bpo2-p config block-number timestamp)))
+      (chain-config-bpo2-p config block-number timestamp)
+      (chain-config-bpo3-p config block-number timestamp)
+      (chain-config-bpo4-p config block-number timestamp)))
 
 (defun chain-rules-expanded-blob-schedule-p (rules)
   (or (chain-rules-prague-p rules)
       (chain-rules-osaka-p rules)
       (chain-rules-bpo1-p rules)
-      (chain-rules-bpo2-p rules)))
+      (chain-rules-bpo2-p rules)
+      (chain-rules-bpo3-p rules)
+      (chain-rules-bpo4-p rules)))
 
 (defun blob-schedule-values (target-blobs max-blobs update-fraction)
   (values (* target-blobs +blob-gas-per-blob+)
@@ -182,6 +208,14 @@
 
 (defun chain-config-blob-schedule (config block-number timestamp)
   (cond
+    ((chain-config-bpo4-p config block-number timestamp)
+     (blob-schedule-values +bpo4-target-blobs-per-block+
+                           +bpo4-max-blobs-per-block+
+                           +bpo4-blob-base-fee-update-fraction+))
+    ((chain-config-bpo3-p config block-number timestamp)
+     (blob-schedule-values +bpo3-target-blobs-per-block+
+                           +bpo3-max-blobs-per-block+
+                           +bpo3-blob-base-fee-update-fraction+))
     ((chain-config-bpo2-p config block-number timestamp)
      (blob-schedule-values +bpo2-target-blobs-per-block+
                            +bpo2-max-blobs-per-block+
@@ -201,6 +235,14 @@
 
 (defun chain-rules-blob-schedule (rules)
   (cond
+    ((chain-rules-bpo4-p rules)
+     (blob-schedule-values +bpo4-target-blobs-per-block+
+                           +bpo4-max-blobs-per-block+
+                           +bpo4-blob-base-fee-update-fraction+))
+    ((chain-rules-bpo3-p rules)
+     (blob-schedule-values +bpo3-target-blobs-per-block+
+                           +bpo3-max-blobs-per-block+
+                           +bpo3-blob-base-fee-update-fraction+))
     ((chain-rules-bpo2-p rules)
      (blob-schedule-values +bpo2-target-blobs-per-block+
                            +bpo2-max-blobs-per-block+
@@ -236,7 +278,9 @@
    :prague-p (chain-config-prague-p config block-number timestamp)
    :osaka-p (chain-config-osaka-p config block-number timestamp)
    :bpo1-p (chain-config-bpo1-p config block-number timestamp)
-   :bpo2-p (chain-config-bpo2-p config block-number timestamp)))
+   :bpo2-p (chain-config-bpo2-p config block-number timestamp)
+   :bpo3-p (chain-config-bpo3-p config block-number timestamp)
+   :bpo4-p (chain-config-bpo4-p config block-number timestamp)))
 
 (defun chain-rules-transaction-type-supported-p (rules transaction)
   (case (transaction-type transaction)

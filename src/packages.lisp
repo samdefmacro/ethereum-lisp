@@ -124,12 +124,18 @@
    #:+bpo1-max-blobs-per-block+
    #:+bpo2-target-blobs-per-block+
    #:+bpo2-max-blobs-per-block+
+   #:+bpo3-target-blobs-per-block+
+   #:+bpo3-max-blobs-per-block+
+   #:+bpo4-target-blobs-per-block+
+   #:+bpo4-max-blobs-per-block+
    #:+min-blobs-per-transaction+
    #:+min-blob-gas-price+
    #:+blob-base-fee-update-fraction+
    #:+osaka-blob-base-fee-update-fraction+
    #:+bpo1-blob-base-fee-update-fraction+
    #:+bpo2-blob-base-fee-update-fraction+
+   #:+bpo3-blob-base-fee-update-fraction+
+   #:+bpo4-blob-base-fee-update-fraction+
    #:+blob-base-cost+
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
@@ -153,6 +159,8 @@
    #:chain-config-osaka-time
    #:chain-config-bpo1-time
    #:chain-config-bpo2-time
+   #:chain-config-bpo3-time
+   #:chain-config-bpo4-time
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -171,6 +179,8 @@
    #:chain-config-osaka-p
    #:chain-config-bpo1-p
    #:chain-config-bpo2-p
+   #:chain-config-bpo3-p
+   #:chain-config-bpo4-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:chain-config-rules
@@ -193,6 +203,8 @@
    #:chain-rules-osaka-p
    #:chain-rules-bpo1-p
    #:chain-rules-bpo2-p
+   #:chain-rules-bpo3-p
+   #:chain-rules-bpo4-p
    #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
@@ -614,12 +626,18 @@
    #:+bpo1-max-blobs-per-block+
    #:+bpo2-target-blobs-per-block+
    #:+bpo2-max-blobs-per-block+
+   #:+bpo3-target-blobs-per-block+
+   #:+bpo3-max-blobs-per-block+
+   #:+bpo4-target-blobs-per-block+
+   #:+bpo4-max-blobs-per-block+
    #:+min-blobs-per-transaction+
    #:+min-blob-gas-price+
    #:+blob-base-fee-update-fraction+
    #:+osaka-blob-base-fee-update-fraction+
    #:+bpo1-blob-base-fee-update-fraction+
    #:+bpo2-blob-base-fee-update-fraction+
+   #:+bpo3-blob-base-fee-update-fraction+
+   #:+bpo4-blob-base-fee-update-fraction+
    #:+blob-base-cost+
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
@@ -643,6 +661,8 @@
    #:chain-config-osaka-time
    #:chain-config-bpo1-time
    #:chain-config-bpo2-time
+   #:chain-config-bpo3-time
+   #:chain-config-bpo4-time
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -661,6 +681,8 @@
    #:chain-config-osaka-p
    #:chain-config-bpo1-p
    #:chain-config-bpo2-p
+   #:chain-config-bpo3-p
+   #:chain-config-bpo4-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:chain-config-rules
@@ -683,6 +705,8 @@
    #:chain-rules-osaka-p
    #:chain-rules-bpo1-p
    #:chain-rules-bpo2-p
+   #:chain-rules-bpo3-p
+   #:chain-rules-bpo4-p
    #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
@@ -1065,12 +1089,18 @@
    #:+bpo1-max-blobs-per-block+
    #:+bpo2-target-blobs-per-block+
    #:+bpo2-max-blobs-per-block+
+   #:+bpo3-target-blobs-per-block+
+   #:+bpo3-max-blobs-per-block+
+   #:+bpo4-target-blobs-per-block+
+   #:+bpo4-max-blobs-per-block+
    #:+min-blobs-per-transaction+
    #:+min-blob-gas-price+
    #:+blob-base-fee-update-fraction+
    #:+osaka-blob-base-fee-update-fraction+
    #:+bpo1-blob-base-fee-update-fraction+
    #:+bpo2-blob-base-fee-update-fraction+
+   #:+bpo3-blob-base-fee-update-fraction+
+   #:+bpo4-blob-base-fee-update-fraction+
    #:+blob-base-cost+
    #:+maximum-extra-data-size+
    #:+gas-limit-bound-divisor+
@@ -1094,6 +1124,8 @@
    #:chain-config-osaka-time
    #:chain-config-bpo1-time
    #:chain-config-bpo2-time
+   #:chain-config-bpo3-time
+   #:chain-config-bpo4-time
    #:fork-block-active-p
    #:fork-time-active-p
    #:chain-config-homestead-p
@@ -1112,6 +1144,8 @@
    #:chain-config-osaka-p
    #:chain-config-bpo1-p
    #:chain-config-bpo2-p
+   #:chain-config-bpo3-p
+   #:chain-config-bpo4-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
    #:chain-config-rules
@@ -1134,6 +1168,8 @@
    #:chain-rules-osaka-p
    #:chain-rules-bpo1-p
    #:chain-rules-bpo2-p
+   #:chain-rules-bpo3-p
+   #:chain-rules-bpo4-p
    #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-blob-schedule
    #:chain-rules-transaction-type-supported-p
