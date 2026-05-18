@@ -554,6 +554,44 @@
           (("target" . 3)
            ("max" . 6)))))))))
 
+(deftest chain-config-from-genesis-json-string-parses-config
+  (let* ((json "{\"config\":{\"chainId\":\"0x7b\",\"londonBlock\":\"5\",\"cancunTime\":16,\"bpo3Time\":30,\"blobSchedule\":{\"bpo3\":{\"target\":8,\"max\":11,\"baseFeeUpdateFraction\":\"12345\"}}}}")
+         (config (chain-config-from-genesis-json-string json)))
+    (is (= 123 (chain-config-chain-id config)))
+    (is (= 5 (chain-config-london-block config)))
+    (is (= 16 (chain-config-cancun-time config)))
+    (is (= 30 (chain-config-bpo3-time config)))
+    (multiple-value-bind (target max update-fraction)
+        (chain-config-blob-schedule config 6 30)
+      (is (= (* 8 +blob-gas-per-blob+) target))
+      (is (= (* 11 +blob-gas-per-blob+) max))
+      (is (= 12345 update-fraction)))))
+
+(deftest chain-config-from-genesis-json-file-parses-config
+  (let ((path (make-pathname :name "ethereum-lisp-genesis-test"
+                             :type "json"
+                             :defaults #P"/private/tmp/")))
+    (unwind-protect
+         (progn
+           (with-open-file (stream path
+                                   :direction :output
+                                   :if-exists :supersede
+                                   :if-does-not-exist :create)
+             (write-string
+              "{\"config\":{\"chainId\":9,\"londonBlock\":0,\"cancunTime\":0}}"
+              stream))
+           (let ((config (chain-config-from-genesis-json-file path)))
+             (is (= 9 (chain-config-chain-id config)))
+             (is (= 0 (chain-config-london-block config)))
+             (is (= 0 (chain-config-cancun-time config)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest genesis-json-parser-rejects-non-integer-numbers
+  (signals block-validation-error
+    (chain-config-from-genesis-json-string
+     "{\"config\":{\"chainId\":1.5}}")))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10

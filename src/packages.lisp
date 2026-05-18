@@ -190,7 +190,10 @@
    #:chain-config-bpo4-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
+   #:parse-json
    #:chain-config-from-genesis-config
+   #:chain-config-from-genesis-json-string
+   #:chain-config-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -703,7 +706,10 @@
    #:chain-config-bpo4-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
+   #:parse-json
    #:chain-config-from-genesis-config
+   #:chain-config-from-genesis-json-string
+   #:chain-config-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1177,7 +1183,10 @@
    #:chain-config-bpo4-p
    #:chain-config-expanded-blob-schedule-p
    #:chain-config-blob-schedule
+   #:parse-json
    #:chain-config-from-genesis-config
+   #:chain-config-from-genesis-json-string
+   #:chain-config-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
