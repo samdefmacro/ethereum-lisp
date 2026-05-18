@@ -287,6 +287,12 @@
              return value))
     (t nil)))
 
+(defun genesis-object-field-any (object names)
+  (loop for name in names
+        for value = (genesis-object-field object name)
+        when value
+          return value))
+
 (defun genesis-hex-quantity-string-p (value)
   (and (stringp value)
        (>= (length value) 2)
@@ -314,7 +320,9 @@
     (t (block-validation-fail "~A must be a non-negative quantity" label))))
 
 (defun parse-genesis-field (object name &key label required-p)
-  (parse-genesis-quantity (genesis-object-field object name)
+  (parse-genesis-quantity (if (listp name)
+                              (genesis-object-field-any object name)
+                              (genesis-object-field object name))
                           (or label name)
                           :required-p required-p))
 
@@ -665,7 +673,9 @@
   (genesis-expected-state-root-from-genesis-json-string (read-text-file path)))
 
 (defun parse-genesis-hash32-field (object name label &key default)
-  (let ((value (genesis-object-field object name)))
+  (let ((value (if (listp name)
+                   (genesis-object-field-any object name)
+                   (genesis-object-field object name))))
     (cond
       ((null value) default)
       ((stringp value)
@@ -676,13 +686,17 @@
       (t (block-validation-fail "~A must be a hash32" label)))))
 
 (defun parse-genesis-address-field (object name label &key default)
-  (let ((value (genesis-object-field object name)))
+  (let ((value (if (listp name)
+                   (genesis-object-field-any object name)
+                   (genesis-object-field object name))))
     (cond
       ((null value) default)
       (t (parse-genesis-address value label)))))
 
 (defun parse-genesis-bytes-field (object name label &key default)
-  (let ((value (genesis-object-field object name)))
+  (let ((value (if (listp name)
+                   (genesis-object-field-any object name)
+                   (genesis-object-field object name))))
     (cond
       ((null value) default)
       ((stringp value)
@@ -755,7 +769,7 @@
                          object "extraData" "Genesis extra data"
                          :default (make-byte-vector 0))
             :mix-hash (parse-genesis-hash32-field
-                       object "mixHash" "Genesis mix hash"
+                       object '("mixHash" "mixhash") "Genesis mix hash"
                        :default (zero-hash32))
             :nonce (uint64-to-8-byte-vector
                     (genesis-uint64-field object "nonce" "Genesis nonce"
@@ -766,7 +780,11 @@
                             object "blobGasUsed" "Genesis blob gas used")
             :excess-blob-gas (genesis-uint64-field
                               object "excessBlobGas"
-                              "Genesis excess blob gas"))))
+                              "Genesis excess blob gas")
+            :parent-beacon-root (parse-genesis-hash32-field
+                                 object '("parentBeaconBlockRoot"
+                                          "parentBeaconRoot")
+                                 "Genesis parent beacon block root"))))
     (when (and config
                (chain-config-london-p config number)
                (null (block-header-base-fee-per-gas header)))
@@ -774,7 +792,8 @@
     (when (and config (chain-config-shanghai-p config number timestamp))
       (setf (block-header-withdrawals-root header) (withdrawal-list-root '())))
     (when (and config (chain-config-cancun-p config number timestamp))
-      (setf (block-header-parent-beacon-root header) (zero-hash32))
+      (unless (block-header-parent-beacon-root header)
+        (setf (block-header-parent-beacon-root header) (zero-hash32)))
       (unless (block-header-excess-blob-gas header)
         (setf (block-header-excess-blob-gas header) 0))
       (unless (block-header-blob-gas-used header)

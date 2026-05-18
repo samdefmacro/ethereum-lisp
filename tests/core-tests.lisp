@@ -704,6 +704,27 @@
     (is (string= (hash32-to-hex (execution-requests-hash '()))
                  (hash32-to-hex (block-header-requests-hash header))))))
 
+(deftest genesis-header-from-json-accepts-geth-field-aliases
+  (let* ((mix-hash (hash32-from-hex
+                    "0x0300000000000000000000000000000000000000000000000000000000000000"))
+         (parent-beacon-root
+           (hash32-from-hex
+            "0x0400000000000000000000000000000000000000000000000000000000000000"))
+         (json (concatenate
+                'string
+                "{\"config\":{\"cancunTime\":0},"
+                "\"timestamp\":0,"
+                "\"mixhash\":\"" (hash32-to-hex mix-hash) "\","
+                "\"parentBeaconBlockRoot\":\""
+                (hash32-to-hex parent-beacon-root) "\""
+                "}"))
+         (header (genesis-header-from-genesis-json-string json)))
+    (is (string= (hash32-to-hex mix-hash)
+                 (hash32-to-hex (block-header-mix-hash header))))
+    (is (string= (hash32-to-hex parent-beacon-root)
+                 (hash32-to-hex
+                  (block-header-parent-beacon-root header))))))
+
 (deftest genesis-block-from-json-carries-empty-fork-bodies
   (let* ((state-root (hash32-from-hex
                       "0x0100000000000000000000000000000000000000000000000000000000000000"))
