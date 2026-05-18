@@ -502,6 +502,16 @@
    #:forkchoice-state-head-block-hash
    #:forkchoice-state-safe-block-hash
    #:forkchoice-state-finalized-block-hash
+   #:payload-attributes-v1
+   #:make-payload-attributes-v1
+   #:payload-attributes-v1-timestamp
+   #:payload-attributes-v1-prev-randao
+   #:payload-attributes-v1-suggested-fee-recipient
+   #:engine-prepared-payload
+   #:make-engine-prepared-payload
+   #:engine-prepared-payload-payload-id
+   #:engine-prepared-payload-version
+   #:engine-prepared-payload-block
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
@@ -517,16 +527,21 @@
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
    #:engine-payload-store-invalid-ancestor-status
+   #:engine-payload-id-to-hex
+   #:engine-payload-store-put-prepared-payload
+   #:engine-payload-store-prepared-payload
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
    #:engine-rpc-client-version
    #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
+   #:engine-rpc-executable-data-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-forkchoice-state-from-object
    #:engine-forkchoice-memory-status
    #:engine-rpc-forkchoice-response-object
+   #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
@@ -1265,6 +1280,16 @@
    #:forkchoice-state-head-block-hash
    #:forkchoice-state-safe-block-hash
    #:forkchoice-state-finalized-block-hash
+   #:payload-attributes-v1
+   #:make-payload-attributes-v1
+   #:payload-attributes-v1-timestamp
+   #:payload-attributes-v1-prev-randao
+   #:payload-attributes-v1-suggested-fee-recipient
+   #:engine-prepared-payload
+   #:make-engine-prepared-payload
+   #:engine-prepared-payload-payload-id
+   #:engine-prepared-payload-version
+   #:engine-prepared-payload-block
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
@@ -1280,16 +1305,21 @@
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
    #:engine-payload-store-invalid-ancestor-status
+   #:engine-payload-id-to-hex
+   #:engine-payload-store-put-prepared-payload
+   #:engine-payload-store-prepared-payload
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
    #:engine-rpc-client-version
    #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
+   #:engine-rpc-executable-data-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-forkchoice-state-from-object
    #:engine-forkchoice-memory-status
    #:engine-rpc-forkchoice-response-object
+   #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
@@ -1989,6 +2019,16 @@
    #:forkchoice-state-head-block-hash
    #:forkchoice-state-safe-block-hash
    #:forkchoice-state-finalized-block-hash
+   #:payload-attributes-v1
+   #:make-payload-attributes-v1
+   #:payload-attributes-v1-timestamp
+   #:payload-attributes-v1-prev-randao
+   #:payload-attributes-v1-suggested-fee-recipient
+   #:engine-prepared-payload
+   #:make-engine-prepared-payload
+   #:engine-prepared-payload-payload-id
+   #:engine-prepared-payload-version
+   #:engine-prepared-payload-block
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
@@ -2004,16 +2044,21 @@
    #:engine-payload-store-mark-invalid
    #:engine-payload-store-invalid-block
    #:engine-payload-store-invalid-ancestor-status
+   #:engine-payload-id-to-hex
+   #:engine-payload-store-put-prepared-payload
+   #:engine-payload-store-prepared-payload
    #:+engine-rpc-capabilities+
    #:engine-rpc-capabilities
    #:+engine-rpc-client-version+
    #:engine-rpc-client-version
    #:engine-rpc-transition-configuration-object
    #:engine-rpc-executable-data-from-object
+   #:engine-rpc-executable-data-object
    #:engine-rpc-payload-status-object
    #:engine-rpc-forkchoice-state-from-object
    #:engine-forkchoice-memory-status
    #:engine-rpc-forkchoice-response-object
+   #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value

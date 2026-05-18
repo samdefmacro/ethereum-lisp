@@ -2749,7 +2749,27 @@
                      (field payload-status "status")))
         (is (string= (hash32-to-hex known-hash)
                      (field payload-status "latestValidHash")))
-        (is (not (field result "payloadId"))))
+        (is (stringp (field result "payloadId")))
+        (is (= 18 (length (field result "payloadId"))))
+        (let* ((get-payload-response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 21)
+                        (cons "method" "engine_getPayloadV1")
+                        (cons "params" (list (field result "payloadId"))))
+                  store
+                  config))
+               (payload (field get-payload-response "result")))
+          (is (= 21 (field get-payload-response "id")))
+          (is (string= (hash32-to-hex known-hash)
+                       (field payload "parentHash")))
+          (is (= 1 (hex-to-quantity (field payload "blockNumber"))))
+          (is (string= "0x1" (field payload "timestamp")))
+          (is (string= (hash32-to-hex (zero-hash32))
+                       (field payload "prevRandao")))
+          (is (string= (address-to-hex (zero-address))
+                       (field payload "feeRecipient")))
+          (is (not (field payload "transactions")))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -2799,6 +2819,7 @@
       (is (= 11 (field response "id")))
       (is (member "engine_newPayloadV1" capabilities :test #'string=))
       (is (member "engine_newPayloadV5" capabilities :test #'string=))
+      (is (member "engine_getPayloadV1" capabilities :test #'string=))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))
       (is (member "engine_exchangeTransitionConfigurationV1"
                   capabilities

@@ -2470,6 +2470,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   safe-block-hash
   finalized-block-hash)
 
+(defstruct (payload-attributes-v1
+            (:constructor make-payload-attributes-v1
+                (&key timestamp prev-randao suggested-fee-recipient)))
+  timestamp
+  prev-randao
+  suggested-fee-recipient)
+
+(defstruct (engine-prepared-payload
+            (:constructor make-engine-prepared-payload
+                (&key payload-id version block)))
+  payload-id
+  version
+  block)
+
 (defun maybe-copy-bytes (bytes)
   (when bytes
     (copy-seq (ensure-byte-vector bytes))))
@@ -2843,11 +2857,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (&key (blocks (make-hash-table :test 'equal))
                       (state-blocks (make-hash-table :test 'equal))
                       (remote-blocks (make-hash-table :test 'equal))
-                      (invalid-tipsets (make-hash-table :test 'equal)))))
+                      (invalid-tipsets (make-hash-table :test 'equal))
+                      (prepared-payloads (make-hash-table :test 'equal)))))
   blocks
   state-blocks
   remote-blocks
-  invalid-tipsets)
+  invalid-tipsets
+  prepared-payloads)
 
 (defun engine-payload-store-key (hash)
   (unless (hash32-p hash)
@@ -2923,6 +2939,33 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        :latest-valid-hash
        (block-header-parent-hash (block-header invalid-block))
        :validation-error "links to previously rejected block"))))
+
+(defun engine-payload-id-key (payload-id)
+  (let ((bytes (ensure-byte-vector payload-id)))
+    (unless (= 8 (length bytes))
+      (block-validation-fail "Engine payload id must be 8 bytes"))
+    (bytes-to-hex bytes)))
+
+(defun engine-payload-id-to-hex (payload-id)
+  (engine-payload-id-key payload-id))
+
+(defun engine-payload-store-put-prepared-payload
+    (store prepared-payload)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep prepared-payload 'engine-prepared-payload)
+    (block-validation-fail
+     "Engine prepared payload must be an engine-prepared-payload"))
+  (setf (gethash
+         (engine-payload-id-key
+          (engine-prepared-payload-payload-id prepared-payload))
+         (engine-payload-memory-store-prepared-payloads store))
+        prepared-payload)
+  prepared-payload)
+
+(defun engine-payload-store-prepared-payload (store payload-id)
+  (gethash (engine-payload-id-key payload-id)
+           (engine-payload-memory-store-prepared-payloads store)))
 
 (defun engine-rpc-required-field (object name)
   (unless (genesis-object-field-present-p object name)
@@ -3003,6 +3046,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (loop for withdrawal in withdrawals
             collect (engine-rpc-withdrawal-from-object withdrawal)))))
 
+(defun engine-rpc-withdrawal-object (withdrawal)
+  (list (cons "index" (quantity-to-hex (withdrawal-index withdrawal)))
+        (cons "validatorIndex"
+              (quantity-to-hex (withdrawal-validator-index withdrawal)))
+        (cons "address" (address-to-hex (withdrawal-address withdrawal)))
+        (cons "amount" (quantity-to-hex (withdrawal-amount withdrawal)))))
+
 (defun engine-rpc-executable-data-from-object (object)
   (unless (listp object)
     (block-validation-fail "Engine RPC payload must be an object"))
@@ -3031,6 +3081,54 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-rpc-optional-quantity-field object "excessBlobGas")
    :slot-number (engine-rpc-optional-quantity-field object "slotNumber")))
 
+(defun engine-rpc-executable-data-object (payload)
+  (unless (typep payload 'executable-data)
+    (block-validation-fail "Engine RPC payload must be executable-data"))
+  (append
+   (list
+    (cons "parentHash"
+          (hash32-to-hex (executable-data-parent-hash payload)))
+    (cons "feeRecipient"
+          (address-to-hex (executable-data-fee-recipient payload)))
+    (cons "stateRoot"
+          (hash32-to-hex (executable-data-state-root payload)))
+    (cons "receiptsRoot"
+          (hash32-to-hex (executable-data-receipts-root payload)))
+    (cons "logsBloom"
+          (bytes-to-hex (executable-data-logs-bloom payload)))
+    (cons "prevRandao"
+          (hash32-to-hex (executable-data-random payload)))
+    (cons "blockNumber"
+          (quantity-to-hex (executable-data-number payload)))
+    (cons "gasLimit"
+          (quantity-to-hex (executable-data-gas-limit payload)))
+    (cons "gasUsed"
+          (quantity-to-hex (executable-data-gas-used payload)))
+    (cons "timestamp"
+          (quantity-to-hex (executable-data-timestamp payload)))
+    (cons "extraData"
+          (bytes-to-hex (executable-data-extra-data payload)))
+    (cons "baseFeePerGas"
+          (quantity-to-hex (executable-data-base-fee-per-gas payload)))
+    (cons "blockHash"
+          (hash32-to-hex (executable-data-block-hash payload)))
+    (cons "transactions"
+          (mapcar #'bytes-to-hex (executable-data-transactions payload))))
+   (when (executable-data-withdrawals payload)
+     (list (cons "withdrawals"
+                 (mapcar #'engine-rpc-withdrawal-object
+                         (executable-data-withdrawals payload)))))
+   (when (executable-data-blob-gas-used payload)
+     (list
+      (cons "blobGasUsed"
+            (quantity-to-hex (executable-data-blob-gas-used payload)))
+      (cons "excessBlobGas"
+            (quantity-to-hex (executable-data-excess-blob-gas payload)))))
+   (when (executable-data-slot-number payload)
+     (list
+      (cons "slotNumber"
+            (quantity-to-hex (executable-data-slot-number payload)))))))
+
 (defun engine-rpc-payload-status-object (status)
   (list (cons "status" (payload-status-status status))
         (cons "latestValidHash"
@@ -3055,10 +3153,53 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (unless (json-object-p object)
     (block-validation-fail
      "engine_forkchoiceUpdatedV1 payloadAttributes must be an object or null"))
-  (engine-rpc-required-quantity-field object "timestamp")
-  (engine-rpc-required-hash32-field object "prevRandao")
-  (engine-rpc-required-address-field object "suggestedFeeRecipient")
-  t)
+  (make-payload-attributes-v1
+   :timestamp (engine-rpc-required-quantity-field object "timestamp")
+   :prev-randao (engine-rpc-required-hash32-field object "prevRandao")
+   :suggested-fee-recipient
+   (engine-rpc-required-address-field object "suggestedFeeRecipient")))
+
+(defun engine-payload-id-v1 (parent-hash attributes)
+  (let* ((digest
+           (sha256
+            #(1)
+            (hash32-bytes parent-hash)
+            (integer-to-minimal-bytes
+             (payload-attributes-v1-timestamp attributes))
+            (hash32-bytes (payload-attributes-v1-prev-randao attributes))
+            (address-bytes
+             (payload-attributes-v1-suggested-fee-recipient attributes))))
+         (payload-id (make-byte-vector 8)))
+    (setf (aref payload-id 0) 1)
+    (replace payload-id digest :start1 1 :start2 0 :end2 7)
+    payload-id))
+
+(defun engine-build-empty-payload-v1 (parent-block attributes)
+  (unless (typep parent-block 'ethereum-block)
+    (block-validation-fail "Payload parent must be a known block"))
+  (unless (typep attributes 'payload-attributes-v1)
+    (block-validation-fail "Payload attributes must be payload-attributes-v1"))
+  (let* ((parent-header (block-header parent-block))
+         (timestamp (payload-attributes-v1-timestamp attributes)))
+    (unless (> timestamp (block-header-timestamp parent-header))
+      (block-validation-fail
+       "Payload attributes timestamp must be greater than parent timestamp"))
+    (make-block
+     :header
+     (make-block-header
+      :parent-hash (block-hash parent-block)
+      :beneficiary (payload-attributes-v1-suggested-fee-recipient attributes)
+      :state-root (or (block-header-state-root parent-header)
+                      +empty-trie-hash+)
+      :mix-hash (payload-attributes-v1-prev-randao attributes)
+      :number (1+ (block-header-number parent-header))
+      :gas-limit (block-header-gas-limit parent-header)
+      :gas-used 0
+      :timestamp timestamp
+      :base-fee-per-gas
+      (if (block-header-base-fee-per-gas parent-header)
+          (expected-base-fee-per-gas parent-header)
+          0)))))
 
 (defun engine-forkchoice-memory-status (store state)
   (unless (typep store 'engine-payload-memory-store)
@@ -3083,11 +3224,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-forkchoice-response-object (status &key payload-id)
   (list (cons "payloadStatus" (engine-rpc-payload-status-object status))
-        (cons "payloadId" payload-id)))
+        (cons "payloadId" (when payload-id
+                            (engine-payload-id-to-hex payload-id)))))
 
 (defparameter +engine-rpc-capabilities+
   '("engine_exchangeTransitionConfigurationV1"
     "engine_forkchoiceUpdatedV1"
+    "engine_getPayloadV1"
     "engine_getClientVersionV1"
     "engine_newPayloadV1"
     "engine_newPayloadV2"
@@ -3209,6 +3352,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-rpc-validate-transition-configuration (first params))
   (engine-rpc-transition-configuration-object config))
 
+(defun engine-rpc-payload-id-from-value (value)
+  (unless (stringp value)
+    (block-validation-fail "engine_getPayloadV1 payload id must be a hex string"))
+  (let ((payload-id
+          (handler-case
+              (hex-to-bytes value)
+            (error ()
+              (block-validation-fail
+               "engine_getPayloadV1 payload id must be hex bytes")))))
+    (unless (= 8 (length payload-id))
+      (block-validation-fail "engine_getPayloadV1 payload id must be 8 bytes"))
+    payload-id))
+
+(defun engine-rpc-handle-get-payload-v1 (params store)
+  (unless (and (listp params) params)
+    (block-validation-fail "engine_getPayloadV1 params must include payload id"))
+  (let* ((payload-id
+           (engine-rpc-payload-id-from-value
+            (engine-rpc-required-param
+             params 0 "payloadId" "engine_getPayloadV1")))
+         (prepared-payload
+           (engine-payload-store-prepared-payload store payload-id)))
+    (unless prepared-payload
+      (block-validation-fail "unknown payload"))
+    (unless (= 1 (engine-prepared-payload-version prepared-payload))
+      (block-validation-fail "payload id is not for engine_getPayloadV1"))
+    (engine-rpc-executable-data-object
+     (execution-payload-envelope-execution-payload
+      (block-to-executable-data
+       (engine-prepared-payload-block prepared-payload))))))
+
 (defun engine-rpc-handle-forkchoice-updated-v1 (params store)
   (unless (and (listp params) params)
     (block-validation-fail
@@ -3220,11 +3394,32 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (payload-attributes
           (when (< 1 (length params))
             (second params))))
-    (when payload-attributes
-      (engine-rpc-validate-payload-attributes-v1 payload-attributes))
-    (engine-rpc-forkchoice-response-object
-     (engine-forkchoice-memory-status store state)
-     :payload-id nil)))
+    (setf payload-attributes
+          (when payload-attributes
+            (engine-rpc-validate-payload-attributes-v1 payload-attributes)))
+    (let ((status (engine-forkchoice-memory-status store state))
+          (payload-id nil))
+      (when (and payload-attributes
+                 (string= +payload-status-valid+
+                          (payload-status-status status)))
+        (let* ((head-hash (forkchoice-state-head-block-hash state))
+               (parent-block
+                 (engine-payload-store-known-block store head-hash))
+               (candidate-id
+                 (engine-payload-id-v1 head-hash payload-attributes)))
+          (unless (engine-payload-store-prepared-payload
+                   store candidate-id)
+            (engine-payload-store-put-prepared-payload
+             store
+             (make-engine-prepared-payload
+              :payload-id candidate-id
+              :version 1
+              :block (engine-build-empty-payload-v1
+                      parent-block payload-attributes))))
+          (setf payload-id candidate-id)))
+      (engine-rpc-forkchoice-response-object
+       status
+       :payload-id payload-id))))
 
 (defun engine-rpc-response (id &key result error)
   (append (list (cons "jsonrpc" "2.0")
@@ -3275,6 +3470,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-forkchoice-updated-v1 params store)))
+              ((string= method "engine_getPayloadV1")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-v1 params store)))
               ((string= method "engine_getClientVersionV1")
                (engine-rpc-response
                 id

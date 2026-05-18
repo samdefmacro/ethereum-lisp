@@ -544,8 +544,11 @@ local Common Lisp client identity, and
 difficulty with zero terminal-block defaults. `engine_forkchoiceUpdatedV1` now
 parses forkchoice state and V1 payload attributes, maps known memory-store
 heads to `VALID`, unknown heads to `SYNCING`, and zero heads or cached invalid
-tipsets to `INVALID`, returning the Engine-style forkchoice response shell with
-a null payload id until payload building is implemented. A first HTTP POST adapter now
+tipsets to `INVALID`, and can prepare a deterministic in-memory empty child
+payload when V1 payload attributes are supplied for a valid head. The prepared
+payload is keyed by an 8-byte Engine-style payload id and can be fetched through
+`engine_getPayloadV1`, which returns the execution payload object for the
+prepared block. A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
 Bearer authentication with HS256 signatures, 32-byte secrets, `iat` freshness,
