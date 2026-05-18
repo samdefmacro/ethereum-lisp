@@ -625,7 +625,11 @@ fee/access-list fields, and the same unknown/out-of-range `null` behavior.
 The in-memory payload store now also indexes transactions by hash as blocks are
 inserted, enabling `eth_getTransactionByHash` and `eth_getRawTransactionByHash`
 for known canonical memory-store transactions with JSON `null` for unknown
-hashes; pending txpool lookup remains a later networking/txpool slice.
+hashes. Receipts supplied with memory-store blocks are retained alongside that
+transaction index, enabling `eth_getTransactionReceipt` with mined receipt
+metadata, gas accounting, logs, logs bloom, typed transaction status, and
+effective gas price; pending txpool lookup remains a later networking/txpool
+slice.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

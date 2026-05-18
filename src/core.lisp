@@ -2324,6 +2324,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defstruct (ethereum-block (:constructor %make-block
                              (&key header
                                    (transactions '())
+                                   (receipts '())
                                    (ommers '())
                                    withdrawals
                                    withdrawals-present-p
@@ -2335,6 +2336,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            (:conc-name block-))
   header
   (transactions '() :type list)
+  (receipts '() :type list)
   (ommers '() :type list)
   withdrawals
   withdrawals-present-p
@@ -2389,6 +2391,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (keccak-256-hash encoded-block-access-list)))
     (%make-block :header header
                  :transactions transactions
+                 :receipts receipts
                  :ommers ommers
                  :withdrawals withdrawals
                  :withdrawals-present-p withdrawals-supplied-p
@@ -2920,10 +2923,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defstruct (engine-transaction-location
             (:constructor make-engine-transaction-location
-                (&key block index transaction)))
+                (&key block index transaction receipt log-index-start)))
   block
   (index 0 :type (integer 0 *))
-  transaction)
+  transaction
+  receipt
+  (log-index-start 0 :type (integer 0 *)))
 
 (defstruct (engine-blob-and-proofs
             (:constructor make-engine-blob-and-proofs
@@ -2952,15 +2957,24 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               block)
         (when (> number (engine-payload-memory-store-head-number store))
           (setf (engine-payload-memory-store-head-number store) number))))
-    (loop for transaction in (block-transactions block)
+    (loop with receipts = (block-receipts block)
+          with log-index-start = 0
+          for transaction in (block-transactions block)
           for index from 0
-          do (setf (gethash
-                    (engine-payload-store-key (transaction-hash transaction))
-                    (engine-payload-memory-store-transaction-locations store))
-                   (make-engine-transaction-location
-                    :block block
-                    :index index
-                    :transaction transaction)))
+          for receipt = (nth index receipts)
+          do (progn
+               (setf (gethash
+                      (engine-payload-store-key (transaction-hash transaction))
+                      (engine-payload-memory-store-transaction-locations store))
+                     (make-engine-transaction-location
+                      :block block
+                      :index index
+                      :transaction transaction
+                      :receipt receipt
+                      :log-index-start log-index-start))
+               (when receipt
+                 (incf log-index-start
+                       (length (receipt-logs receipt))))))
     (if state-available-p
         (setf (gethash key
                        (engine-payload-memory-store-state-blocks store))
@@ -4194,6 +4208,84 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (transaction-encoding
       (engine-transaction-location-transaction location)))))
 
+(defun eth-rpc-receipt-gas-used (receipt previous-receipt)
+  (- (receipt-cumulative-gas-used receipt)
+     (if previous-receipt
+         (receipt-cumulative-gas-used previous-receipt)
+         0)))
+
+(defun eth-rpc-log-object
+    (log block transaction transaction-index log-index)
+  (let ((header (block-header block)))
+    (list
+     (cons "address" (address-to-hex (log-entry-address log)))
+     (cons "topics" (mapcar #'hash32-to-hex
+                            (log-entry-topics log)))
+     (cons "data" (bytes-to-hex (log-entry-data log)))
+     (cons "blockHash" (hash32-to-hex (block-hash block)))
+     (cons "blockNumber"
+           (quantity-to-hex (block-header-number header)))
+     (cons "transactionHash"
+           (hash32-to-hex (transaction-hash transaction)))
+     (cons "transactionIndex" (quantity-to-hex transaction-index))
+     (cons "logIndex" (quantity-to-hex log-index))
+     (cons "removed" :false))))
+
+(defun eth-rpc-receipt-object (location)
+  (let* ((receipt (engine-transaction-location-receipt location))
+         (block (engine-transaction-location-block location))
+         (transaction (engine-transaction-location-transaction location))
+         (index (engine-transaction-location-index location)))
+    (when receipt
+      (let* ((header (block-header block))
+             (previous-receipt
+               (when (plusp index)
+                 (nth (1- index) (block-receipts block))))
+             (from (or (transaction-sender transaction)
+                       (zero-address)))
+             (logs
+               (loop for log in (receipt-logs receipt)
+                     for log-index
+                       from (engine-transaction-location-log-index-start
+                             location)
+                     collect (eth-rpc-log-object
+                              log block transaction index log-index))))
+        (append
+         (list
+          (cons "transactionHash"
+                (hash32-to-hex (transaction-hash transaction)))
+          (cons "transactionIndex" (quantity-to-hex index))
+          (cons "blockHash" (hash32-to-hex (block-hash block)))
+          (cons "blockNumber"
+                (quantity-to-hex (block-header-number header)))
+          (cons "from" (address-to-hex from))
+          (cons "to"
+                (eth-rpc-address-or-null
+                 (nth-value 3
+                            (eth-rpc-transaction-core-fields
+                             transaction))))
+          (cons "cumulativeGasUsed"
+                (quantity-to-hex
+                 (receipt-cumulative-gas-used receipt)))
+          (cons "gasUsed"
+                (quantity-to-hex
+                 (eth-rpc-receipt-gas-used receipt previous-receipt)))
+          (cons "contractAddress" nil)
+          (cons "logs" logs)
+          (cons "logsBloom"
+                (bytes-to-hex
+                 (bloom-bytes
+                  (receipt-bloom (receipt-logs receipt)))))
+          (cons "type" (quantity-to-hex (transaction-type transaction)))
+          (cons "effectiveGasPrice"
+                (quantity-to-hex
+                 (eth-rpc-transaction-gas-price transaction header))))
+         (if (receipt-post-state receipt)
+             (list (cons "root"
+                         (bytes-to-hex (receipt-post-state receipt))))
+             (list (cons "status"
+                         (quantity-to-hex (receipt-status receipt))))))))))
+
 (defun engine-rpc-handle-eth-get-raw-transaction-by-block-number-and-index
     (params store)
   (let* ((number (eth-rpc-block-number-param
@@ -4247,6 +4339,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 params "eth_getTransactionByHash" "transaction hash"))
          (location (engine-payload-store-transaction-location store hash)))
     (eth-rpc-transaction-from-location location)))
+
+(defun engine-rpc-handle-eth-get-transaction-receipt (params store)
+  (let* ((hash (eth-rpc-hash-param
+                params "eth_getTransactionReceipt" "transaction hash"))
+         (location (engine-payload-store-transaction-location store hash)))
+    (when location
+      (eth-rpc-receipt-object location))))
 
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
@@ -4786,6 +4885,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-transaction-by-hash
+                 params store)))
+              ((string= method "eth_getTransactionReceipt")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-transaction-receipt
                  params store)))
               ((string= method
                         "eth_getRawTransactionByBlockNumberAndIndex")
