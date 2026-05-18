@@ -3881,10 +3881,27 @@
         (is (= 18 (field (second responses) "id")))
         (is (string= (quantity-to-hex 12)
                      (field (second responses) "result")))))
+    (let* ((response-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"eth_syncing\",\"params\":[]}"
+              (make-engine-payload-memory-store)
+              (make-chain-config)))
+           (response (parse-json response-json)))
+      (is (= 20 (field response "id")))
+      (is (null (field response "result")))
+      (is (search "\"result\":false" response-json)))
     (let* ((response
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":19,\"method\":\"eth_chainId\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"eth_syncing\",\"params\":[\"unexpected\"]}"
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))

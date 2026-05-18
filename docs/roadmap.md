@@ -602,6 +602,8 @@ returns `null`, while V3 keeps request order and allows per-item `null`
 partial responses. The first public `eth_*` read methods are now wired through
 the same JSON-RPC dispatcher: `eth_chainId` returns the configured EIP-155
 chain id, `eth_blockNumber` returns the current memory-store head number,
+`eth_syncing` returns JSON `false` for the current local non-networked
+memory-store execution node,
 `eth_getBalance` can read retained per-block account balance snapshots by
 block tag, number, or hash while returning `null` when the block or retained
 state is unavailable, `eth_getTransactionCount` does the same for retained
