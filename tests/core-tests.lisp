@@ -1688,12 +1688,24 @@
 
 (deftest block-access-list-rlp-decode-rejects-malformed-shape
   (signals block-validation-error
+    (block-access-list-from-rlp (make-byte-vector 0)))
+  (signals block-validation-error
     (block-access-list-from-rlp (rlp-encode (ensure-byte-vector '(1 2 3)))))
   (signals block-validation-error
     (block-access-list-from-rlp
      (rlp-encode
       (list (make-rlp-list
-             (make-byte-vector 20)))))))
+             (make-byte-vector 20))))))
+  (signals block-validation-error
+    (block-access-list-from-rlp
+     (rlp-encode
+      (list (make-rlp-list
+             (make-byte-vector 19)
+             '()
+             '()
+             '()
+             '()
+             '()))))))
 
 (deftest block-access-list-validates-account-order
   (let ((first (make-block-access-account

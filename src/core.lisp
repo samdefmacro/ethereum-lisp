@@ -2155,6 +2155,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Block access list ~A must be RLP bytes" label))
   value)
 
+(defun block-access-address-from-rlp-bytes (value label)
+  (let ((bytes (require-block-access-rlp-bytes value label)))
+    (unless (= (length bytes) 20)
+      (block-validation-fail "Block access list ~A must be exactly 20 bytes"
+                             label))
+    (make-address bytes)))
+
 (defun block-access-rlp-uint (value label)
   (bytes-to-integer (require-block-access-rlp-bytes value label)))
 
@@ -2212,9 +2219,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun decode-block-access-account-rlp-object (value)
   (let ((items (require-block-access-rlp-list-fields value 6 "account")))
     (make-block-access-account
-     :address (make-address
-               (require-block-access-rlp-bytes (first items)
-                                               "account address"))
+     :address (block-access-address-from-rlp-bytes (first items)
+                                                   "account address")
      :storage-writes
      (mapcar #'decode-block-access-slot-writes-rlp-object
              (require-block-access-rlp-list (second items)
@@ -2243,15 +2249,6 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (mapcar #'decode-block-access-account-rlp-object
           (require-block-access-rlp-list value "root")))
 
-(defun block-access-list-from-rlp
-    (bytes &key max-code-size max-items)
-  (let ((access-list (decode-block-access-list-rlp-object
-                      (rlp-decode-one bytes))))
-    (validate-block-access-list-fields access-list
-                                       :max-code-size max-code-size
-                                       :max-items max-items)
-    access-list))
-
 (defun block-access-list-hash (block-access-list)
   (validate-block-access-list-fields block-access-list)
   (keccak-256-hash (block-access-list-rlp block-access-list)))
@@ -2264,6 +2261,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun block-validation-fail (control &rest args)
   (error 'block-validation-error
          :message (apply #'format nil control args)))
+
+(defun block-access-list-from-rlp
+    (bytes &key max-code-size max-items)
+  (handler-case
+      (let ((access-list (decode-block-access-list-rlp-object
+                          (rlp-decode-one bytes))))
+        (validate-block-access-list-fields access-list
+                                           :max-code-size max-code-size
+                                           :max-items max-items)
+        access-list)
+    (block-validation-error (condition)
+      (error condition))
+    (rlp-error (condition)
+      (block-validation-fail "Invalid block access list RLP: ~A" condition))))
 
 (defun validate-byte-sequence-field (value label &key size)
   (let ((bytes (handler-case
