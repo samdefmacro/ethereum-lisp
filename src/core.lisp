@@ -2390,6 +2390,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   requests
   override-p)
 
+(defconstant +payload-status-valid+ "VALID")
+(defconstant +payload-status-invalid+ "INVALID")
+(defconstant +payload-status-syncing+ "SYNCING")
+(defconstant +payload-status-accepted+ "ACCEPTED")
+
+(defstruct (payload-status
+            (:constructor make-payload-status
+                (&key status latest-valid-hash validation-error witness)))
+  status
+  latest-valid-hash
+  validation-error
+  witness)
+
 (defun maybe-copy-bytes (bytes)
   (when bytes
     (copy-seq (ensure-byte-vector bytes))))
@@ -2617,6 +2630,32 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (unless (hash32= (block-hash block) expected-hash)
       (block-validation-fail "Executable data block hash mismatch"))
     block))
+
+(defun engine-new-payload-params-status
+    (payload &key parent-beacon-root (versioned-hashes nil)
+               (requests nil requests-supplied-p))
+  (handler-case
+      (let ((block
+              (if requests-supplied-p
+                  (executable-data-to-block
+                   payload
+                   :parent-beacon-root parent-beacon-root
+                   :versioned-hashes versioned-hashes
+                   :requests requests)
+                  (executable-data-to-block
+                   payload
+                   :parent-beacon-root parent-beacon-root
+                   :versioned-hashes versioned-hashes))))
+        (values
+         (make-payload-status :status +payload-status-valid+
+                              :latest-valid-hash (block-hash block))
+         block))
+    (block-validation-error (condition)
+      (values
+       (make-payload-status
+        :status +payload-status-invalid+
+        :validation-error (block-validation-error-message condition))
+       nil))))
 
 (defun execution-requests-hash (requests)
   (sha256-hash

@@ -2209,6 +2209,55 @@
        payload
        :versioned-hashes (list #(1 2))))))
 
+(deftest engine-new-payload-params-status-wraps-validation
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000002"))
+         (transaction (make-legacy-transaction :nonce 1
+                                               :gas-price 2
+                                               :gas-limit 21000
+                                               :to recipient
+                                               :value 4
+                                               :v 27
+                                               :r 6
+                                               :s 7))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (header (make-block-header
+                  :parent-hash (zero-hash32)
+                  :beneficiary address
+                  :state-root +empty-trie-hash+
+                  :mix-hash (zero-hash32)
+                  :number 42
+                  :gas-limit 50000
+                  :gas-used 21000
+                  :timestamp 99
+                  :base-fee-per-gas 100))
+         (source-block (make-block :header header
+                                   :transactions (list transaction)
+                                   :receipts (list receipt)))
+         (payload (execution-payload-envelope-execution-payload
+                   (block-to-executable-data source-block))))
+    (multiple-value-bind (status block)
+        (engine-new-payload-params-status payload)
+      (is (string= +payload-status-valid+ (payload-status-status status)))
+      (is (not (payload-status-validation-error status)))
+      (is (typep block 'ethereum-block))
+      (is (string= (hash32-to-hex (block-hash source-block))
+                   (hash32-to-hex
+                    (payload-status-latest-valid-hash status))))
+      (is (string= (hash32-to-hex (block-hash source-block))
+                   (hash32-to-hex (block-hash block)))))
+    (setf (executable-data-block-hash payload)
+          (hash32-from-hex
+           "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
+    (multiple-value-bind (status block)
+        (engine-new-payload-params-status payload)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (not block))
+      (is (not (payload-status-latest-valid-hash status)))
+      (is (search "block hash mismatch"
+                  (payload-status-validation-error status))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

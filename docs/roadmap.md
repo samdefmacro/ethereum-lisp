@@ -525,7 +525,9 @@ now has a helper that decodes its transaction byte list back into local
 transaction envelopes and a first no-hash conversion path back into local block
 headers/bodies, plus a hash-checking wrapper for the normal `newPayload`
 payload import path. The reverse Engine import path also checks supplied
-blob `versionedHashes` against decoded blob transactions.
+blob `versionedHashes` against decoded blob transactions, and has a first
+stateless `newPayload` parameter-status wrapper that maps local validation
+errors into Engine-style payload status objects.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.

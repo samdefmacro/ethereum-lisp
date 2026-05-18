@@ -486,10 +486,21 @@
    #:execution-payload-envelope-blobs-bundle
    #:execution-payload-envelope-requests
    #:execution-payload-envelope-override-p
+   #:+payload-status-valid+
+   #:+payload-status-invalid+
+   #:+payload-status-syncing+
+   #:+payload-status-accepted+
+   #:payload-status
+   #:make-payload-status
+   #:payload-status-status
+   #:payload-status-latest-valid-hash
+   #:payload-status-validation-error
+   #:payload-status-witness
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
    #:executable-data-to-block
+   #:engine-new-payload-params-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1174,10 +1185,21 @@
    #:execution-payload-envelope-blobs-bundle
    #:execution-payload-envelope-requests
    #:execution-payload-envelope-override-p
+   #:+payload-status-valid+
+   #:+payload-status-invalid+
+   #:+payload-status-syncing+
+   #:+payload-status-accepted+
+   #:payload-status
+   #:make-payload-status
+   #:payload-status-status
+   #:payload-status-latest-valid-hash
+   #:payload-status-validation-error
+   #:payload-status-witness
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
    #:executable-data-to-block
+   #:engine-new-payload-params-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1823,10 +1845,21 @@
    #:execution-payload-envelope-blobs-bundle
    #:execution-payload-envelope-requests
    #:execution-payload-envelope-override-p
+   #:+payload-status-valid+
+   #:+payload-status-invalid+
+   #:+payload-status-syncing+
+   #:+payload-status-accepted+
+   #:payload-status
+   #:make-payload-status
+   #:payload-status-status
+   #:payload-status-latest-valid-hash
+   #:payload-status-validation-error
+   #:payload-status-witness
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash
    #:executable-data-to-block
+   #:engine-new-payload-params-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
