@@ -3883,6 +3883,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "eth_coinbase params must be empty"))
   (address-to-hex (zero-address)))
 
+(defun engine-rpc-handle-eth-mining (params)
+  (when params
+    (block-validation-fail "eth_mining params must be empty"))
+  :false)
+
+(defun engine-rpc-handle-eth-hashrate (params)
+  (when params
+    (block-validation-fail "eth_hashrate params must be empty"))
+  (quantity-to-hex 0))
+
 (defun engine-rpc-suggest-gas-tip-cap (store)
   (declare (ignore store))
   0)
@@ -5373,6 +5383,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-coinbase params)))
+              ((string= method "eth_mining")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-mining params)))
+              ((string= method "eth_hashrate")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-hashrate params)))
               ((string= method "eth_gasPrice")
                (engine-rpc-response
                 id

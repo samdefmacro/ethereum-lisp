@@ -3902,17 +3902,27 @@
                "[{\"jsonrpc\":\"2.0\",\"id\":22,"
                "\"method\":\"eth_accounts\",\"params\":[]},"
                "{\"jsonrpc\":\"2.0\",\"id\":23,"
-               "\"method\":\"eth_coinbase\",\"params\":[]}]")
+               "\"method\":\"eth_coinbase\",\"params\":[]},"
+               "{\"jsonrpc\":\"2.0\",\"id\":41,"
+               "\"method\":\"eth_mining\",\"params\":[]},"
+               "{\"jsonrpc\":\"2.0\",\"id\":42,"
+               "\"method\":\"eth_hashrate\",\"params\":[]}]")
               (make-engine-payload-memory-store)
               (make-chain-config)))
            (responses (parse-json response-json)))
-      (is (= 2 (length responses)))
+      (is (= 4 (length responses)))
       (is (= 22 (field (first responses) "id")))
       (is (null (field (first responses) "result")))
       (is (search "\"result\":[]" response-json))
       (is (= 23 (field (second responses) "id")))
       (is (string= (address-to-hex (zero-address))
-                   (field (second responses) "result"))))
+                   (field (second responses) "result")))
+      (is (= 41 (field (third responses) "id")))
+      (is (null (field (third responses) "result")))
+      (is (search "\"id\":41,\"result\":false" response-json))
+      (is (= 42 (field (fourth responses) "id")))
+      (is (string= (quantity-to-hex 0)
+                   (field (fourth responses) "result"))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :london-block 0
                                       :cancun-time 0))
@@ -4044,6 +4054,22 @@
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"eth_coinbase\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"eth_mining\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"eth_hashrate\",\"params\":[\"unexpected\"]}"
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))

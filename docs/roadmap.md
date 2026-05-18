@@ -607,7 +607,9 @@ protocol as `0x46`/ETH70,
 `eth_syncing` returns JSON `false` for the current local non-networked
 memory-store execution node, `eth_accounts` returns an empty local-wallet
 account list until wallet support exists, `eth_coinbase` returns the zero
-address for the current non-mining local node, `eth_baseFee` estimates the
+address for the current non-mining local node, `eth_mining` reports JSON
+`false` and `eth_hashrate` reports `0x0` for that non-mining mode,
+`eth_baseFee` estimates the
 next block's EIP-1559 base fee from the current memory-store head,
 `eth_maxPriorityFeePerGas` exposes the current deterministic local tip
 suggestion, and `eth_gasPrice` combines that tip with the current head base fee
