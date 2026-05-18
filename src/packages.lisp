@@ -502,6 +502,13 @@
    #:executable-data-to-block
    #:engine-new-payload-params-status
    #:engine-new-payload-version-status
+   #:engine-payload-memory-store
+   #:make-engine-payload-memory-store
+   #:engine-payload-store-put-block
+   #:engine-payload-store-known-block
+   #:engine-payload-store-state-available-p
+   #:engine-payload-store-remote-block
+   #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1202,6 +1209,13 @@
    #:executable-data-to-block
    #:engine-new-payload-params-status
    #:engine-new-payload-version-status
+   #:engine-payload-memory-store
+   #:make-engine-payload-memory-store
+   #:engine-payload-store-put-block
+   #:engine-payload-store-known-block
+   #:engine-payload-store-state-available-p
+   #:engine-payload-store-remote-block
+   #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account
@@ -1863,6 +1877,13 @@
    #:executable-data-to-block
    #:engine-new-payload-params-status
    #:engine-new-payload-version-status
+   #:engine-payload-memory-store
+   #:make-engine-payload-memory-store
+   #:engine-payload-store-put-block
+   #:engine-payload-store-known-block
+   #:engine-payload-store-state-available-p
+   #:engine-payload-store-remote-block
+   #:engine-new-payload-memory-status
    #:execution-requests-hash
    #:block-access-account
    #:make-block-access-account

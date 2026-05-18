@@ -529,6 +529,9 @@ blob `versionedHashes` against decoded blob transactions, and has a first
 stateless `newPayload` parameter-status wrapper that maps local validation
 errors into Engine-style payload status objects. Version-specific `newPayload`
 parameter gates now cover V1 through V5 fork requirements before block import.
+A small in-memory Engine payload store now models known-block, missing-parent,
+and missing-parent-state status branches for the future database-backed import
+path.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.

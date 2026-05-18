@@ -2436,6 +2436,69 @@
       (is (string= +payload-status-invalid+ (payload-status-status status)))
       (is (not block)))))
 
+(deftest engine-new-payload-memory-status-tracks-parent-availability
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (config (make-chain-config :london-block 0))
+         (parent-header (make-block-header
+                         :parent-hash (zero-hash32)
+                         :beneficiary address
+                         :state-root +empty-trie-hash+
+                         :mix-hash (zero-hash32)
+                         :number 41
+                         :gas-limit 50000
+                         :gas-used 25000
+                         :timestamp 98
+                         :base-fee-per-gas 100))
+         (parent-block (make-block :header parent-header))
+         (child-header (make-block-header
+                        :parent-hash (block-hash parent-block)
+                        :beneficiary address
+                        :state-root +empty-trie-hash+
+                        :mix-hash (zero-hash32)
+                        :number 42
+                        :gas-limit 50000
+                        :gas-used 0
+                        :timestamp 99
+                        :base-fee-per-gas 100))
+         (child-block (make-block :header child-header))
+         (payload (execution-payload-envelope-execution-payload
+                   (block-to-executable-data child-block)))
+         (missing-parent-store (make-engine-payload-memory-store))
+         (missing-state-store (make-engine-payload-memory-store))
+         (ready-store (make-engine-payload-memory-store)))
+    (multiple-value-bind (status block)
+        (engine-new-payload-memory-status
+         missing-parent-store 1 payload config)
+      (is (string= +payload-status-syncing+ (payload-status-status status)))
+      (is (typep block 'ethereum-block))
+      (is (engine-payload-store-remote-block
+           missing-parent-store
+           (block-hash child-block))))
+    (engine-payload-store-put-block missing-state-store parent-block)
+    (multiple-value-bind (status block)
+        (engine-new-payload-memory-status
+         missing-state-store 1 payload config)
+      (is (string= +payload-status-accepted+ (payload-status-status status)))
+      (is (typep block 'ethereum-block))
+      (is (engine-payload-store-remote-block
+           missing-state-store
+           (block-hash child-block))))
+    (engine-payload-store-put-block
+     ready-store parent-block :state-available-p t)
+    (multiple-value-bind (status block)
+        (engine-new-payload-memory-status ready-store 1 payload config)
+      (is (string= +payload-status-valid+ (payload-status-status status)))
+      (is (string= (hash32-to-hex (block-hash child-block))
+                   (hash32-to-hex
+                    (payload-status-latest-valid-hash status))))
+      (is (typep block 'ethereum-block))
+      (is (engine-payload-store-known-block ready-store
+                                            (block-hash child-block))))
+    (multiple-value-bind (status block)
+        (engine-new-payload-memory-status ready-store 1 payload config)
+      (is (string= +payload-status-valid+ (payload-status-status status)))
+      (is (typep block 'ethereum-block)))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

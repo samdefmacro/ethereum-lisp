@@ -2768,6 +2768,133 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        :parent-beacon-root parent-beacon-root
        :versioned-hashes versioned-hashes)))
 
+(defstruct (engine-payload-memory-store
+            (:constructor make-engine-payload-memory-store
+                (&key (blocks (make-hash-table :test 'equal))
+                      (state-blocks (make-hash-table :test 'equal))
+                      (remote-blocks (make-hash-table :test 'equal)))))
+  blocks
+  state-blocks
+  remote-blocks)
+
+(defun engine-payload-store-key (hash)
+  (unless (hash32-p hash)
+    (block-validation-fail "Engine payload store key must be a hash32"))
+  (hash32-to-hex hash))
+
+(defun engine-payload-store-put-block
+    (store block &key (state-available-p nil))
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "Engine payload store block must be a block"))
+  (let ((key (engine-payload-store-key (block-hash block))))
+    (setf (gethash key (engine-payload-memory-store-blocks store)) block)
+    (if state-available-p
+        (setf (gethash key
+                       (engine-payload-memory-store-state-blocks store))
+              t)
+        (remhash key (engine-payload-memory-store-state-blocks store)))
+    block))
+
+(defun engine-payload-store-known-block
+    (store hash)
+  (gethash (engine-payload-store-key hash)
+           (engine-payload-memory-store-blocks store)))
+
+(defun engine-payload-store-state-available-p
+    (store hash)
+  (not (null
+        (gethash (engine-payload-store-key hash)
+                 (engine-payload-memory-store-state-blocks store)))))
+
+(defun engine-payload-store-remote-block
+    (store hash)
+  (gethash (engine-payload-store-key hash)
+           (engine-payload-memory-store-remote-blocks store)))
+
+(defun engine-payload-store-put-remote-block
+    (store block)
+  (setf (gethash (engine-payload-store-key (block-hash block))
+                 (engine-payload-memory-store-remote-blocks store))
+        block)
+  block)
+
+(defun engine-new-payload-memory-status
+    (store version payload config
+     &key (parent-beacon-root nil parent-beacon-root-supplied-p)
+          (versioned-hashes nil versioned-hashes-supplied-p)
+          (requests nil requests-supplied-p)
+          (import-state-available-p t))
+  (unless (typep store 'engine-payload-memory-store)
+    (return-from engine-new-payload-memory-status
+      (values (invalid-payload-status
+               "newPayload store must be engine-payload-memory-store")
+              nil)))
+  (multiple-value-bind (status block)
+      (if requests-supplied-p
+          (engine-new-payload-version-status
+           version payload config
+           :parent-beacon-root parent-beacon-root
+           :versioned-hashes versioned-hashes
+           :requests requests)
+          (engine-new-payload-version-status
+           version payload config
+           :parent-beacon-root parent-beacon-root
+           :versioned-hashes versioned-hashes))
+    (unless (string= +payload-status-valid+
+                     (payload-status-status status))
+      (return-from engine-new-payload-memory-status
+        (values status nil)))
+    (let* ((hash (block-hash block))
+           (known-block (engine-payload-store-known-block store hash)))
+      (when known-block
+        (return-from engine-new-payload-memory-status
+          (values (make-payload-status
+                   :status +payload-status-valid+
+                   :latest-valid-hash hash)
+                  known-block)))
+      (let* ((header (block-header block))
+             (number (block-header-number header))
+             (parent-hash (block-header-parent-hash header))
+             (parent-block (and (plusp number)
+                                (engine-payload-store-known-block
+                                 store parent-hash))))
+        (when (and (plusp number) (null parent-block))
+          (engine-payload-store-put-remote-block store block)
+          (return-from engine-new-payload-memory-status
+            (values (make-payload-status :status +payload-status-syncing+)
+                    block)))
+        (when (and parent-block
+                   (not (engine-payload-store-state-available-p
+                         store parent-hash)))
+          (engine-payload-store-put-remote-block store block)
+          (return-from engine-new-payload-memory-status
+            (values (make-payload-status :status +payload-status-accepted+)
+                    block)))
+        (when parent-block
+          (handler-case
+              (validate-block-against-config
+               (block-header parent-block)
+               block
+               config)
+            (block-validation-error (condition)
+              (return-from engine-new-payload-memory-status
+                (values
+                 (make-payload-status
+                  :status +payload-status-invalid+
+                  :latest-valid-hash parent-hash
+                  :validation-error
+                  (block-validation-error-message condition))
+                 nil)))))
+        (engine-payload-store-put-block
+         store block
+         :state-available-p import-state-available-p)
+        (values (make-payload-status
+                 :status +payload-status-valid+
+                 :latest-valid-hash hash)
+                block)))))
+
 (defun execution-requests-hash (requests)
   (sha256-hash
    (apply #'concat-bytes
