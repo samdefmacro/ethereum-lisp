@@ -996,6 +996,14 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
+(deftest block-body-validates-transaction-recipient-before-root-derivation
+  (let* ((block (make-block))
+         (bad-recipient-tx
+           (make-legacy-transaction :to #(1 2 3))))
+    (setf (block-transactions block) (list bad-recipient-tx))
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-body-validates-set-code-fields-before-root-derivation
   (let* ((recipient (address-from-hex
                      "0x0000000000000000000000000000000000000001"))

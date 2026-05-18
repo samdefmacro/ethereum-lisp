@@ -238,6 +238,9 @@ transaction root derivation.
 Transaction data fields are now normalized through byte-sequence validation
 before intrinsic gas calculation, sender gas purchase, or transaction root
 derivation.
+Transaction recipient fields are also validated before transaction root
+derivation, and message execution rejects non-address recipients before sender
+nonce or balance mutation.
 A first-pass chain configuration model is present for block-number forks
 through London and timestamp forks through Prague, including geth-compatible
 activation predicates and config-driven header validation for Shanghai,

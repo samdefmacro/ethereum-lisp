@@ -197,6 +197,13 @@
       (error 'transaction-validation-error
              :message "Transaction data must be a byte sequence"))))
 
+(defun validate-transaction-recipient-field (tx)
+  (let ((recipient (transaction-to tx)))
+    (unless (or (null recipient) (address-p recipient))
+      (error 'transaction-validation-error
+             :message "Transaction recipient must be an address or nil")))
+  t)
+
 (defun validate-set-code-transaction-fields (tx)
   (when (typep tx 'set-code-transaction)
     (unless (transaction-to tx)
@@ -572,6 +579,7 @@
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
   (validate-execution-transaction-type tx effective-chain-rules)
+  (validate-transaction-recipient-field tx)
   (validate-transaction-data-field tx)
   (validate-access-list-fields tx)
   (when (typep tx 'blob-transaction)

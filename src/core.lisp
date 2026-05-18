@@ -1494,6 +1494,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (error ()
       (block-validation-fail "Transaction data must be a byte sequence"))))
 
+(defun validate-transaction-recipient-field (transaction)
+  (handler-case
+      (progn
+        (transaction-to-bytes (transaction-to transaction))
+        t)
+    (error ()
+      (block-validation-fail
+       "Transaction recipient must be nil or a 20-byte value"))))
+
 (defun validate-access-list-fields (transaction)
   (dolist (entry (transaction-access-list transaction) t)
     (unless (typep entry 'access-list-entry)
@@ -1653,6 +1662,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            :update-fraction
                            blob-base-fee-update-fraction))))
     (dolist (transaction transactions)
+      (validate-transaction-recipient-field transaction)
       (validate-transaction-data-field transaction)
       (validate-access-list-fields transaction)
       (validate-set-code-transaction-fields transaction)
