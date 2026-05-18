@@ -557,7 +557,10 @@ store and returns a geth/Nethermind-shaped payload envelope with
 `executionPayload` and `blockValue`. `engine_getPayloadBodiesByHashV1` can now
 serve transaction/withdrawal bodies from the same memory store, preserving
 request order, returning `null` for unknown hashes, and rejecting over-1024
-body requests with Engine `Too large request` error code `-38004`; payload build
+body requests with Engine `Too large request` error code `-38004`.
+`engine_getPayloadBodiesByRangeV1` is also present with a first memory-store
+block-number index, positive start/count validation, head-number clipping, and
+the same 1024-body limit; payload build
 requests with semantically invalid V1 attributes, such as a timestamp not
 greater than the parent head, now report Engine API `Invalid payload attributes`
 with error code `-38003`. A first HTTP POST adapter now

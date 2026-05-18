@@ -2855,11 +2855,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defstruct (engine-payload-memory-store
             (:constructor make-engine-payload-memory-store
                 (&key (blocks (make-hash-table :test 'equal))
+                      (number-blocks (make-hash-table :test 'eql))
+                      (head-number 0)
                       (state-blocks (make-hash-table :test 'equal))
                       (remote-blocks (make-hash-table :test 'equal))
                       (invalid-tipsets (make-hash-table :test 'equal))
                       (prepared-payloads (make-hash-table :test 'equal)))))
   blocks
+  number-blocks
+  (head-number 0 :type (integer 0 *))
   state-blocks
   remote-blocks
   invalid-tipsets
@@ -2878,6 +2882,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Engine payload store block must be a block"))
   (let ((key (engine-payload-store-key (block-hash block))))
     (setf (gethash key (engine-payload-memory-store-blocks store)) block)
+    (let ((number (block-header-number (block-header block))))
+      (when (and (integerp number) (not (minusp number)))
+        (setf (gethash number
+                       (engine-payload-memory-store-number-blocks store))
+              block)
+        (when (> number (engine-payload-memory-store-head-number store))
+          (setf (engine-payload-memory-store-head-number store) number))))
     (if state-available-p
         (setf (gethash key
                        (engine-payload-memory-store-state-blocks store))
@@ -2889,6 +2900,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (store hash)
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-blocks store)))
+
+(defun engine-payload-store-block-by-number (store number)
+  (unless (and (integerp number) (not (minusp number)))
+    (block-validation-fail "Engine payload store block number must be non-negative"))
+  (gethash number (engine-payload-memory-store-number-blocks store)))
 
 (defun engine-payload-store-state-available-p
     (store hash)
@@ -3270,6 +3286,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   '("engine_exchangeTransitionConfigurationV1"
     "engine_forkchoiceUpdatedV1"
     "engine_getPayloadBodiesByHashV1"
+    "engine_getPayloadBodiesByRangeV1"
     "engine_getPayloadV1"
     "engine_getPayloadV2"
     "engine_getClientVersionV1"
@@ -3479,6 +3496,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   (engine-rpc-payload-body-v1-object block))))
             hashes)))
 
+(defun engine-rpc-quantity-param (params index label method)
+  (parse-genesis-quantity
+   (engine-rpc-required-param params index label method)
+   label
+   :required-p t))
+
+(defun engine-rpc-handle-get-payload-bodies-by-range-v1 (params store)
+  (unless (and (listp params) params)
+    (block-validation-fail
+     "engine_getPayloadBodiesByRangeV1 params must include start and count"))
+  (let ((start (engine-rpc-quantity-param
+                params 0 "start" "engine_getPayloadBodiesByRangeV1"))
+        (count (engine-rpc-quantity-param
+                params 1 "count" "engine_getPayloadBodiesByRangeV1")))
+    (unless (and (plusp start) (plusp count))
+      (block-validation-fail "start and count must be positive numbers"))
+    (when (> count +engine-rpc-max-payload-bodies-request+)
+      (engine-rpc-fail
+       +engine-rpc-error-too-large-request+
+       "The number of requested bodies must not exceed 1024"))
+    (let* ((head (engine-payload-memory-store-head-number store))
+           (last (min (+ start count -1) head)))
+      (if (< last start)
+          '()
+          (loop for number from start to last
+                collect
+                (let ((block (engine-payload-store-block-by-number
+                              store number)))
+                  (when block
+                    (engine-rpc-payload-body-v1-object block))))))))
+
 (defun engine-rpc-handle-forkchoice-updated-v1 (params store)
   (unless (and (listp params) params)
     (block-validation-fail
@@ -3601,6 +3649,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-get-payload-bodies-by-hash-v1
+                 params store)))
+              ((string= method "engine_getPayloadBodiesByRangeV1")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-get-payload-bodies-by-range-v1
                  params store)))
               ((string= method "engine_getClientVersionV1")
                (engine-rpc-response

@@ -2961,6 +2961,78 @@
         (is (string= "The number of requested bodies must not exceed 1024"
                      (field error "message")))))))
 
+(deftest engine-rpc-get-payload-bodies-by-range-v1-returns-bodies
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (numbered-block (number &key transactions withdrawals)
+             (make-block
+              :header (make-block-header :number number
+                                         :timestamp number)
+              :transactions transactions
+              :withdrawals withdrawals)))
+    (let* ((recipient
+             (address-from-hex "0x0000000000000000000000000000000000000004"))
+           (transaction
+             (make-legacy-transaction :nonce 2
+                                      :gas-price 3
+                                      :gas-limit 21000
+                                      :to recipient
+                                      :value 5
+                                      :v 27
+                                      :r 8
+                                      :s 9))
+           (block-1 (numbered-block 1 :transactions (list transaction)))
+           (block-2 (numbered-block 2 :withdrawals '()))
+           (block-4 (numbered-block 4 :transactions '()))
+           (store (make-engine-payload-memory-store))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block-1 :state-available-p t)
+      (engine-payload-store-put-block store block-2 :state-available-p t)
+      (engine-payload-store-put-block store block-4 :state-available-p t)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 30)
+                      (cons "method" "engine_getPayloadBodiesByRangeV1")
+                      (cons "params" (list "0x1" "0x4")))
+                store
+                config))
+             (bodies (field response "result"))
+             (first-body (first bodies))
+             (second-body (second bodies))
+             (fourth-body (fourth bodies)))
+        (is (= 30 (field response "id")))
+        (is (= 4 (length bodies)))
+        (is (string= (bytes-to-hex (transaction-encoding transaction))
+                     (first (field first-body "transactions"))))
+        (is (not (field first-body "withdrawals")))
+        (is (not (field second-body "transactions")))
+        (is (listp (field second-body "withdrawals")))
+        (is (not (third bodies)))
+        (is (not (field fourth-body "transactions"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 31)
+                      (cons "method" "engine_getPayloadBodiesByRangeV1")
+                      (cons "params" (list "0x0" "0x1")))
+                store
+                config))
+             (error (field response "error")))
+        (is (= -32602 (field error "code"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 32)
+                      (cons "method" "engine_getPayloadBodiesByRangeV1")
+                      (cons "params" (list 1 1025)))
+                store
+                config))
+             (error (field response "error")))
+        (is (= -38004 (field error "code")))
+        (is (string= "The number of requested bodies must not exceed 1024"
+                     (field error "message")))))))
+
 (deftest engine-rpc-exchange-capabilities-advertises-supported-methods
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -2978,6 +3050,9 @@
       (is (member "engine_getPayloadV1" capabilities :test #'string=))
       (is (member "engine_getPayloadV2" capabilities :test #'string=))
       (is (member "engine_getPayloadBodiesByHashV1"
+                  capabilities
+                  :test #'string=))
+      (is (member "engine_getPayloadBodiesByRangeV1"
                   capabilities
                   :test #'string=))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))
