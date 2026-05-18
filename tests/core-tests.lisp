@@ -3908,6 +3908,83 @@
       (is (= 23 (field (second responses) "id")))
       (is (string= (address-to-hex (zero-address))
                    (field (second responses) "result"))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :london-block 0
+                                      :cancun-time 0))
+           (head
+             (make-block
+              :header (make-block-header
+                       :number 30
+                       :timestamp 9
+                       :gas-limit 200
+                       :gas-used 150
+                       :base-fee-per-gas 1000
+                       :blob-gas-used 0
+                       :excess-blob-gas 0))))
+      (engine-payload-store-put-block store head)
+      (let* ((responses
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "[{\"jsonrpc\":\"2.0\",\"id\":26,"
+                  "\"method\":\"eth_baseFee\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":27,"
+                  "\"method\":\"eth_blobBaseFee\",\"params\":[]}]")
+                 store
+                 config))))
+        (is (= 2 (length responses)))
+        (is (= 26 (field (first responses) "id")))
+        (is (string= (quantity-to-hex
+                      (expected-base-fee-per-gas (block-header head)))
+                     (field (first responses) "result")))
+        (is (= 27 (field (second responses) "id")))
+        (is (string= (quantity-to-hex
+                      (block-header-blob-base-fee (block-header head)))
+                     (field (second responses) "result")))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":28,\"method\":\"eth_baseFee\",\"params\":[]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config :london-block 0)))))
+      (is (= 28 (field response "id")))
+      (is (null (field response "result"))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :london-block nil))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 2
+                       :timestamp 5
+                       :gas-limit 200
+                       :gas-used 100))))
+      (engine-payload-store-put-block store block)
+      (let ((response
+              (parse-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":29,\"method\":\"eth_baseFee\",\"params\":[]}"
+                store
+                config))))
+        (is (= 29 (field response "id")))
+        (is (null (field response "result")))))
+    (let* ((store (make-engine-payload-memory-store))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 3
+                       :timestamp 5
+                       :gas-limit 200
+                       :gas-used 100))))
+      (engine-payload-store-put-block store block)
+      (let ((response
+              (parse-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"eth_blobBaseFee\",\"params\":[]}"
+                store
+                (make-chain-config :cancun-time 0)))))
+        (is (= 30 (field response "id")))
+        (is (null (field response "result")))))
     (let* ((response
              (parse-json
               (engine-rpc-handle-request-json
@@ -3936,6 +4013,22 @@
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"eth_coinbase\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"eth_baseFee\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"eth_blobBaseFee\",\"params\":[\"unexpected\"]}"
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))

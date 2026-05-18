@@ -3877,6 +3877,41 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "eth_coinbase params must be empty"))
   (address-to-hex (zero-address)))
 
+(defun engine-payload-store-head-block (store)
+  (engine-payload-store-block-by-number
+   store
+   (engine-payload-memory-store-head-number store)))
+
+(defun engine-rpc-handle-eth-base-fee (params store config)
+  (when params
+    (block-validation-fail "eth_baseFee params must be empty"))
+  (let ((head (engine-payload-store-head-block store)))
+    (when (and head
+               (chain-config-london-p
+                config
+                (1+ (block-header-number (block-header head)))))
+      (quantity-to-hex
+       (expected-base-fee-per-gas
+        (block-header head)
+        :london-parent-p
+        (not (null (block-header-base-fee-per-gas (block-header head)))))))))
+
+(defun engine-rpc-handle-eth-blob-base-fee (params store config)
+  (when params
+    (block-validation-fail "eth_blobBaseFee params must be empty"))
+  (let* ((head (engine-payload-store-head-block store))
+         (header (and head (block-header head))))
+    (when (and header (block-header-excess-blob-gas header))
+      (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+          (chain-config-blob-schedule
+           config
+           (block-header-number header)
+           (block-header-timestamp header))
+        (declare (ignore target-blob-gas max-blob-gas))
+        (quantity-to-hex
+         (block-header-blob-base-fee
+          header :update-fraction update-fraction))))))
+
 (defun eth-rpc-address-param (value method label)
   (handler-case
       (engine-rpc-address value label)
@@ -5161,6 +5196,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-coinbase params)))
+              ((string= method "eth_baseFee")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-base-fee params store config)))
+              ((string= method "eth_blobBaseFee")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-blob-base-fee params store config)))
               ((string= method "eth_getBalance")
                (engine-rpc-response
                 id

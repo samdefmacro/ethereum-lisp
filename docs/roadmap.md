@@ -605,7 +605,10 @@ chain id, `eth_blockNumber` returns the current memory-store head number,
 `eth_syncing` returns JSON `false` for the current local non-networked
 memory-store execution node, `eth_accounts` returns an empty local-wallet
 account list until wallet support exists, `eth_coinbase` returns the zero
-address for the current non-mining local node,
+address for the current non-mining local node, `eth_baseFee` estimates the
+next block's EIP-1559 base fee from the current memory-store head, and
+`eth_blobBaseFee` exposes the current head blob base fee when Cancun blob-gas
+fields are present,
 `eth_getBalance` can read retained per-block account balance snapshots by
 block tag, number, or hash while returning `null` when the block or retained
 state is unavailable, `eth_getTransactionCount` does the same for retained
