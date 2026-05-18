@@ -665,8 +665,10 @@ log objects and empty JSON arrays for no matches. `eth_sendRawTransaction` now
 decodes raw transaction bytes, records the decoded transaction in a local
 pending-transaction placeholder, and returns the transaction hash; locally
 submitted pending raw bytes are also visible through
-`eth_getRawTransactionByHash`. Structured pending transaction objects and full
-txpool admission rules remain a later networking/txpool slice.
+`eth_getRawTransactionByHash`, while `eth_getTransactionByHash` now returns a
+geth-style pending transaction object with null block location metadata for
+those locally submitted transactions. Full txpool admission rules remain a
+later networking/txpool slice.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

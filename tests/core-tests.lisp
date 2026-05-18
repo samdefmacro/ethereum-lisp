@@ -5460,20 +5460,41 @@
                   "\"params\":[\"" transaction-hash "\"]}")
                  store
                  config)))
+             (transaction-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":62,"
+                  "\"method\":\"eth_getTransactionByHash\","
+                  "\"params\":[\"" transaction-hash "\"]}")
+                 store
+                 config)))
              (invalid-rlp-response
                (parse-json
                 (engine-rpc-handle-request-json
-                 "{\"jsonrpc\":\"2.0\",\"id\":62,\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x01\"]}"
+                 "{\"jsonrpc\":\"2.0\",\"id\":63,\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x01\"]}"
                  store
                  config)))
              (invalid-count-response
                (parse-json
                 (engine-rpc-handle-request-json
-                 "{\"jsonrpc\":\"2.0\",\"id\":63,\"method\":\"eth_sendRawTransaction\",\"params\":[]}"
+                 "{\"jsonrpc\":\"2.0\",\"id\":64,\"method\":\"eth_sendRawTransaction\",\"params\":[]}"
                  store
                  config))))
         (is (string= transaction-hash (field send-response "result")))
         (is (string= raw-transaction (field raw-response "result")))
+        (let ((pending-transaction (field transaction-response "result")))
+          (is (string= transaction-hash
+                       (field pending-transaction "hash")))
+          (is (null (field pending-transaction "blockHash")))
+          (is (null (field pending-transaction "blockNumber")))
+          (is (null (field pending-transaction "blockTimestamp")))
+          (is (null (field pending-transaction "transactionIndex")))
+          (is (string= (quantity-to-hex 11)
+                       (field pending-transaction "gasPrice")))
+          (is (string= (quantity-to-hex 13)
+                       (field pending-transaction "value"))))
         (is (= -32602
                (field (field invalid-rlp-response "error") "code")))
         (is (= -32602

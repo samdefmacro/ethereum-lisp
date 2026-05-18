@@ -4498,6 +4498,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun eth-rpc-transaction-gas-price (transaction header)
   (if (or (typep transaction 'legacy-transaction)
           (typep transaction 'access-list-transaction)
+          (not header)
           (not (block-header-base-fee-per-gas header)))
       (transaction-max-fee-per-gas transaction)
       (transaction-effective-gas-price
@@ -4584,16 +4585,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      transaction)))))))
 
 (defun eth-rpc-transaction-object (transaction block index)
-  (let ((header (block-header block)))
+  (let ((header (when block
+                  (block-header block))))
     (multiple-value-bind (nonce gas-price gas-limit to value data v r s)
         (eth-rpc-transaction-core-fields transaction)
       (append
        (list
-        (cons "blockHash" (hash32-to-hex (block-hash block)))
+        (cons "blockHash" (when block
+                            (hash32-to-hex (block-hash block))))
         (cons "blockNumber"
-              (quantity-to-hex (block-header-number header)))
+              (when header
+                (quantity-to-hex (block-header-number header))))
         (cons "blockTimestamp"
-              (quantity-to-hex (block-header-timestamp header)))
+              (when header
+                (quantity-to-hex (block-header-timestamp header))))
         (cons "from"
               (address-to-hex
                (or (transaction-sender transaction)
@@ -4606,7 +4611,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (cons "input" (bytes-to-hex data))
         (cons "nonce" (quantity-to-hex nonce))
         (cons "to" (eth-rpc-address-or-null to))
-        (cons "transactionIndex" (quantity-to-hex index))
+        (cons "transactionIndex" (when index
+                                   (quantity-to-hex index)))
         (cons "value" (quantity-to-hex value))
         (cons "type" (quantity-to-hex (transaction-type transaction))))
        (eth-rpc-transaction-type-fields transaction)
@@ -4626,6 +4632,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (engine-transaction-location-transaction location)
      (engine-transaction-location-block location)
      (engine-transaction-location-index location))))
+
+(defun eth-rpc-pending-transaction-object (transaction)
+  (when transaction
+    (eth-rpc-transaction-object transaction nil nil)))
 
 (defun eth-rpc-raw-transaction-from-location (location)
   (when location
@@ -4945,7 +4955,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((hash (eth-rpc-hash-param
                 params "eth_getTransactionByHash" "transaction hash"))
          (location (engine-payload-store-transaction-location store hash)))
-    (eth-rpc-transaction-from-location location)))
+    (or (eth-rpc-transaction-from-location location)
+        (eth-rpc-pending-transaction-object
+         (engine-payload-store-pending-transaction store hash)))))
 
 (defun engine-rpc-handle-eth-get-transaction-receipt (params store)
   (let* ((hash (eth-rpc-hash-param
