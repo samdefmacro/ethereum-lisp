@@ -161,6 +161,7 @@
    #:chain-config-cancun-p
    #:chain-config-prague-p
    #:chain-config-osaka-p
+   #:chain-config-expanded-blob-schedule-p
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -179,6 +180,7 @@
    #:chain-rules-cancun-p
    #:chain-rules-prague-p
    #:chain-rules-osaka-p
+   #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-transaction-type-supported-p
    #:state-account
    #:make-state-account
@@ -635,6 +637,7 @@
    #:chain-config-cancun-p
    #:chain-config-prague-p
    #:chain-config-osaka-p
+   #:chain-config-expanded-blob-schedule-p
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -653,6 +656,7 @@
    #:chain-rules-cancun-p
    #:chain-rules-prague-p
    #:chain-rules-osaka-p
+   #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-transaction-type-supported-p
    #:state-account
    #:make-state-account
@@ -1070,6 +1074,7 @@
    #:chain-config-cancun-p
    #:chain-config-prague-p
    #:chain-config-osaka-p
+   #:chain-config-expanded-blob-schedule-p
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1088,6 +1093,7 @@
    #:chain-rules-cancun-p
    #:chain-rules-prague-p
    #:chain-rules-osaka-p
+   #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-transaction-type-supported-p
    #:state-account
    #:make-state-account

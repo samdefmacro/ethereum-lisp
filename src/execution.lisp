@@ -418,7 +418,7 @@
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
     (if (and effective-chain-rules
-             (chain-rules-osaka-p effective-chain-rules))
+             (chain-rules-expanded-blob-schedule-p effective-chain-rules))
         +osaka-blob-base-fee-update-fraction+
         +blob-base-fee-update-fraction+)))
 
@@ -430,7 +430,7 @@
                                         block-number
                                         timestamp)))
            (and effective-chain-rules
-                (chain-rules-osaka-p effective-chain-rules)))
+                (chain-rules-expanded-blob-schedule-p effective-chain-rules)))
          +osaka-max-blobs-per-block+
          +max-blobs-per-block+)
      +blob-gas-per-blob+))

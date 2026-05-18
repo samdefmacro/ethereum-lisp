@@ -141,6 +141,14 @@
   (and (chain-config-london-p config block-number)
        (fork-time-active-p (chain-config-osaka-time config) timestamp)))
 
+(defun chain-config-expanded-blob-schedule-p (config block-number timestamp)
+  (or (chain-config-prague-p config block-number timestamp)
+      (chain-config-osaka-p config block-number timestamp)))
+
+(defun chain-rules-expanded-blob-schedule-p (rules)
+  (or (chain-rules-prague-p rules)
+      (chain-rules-osaka-p rules)))
+
 (defun chain-config-rules (config block-number timestamp)
   (make-chain-rules
    :chain-id (chain-config-chain-id config)
@@ -1454,7 +1462,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           cancun-enabled-p-supplied-p)
                          (requests-enabled-p nil
                           requests-enabled-p-supplied-p)
-                         osaka-enabled-p
+                         (osaka-enabled-p nil)
+                         (expanded-blob-schedule-p nil
+                          expanded-blob-schedule-p-supplied-p)
                          (post-merge-p nil post-merge-p-supplied-p))
   (validate-block-header-field-shapes parent-header)
   (validate-block-header-field-shapes header :require-parent-hash-p t)
@@ -1474,6 +1484,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (if requests-enabled-p-supplied-p
               requests-enabled-p
               (block-header-requests-hash header)))
+        (expanded-blob-schedule-p
+          (if expanded-blob-schedule-p-supplied-p
+              expanded-blob-schedule-p
+              osaka-enabled-p))
         (post-merge-p
           (if post-merge-p-supplied-p
               post-merge-p
@@ -1501,17 +1515,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail "Extra data too long"))
     (if cancun-enabled-p
         (let ((target-blob-gas
-                (* (if osaka-enabled-p
+                (* (if expanded-blob-schedule-p
                        +osaka-target-blobs-per-block+
                        +target-blobs-per-block+)
                    +blob-gas-per-blob+))
               (max-blob-gas
-                (* (if osaka-enabled-p
+                (* (if expanded-blob-schedule-p
                        +osaka-max-blobs-per-block+
                        +max-blobs-per-block+)
                    +blob-gas-per-blob+))
               (update-fraction
-                (if osaka-enabled-p
+                (if expanded-blob-schedule-p
                     +osaka-blob-base-fee-update-fraction+
                     +blob-base-fee-update-fraction+)))
           (validate-block-cancun-fields header :cancun-enabled-p t)
@@ -1545,6 +1559,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :cancun-enabled-p (chain-config-cancun-p config number timestamp)
      :requests-enabled-p (chain-config-prague-p config number timestamp)
      :osaka-enabled-p (chain-config-osaka-p config number timestamp)
+     :expanded-blob-schedule-p
+     (chain-config-expanded-blob-schedule-p config number timestamp)
      :post-merge-p (block-header-post-merge-p header))))
 
 (defun hash32= (left right)
@@ -1851,11 +1867,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (number (block-header-number header))
          (timestamp (block-header-timestamp header))
          (update-fraction
-           (if (chain-config-osaka-p config number timestamp)
+           (if (chain-config-expanded-blob-schedule-p config number timestamp)
                +osaka-blob-base-fee-update-fraction+
                +blob-base-fee-update-fraction+))
          (max-blob-gas
-           (* (if (chain-config-osaka-p config number timestamp)
+           (* (if (chain-config-expanded-blob-schedule-p config number timestamp)
                   +osaka-max-blobs-per-block+
                   +max-blobs-per-block+)
               +blob-gas-per-blob+)))

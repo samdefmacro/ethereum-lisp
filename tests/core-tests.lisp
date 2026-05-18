@@ -381,6 +381,8 @@
     (is (chain-config-cancun-p config 10 200))
     (is (not (chain-config-prague-p config 10 299)))
     (is (chain-config-prague-p config 10 300))
+    (is (not (chain-config-expanded-blob-schedule-p config 10 299)))
+    (is (chain-config-expanded-blob-schedule-p config 10 300))
     (is (not (chain-config-osaka-p config 10 399)))
     (is (chain-config-osaka-p config 10 400))
     (is (not (chain-config-petersburg-p config 6)))
@@ -423,7 +425,9 @@
     (is (chain-rules-cancun-p prague-rules))
     (is (chain-rules-prague-p prague-rules))
     (is (not (chain-rules-osaka-p prague-rules)))
+    (is (chain-rules-expanded-blob-schedule-p prague-rules))
     (is (chain-rules-osaka-p osaka-rules))
+    (is (chain-rules-expanded-blob-schedule-p osaka-rules))
     (is (chain-rules-transaction-type-supported-p prague-rules blob))
     (is (chain-rules-transaction-type-supported-p prague-rules set-code))))
 
@@ -714,6 +718,16 @@
            parent
            (child :timestamp 300
                   :blob-gas-used 0
+                  :excess-blob-gas 0
+                  :parent-beacon-root (zero-hash32)
+                  :withdrawals-root (withdrawal-list-root '())
+                  :requests-hash (execution-requests-hash '()))
+           config))
+      (is (validate-block-header-against-config
+           parent
+           (child :timestamp 300
+                  :blob-gas-used (* +osaka-max-blobs-per-block+
+                                    +blob-gas-per-blob+)
                   :excess-blob-gas 0
                   :parent-beacon-root (zero-hash32)
                   :withdrawals-root (withdrawal-list-root '())
@@ -1381,6 +1395,37 @@
          (config (make-chain-config :london-block 0
                                     :cancun-time 0
                                     :osaka-time 10))
+         (transactions
+           (list (make-blob-transaction :to address
+                                        :max-fee-per-blob-gas 1
+                                        :blob-versioned-hashes six-hashes)
+                 (make-blob-transaction :to address
+                                        :max-fee-per-blob-gas 1
+                                        :blob-versioned-hashes three-hashes)))
+         (block (make-block :header (make-block-header
+                                      :number 1
+                                      :timestamp 10
+                                      :blob-gas-used
+                                      (* +osaka-max-blobs-per-block+
+                                         +blob-gas-per-blob+)
+                                      :excess-blob-gas 0)
+                            :transactions transactions)))
+    (signals block-validation-error
+      (validate-block-body-roots block))
+    (is (validate-block-body-against-config block config))))
+
+(deftest prague-block-body-uses-expanded-blob-schedule
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (blob-hash (hash32-from-hex
+                     "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (six-hashes (loop repeat +max-blobs-per-block+
+                           collect blob-hash))
+         (three-hashes (loop repeat (- +osaka-max-blobs-per-block+
+                                       +max-blobs-per-block+)
+                             collect blob-hash))
+         (config (make-chain-config :london-block 0
+                                    :cancun-time 0
+                                    :prague-time 10))
          (transactions
            (list (make-blob-transaction :to address
                                         :max-fee-per-blob-gas 1

@@ -2379,6 +2379,47 @@
              (state-account-balance
               (state-db-get-account state sender)))))))
 
+(deftest blob-block-execution-uses-prague-blob-schedule
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (blob-hash (hash32-from-hex
+                     "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
+         (config (make-chain-config :london-block 0
+                                    :cancun-time 0
+                                    :prague-time 10))
+         (header (make-block-header :number 1
+                                    :timestamp 10
+                                    :gas-limit 100000
+                                    :base-fee-per-gas 2
+                                    :blob-gas-used +blob-gas-per-blob+
+                                    :excess-blob-gas 2314058
+                                    :parent-beacon-root (zero-hash32)
+                                    :requests-hash (execution-requests-hash
+                                                    '())))
+         (transaction (make-blob-transaction
+                       :nonce 0
+                       :max-priority-fee-per-gas 1
+                       :max-fee-per-gas 10
+                       :gas-limit 21000
+                       :to recipient
+                       :max-fee-per-blob-gas 1
+                       :blob-versioned-hashes (list blob-hash))))
+    (state-db-set-account state sender
+                          (make-state-account :balance 1000000))
+    (multiple-value-bind (block receipts)
+        (execute-legacy-block state sender (list transaction)
+                              :header header
+                              :chain-config config
+                              :requests '())
+      (is (= 1 (length receipts)))
+      (is (validate-block-body-against-config block config))
+      (is (= (- 1000000
+                (* 21000 3)
+                +blob-gas-per-blob+)
+             (state-account-balance
+              (state-db-get-account state sender)))))))
+
 (deftest osaka-blob-block-execution-allows-higher-aggregate-blob-limit
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
