@@ -2147,6 +2147,68 @@
     (signals block-validation-error
       (executable-data-to-block payload :requests requests))))
 
+(deftest executable-data-to-block-validates-blob-versioned-hashes
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (blob-hash
+           (hash32-from-hex
+            "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
+         (other-blob-hash
+           (hash32-from-hex
+            "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (transaction (make-blob-transaction
+                       :chain-id 1
+                       :nonce 2
+                       :max-priority-fee-per-gas 3
+                       :max-fee-per-gas 4
+                       :gas-limit 21000
+                       :to address
+                       :value 5
+                       :max-fee-per-blob-gas 6
+                       :blob-versioned-hashes (list blob-hash)
+                       :y-parity 1
+                       :r 7
+                       :s 8))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (header (make-block-header
+                  :parent-hash (zero-hash32)
+                  :beneficiary address
+                  :state-root +empty-trie-hash+
+                  :mix-hash (zero-hash32)
+                  :number 42
+                  :gas-limit 50000
+                  :gas-used 21000
+                  :timestamp 99
+                  :base-fee-per-gas 100
+                  :blob-gas-used +blob-gas-per-blob+
+                  :excess-blob-gas 0))
+         (source-block (make-block :header header
+                                   :transactions (list transaction)
+                                   :receipts (list receipt)))
+         (payload (execution-payload-envelope-execution-payload
+                   (block-to-executable-data source-block)))
+         (reconstructed
+           (executable-data-to-block
+            payload
+            :versioned-hashes (list blob-hash))))
+    (is (string= (hash32-to-hex (block-hash source-block))
+                 (hash32-to-hex (block-hash reconstructed))))
+    (signals block-validation-error
+      (executable-data-to-block payload))
+    (signals block-validation-error
+      (executable-data-to-block payload :versioned-hashes '()))
+    (signals block-validation-error
+      (executable-data-to-block
+       payload
+       :versioned-hashes (list other-blob-hash)))
+    (signals block-validation-error
+      (executable-data-to-block
+       payload
+       :versioned-hashes (list blob-hash other-blob-hash)))
+    (signals block-validation-error
+      (executable-data-to-block
+       payload
+       :versioned-hashes (list #(1 2))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1

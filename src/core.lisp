@@ -2464,6 +2464,32 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                "Invalid executable data transaction ~D: ~A"
                index condition))))))
 
+(defun executable-data-blob-versioned-hashes (transactions)
+  (loop for transaction in transactions
+        append (coerce (transaction-blob-versioned-hashes transaction)
+                       'list)))
+
+(defun validate-executable-data-versioned-hashes
+    (transactions versioned-hashes)
+  (unless (listp versioned-hashes)
+    (block-validation-fail "Executable data versioned hashes must be a list"))
+  (let ((blob-hashes (executable-data-blob-versioned-hashes transactions)))
+    (unless (= (length blob-hashes) (length versioned-hashes))
+      (block-validation-fail
+       "Executable data versioned hash count mismatch"))
+    (loop for blob-hash in blob-hashes
+          for versioned-hash in versioned-hashes
+          for index from 0
+          do (unless (hash32-p versioned-hash)
+               (block-validation-fail
+                "Executable data versioned hash ~D must be a hash32"
+                index))
+             (unless (hash32= blob-hash versioned-hash)
+               (block-validation-fail
+                "Executable data versioned hash ~D mismatch"
+                index))))
+  t)
+
 (defun executable-data-required-hash32 (value label)
   (unless (hash32-p value)
     (block-validation-fail "~A must be a hash32" label))
@@ -2480,7 +2506,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   value)
 
 (defun executable-data-to-block-no-hash
-    (payload &key parent-beacon-root (requests nil requests-supplied-p))
+    (payload &key parent-beacon-root (versioned-hashes nil)
+               (requests nil requests-supplied-p))
   (unless (typep payload 'executable-data)
     (block-validation-fail "Executable data payload must be executable-data"))
   (let* ((transactions (executable-data-decoded-transactions payload))
@@ -2496,6 +2523,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail "Executable data extra data too long"))
     (when withdrawals
       (validate-withdrawal-list-fields withdrawals))
+    (validate-executable-data-versioned-hashes transactions versioned-hashes)
     (validate-optional-hash32-field parent-beacon-root
                                     "Executable data parent beacon root")
     (when requests-supplied-p
@@ -2570,15 +2598,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    :requests-present-p requests-supplied-p))))
 
 (defun executable-data-to-block
-    (payload &key parent-beacon-root (requests nil requests-supplied-p))
+    (payload &key parent-beacon-root (versioned-hashes nil)
+               (requests nil requests-supplied-p))
   (let* ((block (if requests-supplied-p
                     (executable-data-to-block-no-hash
                      payload
                      :parent-beacon-root parent-beacon-root
+                     :versioned-hashes versioned-hashes
                      :requests requests)
                     (executable-data-to-block-no-hash
                      payload
-                     :parent-beacon-root parent-beacon-root)))
+                     :parent-beacon-root parent-beacon-root
+                     :versioned-hashes versioned-hashes)))
          (expected-hash
            (executable-data-required-hash32
             (executable-data-block-hash payload)
