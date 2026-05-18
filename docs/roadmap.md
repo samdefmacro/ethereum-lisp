@@ -213,7 +213,9 @@ above uint64 are likewise rejected before nonce or balance mutation. EIP-1559 ba
 calculation and header base-fee validation have a
 first pass, along with basic parent-relative header checks for parent hash,
 block number, timestamp, gas-used, extra-data size, and gas-limit delta/minimum
-bounds; the London fork block gas-limit delta now uses the EIP-1559 elastic
+bounds; header import validation now also preflights core header field shapes
+before parent hash, seal, base-fee, blob-gas, or fork-specific comparisons.
+The London fork block gas-limit delta now uses the EIP-1559 elastic
 parent gas-limit adjustment. Cancun blob gas header field-shape validation checks that `blobGasUsed`
 and `excessBlobGas` appear together, that `blobGasUsed` is blob-sized, and that
 `parentBeaconRoot` is present for Cancun-shaped headers and absent before

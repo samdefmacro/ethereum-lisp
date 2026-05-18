@@ -566,6 +566,69 @@
         (validate-block-header-basics parent
                                       (child :base-fee-per-gas 999))))))
 
+(deftest block-header-validates-field-shapes-before-comparison
+  (let* ((parent (make-block-header :number 7
+                                    :gas-limit 1024000
+                                    :gas-used 512000
+                                    :timestamp 100
+                                    :base-fee-per-gas 1000))
+         (parent-hash (block-header-hash parent)))
+    (flet ((child (&key (parent-hash parent-hash)
+                        beneficiary
+                        state-root
+                        logs-bloom
+                        (extra-data #())
+                        nonce
+                        (base-fee-per-gas 1000)
+                        blob-gas-used
+                        excess-blob-gas
+                        parent-beacon-root)
+             (make-block-header :parent-hash parent-hash
+                                :beneficiary beneficiary
+                                :state-root state-root
+                                :number 8
+                                :gas-limit 1024000
+                                :gas-used 1000
+                                :timestamp 101
+                                :logs-bloom logs-bloom
+                                :extra-data extra-data
+                                :nonce nonce
+                                :base-fee-per-gas base-fee-per-gas
+                                :blob-gas-used blob-gas-used
+                                :excess-blob-gas excess-blob-gas
+                                :parent-beacon-root parent-beacon-root)))
+      (signals block-validation-error
+        (validate-block-header-basics "not a header" (child)))
+      (signals block-validation-error
+        (validate-block-header-basics parent "not a header"))
+      (signals block-validation-error
+        (validate-block-header-basics parent
+                                      (child :parent-hash "not a hash")))
+      (signals block-validation-error
+        (validate-block-header-basics parent
+                                      (child :beneficiary "not an address")))
+      (signals block-validation-error
+        (validate-block-header-basics parent
+                                      (child :state-root "not a root")))
+      (signals block-validation-error
+        (validate-block-header-basics parent
+                                      (child :logs-bloom #())))
+      (signals block-validation-error
+        (validate-block-header-basics parent
+                                      (child :extra-data "not bytes")))
+      (signals block-validation-error
+        (validate-block-header-basics parent
+                                      (child :nonce #())))
+      (signals block-validation-error
+        (validate-block-header-basics parent
+                                      (child :base-fee-per-gas "fee")))
+      (signals block-validation-error
+        (validate-block-header-basics
+         parent
+         (child :blob-gas-used "blob"
+                :excess-blob-gas 0
+                :parent-beacon-root (zero-hash32)))))))
+
 (deftest post-merge-header-validates-seal-fields
   (let* ((parent (make-block-header :number 7
                                     :difficulty 1
