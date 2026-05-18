@@ -445,6 +445,10 @@
     (signals block-validation-error
       (execute-legacy-block state sender (list tx)
                             :header header))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+    (is (= 100000
+           (state-account-balance (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))
     (is (string= (hash32-to-hex (zero-hash32))
                  (hash32-to-hex (block-header-state-root header))))))
 
@@ -654,9 +658,10 @@
     (signals block-validation-error
       (execute-legacy-block state sender (list first second)
                             :header header))
-    (is (= 1 (state-account-nonce (state-db-get-account state sender))))
-    (is (= 1 (state-account-balance
-              (state-db-get-account state recipient))))))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+    (is (= 100000
+           (state-account-balance (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
 
 (deftest message-execution-rejects-typed-transaction-before-fork
   (let* ((state (make-state-db))

@@ -991,53 +991,56 @@
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
      :requests-supplied-p requests-supplied-p)
-    (multiple-value-bind (receipts gas-used)
-        (apply-message-list state sender transactions
-                            :base-fee (or (block-header-base-fee-per-gas header)
-                                          0)
-                            :blob-base-fee
-                            (execution-block-blob-base-fee
-                             header chain-rules chain-config)
-                            :chain-rules chain-rules
-                            :chain-config chain-config
-                            :coinbase (or (block-header-beneficiary header)
-                                          (zero-address))
-                            :timestamp (block-header-timestamp header)
-                            :block-number (block-header-number header)
-                            :prev-randao (or (block-header-mix-hash header)
-                                             (zero-hash32))
-                            :context-gas-limit (block-header-gas-limit header)
-                            :block-gas-limit
-                            (when (plusp (block-header-gas-limit header))
-                              (block-header-gas-limit header)))
-    (when withdrawals-supplied-p
-      (apply-withdrawals state withdrawals))
-    (when apply-block-rewards-p
-      (let ((rules (execution-chain-rules chain-rules chain-config
-                                          (block-header-number header)
-                                          (block-header-timestamp header))))
-        (apply-block-rewards-for-header state header ommers rules)))
-    (when (or (plusp actual-blob-gas-used)
-              (block-header-blob-gas-used header)
-              (block-header-excess-blob-gas header))
-      (setf (block-header-blob-gas-used header) actual-blob-gas-used)
-      (unless (block-header-excess-blob-gas header)
-        (setf (block-header-excess-blob-gas header) 0)))
-    (validate-supplied-block-execution-roots
-     header transactions receipts (state-db-root state))
-    (setf (block-header-state-root header) (state-db-root state)
-          (block-header-gas-used header) gas-used)
-    (values
-     (apply #'make-block
-	            (append (list :header header
-	                          :transactions transactions
+    (let ((snapshot (state-db-copy state)))
+      (handler-case
+          (multiple-value-bind (receipts gas-used)
+              (apply-message-list
+               state sender transactions
+               :base-fee (or (block-header-base-fee-per-gas header) 0)
+               :blob-base-fee
+               (execution-block-blob-base-fee header chain-rules chain-config)
+               :chain-rules chain-rules
+               :chain-config chain-config
+               :coinbase (or (block-header-beneficiary header) (zero-address))
+               :timestamp (block-header-timestamp header)
+               :block-number (block-header-number header)
+               :prev-randao (or (block-header-mix-hash header) (zero-hash32))
+               :context-gas-limit (block-header-gas-limit header)
+               :block-gas-limit
+               (when (plusp (block-header-gas-limit header))
+                 (block-header-gas-limit header)))
+            (when withdrawals-supplied-p
+              (apply-withdrawals state withdrawals))
+            (when apply-block-rewards-p
+              (let ((rules (execution-chain-rules chain-rules chain-config
+                                                  (block-header-number header)
+                                                  (block-header-timestamp
+                                                   header))))
+                (apply-block-rewards-for-header state header ommers rules)))
+            (when (or (plusp actual-blob-gas-used)
+                      (block-header-blob-gas-used header)
+                      (block-header-excess-blob-gas header))
+              (setf (block-header-blob-gas-used header) actual-blob-gas-used)
+              (unless (block-header-excess-blob-gas header)
+                (setf (block-header-excess-blob-gas header) 0)))
+            (validate-supplied-block-execution-roots
+             header transactions receipts (state-db-root state))
+            (setf (block-header-state-root header) (state-db-root state)
+                  (block-header-gas-used header) gas-used)
+            (values
+             (apply #'make-block
+                    (append (list :header header
+                                  :transactions transactions
                                   :ommers ommers
-	                          :receipts receipts)
-                    (when withdrawals-supplied-p
-                      (list :withdrawals withdrawals))
-                    (when requests-supplied-p
-                      (list :requests requests))))
-     receipts))))
+                                  :receipts receipts)
+                            (when withdrawals-supplied-p
+                              (list :withdrawals withdrawals))
+                            (when requests-supplied-p
+                              (list :requests requests))))
+             receipts))
+        (error (condition)
+          (state-db-restore state snapshot)
+          (error condition))))))
 
 (defun execute-signed-block (state transactions
                              &key expected-chain-id
@@ -1061,50 +1064,54 @@
      header chain-config
      :withdrawals-supplied-p withdrawals-supplied-p
      :requests-supplied-p requests-supplied-p)
-    (multiple-value-bind (receipts gas-used)
-        (apply-signed-message-list
-         state transactions
-         :expected-chain-id expected-chain-id
-         :base-fee (or (block-header-base-fee-per-gas header) 0)
-         :blob-base-fee
-         (execution-block-blob-base-fee header chain-rules chain-config)
-         :chain-rules chain-rules
-         :chain-config chain-config
-         :coinbase (or (block-header-beneficiary header)
-                       (zero-address))
-         :timestamp (block-header-timestamp header)
-         :block-number (block-header-number header)
-         :prev-randao (or (block-header-mix-hash header)
-                          (zero-hash32))
-         :context-gas-limit (block-header-gas-limit header)
-         :block-gas-limit
-         (when (plusp (block-header-gas-limit header))
-           (block-header-gas-limit header)))
-    (when withdrawals-supplied-p
-      (apply-withdrawals state withdrawals))
-    (when apply-block-rewards-p
-      (let ((rules (execution-chain-rules chain-rules chain-config
-                                          (block-header-number header)
-                                          (block-header-timestamp header))))
-        (apply-block-rewards-for-header state header ommers rules)))
-    (when (or (plusp actual-blob-gas-used)
-              (block-header-blob-gas-used header)
-              (block-header-excess-blob-gas header))
-      (setf (block-header-blob-gas-used header) actual-blob-gas-used)
-      (unless (block-header-excess-blob-gas header)
-        (setf (block-header-excess-blob-gas header) 0)))
-    (validate-supplied-block-execution-roots
-     header transactions receipts (state-db-root state))
-    (setf (block-header-state-root header) (state-db-root state)
-          (block-header-gas-used header) gas-used)
-    (values
-     (apply #'make-block
-	            (append (list :header header
-	                          :transactions transactions
+    (let ((snapshot (state-db-copy state)))
+      (handler-case
+          (multiple-value-bind (receipts gas-used)
+              (apply-signed-message-list
+               state transactions
+               :expected-chain-id expected-chain-id
+               :base-fee (or (block-header-base-fee-per-gas header) 0)
+               :blob-base-fee
+               (execution-block-blob-base-fee header chain-rules chain-config)
+               :chain-rules chain-rules
+               :chain-config chain-config
+               :coinbase (or (block-header-beneficiary header) (zero-address))
+               :timestamp (block-header-timestamp header)
+               :block-number (block-header-number header)
+               :prev-randao (or (block-header-mix-hash header) (zero-hash32))
+               :context-gas-limit (block-header-gas-limit header)
+               :block-gas-limit
+               (when (plusp (block-header-gas-limit header))
+                 (block-header-gas-limit header)))
+            (when withdrawals-supplied-p
+              (apply-withdrawals state withdrawals))
+            (when apply-block-rewards-p
+              (let ((rules (execution-chain-rules chain-rules chain-config
+                                                  (block-header-number header)
+                                                  (block-header-timestamp
+                                                   header))))
+                (apply-block-rewards-for-header state header ommers rules)))
+            (when (or (plusp actual-blob-gas-used)
+                      (block-header-blob-gas-used header)
+                      (block-header-excess-blob-gas header))
+              (setf (block-header-blob-gas-used header) actual-blob-gas-used)
+              (unless (block-header-excess-blob-gas header)
+                (setf (block-header-excess-blob-gas header) 0)))
+            (validate-supplied-block-execution-roots
+             header transactions receipts (state-db-root state))
+            (setf (block-header-state-root header) (state-db-root state)
+                  (block-header-gas-used header) gas-used)
+            (values
+             (apply #'make-block
+                    (append (list :header header
+                                  :transactions transactions
                                   :ommers ommers
-	                          :receipts receipts)
-                    (when withdrawals-supplied-p
-                      (list :withdrawals withdrawals))
-                    (when requests-supplied-p
-                      (list :requests requests))))
-     receipts))))
+                                  :receipts receipts)
+                            (when withdrawals-supplied-p
+                              (list :withdrawals withdrawals))
+                            (when requests-supplied-p
+                              (list :requests requests))))
+             receipts))
+        (error (condition)
+          (state-db-restore state snapshot)
+          (error condition))))))
