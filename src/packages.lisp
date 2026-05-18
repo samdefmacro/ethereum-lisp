@@ -421,6 +421,16 @@
    #:block-block-access-list-present-p
    #:block-hash
    #:execution-requests-hash
+   #:block-access-account
+   #:make-block-access-account
+   #:block-access-account-address
+   #:block-access-account-storage-writes
+   #:block-access-account-storage-reads
+   #:block-access-account-balance-changes
+   #:block-access-account-nonce-changes
+   #:block-access-account-code-changes
+   #:block-access-account-rlp
+   #:block-access-list-rlp
    #:block-access-list-hash
    #:block-validation-error
    #:block-validation-error-message
@@ -451,6 +461,7 @@
    #:validate-withdrawal-list-fields
    #:validate-execution-request-fields
    #:validate-execution-request-list-fields
+   #:validate-block-access-account-fields
    #:validate-block-access-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config
@@ -1005,6 +1016,16 @@
    #:block-block-access-list-present-p
    #:block-hash
    #:execution-requests-hash
+   #:block-access-account
+   #:make-block-access-account
+   #:block-access-account-address
+   #:block-access-account-storage-writes
+   #:block-access-account-storage-reads
+   #:block-access-account-balance-changes
+   #:block-access-account-nonce-changes
+   #:block-access-account-code-changes
+   #:block-access-account-rlp
+   #:block-access-list-rlp
    #:block-access-list-hash
    #:block-validation-error
    #:block-validation-error-message
@@ -1035,6 +1056,7 @@
    #:validate-withdrawal-list-fields
    #:validate-execution-request-fields
    #:validate-execution-request-list-fields
+   #:validate-block-access-account-fields
    #:validate-block-access-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config
@@ -1550,6 +1572,16 @@
    #:block-block-access-list-present-p
    #:block-hash
    #:execution-requests-hash
+   #:block-access-account
+   #:make-block-access-account
+   #:block-access-account-address
+   #:block-access-account-storage-writes
+   #:block-access-account-storage-reads
+   #:block-access-account-balance-changes
+   #:block-access-account-nonce-changes
+   #:block-access-account-code-changes
+   #:block-access-account-rlp
+   #:block-access-list-rlp
    #:block-access-list-hash
    #:block-validation-error
    #:block-validation-error-message
@@ -1580,6 +1612,7 @@
    #:validate-withdrawal-list-fields
    #:validate-execution-request-fields
    #:validate-execution-request-list-fields
+   #:validate-block-access-account-fields
    #:validate-block-access-list-fields
    #:validate-block-transactions-against-config
    #:validate-block-body-against-config

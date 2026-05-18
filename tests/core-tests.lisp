@@ -1428,6 +1428,33 @@
     (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (hash32-to-hex (withdrawal-list-root '()))))))
 
+(deftest block-access-list-rlp-encodes-account-shells
+  (let* ((account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")))
+         (access-list (list account)))
+    (is (string=
+         "0xdbda940000000000000000000000000000000000000001c0c0c0c0c0"
+         (bytes-to-hex (block-access-list-rlp access-list))))
+    (is (string= (hash32-to-hex +empty-ommers-hash+)
+                 (hash32-to-hex (block-access-list-hash '()))))
+    (is (not (string= (hash32-to-hex +empty-ommers-hash+)
+                      (hash32-to-hex
+                       (block-access-list-hash access-list)))))))
+
+(deftest block-access-list-validates-account-order
+  (let ((first (make-block-access-account
+                :address (address-from-hex
+                          "0x0000000000000000000000000000000000000001")))
+        (second (make-block-access-account
+                 :address (address-from-hex
+                           "0x0000000000000000000000000000000000000002"))))
+    (is (validate-block-access-list-fields (list first second)))
+    (signals block-validation-error
+      (validate-block-access-list-fields (list second first)))
+    (signals block-validation-error
+      (validate-block-access-list-fields (list first first)))))
+
 (deftest block-derives-body-roots
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (topic (hash32-from-hex
@@ -1834,6 +1861,15 @@
     (setf (block-header-block-access-list-hash header) (zero-hash32))
     (signals block-validation-error
       (validate-block-body-roots block)))
+  (let* ((account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")))
+         (block (make-block :block-access-list (list account))))
+    (is (validate-block-body-roots block))
+    (is (string= (hash32-to-hex (block-access-list-hash (list account)))
+                 (hash32-to-hex
+                  (block-header-block-access-list-hash
+                   (block-header block))))))
   (let ((header-without-body
           (make-block-header :block-access-list-hash
                              (block-access-list-hash '()))))

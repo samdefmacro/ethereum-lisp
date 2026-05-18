@@ -2040,12 +2040,40 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 when (> (length bytes) 1)
                   collect (sha256 bytes)))))
 
+(defstruct (block-access-account (:constructor make-block-access-account
+                                      (&key address
+                                            (storage-writes '())
+                                            (storage-reads '())
+                                            (balance-changes '())
+                                            (nonce-changes '())
+                                            (code-changes '()))))
+  address
+  (storage-writes '() :type list)
+  (storage-reads '() :type list)
+  (balance-changes '() :type list)
+  (nonce-changes '() :type list)
+  (code-changes '() :type list))
+
+(defun block-access-account-rlp-object (account)
+  (make-rlp-list
+   (address-bytes (block-access-account-address account))
+   (block-access-account-storage-writes account)
+   (mapcar #'hash32-bytes (block-access-account-storage-reads account))
+   (block-access-account-balance-changes account)
+   (block-access-account-nonce-changes account)
+   (block-access-account-code-changes account)))
+
+(defun block-access-account-rlp (account)
+  (rlp-encode (block-access-account-rlp-object account)))
+
+(defun block-access-list-rlp (block-access-list)
+  (rlp-encode
+   (apply #'make-rlp-list
+          (mapcar #'block-access-account-rlp-object block-access-list))))
+
 (defun block-access-list-hash (block-access-list)
   (validate-block-access-list-fields block-access-list)
-  (when block-access-list
-    (block-validation-fail
-     "Non-empty block access lists are not implemented yet"))
-  +empty-ommers-hash+)
+  (keccak-256-hash (block-access-list-rlp block-access-list)))
 
 (define-condition block-validation-error (error)
   ((message :initarg :message :reader block-validation-error-message))
@@ -2105,12 +2133,50 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (dolist (request requests t)
     (validate-execution-request-fields request)))
 
+(defun byte-vector-lexicographic< (left right)
+  (let ((left (ensure-byte-vector left))
+        (right (ensure-byte-vector right)))
+    (loop for index below (min (length left) (length right))
+          for left-byte = (aref left index)
+          for right-byte = (aref right index)
+          when (< left-byte right-byte)
+            do (return t)
+          when (> left-byte right-byte)
+            do (return nil)
+          finally (return (< (length left) (length right))))))
+
+(defun validate-block-access-account-fields (account)
+  (unless (block-access-account-p account)
+    (block-validation-fail
+     "Block access list account must be a block access account"))
+  (unless (address-p (block-access-account-address account))
+    (block-validation-fail "Block access list account address must be an address"))
+  (dolist (slot (block-access-account-storage-reads account))
+    (unless (hash32-p slot)
+      (block-validation-fail "Block access list storage read must be a hash32")))
+  (dolist (field (list (block-access-account-storage-writes account)
+                       (block-access-account-balance-changes account)
+                       (block-access-account-nonce-changes account)
+                       (block-access-account-code-changes account)))
+    (unless (null field)
+      (block-validation-fail
+       "Non-empty block access list account changes are not implemented yet")))
+  t)
+
 (defun validate-block-access-list-fields (block-access-list)
   (unless (listp block-access-list)
     (block-validation-fail "Block access list must be a list"))
-  (when block-access-list
-    (block-validation-fail
-     "Non-empty block access lists are not implemented yet"))
+  (let ((previous-address-bytes nil))
+    (dolist (account block-access-list)
+      (validate-block-access-account-fields account)
+      (let ((address-bytes (address-bytes
+                            (block-access-account-address account))))
+        (when (and previous-address-bytes
+                   (not (byte-vector-lexicographic< previous-address-bytes
+                                                    address-bytes)))
+          (block-validation-fail
+           "Block access list account addresses must be sorted"))
+        (setf previous-address-bytes address-bytes))))
   t)
 
 (defun expected-base-fee-per-gas

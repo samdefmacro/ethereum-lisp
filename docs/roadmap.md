@@ -317,9 +317,12 @@ and slot number to zero, and config-driven header validation gates those fields
 at the Amsterdam timestamp. Blocks can now carry a first-pass empty Amsterdam
 block-access-list body, derive its empty-list commitment into `balHash`, and
 validate body/header BAL presence and hash consistency; non-empty BAL account
-change encoding remains a future slice. Amsterdam header validation also now
-requires child slot numbers to strictly exceed the parent once the parent is
-already Amsterdam-shaped.
+change encoding remains a future slice. The first non-empty BAL encoding slice
+is also present: block-access accounts encode in geth's six-field RLP shape,
+account addresses are validated in strict lexicographic order, and account
+shells with empty change lists can now contribute to `balHash`. Amsterdam
+header validation also now requires child slot numbers to strictly exceed the
+parent once the parent is already Amsterdam-shaped.
 A small dependency-free genesis JSON
 reader now supports the JSON shapes needed for geth-style `config` objects and
 can build chain configs directly from JSON strings or files.
