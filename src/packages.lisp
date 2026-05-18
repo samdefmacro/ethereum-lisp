@@ -260,6 +260,9 @@
    #:set-code-authorization-chain-id
    #:set-code-authorization-address
    #:set-code-authorization-nonce
+   #:set-code-authorization-y-parity
+   #:set-code-authorization-r
+   #:set-code-authorization-s
    #:set-code-authorization-signing-hash
    #:set-code-authorization-authority
    #:set-code-delegation-code
@@ -731,6 +734,9 @@
    #:set-code-authorization-chain-id
    #:set-code-authorization-address
    #:set-code-authorization-nonce
+   #:set-code-authorization-y-parity
+   #:set-code-authorization-r
+   #:set-code-authorization-s
    #:set-code-authorization-signing-hash
    #:set-code-authorization-authority
    #:set-code-delegation-code
@@ -1163,6 +1169,9 @@
    #:set-code-authorization-chain-id
    #:set-code-authorization-address
    #:set-code-authorization-nonce
+   #:set-code-authorization-y-parity
+   #:set-code-authorization-r
+   #:set-code-authorization-s
    #:set-code-authorization-signing-hash
    #:set-code-authorization-authority
    #:set-code-delegation-code

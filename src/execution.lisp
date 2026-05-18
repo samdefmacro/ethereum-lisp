@@ -195,7 +195,31 @@
              :message "Set-code transactions cannot create contracts"))
     (when (null (transaction-authorization-list tx))
       (error 'transaction-validation-error
-             :message "Set-code transactions require an authorization list")))
+             :message "Set-code transactions require an authorization list"))
+    (dolist (authorization (transaction-authorization-list tx))
+      (validate-set-code-authorization-fields authorization)))
+  t)
+
+(defun validate-set-code-authorization-fields (authorization)
+  (unless (uint256-p (set-code-authorization-chain-id authorization))
+    (error 'transaction-validation-error
+           :message "Authorization chain id exceeds uint256"))
+  (unless (address-p (set-code-authorization-address authorization))
+    (error 'transaction-validation-error
+           :message "Authorization address must be an address"))
+  (unless (transaction-nonce-uint64-p
+           (set-code-authorization-nonce authorization))
+    (error 'transaction-validation-error
+           :message "Authorization nonce exceeds uint64"))
+  (unless (uint256-p (set-code-authorization-y-parity authorization))
+    (error 'transaction-validation-error
+           :message "Authorization y parity exceeds uint256"))
+  (unless (uint256-p (set-code-authorization-r authorization))
+    (error 'transaction-validation-error
+           :message "Authorization r exceeds uint256"))
+  (unless (uint256-p (set-code-authorization-s authorization))
+    (error 'transaction-validation-error
+           :message "Authorization s exceeds uint256"))
   t)
 
 (defun validate-transaction-sender-code (state sender)

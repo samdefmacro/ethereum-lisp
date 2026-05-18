@@ -354,7 +354,9 @@ wrong-chain authorizations, nonce mismatches, max-uint64 authorization nonces
 that cannot be incremented, authorities that already hold ordinary
 non-delegation code, or signatures modified to target the zero address are
 skipped without failing the transaction or contributing existing-account
-refunds. The zero-address clear path is covered with a valid signed
+refunds. Structurally malformed authorization tuples, including missing
+delegation addresses or overwide encoded fields, are rejected before sender gas
+or nonce mutation. The zero-address clear path is covered with a valid signed
 authorization fixture and clears existing delegation code.
 Top-level message execution now resolves
 delegation designators to the target account code while preserving the

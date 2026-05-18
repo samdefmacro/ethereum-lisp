@@ -1356,6 +1356,52 @@
     (is (= 0 (state-account-nonce
               (state-db-get-account state sender))))))
 
+(deftest set-code-message-validates-authorization-fields-before-state-mutation
+  (let* ((state (make-state-db))
+         (sender (address-from-hex
+                  "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000002"))
+         (balance 100000)
+         (malformed-address-authorization
+           (make-set-code-authorization
+            :chain-id 1
+            :address nil
+            :nonce 0
+            :y-parity 1
+            :r 1
+            :s 1))
+         (overwide-chain-authorization
+           (make-set-code-authorization
+            :chain-id (1+ +uint256-max+)
+            :address recipient
+            :nonce 0
+            :y-parity 1
+            :r 1
+            :s 1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance balance))
+    (signals transaction-validation-error
+      (apply-message state sender
+                     (make-set-code-transaction
+                      :gas-limit 50000
+                      :to recipient
+                      :authorization-list
+                      (list malformed-address-authorization))))
+    (signals transaction-validation-error
+      (apply-message state sender
+                     (make-set-code-transaction
+                      :gas-limit 50000
+                      :to recipient
+                      :authorization-list
+                      (list overwide-chain-authorization))))
+    (is (= 0 (state-account-nonce
+              (state-db-get-account state sender))))
+    (is (= balance
+           (state-account-balance
+            (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
 (deftest set-code-message-applies-valid-authorization-delegation
   (let* ((state (make-state-db))
          (sender (address-from-hex
