@@ -190,6 +190,53 @@
     (is (null (state-db-get-account state first-recipient)))
     (is (null (state-db-get-account state second-recipient)))))
 
+(deftest message-list-preflights-transaction-scalars-before-state-mutation
+  (let* ((sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (first-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (second-recipient
+           (address-from-hex "0x0000000000000000000000000000000000000003"))
+         (first (make-legacy-transaction :nonce 0
+                                         :gas-price 1
+                                         :gas-limit 21000
+                                         :to first-recipient
+                                         :value 1))
+         (bad-transactions
+           (list
+            (make-legacy-transaction :nonce (ash 1 64)
+                                     :gas-price 1
+                                     :gas-limit 21000
+                                     :to second-recipient
+                                     :value 1)
+            (make-legacy-transaction :nonce 1
+                                     :gas-price 1
+                                     :gas-limit (ash 1 64)
+                                     :to second-recipient
+                                     :value 1)
+            (make-legacy-transaction :nonce 1
+                                     :gas-price 1
+                                     :gas-limit 21000
+                                     :to second-recipient
+                                     :value (1+ +uint256-max+))
+            (make-dynamic-fee-transaction
+             :nonce 1
+             :max-priority-fee-per-gas 2
+             :max-fee-per-gas 1
+             :gas-limit 21000
+             :to second-recipient
+             :value 1))))
+    (dolist (second bad-transactions)
+      (let ((state (make-state-db)))
+        (state-db-set-account state sender
+                              (make-state-account :balance 100000))
+        (signals transaction-validation-error
+          (apply-message-list state sender (list first second)))
+        (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+        (is (= 100000
+               (state-account-balance (state-db-get-account state sender))))
+        (is (null (state-db-get-account state first-recipient)))
+        (is (null (state-db-get-account state second-recipient)))))))
+
 (deftest legacy-message-zero-value-to-empty-recipient-does-not-create-account
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -1076,7 +1123,7 @@
                        :to recipient)))
     (state-db-set-account state sender
                           (make-state-account :balance balance))
-    (signals block-validation-error
+    (signals transaction-validation-error
       (apply-message state sender transaction :base-fee 5))
     (is (= 0 (state-account-nonce (state-db-get-account state sender))))
     (is (= balance
@@ -2135,7 +2182,7 @@
                        :blob-versioned-hashes (list blob-hash))))
     (state-db-set-account state sender
                           (make-state-account :balance balance))
-    (signals block-validation-error
+    (signals transaction-validation-error
       (apply-message state sender transaction
                      :base-fee 2
                      :blob-base-fee 3))
