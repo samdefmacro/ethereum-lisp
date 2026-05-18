@@ -3932,6 +3932,38 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (block (engine-payload-store-known-block store hash)))
     (eth-rpc-block-ommer-count block)))
 
+(defun eth-rpc-transaction-index-param (params method)
+  (unless (= 2 (length params))
+    (block-validation-fail
+     "~A params must contain block id and transaction index" method))
+  (engine-rpc-quantity-param params 1 "transaction index" method))
+
+(defun eth-rpc-raw-transaction-by-index (block index)
+  (when (and block (< index (length (block-transactions block))))
+    (bytes-to-hex (transaction-encoding
+                   (nth index (block-transactions block))))))
+
+(defun engine-rpc-handle-eth-get-raw-transaction-by-block-number-and-index
+    (params store)
+  (let* ((number (eth-rpc-block-number-param
+                  (list (first params)) store
+                  "eth_getRawTransactionByBlockNumberAndIndex"))
+         (index (eth-rpc-transaction-index-param
+                 params "eth_getRawTransactionByBlockNumberAndIndex"))
+         (block (engine-payload-store-block-by-number store number)))
+    (eth-rpc-raw-transaction-by-index block index)))
+
+(defun engine-rpc-handle-eth-get-raw-transaction-by-block-hash-and-index
+    (params store)
+  (let* ((hash (eth-rpc-hash-param
+                (list (first params))
+                "eth_getRawTransactionByBlockHashAndIndex"
+                "block hash"))
+         (index (eth-rpc-transaction-index-param
+                 params "eth_getRawTransactionByBlockHashAndIndex"))
+         (block (engine-payload-store-known-block store hash)))
+    (eth-rpc-raw-transaction-by-index block index)))
+
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
 (defconstant +engine-rpc-error-invalid-forkchoice-state+ -38002)
 (defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
@@ -4450,6 +4482,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-uncle-count-by-hash
+                 params store)))
+              ((string= method
+                        "eth_getRawTransactionByBlockNumberAndIndex")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-raw-transaction-by-block-number-and-index
+                 params store)))
+              ((string= method
+                        "eth_getRawTransactionByBlockHashAndIndex")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-raw-transaction-by-block-hash-and-index
                  params store)))
               (t
                (engine-rpc-response

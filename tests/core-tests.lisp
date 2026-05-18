@@ -4301,6 +4301,73 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-get-raw-transaction-by-block-and-index
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (tx-1 (make-legacy-transaction :nonce 1
+                                          :gas-price 7
+                                          :gas-limit 21000
+                                          :value 3))
+           (tx-2 (make-dynamic-fee-transaction
+                  :chain-id 1
+                  :nonce 2
+                  :max-priority-fee-per-gas 1
+                  :max-fee-per-gas 9
+                  :gas-limit 21000
+                  :value 4))
+           (block
+             (make-block
+              :header (make-block-header :number 12
+                                         :timestamp 120
+                                         :gas-limit 30000000)
+              :transactions (list tx-1 tx-2)))
+           (hash-hex (hash32-to-hex (block-hash block)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((number-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"eth_getRawTransactionByBlockNumberAndIndex\",\"params\":[\"0xc\",\"0x1\"]}"
+                 store
+                 config)))
+             (hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":45,"
+                  "\"method\":\"eth_getRawTransactionByBlockHashAndIndex\","
+                  "\"params\":[\"" hash-hex "\",\"0x0\"]}")
+                 store
+                 config)))
+             (missing-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":46,\"method\":\"eth_getRawTransactionByBlockNumberAndIndex\",\"params\":[\"0x63\",\"0x0\"]}"
+                 store
+                 config)))
+             (out-of-range-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":47,\"method\":\"eth_getRawTransactionByBlockNumberAndIndex\",\"params\":[\"0xc\",\"0x2\"]}"
+                 store
+                 config)))
+             (invalid-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"eth_getRawTransactionByBlockHashAndIndex\",\"params\":[\"0x1234\",\"0x0\"]}"
+                 store
+                 config)))
+             (invalid-error (field invalid-response "error")))
+        (is (string= (bytes-to-hex (transaction-encoding tx-2))
+                     (field number-response "result")))
+        (is (string= (bytes-to-hex (transaction-encoding tx-1))
+                     (field hash-response "result")))
+        (is (null (field missing-response "result")))
+        (is (null (field out-of-range-response "result")))
+        (is (= -32602 (field invalid-error "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

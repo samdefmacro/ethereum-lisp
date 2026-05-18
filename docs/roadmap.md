@@ -615,7 +615,10 @@ remains a later RPC-object slice. The matching
 counts for canonical memory-store blocks and JSON `null` for unknown blocks.
 `eth_getUncleCountByBlockNumber` and `eth_getUncleCountByBlockHash` likewise
 return ommer counts from the in-memory block body with the same unknown-block
-`null` behavior.
+`null` behavior. Raw transaction lookup by block id and index is now present
+for both `eth_getRawTransactionByBlockNumberAndIndex` and
+`eth_getRawTransactionByBlockHashAndIndex`, returning consensus transaction
+bytes or JSON `null` for unknown blocks and out-of-range indexes.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
