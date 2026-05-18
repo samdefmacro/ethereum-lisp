@@ -614,7 +614,10 @@ Shanghai withdrawals while returning `null` for unknown block ids. The matching
 counts for canonical memory-store blocks and JSON `null` for unknown blocks.
 `eth_getUncleCountByBlockNumber` and `eth_getUncleCountByBlockHash` likewise
 return ommer counts from the in-memory block body with the same unknown-block
-`null` behavior. Raw transaction lookup by block id and index is now present
+`null` behavior. `eth_getUncleByBlockNumberAndIndex` and
+`eth_getUncleByBlockHashAndIndex` can now return header-only ommer block
+objects from memory-store blocks, with JSON `null` for unknown blocks and
+out-of-range ommer indexes. Raw transaction lookup by block id and index is now present
 for both `eth_getRawTransactionByBlockNumberAndIndex` and
 `eth_getRawTransactionByBlockHashAndIndex`, returning consensus transaction
 bytes or JSON `null` for unknown blocks and out-of-range indexes. The
