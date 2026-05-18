@@ -45,6 +45,20 @@
     (is (= 42 (state-db-get-storage state address slot)))
     (is (string= (state-db-root-hex state) (state-db-root-hex state)))))
 
+(deftest state-db-from-genesis-json-applies-short-storage-hex
+  (let* ((json (concatenate
+                'string
+                "{\"alloc\":{"
+                "\"0x0000000000000000000000000000000000000001\":{"
+                "\"balance\":\"1\","
+                "\"storage\":{\"0x07\":\"0x2a\"}"
+                "}}}"))
+         (state (state-db-from-genesis-json-string json))
+         (address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000007")))
+    (is (= 42 (state-db-get-storage state address slot)))))
+
 (deftest withdrawals-credit-state-balances-in-wei
   (let* ((state (make-state-db))
          (existing (address-from-hex "0x0000000000000000000000000000000000000011"))

@@ -622,6 +622,30 @@
     (genesis-alloc-from-genesis-json-string
      "{\"alloc\":{\"0000000000000000000000000000000000000001\":{\"balance\":\"-1\"}}}")))
 
+(deftest genesis-alloc-storage-pads-short-hex-keys-and-values
+  (let* ((json (concatenate
+                'string
+                "{\"alloc\":{"
+                "\"0000000000000000000000000000000000000001\":{"
+                "\"balance\":\"1\","
+                "\"storage\":{\"0x07\":\"0x2a\"}"
+                "}}}"))
+         (account (first (genesis-alloc-from-genesis-json-string json)))
+         (storage-entry (first (genesis-account-storage account))))
+    (is (string= "0x0000000000000000000000000000000000000000000000000000000000000007"
+                 (hash32-to-hex (car storage-entry))))
+    (is (= 42 (cdr storage-entry)))))
+
+(deftest genesis-alloc-storage-rejects-overwide-hex-values
+  (signals block-validation-error
+    (genesis-alloc-from-genesis-json-string
+     (concatenate
+      'string
+      "{\"alloc\":{\"0000000000000000000000000000000000000001\":"
+      "{\"balance\":\"1\",\"storage\":{\"0x01\":\"0x"
+      "010000000000000000000000000000000000000000000000000000000000000000"
+      "\"}}}}"))))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10

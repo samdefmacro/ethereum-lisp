@@ -389,7 +389,9 @@ beacon maximum of `2^63 - 1`.
 Genesis JSON loading now has a first-pass allocation path: geth-style `alloc`
 objects are parsed into genesis account descriptors with balance, nonce, code,
 and storage, and those descriptors can initialize the in-memory state DB with
-deterministic account/code/storage roots.
+deterministic account/code/storage roots. Genesis storage entries now follow
+geth's account JSON compatibility for short hex keys and values by left-padding
+them to 32 bytes before state insertion.
 Typed transaction execution semantics, full nested contract creation/inter-
 contract calls, storage/selfdestruct refund counters and richer EVM gas
 scheduling, full header validation including difficulty/seal rules and fork

@@ -388,17 +388,30 @@
          (block-validation-fail "~A must be hex bytecode" label))))
     (t (block-validation-fail "~A must be hex bytecode" label))))
 
-(defun parse-genesis-storage-slot (value label)
+(defun parse-genesis-storage-hash32 (value label)
   (unless (stringp value)
-    (block-validation-fail "~A must be a hex storage slot" label))
+    (block-validation-fail "~A must be hex storage data" label))
   (handler-case
-      (hash32-from-hex value)
+      (let ((bytes (hex-to-bytes value)))
+        (when (> (length bytes) 32)
+          (block-validation-fail "~A must be at most 32 bytes" label))
+        (let ((padded (make-byte-vector 32)))
+          (replace padded bytes :start1 (- 32 (length bytes)))
+          (make-hash32 padded)))
     (error ()
-      (block-validation-fail "~A must be a 32-byte hex storage slot" label))))
+      (block-validation-fail "~A must be valid hex storage data" label))))
+
+(defun parse-genesis-storage-slot (value label)
+  (parse-genesis-storage-hash32 value label))
 
 (defun parse-genesis-storage-value (value label)
-  (let ((quantity (parse-genesis-quantity value label :required-p t)))
-    (ensure-uint256 quantity label)))
+  (cond
+    ((stringp value)
+     (bytes-to-integer
+      (hash32-bytes (parse-genesis-storage-hash32 value label))))
+    (t
+     (let ((quantity (parse-genesis-quantity value label :required-p t)))
+       (ensure-uint256 quantity label)))))
 
 (defun parse-genesis-storage (object label)
   (when object
