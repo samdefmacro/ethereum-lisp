@@ -1202,6 +1202,13 @@
     (signals block-validation-error
       (validate-block-body-roots pre-prague-block))))
 
+(deftest block-body-validates-request-list-before-hash-derivation
+  (let ((block (make-block)))
+    (setf (block-requests block) "not a request list"
+          (block-requests-present-p block) t)
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-body-validates-blob-gas-used
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (blob-hash (hash32-from-hex
@@ -1429,6 +1436,13 @@
     (setf (withdrawal-amount withdrawal) (1+ +uint256-max+))
     (signals block-validation-error
       (validate-withdrawal-fields withdrawal))
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
+(deftest block-body-validates-withdrawal-list-before-root-derivation
+  (let ((block (make-block)))
+    (setf (block-withdrawals block) "not a withdrawal list"
+          (block-withdrawals-present-p block) t)
     (signals block-validation-error
       (validate-block-body-roots block))))
 

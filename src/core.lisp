@@ -1139,6 +1139,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     bytes))
 
 (defun validate-execution-request-list-fields (requests)
+  (unless (listp requests)
+    (block-validation-fail "Execution requests must be a list"))
   (dolist (request requests t)
     (validate-execution-request-fields request)))
 
@@ -1682,6 +1684,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   t)
 
 (defun validate-withdrawal-list-fields (withdrawals)
+  (unless (listp withdrawals)
+    (block-validation-fail "Withdrawals must be a list"))
   (dolist (withdrawal withdrawals t)
     (validate-withdrawal-fields withdrawal)))
 
