@@ -396,11 +396,15 @@ state root directly from `alloc` and validate an optional JSON `stateRoot`
 against that computed root. A first-pass genesis header constructor now maps
 geth-style JSON fields onto `block-header`, including genesis gas-limit and
 difficulty defaults plus London, Shanghai, Cancun, and Prague fork-default
-commitment fields.
+commitment fields. Genesis block constructors can now wrap either an explicit
+genesis header or geth-style genesis JSON into a `block`, using the computed
+allocation state root when requested and carrying empty Shanghai withdrawals
+and Prague execution-request bodies whenever those header commitments are
+active.
 Typed transaction execution semantics, full nested contract creation/inter-
 contract calls, storage/selfdestruct refund counters and richer EVM gas
 scheduling, full header validation including difficulty/seal rules and fork
-schedules, remaining genesis header/fixture edge-case compatibility, remaining
+schedules, remaining genesis fixture edge-case compatibility, remaining
 allocation edge-case compatibility, and deeper blob
 transaction validation remain. EIP-7702 set-code execution has a first-pass
 transaction-shape layer: set-code messages reject contract creation and empty

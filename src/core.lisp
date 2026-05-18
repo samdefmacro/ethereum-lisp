@@ -793,6 +793,35 @@
                                            :state-root state-root
                                            :config config))
 
+(defun genesis-block-from-genesis-header (header)
+  (let ((withdrawals-present-p (block-header-withdrawals-root header))
+        (requests-present-p (block-header-requests-hash header)))
+    (cond
+      ((and withdrawals-present-p requests-present-p)
+       (make-block :header header :withdrawals '() :requests '()))
+      (withdrawals-present-p
+       (make-block :header header :withdrawals '()))
+      (requests-present-p
+       (make-block :header header :requests '()))
+      (t
+       (make-block :header header)))))
+
+(defun genesis-block-from-genesis-object (object &key state-root config)
+  (genesis-block-from-genesis-header
+   (genesis-header-from-genesis-object object
+                                       :state-root state-root
+                                       :config config)))
+
+(defun genesis-block-from-genesis-json-string (string &key state-root config)
+  (genesis-block-from-genesis-object (parse-json string)
+                                     :state-root state-root
+                                     :config config))
+
+(defun genesis-block-from-genesis-json-file (path &key state-root config)
+  (genesis-block-from-genesis-json-string (read-text-file path)
+                                          :state-root state-root
+                                          :config config))
+
 (defun chain-config-blob-schedule (config block-number timestamp)
   (let ((custom-entry (active-custom-blob-schedule-entry config timestamp)))
     (if custom-entry

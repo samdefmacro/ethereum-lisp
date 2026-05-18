@@ -240,6 +240,21 @@
        string))
    :config config))
 
+(defun genesis-block-from-state-genesis-object (object &key config)
+  (genesis-block-from-genesis-header
+   (genesis-header-from-state-genesis-object object :config config)))
+
+(defun genesis-block-from-state-genesis-json-string (string &key config)
+  (genesis-block-from-state-genesis-object (parse-json string) :config config))
+
+(defun genesis-block-from-state-genesis-json-file (path &key config)
+  (genesis-block-from-state-genesis-json-string
+   (with-open-file (stream path :direction :input)
+     (let ((string (make-string (file-length stream))))
+       (read-sequence string stream)
+       string))
+   :config config))
+
 (define-condition transaction-validation-error (error)
   ((message :initarg :message :reader transaction-validation-error-message))
   (:report (lambda (condition stream)

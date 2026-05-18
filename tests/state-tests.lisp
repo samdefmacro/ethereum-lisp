@@ -118,6 +118,23 @@
       "\"alloc\":{\"0x0000000000000000000000000000000000000001\":"
       "{\"balance\":\"0x10\"}}}"))))
 
+(deftest genesis-block-from-state-genesis-json-uses-computed-root
+  (let* ((json (concatenate
+                'string
+                "{\"config\":{\"londonBlock\":0,\"shanghaiTime\":0},"
+                "\"alloc\":{"
+                "\"0x0000000000000000000000000000000000000001\":{"
+                "\"balance\":\"0x10\","
+                "\"storage\":{\"0x07\":\"0x2a\"}"
+                "}}}"))
+         (computed-root (genesis-state-root-from-genesis-json-string json))
+         (block (genesis-block-from-state-genesis-json-string json))
+         (header (block-header block)))
+    (is (string= (hash32-to-hex computed-root)
+                 (hash32-to-hex (block-header-state-root header))))
+    (is (block-withdrawals-present-p block))
+    (is (null (block-withdrawals block)))))
+
 (deftest withdrawals-credit-state-balances-in-wei
   (let* ((state (make-state-db))
          (existing (address-from-hex "0x0000000000000000000000000000000000000011"))

@@ -212,6 +212,10 @@
    #:genesis-header-from-genesis-object
    #:genesis-header-from-genesis-json-string
    #:genesis-header-from-genesis-json-file
+   #:genesis-block-from-genesis-header
+   #:genesis-block-from-genesis-object
+   #:genesis-block-from-genesis-json-string
+   #:genesis-block-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -493,6 +497,9 @@
    #:genesis-header-from-state-genesis-object
    #:genesis-header-from-state-genesis-json-string
    #:genesis-header-from-state-genesis-json-file
+   #:genesis-block-from-state-genesis-object
+   #:genesis-block-from-state-genesis-json-string
+   #:genesis-block-from-state-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal
@@ -759,6 +766,10 @@
    #:genesis-header-from-genesis-object
    #:genesis-header-from-genesis-json-string
    #:genesis-header-from-genesis-json-file
+   #:genesis-block-from-genesis-header
+   #:genesis-block-from-genesis-object
+   #:genesis-block-from-genesis-json-string
+   #:genesis-block-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1071,6 +1082,9 @@
    #:genesis-header-from-state-genesis-object
    #:genesis-header-from-state-genesis-json-string
    #:genesis-header-from-state-genesis-json-file
+   #:genesis-block-from-state-genesis-object
+   #:genesis-block-from-state-genesis-json-string
+   #:genesis-block-from-state-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal
@@ -1267,6 +1281,10 @@
    #:genesis-header-from-genesis-object
    #:genesis-header-from-genesis-json-string
    #:genesis-header-from-genesis-json-file
+   #:genesis-block-from-genesis-header
+   #:genesis-block-from-genesis-object
+   #:genesis-block-from-genesis-json-string
+   #:genesis-block-from-genesis-json-file
    #:chain-config-rules
    #:chain-rules
    #:make-chain-rules
@@ -1577,6 +1595,9 @@
    #:genesis-header-from-state-genesis-object
    #:genesis-header-from-state-genesis-json-string
    #:genesis-header-from-state-genesis-json-file
+   #:genesis-block-from-state-genesis-object
+   #:genesis-block-from-state-genesis-json-string
+   #:genesis-block-from-state-genesis-json-file
    #:+wei-per-gwei+
    #:state-db-add-balance
    #:apply-withdrawal

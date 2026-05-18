@@ -704,6 +704,35 @@
     (is (string= (hash32-to-hex (execution-requests-hash '()))
                  (hash32-to-hex (block-header-requests-hash header))))))
 
+(deftest genesis-block-from-json-carries-empty-fork-bodies
+  (let* ((state-root (hash32-from-hex
+                      "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (json (concatenate
+                'string
+                "{\"config\":{"
+                "\"londonBlock\":0,"
+                "\"shanghaiTime\":0,"
+                "\"cancunTime\":0,"
+                "\"pragueTime\":0"
+                "},"
+                "\"timestamp\":0"
+                "}"))
+         (block (genesis-block-from-genesis-json-string
+                 json :state-root state-root))
+         (header (block-header block)))
+    (is (string= (hash32-to-hex state-root)
+                 (hash32-to-hex (block-header-state-root header))))
+    (is (null (block-transactions block)))
+    (is (null (block-ommers block)))
+    (is (block-withdrawals-present-p block))
+    (is (null (block-withdrawals block)))
+    (is (block-requests-present-p block))
+    (is (null (block-requests block)))
+    (is (string= (hash32-to-hex (withdrawal-list-root '()))
+                 (hash32-to-hex (block-header-withdrawals-root header))))
+    (is (string= (hash32-to-hex (execution-requests-hash '()))
+                 (hash32-to-hex (block-header-requests-hash header))))))
+
 (deftest transaction-type-validation-uses-chain-config
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10
