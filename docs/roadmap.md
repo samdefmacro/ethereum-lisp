@@ -207,8 +207,8 @@ checks gas-used, logs bloom, receipts root, and state root against the block
 header, and block execution rejects supplied post-execution gas-used, state,
 receipt, and logs-bloom commitments before overwriting them when constructing
 the executed block. Block execution now snapshots and restores the input state
-when execution-phase validation fails, including gas-pool exhaustion and
-supplied post-execution commitment mismatches. Sender nonce validation now also rejects the EIP-2681 max nonce
+and mutable header fields when execution-phase validation fails, including
+gas-pool exhaustion and supplied post-execution commitment mismatches. Sender nonce validation now also rejects the EIP-2681 max nonce
 overflow case before charging gas or mutating balances; transaction values
 above uint256, transaction nonces above uint64, and transaction gas limits
 above uint64 are likewise rejected before nonce or balance mutation. EIP-1559 base-fee

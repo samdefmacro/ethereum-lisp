@@ -470,6 +470,37 @@
                             :header header))
     (is (= 1 (block-header-gas-used header)))))
 
+(deftest block-execution-restores-header-on-execution-phase-failure
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (blob-hash (hash32-from-hex
+                     "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"))
+         (header (make-block-header :gas-limit 100000
+                                    :gas-used 1
+                                    :base-fee-per-gas 2
+                                    :excess-blob-gas 2314058))
+         (transaction (make-blob-transaction
+                       :nonce 0
+                       :max-priority-fee-per-gas 1
+                       :max-fee-per-gas 10
+                       :gas-limit 21000
+                       :to recipient
+                       :max-fee-per-blob-gas 2
+                       :blob-versioned-hashes (list blob-hash))))
+    (state-db-set-account state sender
+                          (make-state-account :balance 1000000))
+    (signals block-validation-error
+      (execute-legacy-block state sender (list transaction)
+                            :header header))
+    (is (= 1 (block-header-gas-used header)))
+    (is (null (block-header-blob-gas-used header)))
+    (is (= 2314058 (block-header-excess-blob-gas header)))
+    (is (= 0 (state-account-nonce (state-db-get-account state sender))))
+    (is (= 1000000
+           (state-account-balance (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
 (deftest dynamic-fee-block-execution-rejects-supplied-legacy-receipts-root
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
