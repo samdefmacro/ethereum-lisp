@@ -1523,6 +1523,56 @@
     (signals block-validation-error
       (validate-block-execution-roots block (list receipt) nil))))
 
+(deftest block-execution-validates-receipts-before-derived-fields
+  (let* ((state-root (hash32-from-hex
+                      "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (good-receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (block (make-block :receipts (list good-receipt)))
+         (header (block-header block)))
+    (setf (block-header-gas-used header) 21000
+          (block-header-state-root header) state-root)
+    (signals block-validation-error
+      (validate-block-execution-roots block "not a receipt list" state-root))
+    (signals block-validation-error
+      (validate-block-execution-roots block (list "not a receipt") state-root))
+    (signals block-validation-error
+      (validate-block-execution-roots
+       block
+       (list (make-receipt :status 1
+                           :cumulative-gas-used (ash 1 64)))
+       state-root))
+    (signals block-validation-error
+      (validate-block-execution-roots
+       block
+       (list (make-receipt :post-state "not bytes"
+                           :cumulative-gas-used 21000))
+       state-root))
+    (signals block-validation-error
+      (validate-block-execution-roots
+       block
+       (list (make-receipt
+              :status 1
+              :cumulative-gas-used 21000
+              :logs (list (make-log-entry :address nil))))
+       state-root))
+    (signals block-validation-error
+      (validate-block-execution-roots
+       block
+       (list (make-receipt
+              :status 1
+              :cumulative-gas-used 21000
+              :logs (list (make-log-entry
+                           :topics (list nil)))))
+       state-root))
+    (signals block-validation-error
+      (validate-block-execution-roots
+       block
+       (list (make-receipt
+              :status 1
+              :cumulative-gas-used 21000
+              :logs (list (make-log-entry :data "not bytes"))))
+       state-root))))
+
 (deftest bloom-add-and-lookup-log-values
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (topic (hash32-from-hex
