@@ -3873,6 +3873,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "net_version params must be empty"))
   (write-to-string (chain-config-chain-id config) :base 10))
 
+(defun engine-rpc-handle-net-listening (params)
+  (when params
+    (block-validation-fail "net_listening params must be empty"))
+  :false)
+
+(defun engine-rpc-handle-net-peer-count (params)
+  (when params
+    (block-validation-fail "net_peerCount params must be empty"))
+  (quantity-to-hex 0))
+
 (defun engine-rpc-handle-eth-chain-id (params config)
   (when params
     (block-validation-fail "eth_chainId params must be empty"))
@@ -5388,6 +5398,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-net-version params config)))
+              ((string= method "net_listening")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-net-listening params)))
+              ((string= method "net_peerCount")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-net-peer-count params)))
               ((string= method "eth_chainId")
                (engine-rpc-response
                 id

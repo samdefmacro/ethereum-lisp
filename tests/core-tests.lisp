@@ -3876,6 +3876,10 @@
                   "\"method\":\"eth_protocolVersion\",\"params\":[]},"
                   "{\"jsonrpc\":\"2.0\",\"id\":45,"
                   "\"method\":\"net_version\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":52,"
+                  "\"method\":\"net_listening\",\"params\":[]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":53,"
+                  "\"method\":\"net_peerCount\",\"params\":[]},"
                   "{\"jsonrpc\":\"2.0\",\"id\":46,"
                   "\"method\":\"web3_clientVersion\",\"params\":[]},"
                   "{\"jsonrpc\":\"2.0\",\"id\":49,"
@@ -3883,7 +3887,7 @@
                   "\"params\":[\"0x68656c6c6f\"]}]")
                  store
                  config))))
-        (is (= 6 (length responses)))
+        (is (= 8 (length responses)))
         (is (= 17 (field (first responses) "id")))
         (is (string= (quantity-to-hex 1701)
                      (field (first responses) "result")))
@@ -3895,12 +3899,17 @@
                      (field (third responses) "result")))
         (is (= 45 (field (fourth responses) "id")))
         (is (string= "1701" (field (fourth responses) "result")))
-        (is (= 46 (field (fifth responses) "id")))
+        (is (= 52 (field (fifth responses) "id")))
+        (is (null (field (fifth responses) "result")))
+        (is (= 53 (field (sixth responses) "id")))
+        (is (string= (quantity-to-hex 0)
+                     (field (sixth responses) "result")))
+        (is (= 46 (field (seventh responses) "id")))
         (is (string= "ethereum-lisp/0.1.0/CL/0x00000000"
-                     (field (fifth responses) "result")))
-        (is (= 49 (field (sixth responses) "id")))
+                     (field (seventh responses) "result")))
+        (is (= 49 (field (eighth responses) "id")))
         (is (string= "0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"
-                     (field (sixth responses) "result")))))
+                     (field (eighth responses) "result")))))
     (let* ((response-json
              (engine-rpc-handle-request-json
               "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"eth_syncing\",\"params\":[]}"
@@ -4125,6 +4134,22 @@
              (parse-json
               (engine-rpc-handle-request-json
                "{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"web3_clientVersion\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":54,\"method\":\"net_listening\",\"params\":[\"unexpected\"]}"
+               (make-engine-payload-memory-store)
+               (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":55,\"method\":\"net_peerCount\",\"params\":[\"unexpected\"]}"
                (make-engine-payload-memory-store)
                (make-chain-config))))
            (error (field response "error")))

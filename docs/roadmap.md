@@ -602,7 +602,9 @@ returns `null`, while V3 keeps request order and allows per-item `null`
 partial responses. The first public `eth_*` read methods are now wired through
 the same JSON-RPC dispatcher: `web3_clientVersion` returns the local client
 identity string, `web3_sha3` computes Keccak-256 over supplied hex bytes,
-`net_version` returns the configured network id as a decimal string,
+`net_version` returns the configured network id as a decimal string, and
+`net_listening`/`net_peerCount` report the current non-networked local node
+state as JSON `false` and `0x0`,
 `eth_chainId` returns the configured EIP-155
 chain id, `eth_blockNumber` returns the current memory-store head number,
 `eth_protocolVersion` reports the current highest supported devp2p `eth`
