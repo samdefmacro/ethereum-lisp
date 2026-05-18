@@ -363,7 +363,9 @@ full signed batch before applying the first transaction. Transaction list
 execution also preflights list container/element shape, recipient, data,
 scalar bounds/fee caps, access-list, blob, set-code authorization field shapes,
 intrinsic gas sufficiency, and initcode size for the whole batch before
-applying the first transaction. Historical Ethash block beneficiary and ommer rewards now have a
+applying the first transaction. Block execution now feeds opcode `0x44` with
+pre-Merge `DIFFICULTY` or post-Merge `PREVRANDAO` according to the header's
+difficulty field. Historical Ethash block beneficiary and ommer rewards now have a
 first-pass execution hook, with Frontier, Byzantium, and Constantinople base
 reward selection behind an explicit block-execution option; post-Merge
 zero-difficulty headers skip those Ethash rewards on the same execution path.

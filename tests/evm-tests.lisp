@@ -757,6 +757,24 @@
       (is (= (bytes-to-integer (address-bytes origin)) (nth 11 stack)))
       (is (= 1234 (nth 12 stack))))))
 
+(deftest evm-difficulty-prev-randao-opcode-mode
+  (let* ((randao (hash32-from-hex
+                  "0x2222222222222222222222222222222222222222222222222222222222222222"))
+         (post-merge-context (make-evm-context :prev-randao randao
+                                               :difficulty 123
+                                               :random-p t))
+         (pre-merge-context (make-evm-context :prev-randao randao
+                                              :difficulty 123
+                                              :random-p nil)))
+    (is (= (bytes-to-integer (hash32-bytes randao))
+           (first (evm-result-stack
+                   (execute-bytecode #(#x44 0)
+                                     :context post-merge-context)))))
+    (is (= 123
+           (first (evm-result-stack
+                   (execute-bytecode #(#x44 0)
+                                     :context pre-merge-context)))))))
+
 (deftest evm-blockhash-window
   (let* ((block-hashes (make-hash-table))
          (hash (hash32-from-hex

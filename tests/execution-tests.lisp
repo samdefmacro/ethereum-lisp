@@ -1163,6 +1163,30 @@
     (is (= (bytes-to-integer (hash32-bytes prev-randao))
            (state-db-get-storage state contract slot-prev-randao)))))
 
+(deftest pre-merge-block-execution-supplies-difficulty-to-evm
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (contract (address-from-hex "0x00000000000000000000000000000000000000e2"))
+         (randao-looking-mix-hash
+           (hash32-from-hex
+            "0x9999999999999999999999999999999999999999999999999999999999999999"))
+         (header (make-block-header :number 99
+                                    :difficulty 123
+                                    :gas-limit 100000
+                                    :mix-hash randao-looking-mix-hash))
+         (slot-difficulty (hash32-from-hex
+                           "0x0000000000000000000000000000000000000000000000000000000000000001"))
+         (code #(#x44 96 1 #x55 0))
+         (transaction (make-legacy-transaction :nonce 0
+                                               :gas-price 1
+                                               :gas-limit 50000
+                                               :to contract)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 1000000))
+    (state-db-set-code state contract code)
+    (execute-legacy-block state sender (list transaction) :header header)
+    (is (= 123 (state-db-get-storage state contract slot-difficulty)))))
+
 (deftest dynamic-fee-message-transfer-uses-effective-gas-price
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

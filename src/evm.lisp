@@ -54,6 +54,8 @@
                                 (timestamp 0)
                                 (block-number 0)
                                 (prev-randao (zero-hash32))
+                                (difficulty 0)
+                                (random-p t)
                                 (gas-limit 0)
                                 (chain-id 0)
                                 chain-rules
@@ -84,6 +86,8 @@
   (timestamp 0 :type (integer 0 *))
   (block-number 0 :type (integer 0 *))
   prev-randao
+  (difficulty 0 :type (integer 0 *))
+  (random-p t :type boolean)
   (gas-limit 0 :type (integer 0 *))
   (chain-id 0 :type (integer 0 *))
   chain-rules
@@ -451,6 +455,11 @@
 
 (defun hash32-to-word (hash)
   (bytes-to-integer (hash32-bytes hash)))
+
+(defun evm-context-difficulty-or-random-word (context)
+  (if (evm-context-random-p context)
+      (hash32-to-word (or (evm-context-prev-randao context) (zero-hash32)))
+      (evm-context-difficulty context)))
 
 (defun transient-storage-key (address slot)
   (concat-bytes (address-bytes address)
@@ -1580,10 +1589,10 @@
                     (incf pc))
                    ((= op #x44)
                     (unless context
-                      (fail "PREVRANDAO requires an EVM context"))
+                      (fail "DIFFICULTY/PREVRANDAO requires an EVM context"))
                     (setf stack (stack-push stack
-                                            (hash32-to-word
-                                             (evm-context-prev-randao context))))
+                                            (evm-context-difficulty-or-random-word
+                                             context)))
                     (incf pc))
                    ((= op #x45)
                     (unless context
@@ -1927,6 +1936,8 @@
                                               :timestamp (evm-context-timestamp context)
                                               :block-number (evm-context-block-number context)
                                               :prev-randao (evm-context-prev-randao context)
+                                              :difficulty (evm-context-difficulty context)
+                                              :random-p (evm-context-random-p context)
                                               :gas-limit (evm-context-gas-limit context)
                                               :chain-id (evm-context-chain-id context)
                                               :chain-rules (evm-context-chain-rules context)
@@ -2082,6 +2093,8 @@
                                                 :timestamp (evm-context-timestamp context)
                                                 :block-number (evm-context-block-number context)
                                                 :prev-randao (evm-context-prev-randao context)
+                                                :difficulty (evm-context-difficulty context)
+                                                :random-p (evm-context-random-p context)
                                                 :gas-limit (evm-context-gas-limit context)
                                                 :chain-id (evm-context-chain-id context)
                                                 :chain-rules (evm-context-chain-rules context)
@@ -2254,6 +2267,8 @@
                                                     :timestamp (evm-context-timestamp context)
                                                     :block-number (evm-context-block-number context)
                                                     :prev-randao (evm-context-prev-randao context)
+                                                    :difficulty (evm-context-difficulty context)
+                                                    :random-p (evm-context-random-p context)
                                                     :gas-limit (evm-context-gas-limit context)
                                                     :chain-id (evm-context-chain-id context)
                                                     :chain-rules (evm-context-chain-rules context)
@@ -2418,6 +2433,8 @@
                                                     :timestamp (evm-context-timestamp context)
                                                     :block-number (evm-context-block-number context)
                                                     :prev-randao (evm-context-prev-randao context)
+                                                    :difficulty (evm-context-difficulty context)
+                                                    :random-p (evm-context-random-p context)
                                                     :gas-limit (evm-context-gas-limit context)
                                                     :chain-id (evm-context-chain-id context)
                                                     :chain-rules (evm-context-chain-rules context)
@@ -2567,6 +2584,8 @@
                                                   :timestamp (evm-context-timestamp context)
                                                   :block-number (evm-context-block-number context)
                                                   :prev-randao (evm-context-prev-randao context)
+                                                  :difficulty (evm-context-difficulty context)
+                                                  :random-p (evm-context-random-p context)
                                                   :gas-limit (evm-context-gas-limit context)
                                                   :chain-id (evm-context-chain-id context)
                                                   :chain-rules (evm-context-chain-rules context)
@@ -2715,6 +2734,8 @@
                                                   :timestamp (evm-context-timestamp context)
                                                   :block-number (evm-context-block-number context)
                                                   :prev-randao (evm-context-prev-randao context)
+                                                  :difficulty (evm-context-difficulty context)
+                                                  :random-p (evm-context-random-p context)
                                                   :gas-limit (evm-context-gas-limit context)
                                                   :chain-id (evm-context-chain-id context)
                                                   :chain-rules (evm-context-chain-rules context)

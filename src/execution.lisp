@@ -490,6 +490,8 @@
           (timestamp 0)
           (block-number 0)
           (prev-randao (zero-hash32))
+          (difficulty 0)
+          (random-p t)
           (context-gas-limit 0))
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp)))
@@ -505,6 +507,8 @@
      :timestamp timestamp
      :block-number block-number
      :prev-randao prev-randao
+     :difficulty difficulty
+     :random-p random-p
      :gas-limit context-gas-limit
      :chain-id chain-id
      :chain-rules effective-chain-rules
@@ -529,6 +533,8 @@
                                      (timestamp 0)
                                      (block-number 0)
                                      (prev-randao (zero-hash32))
+                                     (difficulty 0)
+                                     (random-p t)
                                      (context-gas-limit 0))
   (let* ((effective-chain-rules
            (execution-chain-rules chain-rules chain-config block-number timestamp))
@@ -576,6 +582,8 @@
                           :timestamp timestamp
                           :block-number block-number
                           :prev-randao prev-randao
+                          :difficulty difficulty
+                          :random-p random-p
                           :context-gas-limit context-gas-limit))
                        (result
                          (execute-bytecode
@@ -637,6 +645,8 @@
           (timestamp 0)
           (block-number 0)
           (prev-randao (zero-hash32))
+          (difficulty 0)
+          (random-p t)
           (context-gas-limit 0))
   "Apply a transaction message and execute recipient code when present."
   (let ((effective-chain-rules
@@ -683,6 +693,8 @@
                             :timestamp timestamp
                             :block-number block-number
                             :prev-randao prev-randao
+                            :difficulty difficulty
+                            :random-p random-p
                             :context-gas-limit context-gas-limit))
                          (result (execute-bytecode code
                                                    :context context
@@ -729,6 +741,8 @@
                                :timestamp timestamp
                                :block-number block-number
                                :prev-randao prev-randao
+                               :difficulty difficulty
+                               :random-p random-p
 	                               :context-gas-limit context-gas-limit))))
 
 (defun transaction-declared-chain-id (tx)
@@ -771,6 +785,8 @@
           (timestamp 0)
           (block-number 0)
           (prev-randao (zero-hash32))
+          (difficulty 0)
+          (random-p t)
           (context-gas-limit 0))
   "Recover the transaction sender from its signature and apply the message."
   (let ((sender (signed-transaction-sender-or-error tx expected-chain-id))
@@ -785,6 +801,8 @@
                    :timestamp timestamp
                    :block-number block-number
                    :prev-randao prev-randao
+                   :difficulty difficulty
+                   :random-p random-p
                    :context-gas-limit context-gas-limit)))
 
 (defun apply-legacy-message (state sender tx)
@@ -803,6 +821,8 @@
           (timestamp 0)
           (block-number 0)
           (prev-randao (zero-hash32))
+          (difficulty 0)
+          (random-p t)
           (context-gas-limit 0))
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
@@ -827,6 +847,8 @@
                                     :timestamp timestamp
                                     :block-number block-number
                                     :prev-randao prev-randao
+                                    :difficulty difficulty
+                                    :random-p random-p
                                     :context-gas-limit context-gas-limit)))
         (incf cumulative-gas (receipt-cumulative-gas-used receipt))
         (push (make-receipt :status (receipt-status receipt)
@@ -847,6 +869,8 @@
           (timestamp 0)
           (block-number 0)
           (prev-randao (zero-hash32))
+          (difficulty 0)
+          (random-p t)
           (context-gas-limit 0))
   (let ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
@@ -877,6 +901,8 @@
                         :timestamp timestamp
                         :block-number block-number
                         :prev-randao prev-randao
+                        :difficulty difficulty
+                        :random-p random-p
                         :context-gas-limit context-gas-limit)))
           (incf cumulative-gas (receipt-cumulative-gas-used receipt))
           (push (make-receipt :status (receipt-status receipt)
@@ -1122,6 +1148,8 @@
                :timestamp (block-header-timestamp header)
                :block-number (block-header-number header)
                :prev-randao (or (block-header-mix-hash header) (zero-hash32))
+               :difficulty (block-header-difficulty header)
+               :random-p (block-header-post-merge-p header)
                :context-gas-limit (block-header-gas-limit header)
                :block-gas-limit
                (when (plusp (block-header-gas-limit header))
@@ -1198,6 +1226,8 @@
                :timestamp (block-header-timestamp header)
                :block-number (block-header-number header)
                :prev-randao (or (block-header-mix-hash header) (zero-hash32))
+               :difficulty (block-header-difficulty header)
+               :random-p (block-header-post-merge-p header)
                :context-gas-limit (block-header-gas-limit header)
                :block-gas-limit
                (when (plusp (block-header-gas-limit header))
