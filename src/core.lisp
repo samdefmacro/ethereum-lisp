@@ -2002,7 +2002,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                         (ommers '())
                         (withdrawals nil withdrawals-supplied-p)
                         (requests nil requests-supplied-p)
-                        (block-access-list nil block-access-list-supplied-p))
+                        (block-access-list nil block-access-list-supplied-p)
+                        (block-access-list-rlp nil
+                         block-access-list-rlp-supplied-p))
+  (when (and block-access-list-supplied-p
+             block-access-list-rlp-supplied-p)
+    (block-validation-fail
+     "Block access list cannot be supplied as both typed data and RLP"))
+  (when block-access-list-rlp-supplied-p
+    (setf block-access-list (block-access-list-from-rlp block-access-list-rlp)
+          block-access-list-supplied-p t))
   (setf (block-header-transactions-root header)
         (transaction-list-root transactions)
         (block-header-receipts-root header)
@@ -2021,7 +2030,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (execution-requests-hash requests)))
   (when block-access-list-supplied-p
     (setf (block-header-block-access-list-hash header)
-          (block-access-list-hash block-access-list)))
+          (if block-access-list-rlp-supplied-p
+              (block-access-list-rlp-hash block-access-list-rlp)
+              (block-access-list-hash block-access-list))))
   (%make-block :header header
                :transactions transactions
                :ommers ommers
