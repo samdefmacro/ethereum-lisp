@@ -1700,6 +1700,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (unless (transaction-object-p transaction)
       (block-validation-fail "Block transaction must be a transaction"))))
 
+(defun validate-block-ommer-list-fields (ommers)
+  (unless (listp ommers)
+    (block-validation-fail "Block ommers must be a list"))
+  (dolist (ommer ommers t)
+    (unless (block-header-p ommer)
+      (block-validation-fail "Block ommer must be a block header"))))
+
 (defun transaction-blob-count (transaction)
   (typecase transaction
     (blob-transaction
@@ -1750,7 +1757,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (max-blob-gas
                  (* +max-blobs-per-block+ +blob-gas-per-blob+)))
   (let* ((header (block-header block))
-         (ommers-root (ommers-hash (block-ommers block)))
+         (ommers (block-ommers block))
+         (ommers-root nil)
          (transactions (block-transactions block))
          (transactions-root nil)
          (blob-gas-used nil)
@@ -1760,6 +1768,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            header
                            :update-fraction
                            blob-base-fee-update-fraction))))
+    (validate-block-ommer-list-fields ommers)
+    (setf ommers-root (ommers-hash ommers))
     (validate-block-transaction-list-fields transactions)
     (setf blob-gas-used (blob-gas-used transactions))
     (dolist (transaction transactions)
@@ -1783,7 +1793,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (unless (hash32= ommers-root (block-header-ommers-hash header))
       (block-validation-fail "Ommers root hash mismatch"))
     (when (and (block-header-post-merge-p header)
-               (block-ommers block))
+               ommers)
       (block-validation-fail "Post-Merge blocks cannot contain ommers"))
     (unless (hash32= transactions-root
                      (block-header-transactions-root header))

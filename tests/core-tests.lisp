@@ -902,6 +902,12 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
+(deftest block-body-validates-ommer-list-before-root-derivation
+  (let ((block (make-block)))
+    (setf (block-ommers block) (list "not a header"))
+    (signals block-validation-error
+      (validate-block-body-roots block))))
+
 (deftest block-body-validation-uses-chain-config-transaction-types
   (let* ((config (make-chain-config :berlin-block 5
                                     :london-block 10
