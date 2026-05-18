@@ -2723,6 +2723,11 @@
                    (cons "prevRandao" (hash32-to-hex (zero-hash32)))
                    (cons "suggestedFeeRecipient"
                          (address-to-hex (zero-address)))))
+           (invalid-payload-attributes-object ()
+             (list (cons "timestamp" "0x0")
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))))
            (forkchoice-request (id state &optional payload-attributes)
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
@@ -2785,6 +2790,19 @@
         (is (= 25 (field get-payload-response "id")))
         (is (= -38001 (field error "code")))
         (is (string= "Unknown payload" (field error "message"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 26
+                 (forkchoice-state-object known-hash)
+                 (invalid-payload-attributes-object))
+                store
+                config))
+             (error (field response "error")))
+        (is (= 26 (field response "id")))
+        (is (= -38003 (field error "code")))
+        (is (string= "Payload attributes timestamp must be greater than parent timestamp"
+                     (field error "message"))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request

@@ -3364,6 +3364,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-rpc-transition-configuration-object config))
 
 (defconstant +engine-rpc-error-unknown-payload+ -38001)
+(defconstant +engine-rpc-error-invalid-payload-attributes+ -38003)
 
 (define-condition engine-rpc-error (error)
   ((code :initarg :code :reader engine-rpc-error-code)
@@ -3437,8 +3438,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (make-engine-prepared-payload
               :payload-id candidate-id
               :version 1
-              :block (engine-build-empty-payload-v1
-                      parent-block payload-attributes))))
+              :block
+              (handler-case
+                  (engine-build-empty-payload-v1
+                   parent-block payload-attributes)
+                (block-validation-error (condition)
+                  (engine-rpc-fail
+                   +engine-rpc-error-invalid-payload-attributes+
+                   (block-validation-error-message condition)))))))
           (setf payload-id candidate-id)))
       (engine-rpc-forkchoice-response-object
        status
