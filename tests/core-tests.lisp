@@ -2773,6 +2773,18 @@
           (is (string= (address-to-hex (zero-address))
                        (field payload "feeRecipient")))
           (is (not (field payload "transactions")))))
+      (let* ((get-payload-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 25)
+                      (cons "method" "engine_getPayloadV1")
+                      (cons "params" (list "0x0200000000000000")))
+                store
+                config))
+             (error (field get-payload-response "error")))
+        (is (= 25 (field get-payload-response "id")))
+        (is (= -38001 (field error "code")))
+        (is (string= "Unknown payload" (field error "message"))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request

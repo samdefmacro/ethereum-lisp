@@ -3363,6 +3363,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-rpc-validate-transition-configuration (first params))
   (engine-rpc-transition-configuration-object config))
 
+(defconstant +engine-rpc-error-unknown-payload+ -38001)
+
+(define-condition engine-rpc-error (error)
+  ((code :initarg :code :reader engine-rpc-error-code)
+   (message :initarg :message :reader engine-rpc-error-message))
+  (:report (lambda (condition stream)
+             (format stream "~A" (engine-rpc-error-message condition)))))
+
+(defun engine-rpc-fail (code message)
+  (error 'engine-rpc-error :code code :message message))
+
 (defun engine-rpc-payload-id-from-value (value)
   (unless (stringp value)
     (block-validation-fail "engine_getPayloadV1 payload id must be a hex string"))
@@ -3386,7 +3397,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (prepared-payload
            (engine-payload-store-prepared-payload store payload-id)))
     (unless prepared-payload
-      (block-validation-fail "unknown payload"))
+      (engine-rpc-fail +engine-rpc-error-unknown-payload+
+                       "Unknown payload"))
     (unless (= 1 (engine-prepared-payload-version prepared-payload))
       (block-validation-fail "payload id is not for engine_getPayloadV1"))
     (engine-rpc-executable-data-object
@@ -3502,6 +3514,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :error
                 (engine-rpc-error-object -32601 "Method not found"))))))
+      (engine-rpc-error (condition)
+        (engine-rpc-response
+         id
+         :error
+         (engine-rpc-error-object
+          (engine-rpc-error-code condition)
+          (engine-rpc-error-message condition))))
       (block-validation-error (condition)
         (engine-rpc-response
          id

@@ -549,7 +549,8 @@ against the local memory store and rejected when unavailable. It can prepare a
 deterministic in-memory empty child payload when V1 payload attributes are
 supplied for a valid head. The prepared payload is keyed by an 8-byte
 Engine-style payload id and can be fetched through `engine_getPayloadV1`, which
-returns the execution payload object for the prepared block. A first HTTP POST adapter now
+returns the execution payload object for the prepared block and reports missing
+ids with the Engine API `Unknown payload` error code `-38001`. A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
 Bearer authentication with HS256 signatures, 32-byte secrets, `iat` freshness,
