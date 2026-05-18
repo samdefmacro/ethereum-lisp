@@ -1453,7 +1453,7 @@
                    :storage-reads (list slot-1 slot-2)))
          (access-list (list account)))
     (is (string=
-         "0xf85ff85d940000000000000000000000000000000000000001c0f842a00000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000002c0c0c0"
+         "0xdddc940000000000000000000000000000000000000001c0c20102c0c0c0"
          (bytes-to-hex (block-access-list-rlp access-list))))
     (is (validate-block-access-list-fields access-list))
     (signals block-validation-error
@@ -1468,6 +1468,57 @@
               :address (address-from-hex
                         "0x0000000000000000000000000000000000000001")
               :storage-reads (list slot-1 slot-1)))))))
+
+(deftest block-access-list-rlp-encodes-storage-writes
+  (let* ((slot-1 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000001"))
+         (slot-2 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (write-1 (make-block-access-storage-write :tx-index 1 :value-after 2))
+         (write-2 (make-block-access-storage-write :tx-index 2 :value-after 3))
+         (slot-writes (make-block-access-slot-writes
+                       :slot slot-1
+                       :accesses (list write-1 write-2)))
+         (account (make-block-access-account
+                   :address (address-from-hex
+                             "0x0000000000000000000000000000000000000001")
+                   :storage-writes (list slot-writes)))
+         (access-list (list account)))
+    (is (string=
+         "0xe4e3940000000000000000000000000000000000000001c9c801c6c20102c20203c0c0c0c0"
+         (bytes-to-hex (block-access-list-rlp access-list))))
+    (is (validate-block-access-list-fields access-list))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :storage-writes
+              (list (make-block-access-slot-writes
+                     :slot slot-2
+                     :accesses (list write-1))
+                    (make-block-access-slot-writes
+                     :slot slot-1
+                     :accesses (list write-1)))))))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :storage-writes
+              (list (make-block-access-slot-writes
+                     :slot slot-1
+                     :accesses (list write-2 write-1)))))))
+    (signals block-validation-error
+      (validate-block-access-list-fields
+       (list (make-block-access-account
+              :address (address-from-hex
+                        "0x0000000000000000000000000000000000000001")
+              :storage-writes
+              (list (make-block-access-slot-writes
+                     :slot slot-1
+                     :accesses (list write-1)))
+              :storage-reads (list slot-1)))))))
 
 (deftest block-access-list-validates-account-order
   (let ((first (make-block-access-account

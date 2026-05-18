@@ -2054,11 +2054,39 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (nonce-changes '() :type list)
   (code-changes '() :type list))
 
+(defstruct (block-access-storage-write
+            (:constructor make-block-access-storage-write
+                (&key tx-index value-after)))
+  tx-index
+  value-after)
+
+(defstruct (block-access-slot-writes
+            (:constructor make-block-access-slot-writes
+                (&key slot (accesses '()))))
+  slot
+  (accesses '() :type list))
+
+(defun hash32-uint256 (hash)
+  (bytes-to-integer (hash32-bytes hash)))
+
+(defun block-access-storage-write-rlp-object (write)
+  (make-rlp-list
+   (block-access-storage-write-tx-index write)
+   (block-access-storage-write-value-after write)))
+
+(defun block-access-slot-writes-rlp-object (slot-writes)
+  (make-rlp-list
+   (hash32-uint256 (block-access-slot-writes-slot slot-writes))
+   (apply #'make-rlp-list
+          (mapcar #'block-access-storage-write-rlp-object
+                  (block-access-slot-writes-accesses slot-writes)))))
+
 (defun block-access-account-rlp-object (account)
   (make-rlp-list
    (address-bytes (block-access-account-address account))
-   (block-access-account-storage-writes account)
-   (mapcar #'hash32-bytes (block-access-account-storage-reads account))
+   (mapcar #'block-access-slot-writes-rlp-object
+           (block-access-account-storage-writes account))
+   (mapcar #'hash32-uint256 (block-access-account-storage-reads account))
    (block-access-account-balance-changes account)
    (block-access-account-nonce-changes account)
    (block-access-account-code-changes account)))
@@ -2145,15 +2173,70 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             do (return nil)
           finally (return (< (length left) (length right))))))
 
+(defun uint32-value-p (value)
+  (and (integerp value)
+       (<= 0 value)
+       (< value (expt 2 32))))
+
+(defun validate-block-access-storage-write-fields (write)
+  (unless (block-access-storage-write-p write)
+    (block-validation-fail
+     "Block access list storage write must be a storage write"))
+  (unless (uint32-value-p (block-access-storage-write-tx-index write))
+    (block-validation-fail "Block access list storage write tx index must be uint32"))
+  (unless (uint256-p (block-access-storage-write-value-after write))
+    (block-validation-fail
+     "Block access list storage write value-after must be uint256"))
+  t)
+
+(defun validate-block-access-slot-writes-fields (slot-writes)
+  (unless (block-access-slot-writes-p slot-writes)
+    (block-validation-fail
+     "Block access list storage writes entry must be slot writes"))
+  (unless (hash32-p (block-access-slot-writes-slot slot-writes))
+    (block-validation-fail "Block access list storage write slot must be a hash32"))
+  (unless (listp (block-access-slot-writes-accesses slot-writes))
+    (block-validation-fail
+     "Block access list storage write accesses must be a list"))
+  (when (null (block-access-slot-writes-accesses slot-writes))
+    (block-validation-fail
+     "Block access list storage write slot must contain at least one access"))
+  (let ((previous-tx-index nil))
+    (dolist (write (block-access-slot-writes-accesses slot-writes))
+      (validate-block-access-storage-write-fields write)
+      (let ((tx-index (block-access-storage-write-tx-index write)))
+        (when (and previous-tx-index
+                   (<= tx-index previous-tx-index))
+          (block-validation-fail
+           "Block access list storage write tx indices must be sorted"))
+        (setf previous-tx-index tx-index))))
+  t)
+
 (defun validate-block-access-account-fields (account)
   (unless (block-access-account-p account)
     (block-validation-fail
      "Block access list account must be a block access account"))
   (unless (address-p (block-access-account-address account))
     (block-validation-fail "Block access list account address must be an address"))
+  (unless (listp (block-access-account-storage-writes account))
+    (block-validation-fail "Block access list storage writes must be a list"))
   (unless (listp (block-access-account-storage-reads account))
     (block-validation-fail "Block access list storage reads must be a list"))
-  (let ((previous-slot-bytes nil))
+  (let ((previous-slot-bytes nil)
+        (write-slot-table (make-hash-table :test #'equal)))
+    (dolist (slot-writes (block-access-account-storage-writes account))
+      (validate-block-access-slot-writes-fields slot-writes)
+      (let* ((slot (block-access-slot-writes-slot slot-writes))
+             (slot-bytes (hash32-bytes slot)))
+        (when (and previous-slot-bytes
+                   (not (byte-vector-lexicographic< previous-slot-bytes
+                                                    slot-bytes)))
+          (block-validation-fail
+           "Block access list storage write slots must be sorted"))
+        (setf (gethash (bytes-to-hex slot-bytes :prefix nil) write-slot-table)
+              t)
+        (setf previous-slot-bytes slot-bytes)))
+    (setf previous-slot-bytes nil)
     (dolist (slot (block-access-account-storage-reads account))
       (unless (hash32-p slot)
         (block-validation-fail "Block access list storage read must be a hash32"))
@@ -2163,9 +2246,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                                     slot-bytes)))
           (block-validation-fail
            "Block access list storage reads must be sorted"))
+        (when (gethash (bytes-to-hex slot-bytes :prefix nil) write-slot-table)
+          (block-validation-fail
+           "Block access list storage read duplicates a storage write slot"))
         (setf previous-slot-bytes slot-bytes))))
-  (dolist (field (list (block-access-account-storage-writes account)
-                       (block-access-account-balance-changes account)
+  (dolist (field (list (block-access-account-balance-changes account)
                        (block-access-account-nonce-changes account)
                        (block-access-account-code-changes account)))
     (unless (null field)

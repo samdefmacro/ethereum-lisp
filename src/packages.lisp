@@ -429,6 +429,14 @@
    #:block-access-account-balance-changes
    #:block-access-account-nonce-changes
    #:block-access-account-code-changes
+   #:block-access-storage-write
+   #:make-block-access-storage-write
+   #:block-access-storage-write-tx-index
+   #:block-access-storage-write-value-after
+   #:block-access-slot-writes
+   #:make-block-access-slot-writes
+   #:block-access-slot-writes-slot
+   #:block-access-slot-writes-accesses
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
@@ -1024,6 +1032,14 @@
    #:block-access-account-balance-changes
    #:block-access-account-nonce-changes
    #:block-access-account-code-changes
+   #:block-access-storage-write
+   #:make-block-access-storage-write
+   #:block-access-storage-write-tx-index
+   #:block-access-storage-write-value-after
+   #:block-access-slot-writes
+   #:make-block-access-slot-writes
+   #:block-access-slot-writes-slot
+   #:block-access-slot-writes-accesses
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
@@ -1580,6 +1596,14 @@
    #:block-access-account-balance-changes
    #:block-access-account-nonce-changes
    #:block-access-account-code-changes
+   #:block-access-storage-write
+   #:make-block-access-storage-write
+   #:block-access-storage-write-tx-index
+   #:block-access-storage-write-value-after
+   #:block-access-slot-writes
+   #:make-block-access-slot-writes
+   #:block-access-slot-writes-slot
+   #:block-access-slot-writes-accesses
    #:block-access-account-rlp
    #:block-access-list-rlp
    #:block-access-list-hash
