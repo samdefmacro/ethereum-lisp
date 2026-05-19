@@ -3,8 +3,42 @@
 (defparameter +engine-newpayload-v2-fixture-path+
   "tests/fixtures/execution-spec-tests/engine-newpayload-v2.json")
 
+(defparameter +engine-newpayload-v2-fixture-format+
+  "ethereum-lisp/engine-newpayload-fixture-v1")
+
+(defparameter +engine-newpayload-v2-fixture-top-level-fields+
+  '("format" "source" "executionSpecTests" "referenceClients" "cases"))
+
+(defparameter +engine-fixture-reference-client-fields+
+  '("geth" "nethermind" "reth"))
+
+(defun validate-engine-newpayload-v2-fixture-metadata (fixture)
+  (validate-fixture-object-fields
+   fixture
+   +engine-newpayload-v2-fixture-top-level-fields+
+   "Engine newPayloadV2 fixture")
+  (validate-fixture-format fixture +engine-newpayload-v2-fixture-format+)
+  (when (blank-string-p (fixture-required-field fixture "source"))
+    (error "Engine newPayloadV2 fixture source must be present"))
+  (validate-fixture-pinned-eest-source fixture)
+  (let ((references (fixture-required-field fixture "referenceClients")))
+    (validate-fixture-object-fields
+     references
+     +engine-fixture-reference-client-fields+
+     "Engine newPayloadV2 fixture referenceClients")
+    (dolist (client +engine-fixture-reference-client-fields+)
+      (unless (fixture-field-present-p references client)
+        (error "Engine newPayloadV2 fixture referenceClients is missing ~A"
+               client)))
+    (dolist (client '("geth" "nethermind"))
+      (when (blank-string-p (fixture-object-field references client))
+        (error "Engine newPayloadV2 fixture referenceClients.~A must be present"
+               client)))))
+
 (defun load-engine-newpayload-v2-fixture-cases (path)
-  (handwritten-fixture-cases (load-handwritten-fixture-file path)))
+  (let ((fixture (load-handwritten-fixture-file path)))
+    (validate-engine-newpayload-v2-fixture-metadata fixture)
+    (handwritten-fixture-cases fixture)))
 
 (defun fixture-quantity-field (object name)
   (hex-to-quantity (fixture-object-field object name)))
@@ -68,13 +102,58 @@
         (cons "method" "eth_getTransactionReceipt")
         (cons "params" (list (hash32-to-hex hash)))))
 
+(defun engine-newpayload-v2-metadata-shape-test-fixture
+    (&key top-extra eest-extra reference-extra)
+  (append
+   (list
+    (cons "format" +engine-newpayload-v2-fixture-format+)
+    (cons "source" "test fixture")
+    (cons "executionSpecTests"
+          (append
+           (list (cons "release" +phase-a-eest-release+)
+                 (cons "tagTarget" +phase-a-eest-tag-target+)
+                 (cons "archive" +phase-a-eest-archive+)
+                 (cons "status" "test"))
+           eest-extra))
+    (cons "referenceClients"
+          (append
+           (list (cons "geth" "test-geth")
+                 (cons "nethermind" "test-nethermind")
+                 (cons "reth" nil))
+           reference-extra))
+    (cons "cases" nil))
+   top-extra))
+
+(deftest engine-newpayload-v2-fixture-metadata-validation
+  (validate-engine-newpayload-v2-fixture-metadata
+   (engine-newpayload-v2-metadata-shape-test-fixture))
+  (signals error
+    (validate-engine-newpayload-v2-fixture-metadata
+     (engine-newpayload-v2-metadata-shape-test-fixture
+      :top-extra (list (cons "unexpectedTopField" t)))))
+  (signals error
+    (validate-engine-newpayload-v2-fixture-metadata
+     (engine-newpayload-v2-metadata-shape-test-fixture
+      :top-extra (list (cons "source" "duplicate source")))))
+  (signals error
+    (validate-engine-newpayload-v2-fixture-metadata
+     (engine-newpayload-v2-metadata-shape-test-fixture
+      :eest-extra (list (cons "unexpectedPinnedField" t)))))
+  (signals error
+    (validate-engine-newpayload-v2-fixture-metadata
+     (engine-newpayload-v2-metadata-shape-test-fixture
+      :reference-extra (list (cons "besu" "test-besu"))))))
+
 (deftest engine-newpayload-v2-fixture-executes-and-becomes-canonical
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((case
              (select-handwritten-fixture-case
-              (load-handwritten-fixture-file
-               +engine-newpayload-v2-fixture-path+)
+              (let ((fixture
+                      (load-handwritten-fixture-file
+                       +engine-newpayload-v2-fixture-path+)))
+                (validate-engine-newpayload-v2-fixture-metadata fixture)
+                fixture)
               "shanghai-one-transfer-with-withdrawal"))
            (store (make-engine-payload-memory-store))
            (config (engine-fixture-chain-config case))

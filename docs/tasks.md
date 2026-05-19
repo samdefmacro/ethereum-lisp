@@ -503,6 +503,10 @@ splits can land after the Phase A smoke path closes.
     and known-block storage, then applies `engine_forkchoiceUpdatedV1` and
     verifies canonical `eth_getTransactionReceipt` and `eth_getBalance`
     responses at `latest`.
+  - Progress: added pinned EEST source metadata validation to the
+    `engine-newpayload-v2` smoke fixture wrapper. The Engine fixture now
+    machine-checks the Phase A release/tag/archive metadata, top-level wrapper
+    fields, and reference-client pins before executing the smoke case.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

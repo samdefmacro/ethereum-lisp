@@ -1,6 +1,12 @@
 {
   "format": "ethereum-lisp/engine-newpayload-fixture-v1",
   "source": "Handwritten Shanghai engine_newPayloadV2 smoke case shaped for execution-spec-tests-style ingestion.",
+  "executionSpecTests": {
+    "release": "v5.4.0",
+    "tagTarget": "88e9fb8",
+    "archive": "fixtures_stable.tar.gz",
+    "status": "seed Phase A engine_newPayloadV2 smoke fixture shaped for pinned fixture ingestion; extend with transcribed pinned blockchain cases"
+  },
   "referenceClients": {
     "geth": "8a0223e",
     "nethermind": "1c72a72",
