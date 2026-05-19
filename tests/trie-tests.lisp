@@ -178,6 +178,24 @@
        (error "Trie fixture case ~A expectedMissing entry must not include valueAscii"
               case-name)))))
 
+(defun validate-trie-fixture-expected-lookup-keys (case)
+  (let ((seen-keys (make-hash-table :test 'equal))
+        (case-name (fixture-object-field case "name")))
+    (labels ((record-key (expected field)
+               (let* ((key (bytes-to-hex (trie-fixture-key expected)))
+                      (previous-field (gethash key seen-keys)))
+                 (when previous-field
+                   (error "Trie fixture case ~A has duplicate lookup key ~A in ~A and ~A"
+                          case-name
+                          key
+                          previous-field
+                          field))
+                 (setf (gethash key seen-keys) field))))
+      (dolist (expected (fixture-object-field case "expectedGets"))
+        (record-key expected "expectedGets"))
+      (dolist (expected (fixture-object-field case "expectedMissing"))
+        (record-key expected "expectedMissing")))))
+
 (defun trie-fixture-valid-child-reference-kind-p (kind)
   (member kind +trie-fixture-child-reference-kinds+ :test #'string=))
 
@@ -307,7 +325,8 @@
     (dolist (expected (fixture-object-field case "expectedGets"))
       (validate-trie-fixture-expected-lookup expected name "expectedGets"))
     (dolist (expected (fixture-object-field case "expectedMissing"))
-      (validate-trie-fixture-expected-lookup expected name "expectedMissing"))))
+      (validate-trie-fixture-expected-lookup expected name "expectedMissing"))
+    (validate-trie-fixture-expected-lookup-keys case)))
 
 (defun validate-trie-fixture-case-coverage (cases)
   (unless (and (listp cases) cases)
@@ -606,6 +625,36 @@
                  (list (list (cons "op" "put")
                              (cons "keyHex" "0x10")
                              (cons "valueAscii" "left"))))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "duplicate-expected-get-key")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedGets"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))
+                       (list (cons "keyHex" "0x646f67")
+                             (cons "valueAscii" "hound")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "conflicting-expected-lookup-key")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedGets"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedMissing"
+                 (list (list (cons "keyHex" "0x646f67")))))))
 
 (deftest trie-fixture-shape-validation-rejects-unknown-fields
   (signals error

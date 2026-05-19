@@ -711,6 +711,8 @@ splits can land after the Phase A smoke path closes.
     assert the same account twice with conflicting roots or balances.
     Added duplicate child-reference index rejection to trie fixture branch
     projection validation, including numeric aliases such as `1` and `01`.
+    Added duplicate lookup-key rejection across trie fixture `expectedGets`
+    and `expectedMissing`, including equivalent `keyAscii` / `keyHex` forms.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
