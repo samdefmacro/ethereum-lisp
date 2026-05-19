@@ -600,6 +600,11 @@ splits can land after the Phase A smoke path closes.
     an expected final key set and checks `mpt-get` for all touched keys,
     matching geth's update/delete/get semantics and preventing root-only
     vectors from hiding lookup regressions.
+    Added operation-derived final account/code/storage assertions to the
+    state-root fixture runner. State fixtures now replay `setAccount`,
+    `setCode`, and `setStorage` into an expected final account model, then
+    verify the local state DB read APIs for every touched account and storage
+    slot in addition to the final root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

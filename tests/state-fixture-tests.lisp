@@ -36,6 +36,128 @@
       (apply-state-root-fixture-operation state operation))
     state))
 
+(defstruct (state-root-fixture-account-state
+            (:constructor make-state-root-fixture-account-state
+                (&key (nonce 0) (balance 0)
+                      (code (make-byte-vector 0))
+                      (storage (make-hash-table :test 'equal))
+                      (touched-slots (make-hash-table :test 'equal)))))
+  (nonce 0 :type (integer 0 *))
+  (balance 0 :type (integer 0 *))
+  (code (make-byte-vector 0) :type byte-vector)
+  storage
+  touched-slots)
+
+(defun state-root-fixture-empty-account-state-p (account-state)
+  (and (zerop (state-root-fixture-account-state-nonce account-state))
+       (zerop (state-root-fixture-account-state-balance account-state))
+       (zerop (length (state-root-fixture-account-state-code account-state)))
+       (zerop
+        (hash-table-count
+         (state-root-fixture-account-state-storage account-state)))))
+
+(defun state-root-fixture-account-state
+    (states address &key create-p)
+  (or (gethash address states)
+      (when create-p
+        (setf (gethash address states)
+              (make-state-root-fixture-account-state)))))
+
+(defun state-root-fixture-prune-account-state
+    (states address account-state)
+  (when (state-root-fixture-empty-account-state-p account-state)
+    (remhash address states))
+  states)
+
+(defun apply-state-root-fixture-operation-model (states operation)
+  (let* ((op (fixture-object-field operation "op"))
+         (address (fixture-object-field operation "address"))
+         (account-state nil))
+    (cond
+      ((string= op "setAccount")
+       (setf account-state
+             (state-root-fixture-account-state states address :create-p t)
+             (state-root-fixture-account-state-nonce account-state)
+             (state-fixture-number operation "nonce")
+             (state-root-fixture-account-state-balance account-state)
+             (state-fixture-number operation "balance")))
+      ((string= op "setStorage")
+       (let* ((slot (fixture-object-field operation "slot"))
+              (value (state-fixture-number operation "value"))
+              (create-p (not (zerop value))))
+         (setf account-state
+               (state-root-fixture-account-state
+                states address :create-p create-p))
+         (when account-state
+           (setf (gethash slot
+                          (state-root-fixture-account-state-touched-slots
+                           account-state))
+                 t)
+           (if (zerop value)
+               (remhash slot
+                        (state-root-fixture-account-state-storage
+                         account-state))
+               (setf (gethash slot
+                              (state-root-fixture-account-state-storage
+                               account-state))
+                     value))
+           (state-root-fixture-prune-account-state
+            states address account-state))))
+      ((string= op "setCode")
+       (let* ((code (hex-to-bytes (fixture-object-field operation "code")))
+              (create-p (plusp (length code))))
+         (setf account-state
+               (state-root-fixture-account-state
+                states address :create-p create-p))
+         (when account-state
+           (setf (state-root-fixture-account-state-code account-state)
+                 code)
+           (state-root-fixture-prune-account-state
+            states address account-state))))
+      (t
+       (error "Unknown state root fixture operation: ~A" op))))
+  states)
+
+(defun state-root-fixture-final-operation-state (case)
+  (let ((states (make-hash-table :test 'equal)))
+    (dolist (operation (fixture-object-field case "operations"))
+      (apply-state-root-fixture-operation-model states operation))
+    states))
+
+(defun assert-state-root-fixture-final-operation-state (state case)
+  (let ((expected-states
+          (state-root-fixture-final-operation-state case)))
+    (dolist (operation (fixture-object-field case "operations"))
+      (let* ((address-hex (fixture-object-field operation "address"))
+             (address (address-from-hex address-hex))
+             (expected (gethash address-hex expected-states))
+             (account (state-db-get-account state address)))
+        (if expected
+            (progn
+              (is account)
+              (is (= (state-root-fixture-account-state-nonce expected)
+                     (state-account-nonce account)))
+              (is (= (state-root-fixture-account-state-balance expected)
+                     (state-account-balance account)))
+              (is (bytes=
+                   (state-root-fixture-account-state-code expected)
+                   (state-db-get-code state address)))
+              (maphash
+               (lambda (slot ignored)
+                 (declare (ignore ignored))
+                 (is (= (gethash
+                         slot
+                         (state-root-fixture-account-state-storage expected)
+                         0)
+                        (state-db-get-storage
+                         state address (hash32-from-hex slot)))))
+               (state-root-fixture-account-state-touched-slots expected)))
+            (progn
+              (is (null account))
+              (is (string= "0x"
+                           (bytes-to-hex
+                            (state-db-get-code state address))))))))))
+
 (defun assert-state-root-fixture-storage-roots (state case)
   (dolist (expected (fixture-object-field case "expectedStorageRoots"))
     (let ((address (address-from-hex (fixture-object-field expected "address"))))
@@ -78,5 +200,6 @@
       (let ((state (run-state-root-fixture-case case)))
         (is (string= (fixture-object-field case "expectedRoot")
                      (state-db-root-hex state)))
+        (assert-state-root-fixture-final-operation-state state case)
         (assert-state-root-fixture-storage-roots state case)
         (assert-state-root-fixture-accounts state case)))))
