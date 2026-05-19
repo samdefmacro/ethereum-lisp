@@ -138,8 +138,19 @@
     (error "Transaction fixture ~A result for fork ~A must be a JSON object"
            (fixture-object-field vector "name")
            fork))
-  (let ((exception (fixture-object-field result "exception"))
+  (dolist (field result)
+    (unless (member (car field) '("exception" "intrinsicGas") :test #'string=)
+      (error "Transaction fixture ~A result for fork ~A has unknown field ~A"
+             (fixture-object-field vector "name")
+             fork
+             (car field))))
+  (let ((exception-present-p (fixture-field-present-p result "exception"))
+        (exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
+    (when (and exception-present-p (blank-string-p exception))
+      (error "Transaction fixture ~A result for fork ~A has a blank exception"
+             (fixture-object-field vector "name")
+             fork))
     (if (blank-string-p exception)
         (validate-transaction-fixture-quantity-field
          vector fork result "intrinsicGas")
@@ -348,6 +359,20 @@
     (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" (list (cons "exception" ""))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
+       (list (cons "exception" "")
+             (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
+       (list (cons "intrinsicGas" "0x5208")
+             (cons "gas" "0x5208"))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" (list (cons "intrinsicGas" "5208"))))

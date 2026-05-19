@@ -255,6 +255,10 @@ ones.
   - Progress: moved fork coverage validation into transaction result-shape
     loading. Fixture vectors now reject missing tracked fork labels or unknown
     fork labels before transaction decoding and execution checks begin.
+  - Progress: tightened per-fork result entry shape. Valid entries now reject
+    explicit blank `exception` fields, and all entries reject unknown fields,
+    leaving only the unambiguous `intrinsicGas` or non-empty `exception`
+    forms.
 
 ## P0: Module Boundaries
 
