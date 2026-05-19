@@ -259,6 +259,10 @@ ones.
     explicit blank `exception` fields, and all entries reject unknown fields,
     leaving only the unambiguous `intrinsicGas` or non-empty `exception`
     forms.
+  - Progress: moved decoded raw-transaction hash and sender checks into
+    transaction fixture loading. Fixture vectors now fail during shape
+    validation if `txbytes` decodes to a transaction whose hash or recovered
+    sender disagrees with the fixture wrapper.
 
 ## P0: Module Boundaries
 

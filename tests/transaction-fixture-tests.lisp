@@ -225,7 +225,8 @@
       (unless (and (integerp (fixture-required-field vector "chainId"))
                    (not (minusp (fixture-required-field vector "chainId"))))
         (error "Transaction fixture chainId must be a non-negative integer"))
-      (validate-transaction-fixture-result-shape vector))
+      (validate-transaction-fixture-result-shape vector)
+      (validate-transaction-fixture-decoded-vector vector))
     (dolist (type +transaction-fixture-required-types+)
       (unless (member type seen-types)
         (error "Transaction fixture vectors are missing required type ~A"
@@ -325,6 +326,25 @@
              (fixture-object-field vector "name")
              expected-chain-id
              actual-chain-id))))
+
+(defun validate-transaction-fixture-decoded-vector (vector)
+  (let* ((raw (transaction-fixture-txbytes-value vector))
+         (chain-id (fixture-required-field vector "chainId"))
+         (transaction (transaction-from-encoding (hex-to-bytes raw)))
+         (sender (transaction-sender transaction :expected-chain-id chain-id)))
+    (validate-transaction-fixture-decoded-envelope vector transaction)
+    (unless (string= (fixture-required-field vector "hash")
+                     (hash32-to-hex (transaction-hash transaction)))
+      (error "Transaction fixture ~A hash does not match decoded transaction"
+             (fixture-object-field vector "name")))
+    (unless sender
+      (error "Transaction fixture ~A sender recovery failed"
+             (fixture-object-field vector "name")))
+    (unless (string= (fixture-required-field vector "sender")
+                     (address-to-hex sender))
+      (error "Transaction fixture ~A sender does not match decoded transaction"
+             (fixture-object-field vector "name")))
+    transaction))
 
 (deftest transaction-fixture-result-shape-validation
   (let ((vector (list (cons "name" "shape-test")
@@ -463,6 +483,23 @@
       (validate-transaction-fixture-decoded-envelope
        vector
        (make-dynamic-fee-transaction :chain-id 2)))))
+
+(deftest transaction-fixture-decoded-vector-validation
+  (let ((vector (first (load-transaction-envelope-vectors
+                       +transaction-envelope-fixture-path+))))
+    (labels ((replace-field (field value)
+               (cons (cons field value)
+                     (remove field vector :key #'car :test #'string=))))
+      (validate-transaction-fixture-decoded-vector vector)
+      (signals error
+        (validate-transaction-fixture-decoded-vector
+         (replace-field
+          "hash"
+          "0x0000000000000000000000000000000000000000000000000000000000000000")))
+      (signals error
+        (validate-transaction-fixture-decoded-vector
+         (replace-field "sender"
+                        "0x0000000000000000000000000000000000000000"))))))
 
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
