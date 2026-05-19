@@ -7,6 +7,55 @@
   (let ((value (fixture-object-field object name)))
     (if value value default)))
 
+(defun validate-state-root-fixture-non-negative-integer
+    (operation name &key required-p)
+  (let ((present-p (fixture-field-present-p operation name))
+        (value (fixture-object-field operation name)))
+    (when (or present-p required-p)
+      (unless (and (integerp value) (not (minusp value)))
+        (error "State root fixture operation ~A must contain non-negative integer ~A"
+               (fixture-object-field operation "op")
+               name)))))
+
+(defun validate-state-root-fixture-address (operation)
+  (address-from-hex (fixture-required-field operation "address")))
+
+(defun validate-state-root-fixture-operation-shape (operation)
+  (unless (listp operation)
+    (error "State root fixture operation must be a JSON object"))
+  (let ((op (fixture-required-field operation "op")))
+    (validate-state-root-fixture-address operation)
+    (cond
+      ((string= op "setAccount")
+       (validate-state-root-fixture-non-negative-integer operation "nonce")
+       (validate-state-root-fixture-non-negative-integer operation "balance"))
+      ((string= op "setStorage")
+       (hash32-from-hex (fixture-required-field operation "slot"))
+       (validate-state-root-fixture-non-negative-integer
+        operation "value" :required-p t))
+      ((string= op "setCode")
+       (hex-to-bytes (fixture-required-field operation "code")))
+      (t
+       (error "Unknown state root fixture operation: ~A" op)))))
+
+(defun validate-state-root-fixture-case-shape (case)
+  (unless (listp case)
+    (error "State root fixture case must be a JSON object"))
+  (when (blank-string-p (fixture-required-field case "name"))
+    (error "State root fixture case name must be present"))
+  (let ((operations (fixture-required-field case "operations")))
+    (unless (listp operations)
+      (error "State root fixture case operations must be a JSON array"))
+    (dolist (operation operations)
+      (validate-state-root-fixture-operation-shape operation)))
+  (hash32-from-hex (fixture-required-field case "expectedRoot")))
+
+(defun validate-state-root-fixture-cases (cases)
+  (unless (listp cases)
+    (error "State root fixture cases must be a JSON array"))
+  (dolist (case cases)
+    (validate-state-root-fixture-case-shape case)))
+
 (defun apply-state-root-fixture-operation (state operation)
   (let* ((op (fixture-object-field operation "op"))
          (address (address-from-hex (fixture-object-field operation "address"))))
@@ -191,11 +240,64 @@
           (is (string= rlp
                        (bytes-to-hex (state-account-rlp account)))))))))
 
+(deftest state-root-fixture-shape-validation
+  (let ((valid-case
+          (list
+           (cons "name" "valid-shape")
+           (cons "operations"
+                 (list
+                  (list (cons "op" "setAccount")
+                        (cons "address"
+                              "0x0000000000000000000000000000000000000001")
+                        (cons "nonce" 1)
+                        (cons "balance" 2))
+                  (list (cons "op" "setStorage")
+                        (cons "address"
+                              "0x0000000000000000000000000000000000000001")
+                        (cons "slot"
+                              "0x0000000000000000000000000000000000000000000000000000000000000001")
+                        (cons "value" 3))
+                  (list (cons "op" "setCode")
+                        (cons "address"
+                              "0x0000000000000000000000000000000000000001")
+                        (cons "code" "0x6001"))))
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+    (validate-state-root-fixture-case-shape valid-case))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "setAccount")
+           (cons "address" "0x01")
+           (cons "balance" 1))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "setStorage")
+           (cons "address" "0x0000000000000000000000000000000000000001")
+           (cons "slot" "0x01")
+           (cons "value" 1))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "setStorage")
+           (cons "address" "0x0000000000000000000000000000000000000001")
+           (cons "slot"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001"))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "setAccount")
+           (cons "address" "0x0000000000000000000000000000000000000001")
+           (cons "balance" -1))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "setCode")
+           (cons "address" "0x0000000000000000000000000000000000000001")
+           (cons "code" "0x0")))))
+
 (deftest state-root-fixture-vectors
   (let* ((fixture (load-handwritten-fixture-file +state-root-fixture-path+))
          (cases (fixture-object-field fixture "cases")))
     (validate-fixture-format fixture "ethereum-lisp/state-root-fixture-v1")
     (validate-fixture-pinned-eest-source fixture)
+    (validate-state-root-fixture-cases cases)
     (dolist (case cases)
       (let ((state (run-state-root-fixture-case case)))
         (is (string= (fixture-object-field case "expectedRoot")

@@ -627,6 +627,10 @@ splits can land after the Phase A smoke path closes.
     `setCode`, and `setStorage` into an expected final account model, then
     verify the local state DB read APIs for every touched account and storage
     slot in addition to the final root.
+    Added state-root fixture operation-shape validation. State fixtures now
+    reject malformed cases, short addresses, short storage slots, missing
+    storage values, negative nonce / balance / storage quantities, malformed
+    code hex, and malformed expected roots before replaying state operations.
     Added semantic coverage tags to trie vector cases plus runner-side guards
     for duplicate case names, unknown tags, and required MPT shape coverage.
     The trie fixture now fails early if leaf, branch, extension, deletion
