@@ -5562,13 +5562,16 @@
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
            (recipient
-             (make-address (make-byte-vector 20 :initial-element #x42)))
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
            (transaction
              (make-legacy-transaction :nonce 1
-                                      :gas-price 7
+                                      :gas-price 20000000000
                                       :gas-limit 21000
                                       :to recipient
-                                      :value 3))
+                                      :value 1000000000000000000
+                                      :v 37
+                                      :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+                                      :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
            (withdrawal
              (make-withdrawal :index 1
                               :validator-index 2
@@ -5640,7 +5643,8 @@
                      (field full-transaction "transactionIndex")))
         (is (string= (address-to-hex recipient)
                      (field full-transaction "to")))
-        (is (string= (address-to-hex (zero-address))
+        (is (string= (address-to-hex
+                      (transaction-sender transaction))
                      (field full-transaction "from")))
         (is (string= (quantity-to-hex 0)
                      (field full-transaction "type")))))))
@@ -5649,11 +5653,18 @@
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
            (transaction
-             (make-legacy-transaction :nonce 2
-                                      :gas-price 11
-                                      :gas-limit 21000
-                                      :value 5))
+             (make-legacy-transaction
+              :nonce 9
+              :gas-price 20000000000
+              :gas-limit 21000
+              :to recipient
+              :value 1000000000000000000
+              :v 37
+              :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+              :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
            (block
              (make-block
               :header (make-block-header :number 9
@@ -6009,25 +6020,29 @@
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
            (recipient
-             (make-address (make-byte-vector 20 :initial-element #x33)))
-           (tx-1 (make-legacy-transaction :nonce 1
-                                          :gas-price 7
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (dynamic-recipient
+             (address-from-hex "0x1111111111111111111111111111111111111111"))
+           (tx-1 (make-legacy-transaction :nonce 9
+                                          :gas-price 20000000000
                                           :gas-limit 21000
                                           :to recipient
-                                          :value 3
-                                          :data #(1 2)))
+                                          :value 1000000000000000000
+                                          :v 37
+                                          :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+                                          :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
            (tx-2 (make-dynamic-fee-transaction
                   :chain-id 1
-                  :nonce 2
-                  :max-priority-fee-per-gas 2
-                  :max-fee-per-gas 9
-                  :gas-limit 22000
-                  :to recipient
-                  :value 4
-                  :data #(3)
+                  :nonce 1
+                  :max-priority-fee-per-gas 0
+                  :max-fee-per-gas #x0fa0
+                  :gas-limit #x84d0
+                  :to dynamic-recipient
+                  :value 0
+                  :data #()
                   :y-parity 1
-                  :r 2
-                  :s 3))
+                  :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+                  :s #x6261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904))
            (block
              (make-block
               :header (make-block-header :number 13
@@ -6036,8 +6051,7 @@
                                          :base-fee-per-gas 5)
               :transactions (list tx-1 tx-2)))
            (hash-hex (hash32-to-hex (block-hash block)))
-           (tx-2-from (or (transaction-sender tx-2)
-                          (zero-address)))
+           (tx-2-from (transaction-sender tx-2))
            (config (make-chain-config)))
       (engine-payload-store-put-block store block :state-available-p t)
       (let* ((number-response
@@ -6084,41 +6098,43 @@
                      (field number-result "blockTimestamp")))
         (is (string= (address-to-hex tx-2-from)
                      (field number-result "from")))
-        (is (string= (quantity-to-hex 22000)
+        (is (string= (quantity-to-hex #x84d0)
                      (field number-result "gas")))
-        (is (string= (quantity-to-hex 7)
+        (is (string= (quantity-to-hex 5)
                      (field number-result "gasPrice")))
         (is (string= (hash32-to-hex (transaction-hash tx-2))
                      (field number-result "hash")))
-        (is (string= "0x03" (field number-result "input")))
-        (is (string= (quantity-to-hex 2)
+        (is (string= "0x" (field number-result "input")))
+        (is (string= (quantity-to-hex 1)
                      (field number-result "nonce")))
-        (is (string= (address-to-hex recipient)
+        (is (string= (address-to-hex dynamic-recipient)
                      (field number-result "to")))
         (is (string= (quantity-to-hex 1)
                      (field number-result "transactionIndex")))
-        (is (string= (quantity-to-hex 4)
+        (is (string= (quantity-to-hex 0)
                      (field number-result "value")))
         (is (string= (quantity-to-hex 2)
                      (field number-result "type")))
         (is (string= (quantity-to-hex 1)
                      (field number-result "chainId")))
-        (is (string= (quantity-to-hex 9)
+        (is (string= (quantity-to-hex #x0fa0)
                      (field number-result "maxFeePerGas")))
-        (is (string= (quantity-to-hex 2)
+        (is (string= (quantity-to-hex 0)
                      (field number-result "maxPriorityFeePerGas")))
         (is (string= (quantity-to-hex 1)
                      (field number-result "yParity")))
         (is (string= (quantity-to-hex 1) (field number-result "v")))
-        (is (string= (quantity-to-hex 2) (field number-result "r")))
-        (is (string= (quantity-to-hex 3) (field number-result "s")))
+        (is (string= (quantity-to-hex #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0)
+                     (field number-result "r")))
+        (is (string= (quantity-to-hex #x6261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904)
+                     (field number-result "s")))
         (is (string= hash-hex (field hash-result "blockHash")))
         (is (string= (hash32-to-hex (transaction-hash tx-1))
                      (field hash-result "hash")))
         (is (string= (quantity-to-hex 0) (field hash-result "type")))
-        (is (string= (quantity-to-hex 7)
+        (is (string= (quantity-to-hex 20000000000)
                      (field hash-result "gasPrice")))
-        (is (string= "0x0102" (field hash-result "input")))
+        (is (string= "0x" (field hash-result "input")))
         (is (string= (address-to-hex recipient)
                      (field hash-result "to")))
         (is (string= (quantity-to-hex 0)
@@ -6132,25 +6148,29 @@
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
            (recipient
-             (make-address (make-byte-vector 20 :initial-element #x44)))
-           (tx-1 (make-legacy-transaction :nonce 3
-                                          :gas-price 8
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (dynamic-recipient
+             (address-from-hex "0x1111111111111111111111111111111111111111"))
+           (tx-1 (make-legacy-transaction :nonce 9
+                                          :gas-price 20000000000
                                           :gas-limit 21000
                                           :to recipient
-                                          :value 5
-                                          :data #(4 5)))
+                                          :value 1000000000000000000
+                                          :v 37
+                                          :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+                                          :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
            (tx-2 (make-dynamic-fee-transaction
                   :chain-id 1
-                  :nonce 4
-                  :max-priority-fee-per-gas 3
-                  :max-fee-per-gas 10
-                  :gas-limit 23000
-                  :to recipient
-                  :value 6
-                  :data #(6)
+                  :nonce 1
+                  :max-priority-fee-per-gas 0
+                  :max-fee-per-gas #x0fa0
+                  :gas-limit #x84d0
+                  :to dynamic-recipient
+                  :value 0
+                  :data #()
                   :y-parity 1
-                  :r 4
-                  :s 5))
+                  :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+                  :s #x6261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904))
            (block
              (make-block
               :header (make-block-header :number 14
@@ -6221,7 +6241,7 @@
                      (field transaction-result "blockTimestamp")))
         (is (string= (quantity-to-hex 1)
                      (field transaction-result "transactionIndex")))
-        (is (string= (quantity-to-hex 9)
+        (is (string= (quantity-to-hex 6)
                      (field transaction-result "gasPrice")))
         (is (string= (quantity-to-hex 2)
                      (field transaction-result "type")))
@@ -6230,6 +6250,65 @@
         (is (null (field missing-response "result")))
         (is (null (field missing-raw-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
+
+(deftest eth-rpc-transaction-objects-require-recoverable-sender
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (transaction
+             (make-legacy-transaction
+              :nonce 9
+              :gas-price 20000000000
+              :gas-limit 21000
+              :to recipient
+              :value 1000000000000000000
+              :v 37
+              :r 0
+              :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+           (transaction-hash-hex (hash32-to-hex (transaction-hash transaction)))
+           (block
+             (make-block
+              :header (make-block-header :number 16
+                                         :timestamp 160
+                                         :gas-limit 30000000)
+              :transactions (list transaction)))
+           (block-hash-hex (hash32-to-hex (block-hash block)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((by-hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":97,"
+                  "\"method\":\"eth_getTransactionByHash\","
+                  "\"params\":[\"" transaction-hash-hex "\"]}")
+                 store
+                 config)))
+             (by-index-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":98,\"method\":\"eth_getTransactionByBlockNumberAndIndex\",\"params\":[\"0x10\",\"0x0\"]}"
+                 store
+                 config)))
+             (full-block-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":99,"
+                  "\"method\":\"eth_getBlockByHash\","
+                  "\"params\":[\"" block-hash-hex "\",true]}")
+                 store
+                 config)))
+             (by-hash-error (field by-hash-response "error"))
+             (by-index-error (field by-index-response "error"))
+             (full-block-error (field full-block-response "error")))
+        (is (= -32602 (field by-hash-error "code")))
+        (is (= -32602 (field by-index-error "code")))
+        (is (= -32602 (field full-block-error "code")))))))
 
 (deftest eth-rpc-send-raw-transaction
   (labels ((field (object name)

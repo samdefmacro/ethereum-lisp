@@ -492,10 +492,13 @@ splits can land after the Phase A smoke path closes.
     indexes unchanged. Added `eth_sendRawTransaction` admission sender recovery
     against `chain-config-chain-id`; tests use a real EIP-155 legacy vector for
     successful pending admission and reject the same transaction under a wrong
-    configured chain id while preserving pending pool and filter state.
-    Remaining work: enforce the same no-fallback sender rule on mined
-    transaction RPC object construction, high-s/yParity/EIP-7702 malformed
-    admission cases, and Engine `newPayload` once execution is wired there.
+    configured chain id while preserving pending pool and filter state. Added
+    mined transaction object sender recovery enforcement for
+    `eth_getTransactionByHash`, transaction-by-block/index, and full block
+    transaction objects; stale or polluted blocks with unrecoverable senders now
+    produce RPC errors instead of zero-address `from` fields. Remaining work:
+    enforce high-s/yParity/EIP-7702 malformed admission cases and Engine
+    `newPayload` once execution is wired there.
 
 - [ ] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.

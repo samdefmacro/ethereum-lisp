@@ -5367,6 +5367,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (transaction-effective-gas-price
        transaction :base-fee (block-header-base-fee-per-gas header))))
 
+(defun eth-rpc-transaction-sender (transaction)
+  (or (transaction-sender transaction)
+      (block-validation-fail
+       "eth transaction sender recovery failed")))
+
 (defun eth-rpc-transaction-type-fields (transaction)
   (etypecase transaction
     (legacy-transaction
@@ -5464,8 +5469,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (quantity-to-hex (block-header-timestamp header))))
         (cons "from"
               (address-to-hex
-               (or (transaction-sender transaction)
-                   (zero-address))))
+               (eth-rpc-transaction-sender transaction)))
         (cons "gas" (quantity-to-hex gas-limit))
         (cons "gasPrice"
               (quantity-to-hex
