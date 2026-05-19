@@ -6236,17 +6236,16 @@
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
            (recipient
-             (make-address (make-byte-vector 20 :initial-element #x77)))
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
            (transaction (make-legacy-transaction
                          :nonce 9
-                         :gas-price 11
+                         :gas-price 20000000000
                          :gas-limit 21000
                          :to recipient
-                         :value 13
-                         :data #(1 2 3)
-                         :v 27
-                         :r 1
-                         :s 2))
+                         :value 1000000000000000000
+                         :v 37
+                         :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+                         :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
            (raw-transaction (bytes-to-hex (transaction-encoding transaction)))
            (transaction-hash (hash32-to-hex (transaction-hash transaction)))
            (mined-block
@@ -6473,9 +6472,9 @@
           (is (null (field pending-transaction "blockNumber")))
           (is (null (field pending-transaction "blockTimestamp")))
           (is (null (field pending-transaction "transactionIndex")))
-          (is (string= (quantity-to-hex 11)
+          (is (string= (quantity-to-hex 20000000000)
                        (field pending-transaction "gasPrice")))
-          (is (string= (quantity-to-hex 13)
+          (is (string= (quantity-to-hex 1000000000000000000)
                        (field pending-transaction "value"))))
         (let ((pending-transactions (field pending-response "result")))
           (is (= 1 (length pending-transactions)))
@@ -6515,7 +6514,7 @@
                          (or (transaction-sender transaction)
                              (zero-address)))))
                (summary (field sender-transactions "9")))
-          (is (string= (format nil "~A: 13 wei + 21000 gas x 11 wei"
+          (is (string= (format nil "~A: 1000000000000000000 wei + 21000 gas x 20000000000 wei"
                                (address-to-hex recipient))
                        summary))
           (is (search "\"queued\":{}" txpool-inspect-json)))
@@ -6622,6 +6621,70 @@
         (is (= -32602
                (field (field invalid-txpool-inspect-response "error")
                       "code")))))))
+
+(deftest eth-rpc-send-raw-transaction-requires-recoverable-sender
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (transaction
+             (make-legacy-transaction
+              :nonce 9
+              :gas-price 20000000000
+              :gas-limit 21000
+              :to recipient
+              :value 1000000000000000000
+              :v 37
+              :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+              :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+           (raw-transaction
+             (bytes-to-hex (transaction-encoding transaction)))
+           (config (make-chain-config :chain-id 2))
+           (new-filter-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"eth_newPendingTransactionFilter\"}"
+               store
+               config)))
+           (filter-id (field new-filter-response "result"))
+           (send-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":93,"
+                "\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\"" raw-transaction "\"]}")
+               store
+               config)))
+           (pending-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+               store
+               config)))
+           (status-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":95,\"method\":\"txpool_status\",\"params\":[]}"
+               store
+               config)))
+           (filter-response
+             (engine-rpc-handle-request-json
+              (concatenate
+               'string
+               "{\"jsonrpc\":\"2.0\",\"id\":96,"
+               "\"method\":\"eth_getFilterChanges\","
+               "\"params\":[\"" filter-id "\"]}")
+              store
+              config))
+           (send-error (field send-response "error"))
+           (status (field status-response "result")))
+      (is (= -32602 (field send-error "code")))
+      (is (= 0 (length (field pending-response "result"))))
+      (is (string= (quantity-to-hex 0) (field status "pending")))
+      (is (search "\"result\":[]" filter-response)))))
 
 (deftest eth-rpc-get-transaction-receipt
   (labels ((field (object name)

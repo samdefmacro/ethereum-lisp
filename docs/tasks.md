@@ -489,9 +489,13 @@ splits can land after the Phase A smoke path closes.
     `execute-signed-block` sender recovery. Tests cover successful recovered
     sender execution with block/transaction/account indexes committed, and a
     wrong-chain-id signature failure that leaves both state DB and chain-store
-    indexes unchanged. Remaining work: enforce the same no-fallback sender
-    rule on `eth_sendRawTransaction`, mined transaction RPC object construction,
-    and Engine `newPayload` once execution is wired there.
+    indexes unchanged. Added `eth_sendRawTransaction` admission sender recovery
+    against `chain-config-chain-id`; tests use a real EIP-155 legacy vector for
+    successful pending admission and reject the same transaction under a wrong
+    configured chain id while preserving pending pool and filter state.
+    Remaining work: enforce the same no-fallback sender rule on mined
+    transaction RPC object construction, high-s/yParity/EIP-7702 malformed
+    admission cases, and Engine `newPayload` once execution is wired there.
 
 - [ ] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.

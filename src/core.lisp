@@ -5988,7 +5988,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (eth-rpc-raw-transaction
          (engine-payload-store-pending-transaction store hash)))))
 
-(defun engine-rpc-handle-eth-send-raw-transaction (params store)
+(defun engine-rpc-handle-eth-send-raw-transaction (params store config)
   (unless (= 1 (length params))
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
@@ -5998,6 +5998,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              "eth_sendRawTransaction transaction"))
          (transaction (transaction-from-encoding raw-bytes))
          (hash (transaction-hash transaction)))
+    (unless (transaction-sender
+             transaction
+             :expected-chain-id (chain-config-chain-id config))
+      (block-validation-fail
+       "eth_sendRawTransaction transaction sender recovery failed"))
     (unless (chain-store-transaction-location store hash)
       (engine-payload-store-put-pending-transaction store transaction))
     (hash32-to-hex hash)))
@@ -6817,7 +6822,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-send-raw-transaction
-                 params store)))
+                 params store config)))
               ((string= method "eth_pendingTransactions")
                (engine-rpc-response
                 id
