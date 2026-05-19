@@ -5915,10 +5915,43 @@
                    "{\"jsonrpc\":\"2.0\",\"id\":84,\"method\":\"txpool_status\",\"params\":[]}"
                    store
                    config)))
+               (resend-mined-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   (concatenate
+                    'string
+                    "{\"jsonrpc\":\"2.0\",\"id\":85,"
+                    "\"method\":\"eth_sendRawTransaction\","
+                    "\"params\":[\"" raw-transaction "\"]}")
+                   store
+                   config)))
+               (post-resend-pending-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":86,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                   store
+                   config)))
+               (post-resend-status-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":87,\"method\":\"txpool_status\",\"params\":[]}"
+                   store
+                   config)))
+               (post-resend-filter-json
+                 (engine-rpc-handle-request-json
+                  (concatenate
+                   'string
+                   "{\"jsonrpc\":\"2.0\",\"id\":88,"
+                   "\"method\":\"eth_getFilterChanges\","
+                   "\"params\":[\"" pending-filter-id "\"]}")
+                  store
+                  config))
                (mined-transaction
                  (field mined-transaction-response "result"))
                (post-mined-status
-                 (field post-mined-status-response "result")))
+                 (field post-mined-status-response "result"))
+               (post-resend-status
+                 (field post-resend-status-response "result")))
           (is (string= transaction-hash
                        (field mined-transaction "hash")))
           (is (string= (hash32-to-hex (block-hash mined-block))
@@ -5929,7 +5962,13 @@
                        (field mined-transaction "transactionIndex")))
           (is (= 0 (length (field post-mined-pending-response "result"))))
           (is (string= (quantity-to-hex 0)
-                       (field post-mined-status "pending"))))
+                       (field post-mined-status "pending")))
+          (is (string= transaction-hash
+                       (field resend-mined-response "result")))
+          (is (= 0 (length (field post-resend-pending-response "result"))))
+          (is (string= (quantity-to-hex 0)
+                       (field post-resend-status "pending")))
+          (is (search "\"result\":[]" post-resend-filter-json)))
         (is (= -32602
                (field (field invalid-rlp-response "error") "code")))
         (is (= -32602

@@ -5508,12 +5508,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
   (let* ((raw-bytes
-           (engine-rpc-bytes
-            (first params)
-            "eth_sendRawTransaction transaction"))
-         (transaction (transaction-from-encoding raw-bytes)))
-    (engine-payload-store-put-pending-transaction store transaction)
-    (hash32-to-hex (transaction-hash transaction))))
+            (engine-rpc-bytes
+             (first params)
+             "eth_sendRawTransaction transaction"))
+         (transaction (transaction-from-encoding raw-bytes))
+         (hash (transaction-hash transaction)))
+    (unless (engine-payload-store-transaction-location store hash)
+      (engine-payload-store-put-pending-transaction store transaction))
+    (hash32-to-hex hash)))
 
 (defun engine-rpc-handle-eth-pending-transactions (params store)
   (when params
