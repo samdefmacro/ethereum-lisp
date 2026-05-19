@@ -1,0 +1,16 @@
+{
+  "format": "ethereum-lisp/minimal-blockchain-fixture-v1",
+  "cases": [
+    {
+      "name": "empty-shanghai-blockchain-smoke",
+      "network": "Shanghai",
+      "genesis": {
+        "alloc": {}
+      },
+      "blocks": [],
+      "expect": {
+        "status": "valid"
+      }
+    }
+  ]
+}

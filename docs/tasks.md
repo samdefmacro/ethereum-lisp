@@ -66,7 +66,6 @@ ones.
 
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
-- `HARNESS-FIXTURE-RUNNER`
 - `STORE-CHAIN-INTERFACE`
 - `STATE-ATOMIC-COMMIT`
 - `SENDER-RECOVERY-ENFORCEMENT`
@@ -157,13 +156,18 @@ ones.
     produce an explicit skip condition for external fixture tests instead of a
     failure.
 
-- [ ] `HARNESS-FIXTURE-RUNNER`: Add a small fixture runner skeleton for
+- [x] `HARNESS-FIXTURE-RUNNER`: Add a small fixture runner skeleton for
   blockchain/state tests.
   - Milestone: 8
   - Dependencies: `HARNESS-FIXTURE-ROOT`.
   - Acceptance: one minimal hand-written fixture can be parsed, selected, and
     reported through the existing test runner without changing consensus logic.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added a minimal in-repo blockchain fixture at
+    `tests/fixtures/execution-spec-tests/minimal-blockchain.json` plus a
+    runner skeleton that parses it, selects a named case, and reports format,
+    name, network, source, block count, and expected status through the current
+    test runner.
 
 - [~] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
