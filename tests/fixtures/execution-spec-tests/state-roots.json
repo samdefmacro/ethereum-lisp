@@ -33,6 +33,12 @@
           "value": 42
         }
       ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000102",
+          "root": "0x77d0ab3d39d51d39dd9870f6b474e1dd4a06510b42f54b2336c1996f0f3c4846"
+        }
+      ],
       "expectedRoot": "0x63b78ae8a07be48792d6ed74e86ea91d8b754ca4655facbfbf794837f0b1d352"
     },
     {
@@ -72,6 +78,12 @@
           "address": "0x0000000000000000000000000000000000000104",
           "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
           "value": 0
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000104",
+          "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
         }
       ],
       "expectedRoot": "0x6439f64edbc9131a808f8c5ae56c2d0b71d938b485f7c523570181f3a4d79e6b"

@@ -56,9 +56,24 @@
     (is (= 0 (state-db-get-storage state address slot)))
     (is (= 1 (state-account-balance (state-db-get-account state address))))))
 
+(deftest state-storage-root-reflects-hashed-storage-trie
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000006"))
+        (slot (hash32-from-hex
+               "0x000000000000000000000000000000000000000000000000000000000000000b")))
+    (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+                 (hash32-to-hex (state-db-get-storage-root state address))))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (state-db-set-storage state address slot 42)
+    (is (string= "0x5a82156cc229d54915dd2737745f27d84bf65f46e046a2dc1a1c214175747583"
+                 (hash32-to-hex (state-db-get-storage-root state address))))
+    (state-db-set-storage state address slot 0)
+    (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+                 (hash32-to-hex (state-db-get-storage-root state address))))))
+
 (deftest state-empty-code-write-does-not-create-empty-account
   (let* ((state (make-state-db))
-         (address (address-from-hex "0x0000000000000000000000000000000000000006"))
+         (address (address-from-hex "0x0000000000000000000000000000000000000007"))
          (empty-root (state-db-root-hex state)))
     (state-db-set-code state address #())
     (is (null (state-db-get-account state address)))
@@ -67,7 +82,7 @@
 
 (deftest state-code-delete-prunes-empty-code-created-account
   (let* ((state (make-state-db))
-         (address (address-from-hex "0x0000000000000000000000000000000000000007"))
+         (address (address-from-hex "0x0000000000000000000000000000000000000008"))
          (empty-root (state-db-root-hex state)))
     (state-db-set-code state address (hex-to-bytes "0x60016000"))
     (is (state-db-get-account state address))
@@ -77,7 +92,7 @@
 
 (deftest state-code-delete-keeps-non-empty-account
   (let ((state (make-state-db))
-        (address (address-from-hex "0x0000000000000000000000000000000000000008")))
+        (address (address-from-hex "0x0000000000000000000000000000000000000009")))
     (state-db-set-account state address (make-state-account :balance 1))
     (state-db-set-code state address (hex-to-bytes "0x60016000"))
     (state-db-set-code state address #())

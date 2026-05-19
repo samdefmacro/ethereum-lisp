@@ -36,10 +36,18 @@
       (apply-state-root-fixture-operation state operation))
     state))
 
+(defun assert-state-root-fixture-storage-roots (state case)
+  (dolist (expected (fixture-object-field case "expectedStorageRoots"))
+    (let ((address (address-from-hex (fixture-object-field expected "address"))))
+      (is (string= (fixture-object-field expected "root")
+                   (hash32-to-hex
+                    (state-db-get-storage-root state address)))))))
+
 (deftest state-root-fixture-vectors
   (let* ((fixture (load-handwritten-fixture-file +state-root-fixture-path+))
          (cases (fixture-object-field fixture "cases")))
     (dolist (case cases)
       (let ((state (run-state-root-fixture-case case)))
         (is (string= (fixture-object-field case "expectedRoot")
-                     (state-db-root-hex state)))))))
+                     (state-db-root-hex state)))
+        (assert-state-root-fixture-storage-roots state case)))))

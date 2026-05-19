@@ -715,6 +715,7 @@
    #:state-db-restore
    #:state-db-set-storage
    #:state-db-get-storage
+   #:state-db-get-storage-root
    #:state-db-root
    #:state-db-root-hex
    #:apply-genesis-account
@@ -1533,6 +1534,7 @@
    #:state-db-restore
    #:state-db-set-storage
    #:state-db-get-storage
+   #:state-db-get-storage-root
    #:state-db-root
    #:state-db-root-hex
    #:apply-genesis-account
@@ -2279,6 +2281,7 @@
    #:state-db-restore
    #:state-db-set-storage
    #:state-db-get-storage
+   #:state-db-get-storage-root
    #:state-db-root
    #:state-db-root-hex
    #:apply-genesis-account

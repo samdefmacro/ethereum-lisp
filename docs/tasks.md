@@ -372,10 +372,12 @@ splits can land after the Phase A smoke path closes.
     nonce/balance, account storage, storage-created account pruning, and
     funded-account storage deletion. Empty-code writes now avoid creating
     accounts, code-created empty accounts are pruned after code deletion, and
-    state-root fixture vectors cover code-root creation/deletion cases.
-    Remaining work: replace/extend the in-repo vectors with pinned
-    execution-spec-tests trie fixtures and broaden secure/account/storage trie
-    root coverage for the Phase A smoke genesis.
+    state-root fixture vectors cover code-root creation/deletion cases. Added
+    `state-db-get-storage-root` and fixture assertions for per-account storage
+    roots so Phase A genesis/proof work can compare state and storage
+    commitments separately. Remaining work: replace/extend the in-repo vectors
+    with pinned execution-spec-tests trie fixtures and broaden secure/account
+    trie root coverage for the Phase A smoke genesis.
 
 - [ ] `STATE-PROOFS`: Add account/storage proof generation and verification.
   - Milestone: 3 / 7

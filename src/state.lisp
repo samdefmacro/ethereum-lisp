@@ -166,6 +166,12 @@
              (state-object-storage object))
     (make-hash32 (mpt-root-hash trie))))
 
+(defun state-db-get-storage-root (state address)
+  (let ((object (state-db-get-object state address)))
+    (if object
+        (storage-root object)
+        +empty-trie-hash+)))
+
 (defun account-with-storage-root (object)
   (let ((account (or (state-object-account object) (make-state-account))))
     (make-state-account
