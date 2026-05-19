@@ -36,6 +36,16 @@ Reth is the Rust-side architecture reference. The local clone is expected at
 `references/reth` when available; until then these paths are the target map for
 the clone to provide.
 
+Availability rule:
+
+- `references/reth` is optional and may be absent in local workspaces.
+- Tasks that need Rust-side source comparison should check whether
+  `references/reth` exists before inspecting it.
+- When the clone is absent, reference-comparison tasks should skip the Rust
+  source read cleanly and report that only geth/Nethermind were available.
+- When the clone is present, task reports should name the Reth commit or version
+  inspected alongside any paths used.
+
 - Common primitives: `references/reth/crates/primitives`
 - Chain specification and fork rules: `references/reth/crates/chainspec`
 - Consensus validation: `references/reth/crates/consensus` and
@@ -62,7 +72,7 @@ For each implemented feature:
 1. Identify the geth source path and tests.
 2. Identify the Nethermind source path and tests.
 3. Identify the Reth/Rust source path or crate boundary when the feature has a
-   clear Rust architecture analogue.
+   clear Rust architecture analogue and the local reference is available.
 4. Write Lisp behavior tests with Ethereum fixture examples where possible.
 5. Prefer consensus behavior over local API shape when the clients organize
    code differently.

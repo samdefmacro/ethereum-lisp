@@ -21,6 +21,10 @@ Task states:
 - `[~]`: started but incomplete.
 - `[x]`: complete.
 
+Task IDs are stable anchors for automation and progress reports. Queue sections
+should reference IDs instead of duplicating task checkboxes; add IDs to tasks as
+soon as they enter an active queue or dependency chain.
+
 ## Current Focus
 
 Phase A is a verifiable chain-import core. The useful end-to-end smoke scenario
@@ -43,16 +47,15 @@ import path still lacks storage, execution, and fixture validation.
 Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked:
 
-- [ ] Add an execution-spec-tests fixture root configuration.
-- [ ] Add a small fixture runner skeleton for blockchain/state tests.
-- [ ] Define a chain-store interface over the current memory payload store.
-- [ ] Add explicit canonical hash indexes.
-- [ ] Route `engine_newPayload` through block execution when parent state is
-  available.
+- `HARNESS-FIXTURE-ROOT`
+- `HARNESS-FIXTURE-RUNNER`
+- `STORE-CHAIN-INTERFACE`
+- `STORE-CANONICAL-INDEXES`
+- `ENGINE-EXECUTE-NEWPAYLOAD`
 
 ## P0: Reference And Harness
 
-- [x] Add a Rust execution-client reference map.
+- [x] `REF-RETH-MAP`: Add a Rust execution-client reference map.
   - Milestone: 0 / 8
   - References: Reth repository layout, especially crates for primitives,
     consensus, EVM integration, provider, pipeline, txpool, RPC, and Engine API.
@@ -60,7 +63,17 @@ a listed dependency is blocked:
     maps the same major areas already mapped for geth and Nethermind.
   - Validation: docs-only diff; no SBCL run required.
 
-- [ ] Add an execution-spec-tests fixture root configuration.
+- [x] `REF-RETH-LOCAL`: Document local Reth reference availability.
+  - Milestone: 0 / 8
+  - Dependencies: `REF-RETH-MAP`.
+  - References: Reth repository and `docs/reference-map.md`.
+  - Acceptance: the reference map or setup notes explain how to provide
+    `references/reth`, how absent optional Rust references are skipped, and how
+    a task should report the Reth commit/version it inspected when available.
+  - Validation: docs-only diff.
+
+- [ ] `HARNESS-FIXTURE-ROOT`: Add an execution-spec-tests fixture root
+  configuration.
   - Milestone: 8
   - References: geth `tests`, Nethermind `src/tests`, Ethereum
     execution-spec-tests fixture layout.
@@ -68,14 +81,16 @@ a listed dependency is blocked:
     environment variable and skip cleanly when it is absent.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Add a small fixture runner skeleton for blockchain/state tests.
+- [ ] `HARNESS-FIXTURE-RUNNER`: Add a small fixture runner skeleton for
+  blockchain/state tests.
   - Milestone: 8
-  - Dependencies: execution-spec-tests fixture root configuration.
+  - Dependencies: `HARNESS-FIXTURE-ROOT`.
   - Acceptance: one minimal hand-written fixture can be parsed, selected, and
     reported through the existing test runner without changing consensus logic.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Add fixture-driven transaction encoding/hash vectors.
+- [ ] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
+  vectors.
   - Milestone: 2 / 8
   - References: geth `core/types`, Nethermind `Nethermind.Core`, Rust
     primitives/reference transaction tests.
@@ -89,7 +104,8 @@ These tasks reduce long-term maintenance risk, but they should normally be
 selected when they unblock the chain-store, Engine import, fixture harness, or
 state/EVM correctness work above.
 
-- [ ] Split chain configuration and fork rules out of `src/core.lisp`.
+- [ ] `MOD-CHAIN-CONFIG`: Split chain configuration and fork rules out of
+  `src/core.lisp`.
   - Milestone: 5
   - References: geth `params`, Nethermind chain spec/config modules, Reth chain
     spec primitives.
@@ -97,7 +113,8 @@ state/EVM correctness work above.
     config parsing live in a dedicated source file with no behavior change.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Split block/header/body validation out of `src/core.lisp`.
+- [ ] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
+  `src/core.lisp`.
   - Milestone: 5
   - References: geth `core/block_validator.go`, `consensus/misc`; Nethermind
     validation modules.
@@ -105,7 +122,8 @@ state/EVM correctness work above.
     module boundary; public APIs and tests remain unchanged.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Split Engine API payload/RPC handlers out of `src/core.lisp`.
+- [ ] `MOD-ENGINE-RPC`: Split Engine API payload/RPC handlers out of
+  `src/core.lisp`.
   - Milestone: 7
   - References: geth `beacon/engine`, `eth/catalyst`; Nethermind Engine RPC;
     Reth Engine API crates.
@@ -113,7 +131,8 @@ state/EVM correctness work above.
     from consensus types and block execution.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Split public JSON-RPC and txpool placeholder handlers out of `src/core.lisp`.
+- [ ] `MOD-PUBLIC-RPC-TXPOOL`: Split public JSON-RPC and txpool placeholder
+  handlers out of `src/core.lisp`.
   - Milestone: 7
   - References: geth `internal/ethapi`, `eth/filters`, `core/txpool`;
     Nethermind JSON-RPC modules; Reth RPC and txpool crates.
@@ -123,7 +142,8 @@ state/EVM correctness work above.
 
 ## P0: Chain Store And Canonical Indexes
 
-- [ ] Define a chain-store interface over the current memory payload store.
+- [ ] `STORE-CHAIN-INTERFACE`: Define a chain-store interface over the current
+  memory payload store.
   - Milestone: 6 / 7
   - References: geth `core/rawdb`, `core/blockchain.go`; Nethermind DB/provider
     abstractions; Reth provider traits.
@@ -132,9 +152,9 @@ state/EVM correctness work above.
     through a small chain-store boundary.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Add explicit canonical hash indexes.
+- [ ] `STORE-CANONICAL-INDEXES`: Add explicit canonical hash indexes.
   - Milestone: 6
-  - Dependencies: chain-store interface.
+  - Dependencies: `STORE-CHAIN-INTERFACE`.
   - References: geth canonical hash tables in `core/rawdb`; Reth provider
     canonical chain indexes.
   - Acceptance: block-number lookup uses a canonical hash index rather than
@@ -142,18 +162,18 @@ state/EVM correctness work above.
   - Validation: add competing same-number block coverage and run
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Represent canonical head, safe head, and finalized head as typed store
-  checkpoints.
+- [ ] `STORE-CHECKPOINTS`: Represent canonical head, safe head, and finalized
+  head as typed store checkpoints.
   - Milestone: 6 / 7
-  - Dependencies: chain-store interface.
+  - Dependencies: `STORE-CHAIN-INTERFACE`.
   - Acceptance: forkchoice checkpoint data is not just loose hash slots on the
     memory store; block tag resolution uses the checkpoint abstraction.
   - Validation: existing forkchoice/block tag tests plus
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Add a first reorg-aware canonical update path.
+- [ ] `STORE-CANONICAL-REORG`: Add a first reorg-aware canonical update path.
   - Milestone: 6
-  - Dependencies: canonical hash indexes and typed checkpoints.
+  - Dependencies: `STORE-CANONICAL-INDEXES` and `STORE-CHECKPOINTS`.
   - References: geth `BlockChain.SetCanonical`, Reth canonical chain provider.
   - Acceptance: switching canonical head rewrites number-to-hash indexes for
     the affected in-memory range and leaves side-chain blocks retrievable by
@@ -163,10 +183,10 @@ state/EVM correctness work above.
 
 ## P0: Engine Payload Import
 
-- [ ] Route `engine_newPayload` through block execution when parent state is
-  available.
+- [ ] `ENGINE-EXECUTE-NEWPAYLOAD`: Route `engine_newPayload` through block
+  execution when parent state is available.
   - Milestone: 5 / 7
-  - Dependencies: chain-store interface.
+  - Dependencies: `STORE-CHAIN-INTERFACE`.
   - References: geth `eth/catalyst`, `core/state_processor.go`; Nethermind
     block processor; Reth consensus/executor integration.
   - Acceptance: valid executable payloads with known parent state execute
@@ -175,18 +195,20 @@ state/EVM correctness work above.
   - Validation: add a one-transaction payload import test and run
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Map post-execution validation failures to Engine `INVALID` payload status.
+- [ ] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
+  to Engine `INVALID` payload status.
   - Milestone: 7
-  - Dependencies: executed `engine_newPayload`.
+  - Dependencies: `ENGINE-EXECUTE-NEWPAYLOAD`.
   - Acceptance: bad state root, receipts root, logs bloom, or gas used returns
     Engine-style `INVALID` with latest-valid hash behavior matching the current
     invalid-ancestor cache model.
   - Validation: add invalid payload status tests and run
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Persist block receipts and state snapshots from executed Engine payloads.
+- [ ] `ENGINE-PERSIST-EXECUTED-BLOCK`: Persist block receipts and state
+  snapshots from executed Engine payloads.
   - Milestone: 5 / 6 / 7
-  - Dependencies: executed `engine_newPayload`.
+  - Dependencies: `ENGINE-EXECUTE-NEWPAYLOAD`.
   - Acceptance: `eth_getTransactionReceipt`, `eth_getBlockReceipts`,
     `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, and
     `eth_getTransactionCount` can answer against blocks imported via
@@ -194,10 +216,10 @@ state/EVM correctness work above.
   - Validation: add Engine-imported block RPC tests and run
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Make `engine_forkchoiceUpdated` update canonical chain state, not only
-  block tags.
+- [ ] `ENGINE-FORKCHOICE-CANONICAL`: Make `engine_forkchoiceUpdated` update
+  canonical chain state, not only block tags.
   - Milestone: 6 / 7
-  - Dependencies: canonical update path.
+  - Dependencies: `STORE-CANONICAL-REORG`.
   - Acceptance: VALID forkchoice head rewires canonical indexes and public
     `latest`/`pending` views follow that canonical head.
   - Validation: forkchoice branch switch tests plus
@@ -267,6 +289,17 @@ state/EVM correctness work above.
   - References: geth and Reth EOF support status for active forks.
   - Acceptance: roadmap/tasks identify exact EOF requirements before any EOF
     implementation begins.
+  - Validation: docs-only diff.
+
+## P1: Documentation Health
+
+- [ ] `DOC-ROADMAP-STATUS-SPLIT`: Split detailed implementation history out of
+  the strategic roadmap.
+  - Milestone: documentation maintenance
+  - Acceptance: `docs/roadmap.md` milestone sections use concise
+    Done/Partial/Missing/Next summaries, and detailed historical implementation
+    notes are preserved in `docs/status.md` or an equivalent status/changelog
+    document.
   - Validation: docs-only diff.
 
 ## P1: Txpool Beyond Placeholder
@@ -427,6 +460,8 @@ state/EVM correctness work above.
 
 ## Recently Completed
 
+- [x] Document optional local Reth reference availability and skip/reporting
+  rules.
 - [x] Add Reth/Rust as a formal reference target and align README/roadmap/tasks
   around the Phase A chain-import focus.
 - [x] Track forkchoice `head` for `latest`, `pending`, `eth_blockNumber`, and

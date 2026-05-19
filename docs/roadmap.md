@@ -28,6 +28,28 @@ done, what is partial, what remains, and what validation closes the gap. Detaile
 small-slice history belongs in `docs/tasks.md` or a future status/changelog
 document.
 
+## Current Strategic Read
+
+- **Done:** project substrate, Ethereum domain types, RLP/Keccak basics, broad
+  first-pass EVM/block-execution coverage, in-memory Engine payload storage,
+  forkchoice checkpoints, public read RPCs, polling filters, and local pending
+  transaction placeholders.
+- **Partial:** trie/state compatibility, EVM fixture coverage, Engine payload
+  import, canonical chain state, retained state snapshots, txpool admission, and
+  concrete HTTP/socket serving.
+- **Missing for Phase A:** execution-spec fixture harness, chain-store boundary,
+  explicit canonical indexes, executable `engine_newPayload` import with parent
+  state, persisted receipts/state snapshots from imported payloads, and
+  forkchoice-driven canonical rewrites.
+- **Next checkpoint:** a one-transaction Engine payload can be imported from a
+  known genesis/parent state, executed, commitment-validated, made canonical via
+  forkchoice, queried through public RPC, and compared against fixture-style
+  expectations.
+
+The long status paragraphs below preserve current implementation history. New
+large status updates should either replace them with concise Done/Partial/Missing
+summaries or move detailed history into a separate status document.
+
 ## 0. Project Substrate
 
 - ASDF systems and packages
