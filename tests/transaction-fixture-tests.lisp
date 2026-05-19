@@ -19,6 +19,32 @@
       (error "Transaction fixture vectors must be a JSON array"))
     vectors))
 
+(defun transaction-fixture-fork-config (fork)
+  (cond
+    ((string= fork "Frontier")
+     (make-chain-config))
+    ((string= fork "Berlin")
+     (make-chain-config :berlin-block 0))
+    ((string= fork "London")
+     (make-chain-config :berlin-block 0
+                        :london-block 0))
+    ((string= fork "Cancun")
+     (make-chain-config :berlin-block 0
+                        :london-block 0
+                        :cancun-time 0))
+    ((string= fork "Prague")
+     (make-chain-config :berlin-block 0
+                        :london-block 0
+                        :cancun-time 0
+                        :prague-time 0))
+    (t (error "Unknown transaction fixture fork: ~A" fork))))
+
+(defun transaction-fixture-fork-checks (vector)
+  (let ((checks (fixture-object-field vector "forkChecks")))
+    (unless (listp checks)
+      (error "Transaction fixture forkChecks must be a JSON array"))
+    checks))
+
 (defun transaction-vector-type (transaction)
   (typecase transaction
     (legacy-transaction :legacy)
@@ -45,4 +71,14 @@
       (is (string= (fixture-object-field vector "sender")
                    (address-to-hex sender)))
       (is (null (transaction-sender transaction
-                                    :expected-chain-id (1+ chain-id)))))))
+                                    :expected-chain-id (1+ chain-id))))
+      (dolist (check (transaction-fixture-fork-checks vector))
+        (let ((config
+                (transaction-fixture-fork-config
+                 (fixture-object-field check "fork"))))
+          (if (fixture-object-field check "valid")
+              (is (validate-transaction-type-for-config
+                   transaction config 0 0))
+              (signals error
+                (validate-transaction-type-for-config
+                 transaction config 0 0))))))))

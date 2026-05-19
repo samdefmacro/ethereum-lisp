@@ -186,6 +186,14 @@ ones.
     `1c72a72`; local Reth clone absent. Remaining work: draw or transcribe
     the same vector shape from the pinned
     `execution-spec-tests` release.
+  - Progress: extended the transaction envelope fixture shape with per-fork
+    validity checks. The same legacy, EIP-2930, EIP-1559, EIP-4844, and
+    EIP-7702 raw vectors now assert type activation boundaries across
+    Frontier, Berlin, London, Cancun, and Prague using the chain-config
+    validator, matching the reference transaction-test pattern where each
+    txbytes case records fork-specific success or rejection. Remaining work:
+    draw or transcribe the vector data from the pinned `execution-spec-tests`
+    release instead of the current in-repo seed vectors.
 
 ## P0: Module Boundaries
 
