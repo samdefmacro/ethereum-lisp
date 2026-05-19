@@ -4442,20 +4442,34 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-payload-store-account-balance
        store (block-hash block) address)))))
 
+(defun eth-rpc-pending-account-nonce (store address state-nonce)
+  (loop with next-nonce = state-nonce
+        for transaction in (engine-payload-store-pending-transactions store)
+        for sender = (or (transaction-sender transaction) (zero-address))
+        when (bytes= (address-bytes sender) (address-bytes address))
+          do (setf next-nonce
+                   (max next-nonce (1+ (transaction-nonce transaction))))
+        finally (return next-nonce)))
+
 (defun engine-rpc-handle-eth-get-transaction-count (params store)
   (unless (= 2 (length params))
     (block-validation-fail
      "eth_getTransactionCount params must contain address and block id"))
   (let* ((address (eth-rpc-address-param
                    (first params) "eth_getTransactionCount" "address"))
+         (block-id (second params))
          (block (eth-rpc-block-param
-                 (list (second params)) store "eth_getTransactionCount")))
+                 (list block-id) store "eth_getTransactionCount")))
     (when (and block
                (engine-payload-store-state-available-p
                 store (block-hash block)))
-      (quantity-to-hex
-       (engine-payload-store-account-nonce
-        store (block-hash block) address)))))
+      (let ((state-nonce
+              (engine-payload-store-account-nonce
+               store (block-hash block) address)))
+        (quantity-to-hex
+         (if (and (stringp block-id) (string= block-id "pending"))
+             (eth-rpc-pending-account-nonce store address state-nonce)
+             state-nonce))))))
 
 (defun engine-rpc-handle-eth-get-code (params store)
   (unless (= 2 (length params))

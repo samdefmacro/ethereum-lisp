@@ -630,7 +630,8 @@ until transaction reward accounting is indexed,
 `eth_getBalance` can read retained per-block account balance snapshots by
 block tag, number, or hash while returning `null` when the block or retained
 state is unavailable, `eth_getTransactionCount` does the same for retained
-account nonce snapshots, `eth_getCode` returns retained account bytecode
+account nonce snapshots and now folds local pending txpool transactions into
+the `"pending"` nonce result, `eth_getCode` returns retained account bytecode
 snapshots with empty code for missing accounts, `eth_getStorageAt` reads
 retained account storage slot snapshots as 32-byte words with zero words for
 missing accounts/slots, and

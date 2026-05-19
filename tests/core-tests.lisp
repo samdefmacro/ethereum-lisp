@@ -4447,10 +4447,21 @@
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
-           (address
-             (address-from-hex "0x00000000000000000000000000000000000000cc"))
            (empty-address
              (address-from-hex "0x00000000000000000000000000000000000000dd"))
+           (pending-transaction
+             (make-legacy-transaction
+              :nonce 9
+              :gas-price 11
+              :gas-limit 21000
+              :to empty-address
+              :value 13
+              :data #(1 2 3)
+              :v 27
+              :r 1
+              :s 2))
+           (address
+             (or (transaction-sender pending-transaction) (zero-address)))
            (state-block
              (make-block
               :header (make-block-header :number 22
@@ -4461,12 +4472,13 @@
               :header (make-block-header :number 23
                                          :timestamp 230
                                          :gas-limit 30000000)))
+           (raw-pending-transaction
+             (bytes-to-hex (transaction-encoding pending-transaction)))
            (state-block-hash-hex (hash32-to-hex (block-hash state-block)))
            (config (make-chain-config)))
       (engine-payload-store-put-block store state-block)
       (engine-payload-store-put-account-nonce
        store (block-hash state-block) address 7)
-      (engine-payload-store-put-block store missing-state-block)
       (let* ((number-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -4488,6 +4500,27 @@
                   state-block-hash-hex "\"]}")
                  store
                  config)))
+             (send-pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":87,"
+                  "\"method\":\"eth_sendRawTransaction\","
+                  "\"params\":[\"" raw-pending-transaction "\"]}")
+                 store
+                 config)))
+             (pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":86,"
+                  "\"method\":\"eth_getTransactionCount\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"pending\"]}")
+                 store
+                 config)))
              (empty-account-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -4501,14 +4534,16 @@
                  config)))
              (missing-state-response
                (parse-json
-                (engine-rpc-handle-request-json
-                 (concatenate
-                  'string
-                  "{\"jsonrpc\":\"2.0\",\"id\":83,"
-                  "\"method\":\"eth_getTransactionCount\","
-                  "\"params\":[\"" (address-to-hex address) "\",\"0x17\"]}")
-                 store
-                 config)))
+                (progn
+                  (engine-payload-store-put-block store missing-state-block)
+                  (engine-rpc-handle-request-json
+                   (concatenate
+                    'string
+                    "{\"jsonrpc\":\"2.0\",\"id\":83,"
+                    "\"method\":\"eth_getTransactionCount\","
+                    "\"params\":[\"" (address-to-hex address) "\",\"0x17\"]}")
+                   store
+                   config))))
              (invalid-address-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -4531,6 +4566,10 @@
                      (field number-response "result")))
         (is (string= (quantity-to-hex 7)
                      (field hash-response "result")))
+        (is (string= (hash32-to-hex (transaction-hash pending-transaction))
+                     (field send-pending-response "result")))
+        (is (string= (quantity-to-hex 10)
+                     (field pending-response "result")))
         (is (string= (quantity-to-hex 0)
                      (field empty-account-response "result")))
         (is (null (field missing-state-response "result")))
