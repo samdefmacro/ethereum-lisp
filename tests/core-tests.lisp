@@ -2788,6 +2788,11 @@
               :header (make-block-header :number 32
                                          :timestamp 32
                                          :gas-limit 30000000)))
+           (non-head-block
+             (make-block
+              :header (make-block-header :number 33
+                                         :timestamp 33
+                                         :gas-limit 30000000)))
            (unknown-hash
              (hash32-from-hex
               "0x1111111111111111111111111111111111111111111111111111111111111111")))
@@ -2799,6 +2804,8 @@
        store safe-block :state-available-p t)
       (engine-payload-store-put-block
        store head-block :state-available-p t)
+      (engine-payload-store-put-block
+       store non-head-block :state-available-p t)
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -2874,10 +2881,36 @@
                   (engine-rpc-handle-request-json
                    "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"finalized\"]}"
                    store
+                   config)))
+               (latest-header-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"latest\"]}"
+                   store
+                   config)))
+               (pending-header-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"pending\"]}"
+                   store
+                   config)))
+               (block-number-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"eth_blockNumber\",\"params\":[]}"
+                   store
                    config))))
           (is (= 28 (field checkpoint-response "id")))
           (is (string= +payload-status-valid+
                        (field checkpoint-status "status")))
+          (is (string= (quantity-to-hex 32)
+                       (field (field latest-header-response "result")
+                              "number")))
+          (is (string= (quantity-to-hex 32)
+                       (field (field pending-header-response "result")
+                              "number")))
+          (is (string= (quantity-to-hex 32)
+                       (field block-number-response "result")))
           (is (string= (quantity-to-hex 31)
                        (field (field safe-header-response "result")
                               "number")))

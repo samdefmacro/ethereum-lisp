@@ -2967,6 +2967,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (pending-transactions (make-hash-table :test 'equal))
                       (log-filters (make-hash-table :test 'eql))
                       (next-log-filter-id 1)
+                      head-block-hash
                       safe-block-hash
                       finalized-block-hash)))
   blocks
@@ -2985,6 +2986,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   pending-transactions
   log-filters
   (next-log-filter-id 1 :type (integer 1 *))
+  head-block-hash
   safe-block-hash
   finalized-block-hash)
 
@@ -3076,10 +3078,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (block-header-number (block-header block))
         (engine-payload-memory-store-head-number store))))
 
+(defun engine-payload-store-head-number (store)
+  (engine-payload-store-checkpoint-number
+   store
+   (engine-payload-memory-store-head-block-hash store)))
+
 (defun engine-payload-store-block-tag-number (store tag)
   (cond
     ((or (string= tag "latest") (string= tag "pending"))
-     (engine-payload-memory-store-head-number store))
+     (engine-payload-store-head-number store))
     ((string= tag "safe")
      (engine-payload-store-checkpoint-number
       store
@@ -3094,7 +3101,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     hash))
 
 (defun engine-payload-store-update-forkchoice-checkpoints (store state)
-  (setf (engine-payload-memory-store-safe-block-hash store)
+  (setf (engine-payload-memory-store-head-block-hash store)
+        (engine-payload-store-forkchoice-checkpoint-hash
+         (forkchoice-state-head-block-hash state))
+        (engine-payload-memory-store-safe-block-hash store)
         (engine-payload-store-forkchoice-checkpoint-hash
          (forkchoice-state-safe-block-hash state))
         (engine-payload-memory-store-finalized-block-hash store)
@@ -4065,7 +4075,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-eth-block-number (params store)
   (when params
     (block-validation-fail "eth_blockNumber params must be empty"))
-  (quantity-to-hex (engine-payload-memory-store-head-number store)))
+  (quantity-to-hex (engine-payload-store-head-number store)))
 
 (defun engine-rpc-handle-eth-protocol-version (params)
   (when params
@@ -4120,7 +4130,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-head-block (store)
   (engine-payload-store-block-by-number
    store
-   (engine-payload-memory-store-head-number store)))
+   (engine-payload-store-head-number store)))
 
 (defun engine-rpc-handle-eth-base-fee (params store config)
   (when params

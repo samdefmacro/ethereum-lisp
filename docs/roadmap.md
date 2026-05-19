@@ -552,7 +552,7 @@ heads to `VALID`, unknown heads to `SYNCING`, and zero heads or cached invalid
 tipsets to `INVALID`; nonzero safe/finalized checkpoint hashes are also checked
 against the local memory store and rejected with the Engine API `Invalid
 forkchoice state` error code `-38002` when unavailable, and valid
-safe/finalized checkpoints are retained for public block-tag resolution. It can
+head/safe/finalized checkpoints are retained for public block-tag resolution. It can
 prepare a deterministic in-memory empty child payload when V1 payload
 attributes are supplied for a valid head. The prepared payload is keyed by an 8-byte
 Engine-style payload id and can be fetched through `engine_getPayloadV1`, which
@@ -607,7 +607,8 @@ identity string, `web3_sha3` computes Keccak-256 over supplied hex bytes,
 `net_listening`/`net_peerCount` report the current non-networked local node
 state as JSON `false` and `0x0`,
 `eth_chainId` returns the configured EIP-155
-chain id, `eth_blockNumber` returns the current memory-store head number,
+chain id, `eth_blockNumber` returns the current forkchoice head number with a
+memory-store maximum fallback,
 `eth_protocolVersion` reports the current highest supported devp2p `eth`
 protocol as `0x46`/ETH70,
 `eth_syncing` returns JSON `false` for the current local non-networked
@@ -623,7 +624,7 @@ when present for legacy transaction callers;
 `eth_blobBaseFee` exposes the current head blob base fee when Cancun blob-gas
 fields are present, and `eth_feeHistory` now returns a first memory-store fee
 history window with base fee progression, gas-used ratios, optional blob fee
-history, `latest`/`pending` head-tag resolution plus retained forkchoice
+history, retained forkchoice `latest`/`pending` head-tag resolution plus
 `safe`/`finalized` checkpoints, and zero-filled reward percentile placeholders
 until transaction reward accounting is indexed,
 `eth_getBalance` can read retained per-block account balance snapshots by
