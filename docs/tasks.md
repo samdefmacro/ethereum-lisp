@@ -663,6 +663,10 @@ splits can land after the Phase A smoke path closes.
     on non-matching root shapes, malformed branch child indexes, malformed
     child-reference kinds, and invalid compressed root path nibbles before
     replaying operations.
+    Added trie fixture field-whitelist validation. Trie cases, operations,
+    expected lookup entries, and expected-missing entries now reject unknown
+    fields before replay, preventing misspelled imported fixture assertions
+    from being silently ignored.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

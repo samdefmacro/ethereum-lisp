@@ -41,6 +41,34 @@
 (defparameter +trie-fixture-child-reference-kinds+
   '("embedded" "hashed"))
 
+(defparameter +trie-fixture-case-fields+
+  '("name"
+    "tags"
+    "operations"
+    "expectedRoot"
+    "expectedShape"
+    "expectedChildReference"
+    "expectedRootChildren"
+    "expectedRootChildReferences"
+    "expectedRootPathNibbles"
+    "expectedRootValueAscii"
+    "expectedGets"
+    "expectedMissing"))
+
+(defparameter +trie-fixture-operation-fields+
+  '("op" "keyHex" "keyAscii" "valueAscii"))
+
+(defparameter +trie-fixture-expected-get-fields+
+  '("keyHex" "keyAscii" "valueAscii"))
+
+(defparameter +trie-fixture-expected-missing-fields+
+  '("keyHex" "keyAscii"))
+
+(defun validate-trie-fixture-object-fields (object allowed-fields label)
+  (dolist (field object)
+    (unless (member (car field) allowed-fields :test #'string=)
+      (error "~A has unknown field ~A" label (car field)))))
+
 (defun validate-trie-fixture-case-name (case seen-names)
   (let ((name (fixture-object-field case "name")))
     (when (blank-string-p name)
@@ -80,6 +108,10 @@
 (defun validate-trie-fixture-operation (operation case-name)
   (unless (listp operation)
     (error "Trie fixture case ~A operation must be a JSON object" case-name))
+  (validate-trie-fixture-object-fields
+   operation
+   +trie-fixture-operation-fields+
+   (format nil "Trie fixture case ~A operation" case-name))
   (validate-trie-fixture-key-fields operation
                                     (format nil "Trie fixture case ~A operation"
                                             case-name))
@@ -100,6 +132,12 @@
   (unless (listp expected)
     (error "Trie fixture case ~A ~A entry must be a JSON object"
            case-name field))
+  (validate-trie-fixture-object-fields
+   expected
+   (if (string= field "expectedGets")
+       +trie-fixture-expected-get-fields+
+       +trie-fixture-expected-missing-fields+)
+   (format nil "Trie fixture case ~A ~A entry" case-name field))
   (validate-trie-fixture-key-fields expected
                                     (format nil "Trie fixture case ~A ~A entry"
                                             case-name field))
@@ -224,6 +262,10 @@
 (defun validate-trie-fixture-case-shape (case)
   (let ((name (fixture-object-field case "name"))
         (operations (fixture-object-field case "operations")))
+    (validate-trie-fixture-object-fields
+     case
+     +trie-fixture-case-fields+
+     (format nil "Trie fixture case ~A" name))
     (unless (and (listp operations) operations)
       (error "Trie fixture case ~A must include non-empty operations" name))
     (validate-trie-fixture-expected-fields case)
@@ -487,6 +529,54 @@
                  (list (list (cons "op" "put")
                              (cons "keyAscii" "do")
                              (cons "valueAscii" "v"))))))))
+
+(deftest trie-fixture-shape-validation-rejects-unknown-fields
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "unknown-case-field")
+           (cons "unexpected" t)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "unknown-operation-field")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")
+                             (cons "valueHex" "0x01")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "unknown-get-field")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedGets"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy")
+                             (cons "root" t)))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "unknown-missing-field")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog"))))
+           (cons "expectedMissing"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "proof" nil))))))))
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json
