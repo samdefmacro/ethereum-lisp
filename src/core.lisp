@@ -4537,7 +4537,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "~A param ~A is missing" method label))
   (nth index params))
 
-(defun engine-rpc-handle-new-payload (version params store config)
+(defun engine-rpc-handle-new-payload
+    (version params store config &key import-function)
   (unless (and (listp params) params)
     (block-validation-fail "engine_newPayload params must include payload"))
   (let* ((payload
@@ -4561,18 +4562,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (multiple-value-bind (status block)
         (cond
           ((<= version 2)
-           (engine-new-payload-memory-status store version payload config))
+           (engine-new-payload-memory-status
+            store version payload config
+            :import-function import-function))
           ((= version 3)
            (engine-new-payload-memory-status
             store version payload config
             :versioned-hashes versioned-hashes
-            :parent-beacon-root parent-beacon-root))
+            :parent-beacon-root parent-beacon-root
+            :import-function import-function))
           (t
            (engine-new-payload-memory-status
             store version payload config
             :versioned-hashes versioned-hashes
             :parent-beacon-root parent-beacon-root
-            :requests requests)))
+            :requests requests
+            :import-function import-function)))
       (declare (ignore block))
       (engine-rpc-payload-status-object status))))
 
@@ -6540,7 +6545,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :error
    (engine-rpc-error-object -32600 "Invalid Request")))
 
-(defun engine-rpc-handle-request (request store config)
+(defun engine-rpc-handle-request
+    (request store config &key import-function)
   (let ((id (and (listp request)
                  (genesis-object-field request "id"))))
     (handler-case
@@ -6561,7 +6567,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-new-payload
-                 version params store config)))
+                 version params store config
+                 :import-function import-function)))
               ((string= method "engine_exchangeCapabilities")
                (engine-rpc-response
                 id
@@ -6974,24 +6981,36 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           -32602
           (block-validation-error-message condition)))))))
 
-(defun engine-rpc-handle-request-value (request store config)
+(defun engine-rpc-handle-request-value
+    (request store config &key import-function)
   (cond
     ((json-object-p request)
-     (engine-rpc-handle-request request store config))
+     (engine-rpc-handle-request request store config
+                                :import-function import-function))
     ((and (listp request) request)
      (mapcar (lambda (item)
                (if (json-object-p item)
-                   (engine-rpc-handle-request item store config)
+                   (engine-rpc-handle-request
+                    item store config
+                    :import-function import-function)
                    (engine-rpc-invalid-request-response)))
              request))
     (t (engine-rpc-invalid-request-response))))
 
-(defun engine-rpc-handle-request-string (request-json store config)
-  (engine-rpc-handle-request-value (parse-json request-json) store config))
+(defun engine-rpc-handle-request-string
+    (request-json store config &key import-function)
+  (engine-rpc-handle-request-value
+   (parse-json request-json)
+   store
+   config
+   :import-function import-function))
 
-(defun engine-rpc-handle-request-json (request-json store config)
+(defun engine-rpc-handle-request-json
+    (request-json store config &key import-function)
   (json-encode
-   (engine-rpc-handle-request-string request-json store config)))
+   (engine-rpc-handle-request-string
+    request-json store config
+    :import-function import-function)))
 
 (defparameter +engine-rpc-http-accepted-content-types+
   '("application/json" "application/json-rpc" "application/jsonrequest"))
@@ -7006,13 +7025,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defstruct (engine-rpc-http-service
             (:constructor %make-engine-rpc-http-service
-                (&key host port store config jwt-secret now-provider)))
+                (&key host port store config jwt-secret now-provider
+                      import-function)))
   host
   port
   store
   config
   jwt-secret
-  now-provider)
+  now-provider
+  import-function)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7035,7 +7056,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (store (make-engine-payload-memory-store))
        (config (make-chain-config))
        jwt-secret
-       (now-provider (lambda () 0)))
+       (now-provider (lambda () 0))
+       import-function)
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
   (unless (and (integerp port) (<= 0 port 65535))
@@ -7051,13 +7073,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Engine JWT secret must be 32 bytes"))
   (unless (functionp now-provider)
     (block-validation-fail "Engine RPC HTTP now provider must be a function"))
+  (when (and import-function
+             (not (functionp import-function)))
+    (block-validation-fail "Engine RPC HTTP import function must be a function"))
   (%make-engine-rpc-http-service
    :host host
    :port port
    :store store
    :config config
    :jwt-secret jwt-secret
-   :now-provider now-provider))
+   :now-provider now-provider
+   :import-function import-function))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -7412,7 +7438,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    status-code reason message :content-type "text/plain"))
 
 (defun engine-rpc-handle-http-request-string
-    (request store config &key jwt-secret now)
+    (request store config &key jwt-secret now import-function)
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -7454,14 +7480,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   (engine-rpc-handle-request-json
                    (engine-rpc-http-body body headers)
                    store
-                   config))))))))
+                   config
+                   :import-function import-function))))))))
     (error (condition)
       (engine-rpc-http-error-response
        400 "Bad Request"
        (format nil "~A" condition)))))
 
 (defun engine-rpc-handle-http-stream
-    (input-stream output-stream store config &key jwt-secret now)
+    (input-stream output-stream store config
+     &key jwt-secret now import-function)
   (let ((response
           (handler-case
               (engine-rpc-handle-http-request-string
@@ -7469,7 +7497,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                store
                config
                :jwt-secret jwt-secret
-               :now now)
+               :now now
+               :import-function import-function)
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -7488,7 +7517,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-rpc-http-service-store service)
    (engine-rpc-http-service-config service)
    :jwt-secret (engine-rpc-http-service-jwt-secret service)
-   :now (funcall (engine-rpc-http-service-now-provider service))))
+   :now (funcall (engine-rpc-http-service-now-provider service))
+   :import-function (engine-rpc-http-service-import-function service)))
 
 (defun engine-rpc-http-service-serve-listener
     (service listener &key max-connections stop-p)

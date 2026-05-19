@@ -3393,6 +3393,21 @@
                      (field result "latestValidHash")))
         (is (engine-payload-store-known-block store
                                               (block-hash child-block))))
+      (let ((executable-store (make-engine-payload-memory-store)))
+        (engine-payload-store-put-block
+         executable-store parent-block :state-available-p t)
+        (let* ((response
+                 (engine-rpc-handle-request
+                  request executable-store config
+                  :import-function #'execute-and-commit-engine-payload))
+               (result (field response "result")))
+          (is (string= +payload-status-valid+ (field result "status")))
+          (is (engine-payload-store-known-block
+               executable-store
+               (block-hash child-block)))
+          (is (chain-store-state-available-p
+               executable-store
+               (block-hash child-block)))))
       (let* ((response
                (engine-rpc-handle-request-string
                 "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"engine_nope\",\"params\":[]}"
@@ -7911,7 +7926,8 @@ Content-Length: 4
               :host "127.0.0.1"
               :port 8551
               :jwt-secret secret
-              :now-provider (lambda () now))))
+              :now-provider (lambda () now)
+              :import-function #'execute-and-commit-engine-payload)))
       (is (string= "localhost:8551"
                    (engine-rpc-http-service-endpoint default-service)))
       (is (string= "127.0.0.1:8551"
@@ -7919,6 +7935,7 @@ Content-Length: 4
       (is (typep (engine-rpc-http-service-store service)
                  'engine-payload-memory-store))
       (is (typep (engine-rpc-http-service-config service) 'chain-config))
+      (is (functionp (engine-rpc-http-service-import-function service)))
       (let* ((body
                (concatenate
                 'string
@@ -7948,7 +7965,9 @@ Content-Length: 4
         (make-engine-rpc-http-service :port 70000))
       (signals block-validation-error
         (make-engine-rpc-http-service
-         :jwt-secret (make-byte-vector 31 :initial-element 1))))))
+         :jwt-secret (make-byte-vector 31 :initial-element 1)))
+      (signals block-validation-error
+        (make-engine-rpc-http-service :import-function "not a function")))))
 
 (deftest engine-rpc-http-service-serves-listener-connections
   (labels ((field (object name)

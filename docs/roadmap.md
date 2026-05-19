@@ -656,7 +656,11 @@ The execution layer now has a narrow Engine payload import helper that runs
 ready-parent payload blocks through the signed block atomic commit path, and
 the memory `newPayload` status path can inject that importer and translate
 post-execution commitment failures into Engine `INVALID` status without
-storing the bad block. A parsed JSON-RPC object dispatcher can now route
+storing the bad block. That import hook is now threaded through parsed
+JSON-RPC objects, request strings, HTTP request strings, stream handling, and
+the HTTP service configuration, so configured services can execute
+ready-parent `engine_newPayload` imports while the default compatibility path
+still only stores payloads. A parsed JSON-RPC object dispatcher can now route
 `engine_newPayloadV1` through `engine_newPayloadV5` calls into that store and
 return Engine-style payload status result objects. The same core can now encode
 single and batch JSON-RPC response strings for request-string entry points,

@@ -369,6 +369,14 @@ splits can land after the Phase A smoke path closes.
     and a bad state-root rollback. Remaining work: wire the production RPC
     dispatcher to this import function and replace the empty payload smoke with
     the one-transaction `newPayloadV2` fixture.
+  - Progress: threaded the executable import hook through the JSON-RPC and
+    HTTP request/service entry points. Default `engine_newPayload` behavior
+    remains compatibility-only storage, while configured services can now pass
+    the real Engine payload importer through parsed request objects, JSON
+    strings, HTTP request strings, and stream handling. Remaining work: make
+    the production service constructor choose the execution importer by
+    default once package layering is settled, and replace the empty payload
+    smoke with the one-transaction `newPayloadV2` fixture.
 
 - [ ] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
