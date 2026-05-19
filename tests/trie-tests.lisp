@@ -35,6 +35,12 @@
     "hex-key"
     "lookup-assertions"))
 
+(defparameter +trie-fixture-root-shapes+
+  '("empty" "leaf" "extension" "branch"))
+
+(defparameter +trie-fixture-child-reference-kinds+
+  '("embedded" "hashed"))
+
 (defun validate-trie-fixture-case-name (case seen-names)
   (let ((name (fixture-object-field case "name")))
     (when (blank-string-p name)
@@ -107,11 +113,120 @@
        (error "Trie fixture case ~A expectedMissing entry must not include valueAscii"
               case-name)))))
 
+(defun trie-fixture-valid-child-reference-kind-p (kind)
+  (member kind +trie-fixture-child-reference-kinds+ :test #'string=))
+
+(defun validate-trie-fixture-expected-root (case)
+  (hash32-from-hex (fixture-required-field case "expectedRoot")))
+
+(defun validate-trie-fixture-expected-shape (case)
+  (let ((shape (fixture-required-field case "expectedShape")))
+    (unless (member shape +trie-fixture-root-shapes+ :test #'string=)
+      (error "Trie fixture case ~A has unknown expectedShape ~A"
+             (fixture-object-field case "name")
+             shape))
+    shape))
+
+(defun validate-trie-fixture-nibble-list (case field &key allow-terminator)
+  (when (fixture-field-present-p case field)
+    (let ((nibbles (fixture-object-field case field)))
+      (unless (listp nibbles)
+        (error "Trie fixture case ~A ~A must be a JSON array"
+               (fixture-object-field case "name")
+               field))
+      (dolist (nibble nibbles)
+        (unless (and (integerp nibble)
+                     (<= 0 nibble)
+                     (if allow-terminator
+                         (<= nibble 16)
+                         (< nibble 16)))
+          (error "Trie fixture case ~A has malformed ~A nibble ~A"
+                 (fixture-object-field case "name")
+                 field
+                 nibble))))))
+
+(defun validate-trie-fixture-root-children (case)
+  (when (fixture-field-present-p case "expectedRootChildren")
+    (let ((children (fixture-object-field case "expectedRootChildren"))
+          (seen (make-hash-table)))
+      (unless (listp children)
+        (error "Trie fixture case ~A expectedRootChildren must be a JSON array"
+               (fixture-object-field case "name")))
+      (dolist (child children)
+        (unless (and (integerp child) (<= 0 child 15))
+          (error "Trie fixture case ~A has malformed root child index ~A"
+                 (fixture-object-field case "name")
+                 child))
+        (when (gethash child seen)
+          (error "Trie fixture case ~A has duplicate root child index ~A"
+                 (fixture-object-field case "name")
+                 child))
+        (setf (gethash child seen) t)))))
+
+(defun validate-trie-fixture-root-child-references (case)
+  (when (fixture-field-present-p case "expectedRootChildReferences")
+    (let ((references
+            (fixture-object-field case "expectedRootChildReferences")))
+      (unless (listp references)
+        (error "Trie fixture case ~A expectedRootChildReferences must be a JSON object"
+               (fixture-object-field case "name")))
+      (dolist (reference references)
+        (let ((index (parse-integer (car reference)))
+              (kind (cdr reference)))
+          (unless (<= 0 index 15)
+            (error "Trie fixture case ~A has malformed child reference index ~A"
+                   (fixture-object-field case "name")
+                   (car reference)))
+          (unless (trie-fixture-valid-child-reference-kind-p kind)
+            (error "Trie fixture case ~A has unknown child reference kind ~A"
+                   (fixture-object-field case "name")
+                   kind)))))))
+
+(defun validate-trie-fixture-expected-fields (case)
+  (let ((shape (validate-trie-fixture-expected-shape case)))
+    (validate-trie-fixture-expected-root case)
+    (unless (or (not (fixture-field-present-p case "expectedChildReference"))
+                (string= shape "extension"))
+      (error "Trie fixture case ~A expectedChildReference requires an extension root"
+             (fixture-object-field case "name")))
+    (when (fixture-field-present-p case "expectedChildReference")
+      (let ((kind (fixture-object-field case "expectedChildReference")))
+        (unless (trie-fixture-valid-child-reference-kind-p kind)
+          (error "Trie fixture case ~A has unknown expectedChildReference ~A"
+                 (fixture-object-field case "name")
+                 kind))))
+    (unless (or (not (fixture-field-present-p case "expectedRootChildren"))
+                (string= shape "branch"))
+      (error "Trie fixture case ~A expectedRootChildren requires a branch root"
+             (fixture-object-field case "name")))
+    (unless (or (not (fixture-field-present-p case "expectedRootChildReferences"))
+                (string= shape "branch"))
+      (error "Trie fixture case ~A expectedRootChildReferences requires a branch root"
+             (fixture-object-field case "name")))
+    (validate-trie-fixture-root-children case)
+    (validate-trie-fixture-root-child-references case)
+    (cond
+      ((string= shape "leaf")
+       (validate-trie-fixture-nibble-list
+        case "expectedRootPathNibbles" :allow-terminator t))
+      ((string= shape "extension")
+       (validate-trie-fixture-nibble-list
+        case "expectedRootPathNibbles"))
+      ((fixture-field-present-p case "expectedRootPathNibbles")
+       (error "Trie fixture case ~A expectedRootPathNibbles requires a leaf or extension root"
+              (fixture-object-field case "name"))))
+    (when (and (fixture-field-present-p case "expectedRootValueAscii")
+               (blank-string-p
+                (fixture-object-field case "expectedRootValueAscii")))
+      (error "Trie fixture case ~A expectedRootValueAscii must be non-empty"
+             (fixture-object-field case "name")))))
+
 (defun validate-trie-fixture-case-shape (case)
   (let ((name (fixture-object-field case "name"))
         (operations (fixture-object-field case "operations")))
     (unless (and (listp operations) operations)
       (error "Trie fixture case ~A must include non-empty operations" name))
+    (validate-trie-fixture-expected-fields case)
     (dolist (operation operations)
       (validate-trie-fixture-operation operation name))
     (dolist (expected (fixture-object-field case "expectedGets"))
@@ -283,12 +398,18 @@
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "missing-key")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
            (cons "operations"
                  (list (list (cons "op" "put")
                              (cons "valueAscii" "value")))))))
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "ambiguous-key")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
            (cons "operations"
                  (list (list (cons "op" "delete")
                              (cons "keyHex" "0x00")
@@ -296,18 +417,76 @@
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "put-without-value")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
            (cons "operations"
                  (list (list (cons "op" "put")
                              (cons "keyAscii" "dog")))))))
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "missing-entry-with-value")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
            (cons "operations"
                  (list (list (cons "op" "delete")
                              (cons "keyAscii" "dog"))))
            (cons "expectedMissing"
                  (list (list (cons "keyAscii" "dog")
                              (cons "valueAscii" "puppy"))))))))
+
+(deftest trie-fixture-shape-validation-rejects-malformed-expected-fields
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "bad-root")
+           (cons "expectedRoot" "0x1234")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "bad-shape")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "short")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "child-reference-on-leaf")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "expectedChildReference" "embedded")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "bad-child-index")
+           (cons "expectedRoot"
+                 "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5")
+           (cons "expectedShape" "branch")
+           (cons "expectedRootChildren" (list 0 16))
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyHex" "0x00")
+                             (cons "valueAscii" "left")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "bad-path-nibble")
+           (cons "expectedRoot"
+                 "0x1da465b71da985f1e07e3ed8dcd9e678546164ef2b17fb5c46c678fd91429de3")
+           (cons "expectedShape" "extension")
+           (cons "expectedRootPathNibbles" (list 6 16))
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "do")
+                             (cons "valueAscii" "v"))))))))
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json

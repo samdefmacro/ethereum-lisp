@@ -658,6 +658,11 @@ splits can land after the Phase A smoke path closes.
     missing or ambiguous key fields, `put` operations without `valueAscii`,
     `delete` operations that still carry a value, malformed expected lookup
     entries, and `expectedMissing` entries that accidentally encode a value.
+    Added trie fixture expected-result validation. Trie vector cases now reject
+    malformed expected roots, unknown root shapes, child-reference assertions
+    on non-matching root shapes, malformed branch child indexes, malformed
+    child-reference kinds, and invalid compressed root path nibbles before
+    replaying operations.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
