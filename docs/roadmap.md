@@ -73,11 +73,12 @@ fixes in those areas are allowed; expansion is not.
   forkchoice checkpoints, public read RPCs, polling filters, local pending
   transaction placeholders, and the first chain-store boundary over the memory
   store with explicit canonical number-to-hash indexes and typed head/safe/
-  finalized checkpoints, plus a first in-memory canonical-head switch path with
-  transaction/receipt lookup and safe/finalized reorg invariants.
+  finalized checkpoints. Engine forkchoice updates now drive the in-memory
+  canonical-head switch path, including transaction, receipt, block-receipt,
+  state, and log visibility across branch switches.
 - **Partial:** trie/state compatibility, EVM fixture coverage, Engine payload
-  import, canonical chain state, retained state snapshots, txpool admission, and
-  concrete HTTP/socket serving.
+  import, retained state snapshots, txpool admission, and concrete HTTP/socket
+  serving.
 - **Missing for Phase A:** execution-spec fixture harness, executable
   `engine_newPayload` import with parent state, atomic state/receipt/index
   commit (all-or-nothing on validation failure), persisted receipts/state
@@ -85,8 +86,7 @@ fixes in those areas are allowed; expansion is not.
   matching reference state roots, strict sender recovery on every signed
   import/admission/mined RPC path, receipt-derivation invariants (typed
   encoding, cumulative-gas monotonicity, bloom, log order, post-Byzantium
-  status), and connecting Engine forkchoice updates to the canonical rewrite
-  path.
+  status), and a pinned fixture-grade smoke path that combines these pieces.
 - **Next checkpoint:** promote the new one-transaction Shanghai
   `engine_newPayloadV2` smoke into a pinned fixture path: imported from a
   known genesis/parent state, executed atomically, commitment-validated against

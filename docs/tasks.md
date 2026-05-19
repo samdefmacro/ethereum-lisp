@@ -419,7 +419,7 @@ splits can land after the Phase A smoke path closes.
     both imported branches, so `eth_getCode` and `eth_getStorageAt` cover
     non-default persisted values.
 
-- [~] `ENGINE-FORKCHOICE-CANONICAL`: Make `engine_forkchoiceUpdated` update
+- [x] `ENGINE-FORKCHOICE-CANONICAL`: Make `engine_forkchoiceUpdated` update
   canonical chain state, not only block tags.
   - Milestone: 6 / 7
   - Dependencies: `STORE-CANONICAL-REORG`.
@@ -450,8 +450,13 @@ splits can land after the Phase A smoke path closes.
     reorg. The transaction branch now imports an additional executed child at
     block 43; forkchoice can advance `latest`/`eth_blockNumber` to that child,
     then switch back to the competing block-42 sibling and clear the stale
-    canonical block-43 index. Remaining work: add a log-producing Engine
-    fixture so `eth_getLogs` visibility is covered across the same reorg path.
+    canonical block-43 index.
+  - Progress: completed the log-producing Engine forkchoice fixture. A signed
+    transaction now calls contract code that emits `LOG1`; after forkchoice
+    selects that branch, `eth_getLogs` at `latest` returns the emitted log with
+    the expected address, topic, data, block hash, and transaction hash. After
+    forkchoice switches to the competing sibling, the canonical `latest` log
+    query returns no logs.
 
 ## P0: State, Trie, And Proof Correctness
 

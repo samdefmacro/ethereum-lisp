@@ -3835,6 +3835,255 @@
                              store config)
                             "result")))))))
 
+(deftest engine-rpc-forkchoice-switches-executed-log-visibility
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (payload-request (id payload)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_newPayloadV2")
+                   (cons "params"
+                         (list (engine-rpc-executable-data-object payload)))))
+           (forkchoice-request (id head)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV1")
+                   (cons "params"
+                         (list
+                          (list
+                           (cons "headBlockHash" (hash32-to-hex head))
+                           (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                           (cons "finalizedBlockHash"
+                                 (hash32-to-hex (zero-hash32))))))))
+           (logs-request (id)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getLogs")
+                   (cons "params"
+                         (list
+                          (list (cons "fromBlock" "latest")
+                                (cons "toBlock" "latest"))))))
+           (private-key-address (private-key)
+             (let* ((point
+                      (ethereum-lisp.crypto::secp256k1-scalar-multiply
+                       private-key
+                       (ethereum-lisp.crypto::secp256k1-point
+                        ethereum-lisp.crypto::+secp256k1-gx+
+                        ethereum-lisp.crypto::+secp256k1-gy+)))
+                    (public-key
+                      (concat-bytes
+                       (ethereum-lisp.crypto::integer-to-fixed-bytes
+                        (ethereum-lisp.crypto::secp256k1-point-x point)
+                        32)
+                       (ethereum-lisp.crypto::integer-to-fixed-bytes
+                        (ethereum-lisp.crypto::secp256k1-point-y point)
+                        32)))
+                    (hashed (keccak-256 public-key))
+                    (bytes (make-byte-vector 20)))
+               (replace bytes hashed :start2 12)
+               (make-address bytes)))
+           (sign-legacy-transaction (transaction private-key chain-id)
+             (let* ((n ethereum-lisp.crypto::+secp256k1-n+)
+                    (half-n ethereum-lisp.crypto::+secp256k1-half-n+)
+                    (generator
+                      (ethereum-lisp.crypto::secp256k1-point
+                       ethereum-lisp.crypto::+secp256k1-gx+
+                       ethereum-lisp.crypto::+secp256k1-gy+))
+                    (hash
+                      (legacy-transaction-signing-hash transaction
+                                                       :chain-id chain-id))
+                    (message (bytes-to-integer (hash32-bytes hash)))
+                    (expected-sender (private-key-address private-key)))
+               (loop for k from 1 below 256
+                     for r-point =
+                       (ethereum-lisp.crypto::secp256k1-scalar-multiply
+                        k generator)
+                     for r =
+                       (mod (ethereum-lisp.crypto::secp256k1-point-x r-point)
+                            n)
+                     for inverse-k =
+                       (ethereum-lisp.crypto::modular-inverse k n)
+                     when (and (plusp r) inverse-k)
+                       do (let* ((raw-s
+                                   (mod (* (+ message (* r private-key))
+                                           inverse-k)
+                                        n))
+                                 (s raw-s)
+                                 (y-parity
+                                   (if (oddp
+                                        (ethereum-lisp.crypto::secp256k1-point-y
+                                         r-point))
+                                       1
+                                       0)))
+                            (when (plusp raw-s)
+                              (when (> s half-n)
+                                (setf s (- n s)
+                                      y-parity (- 1 y-parity)))
+                              (let ((signed
+                                      (make-legacy-transaction
+                                       :nonce
+                                       (legacy-transaction-nonce transaction)
+                                       :gas-price
+                                       (legacy-transaction-gas-price
+                                        transaction)
+                                       :gas-limit
+                                       (legacy-transaction-gas-limit
+                                        transaction)
+                                       :to
+                                       (legacy-transaction-to transaction)
+                                       :value
+                                       (legacy-transaction-value transaction)
+                                       :data
+                                       (legacy-transaction-data transaction)
+                                       :v (+ 35 (* 2 chain-id) y-parity)
+                                       :r r
+                                       :s s)))
+                                (when (bytes=
+                                       (address-bytes expected-sender)
+                                       (address-bytes
+                                        (legacy-transaction-sender
+                                         signed
+                                         :expected-chain-id chain-id)))
+                                  (return signed)))))
+                     finally
+                       (error "Unable to sign legacy transaction fixture")))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :london-block 0
+                                      :shanghai-time 0))
+           (private-key 1)
+           (sender (private-key-address private-key))
+           (fee-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000001"))
+           (withdrawal-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000dd"))
+           ;; SSTORE slot 1 := 42; MSTORE 0 := 7; LOG1 topic 9, mem[0:32].
+           (contract-code #(96 42 96 1 85 96 7 96 0 82
+                            96 9 96 32 96 0 161 0))
+           (transaction
+             (sign-legacy-transaction
+              (make-legacy-transaction :nonce 0
+                                       :gas-price 100
+                                       :gas-limit 50000
+                                       :to contract
+                                       :value 5)
+              private-key
+              1))
+           (withdrawal
+             (make-withdrawal :index 0
+                              :validator-index 1
+                              :address withdrawal-recipient
+                              :amount 1))
+           (parent-state (make-state-db)))
+      (state-db-set-account parent-state sender
+                            (make-state-account
+                             :nonce 0
+                             :balance 1000000000))
+      (state-db-set-code parent-state contract contract-code)
+      (let* ((parent-header
+               (make-block-header
+                :parent-hash (zero-hash32)
+                :beneficiary fee-recipient
+                :state-root (state-db-root parent-state)
+                :mix-hash (zero-hash32)
+                :number 50
+                :gas-limit 100000
+                :gas-used 50000
+                :timestamp 200
+                :base-fee-per-gas 100
+                :withdrawals-root (withdrawal-list-root '())))
+             (parent-block (make-block :header parent-header))
+             (branch-a-state (state-db-copy parent-state))
+             (branch-a-block
+               (execute-signed-block
+                branch-a-state
+                (list transaction)
+                :expected-chain-id 1
+                :header (make-block-header
+                         :parent-hash (block-hash parent-block)
+                         :beneficiary fee-recipient
+                         :mix-hash (zero-hash32)
+                         :number 51
+                         :gas-limit 100000
+                         :gas-used 0
+                         :timestamp 201
+                         :base-fee-per-gas 100)
+                :chain-config config
+                :withdrawals (list withdrawal)))
+             (branch-b-state (state-db-copy parent-state))
+             (branch-b-block
+               (execute-signed-block
+                branch-b-state
+                '()
+                :expected-chain-id 1
+                :header (make-block-header
+                         :parent-hash (block-hash parent-block)
+                         :beneficiary fee-recipient
+                         :mix-hash (hash32-from-hex
+                                    "0x0200000000000000000000000000000000000000000000000000000000000000")
+                         :number 51
+                         :gas-limit 100000
+                         :gas-used 0
+                         :timestamp 202
+                         :base-fee-per-gas 100)
+                :chain-config config
+                :withdrawals (list withdrawal)))
+             (branch-a-payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data branch-a-block)))
+             (branch-b-payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data branch-b-block)))
+             (expected-topic
+               (hash32-to-hex
+                (hash32-from-hex
+                 "0x0000000000000000000000000000000000000000000000000000000000000009")))
+             (expected-data
+               "0x0000000000000000000000000000000000000000000000000000000000000007"))
+        (engine-payload-store-put-block
+         store parent-block :state-available-p t)
+        (commit-state-db-to-chain-store
+         store (block-hash parent-block) parent-state)
+        (dolist (request (list (payload-request 58 branch-a-payload)
+                               (payload-request 59 branch-b-payload)))
+          (let* ((response
+                   (engine-rpc-handle-request
+                    request store config
+                    :import-function #'execute-and-commit-engine-payload))
+                 (status
+                   (field (field response "result") "status")))
+            (is (string= +payload-status-valid+ status))))
+        (engine-rpc-handle-request
+         (forkchoice-request 60 (block-hash branch-a-block))
+         store config)
+        (let* ((logs
+                 (field (engine-rpc-handle-request
+                         (logs-request 61)
+                         store config)
+                        "result"))
+               (log (first logs)))
+          (is (= 1 (length logs)))
+          (is (string= (address-to-hex contract) (field log "address")))
+          (is (string= expected-data (field log "data")))
+          (is (string= expected-topic (first (field log "topics"))))
+          (is (string= (hash32-to-hex (block-hash branch-a-block))
+                       (field log "blockHash")))
+          (is (string= (hash32-to-hex (transaction-hash transaction))
+                       (field log "transactionHash"))))
+        (engine-rpc-handle-request
+         (forkchoice-request 62 (block-hash branch-b-block))
+         store config)
+        (is (string= (hash32-to-hex (block-hash branch-b-block))
+                     (hash32-to-hex (chain-store-canonical-hash store 51))))
+        (is (zerop
+             (length
+              (field (engine-rpc-handle-request
+                      (logs-request 63)
+                      store config)
+                     "result"))))))))
+
 (deftest engine-rpc-forkchoice-updated-v1-reports-memory-status
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
