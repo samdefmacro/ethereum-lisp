@@ -336,9 +336,9 @@ splits can land after the Phase A smoke path closes.
 
 ## P0: Engine Payload Import
 
-- [ ] `ENGINE-EXECUTE-NEWPAYLOAD`: Route `engine_newPayload` through block
+- [~] `ENGINE-EXECUTE-NEWPAYLOAD`: Route `engine_newPayload` through block
   execution when parent state is available.
-  - Milestone: 5 / 7
+  - Milestone: 6 / 7
   - Dependencies: `STORE-CHAIN-INTERFACE`, `STATE-ATOMIC-COMMIT`,
     `TRIE-FIXTURE-GRADE`, `SENDER-RECOVERY-ENFORCEMENT`,
     `RECEIPT-DERIVATION-INVARIANTS`.
@@ -354,6 +354,12 @@ splits can land after the Phase A smoke path closes.
   - Validation: add a one-transaction `newPayloadV2` import test plus a
     bad-commitment rollback test, and run
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: added the parent-state materialization step needed before
+    Engine can execute imported payloads. The chain-store can now iterate the
+    retained account projection for a state-available block, and execution can
+    rebuild a `state-db` from balance, nonce, code, and storage indexes.
+    Remaining work: call this helper from `engine_newPayload` for known-parent
+    state, then run the payload through `execute-and-commit-signed-block`.
 
 - [ ] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

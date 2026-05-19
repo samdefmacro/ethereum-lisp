@@ -569,6 +569,7 @@
    #:chain-store-account-code
    #:chain-store-put-account-storage
    #:chain-store-account-storage
+   #:chain-store-for-each-account
    #:chain-store-update-forkchoice-checkpoints
    #:chain-store-head-checkpoint
    #:chain-store-safe-checkpoint
@@ -862,6 +863,7 @@
    #:execute-legacy-block
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
+   #:chain-store-state-db
    #:execute-and-commit-block
    #:execute-and-commit-signed-block
    #:execute-signed-block))
@@ -1404,6 +1406,7 @@
    #:chain-store-account-code
    #:chain-store-put-account-storage
    #:chain-store-account-storage
+   #:chain-store-for-each-account
    #:chain-store-update-forkchoice-checkpoints
    #:chain-store-head-checkpoint
    #:chain-store-safe-checkpoint
@@ -1668,6 +1671,7 @@
    #:execute-legacy-block
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
+   #:chain-store-state-db
    #:execute-and-commit-block
    #:execute-and-commit-signed-block
    #:execute-signed-block)
@@ -2200,6 +2204,7 @@
    #:chain-store-account-code
    #:chain-store-put-account-storage
    #:chain-store-account-storage
+   #:chain-store-for-each-account
    #:chain-store-update-forkchoice-checkpoints
    #:chain-store-head-checkpoint
    #:chain-store-safe-checkpoint
@@ -2461,6 +2466,7 @@
    #:execute-legacy-block
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
+   #:chain-store-state-db
    #:execute-and-commit-block
    #:execute-and-commit-signed-block
    #:execute-signed-block))

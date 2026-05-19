@@ -649,9 +649,12 @@ including Amsterdam `slotNumber` and `blockAccessList` requirements for
 `engine_newPayloadV5`.
 A small in-memory Engine payload store now models known-block, missing-parent,
 missing-parent-state, and invalid-ancestor status branches for the future
-database-backed import path. A parsed JSON-RPC object dispatcher can now route
-`engine_newPayloadV1` through `engine_newPayloadV5` calls into that store and
-return Engine-style payload status result objects. The same core can now encode
+database-backed import path. It can also iterate retained account projections
+for state-available blocks so execution can rebuild a parent `state-db` from
+balance, nonce, code, and storage indexes before importing a child payload.
+A parsed JSON-RPC object dispatcher can now route `engine_newPayloadV1` through
+`engine_newPayloadV5` calls into that store and return Engine-style payload
+status result objects. The same core can now encode
 single and batch JSON-RPC response strings for request-string entry points,
 and advertises the currently implemented `engine_newPayloadV1` through
 `engine_newPayloadV5` plus `engine_forkchoiceUpdatedV1`,

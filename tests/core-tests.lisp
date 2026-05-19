@@ -2679,6 +2679,49 @@
     (is (eq prepared-payload
             (chain-store-prepared-payload store payload-id)))))
 
+(deftest chain-store-state-db-reconstructs-account-projection
+  (let* ((store (make-engine-payload-memory-store))
+         (missing-state-store (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (storage-only
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (storage-slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000003"))
+         (storage-only-slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000004"))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 44
+                               :state-root +empty-trie-hash+)))
+         (block-hash (block-hash block)))
+    (chain-store-put-block missing-state-store block)
+    (chain-store-put-block store block :state-available-p t)
+    (chain-store-put-account-balance store block-hash address 99)
+    (chain-store-put-account-nonce store block-hash address 7)
+    (chain-store-put-account-code store block-hash address #(96 42 0))
+    (chain-store-put-account-storage store block-hash address storage-slot 5)
+    (chain-store-put-account-storage
+     store block-hash storage-only storage-only-slot 11)
+    (is (not (chain-store-state-db missing-state-store block-hash)))
+    (let* ((state (chain-store-state-db store block-hash))
+           (account (state-db-get-account state address))
+           (storage-only-account
+             (state-db-get-account state storage-only)))
+      (is (typep state 'state-db))
+      (is (= 99 (state-account-balance account)))
+      (is (= 7 (state-account-nonce account)))
+      (is (bytes= #(96 42 0) (state-db-get-code state address)))
+      (is (= 5 (state-db-get-storage state address storage-slot)))
+      (is (= 0 (state-account-balance storage-only-account)))
+      (is (= 0 (state-account-nonce storage-only-account)))
+      (is (= 11
+             (state-db-get-storage
+              state storage-only storage-only-slot))))))
+
 (deftest execute-atomic-block-commit-commits-state-and-store-together
   (let* ((store (make-engine-payload-memory-store))
          (state (make-state-db))

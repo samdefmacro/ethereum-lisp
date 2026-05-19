@@ -3797,6 +3797,93 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    address
    slot))
 
+(defun engine-payload-store-string-prefix-p (prefix string)
+  (and (<= (length prefix) (length string))
+       (string= prefix string :end2 (length prefix))))
+
+(defun engine-payload-store-remember-account-key
+    (accounts block-prefix key &key storage-key-p)
+  (when (engine-payload-store-string-prefix-p block-prefix key)
+    (let* ((rest (subseq key (length block-prefix)))
+           (address-hex
+             (if storage-key-p
+                 (let ((slot-separator (position #\: rest)))
+                   (and slot-separator
+                        (subseq rest 0 slot-separator)))
+                 rest)))
+      (when address-hex
+        (setf (gethash address-hex accounts) t)))))
+
+(defun engine-payload-store-account-storage-entries
+    (memory-store block-hash address)
+  (let ((account-prefix
+          (format nil "~A:"
+                  (engine-payload-store-account-key block-hash address)))
+        (entries '()))
+    (maphash
+     (lambda (key value)
+       (when (engine-payload-store-string-prefix-p account-prefix key)
+         (push (cons (hash32-from-hex
+                      (subseq key (length account-prefix)))
+                     value)
+               entries)))
+     (engine-payload-memory-store-account-storage memory-store))
+    (nreverse entries)))
+
+(defun chain-store-for-each-account (store block-hash function)
+  (let ((memory-store (chain-store-require-memory-store store)))
+    (when (chain-store-state-available-p store block-hash)
+      (let ((block-prefix
+              (format nil "~A:" (engine-payload-store-key block-hash)))
+            (accounts (make-hash-table :test #'equal)))
+        (maphash
+         (lambda (key value)
+           (declare (ignore value))
+           (engine-payload-store-remember-account-key
+            accounts block-prefix key))
+         (engine-payload-memory-store-account-balances memory-store))
+        (maphash
+         (lambda (key value)
+           (declare (ignore value))
+           (engine-payload-store-remember-account-key
+            accounts block-prefix key))
+         (engine-payload-memory-store-account-nonces memory-store))
+        (maphash
+         (lambda (key value)
+           (declare (ignore value))
+           (engine-payload-store-remember-account-key
+            accounts block-prefix key))
+         (engine-payload-memory-store-account-codes memory-store))
+        (maphash
+         (lambda (key value)
+           (declare (ignore value))
+           (engine-payload-store-remember-account-key
+            accounts block-prefix key :storage-key-p t))
+         (engine-payload-memory-store-account-storage memory-store))
+        (maphash
+         (lambda (address-hex value)
+           (declare (ignore value))
+           (let* ((address (address-from-hex address-hex))
+                  (account-key
+                    (engine-payload-store-account-key block-hash address)))
+             (funcall
+              function
+              address
+              (gethash account-key
+                       (engine-payload-memory-store-account-balances
+                        memory-store)
+                       0)
+              (gethash account-key
+                       (engine-payload-memory-store-account-nonces
+                        memory-store)
+                       0)
+              (engine-payload-store-account-code
+               memory-store block-hash address)
+              (engine-payload-store-account-storage-entries
+               memory-store block-hash address))))
+         accounts)
+        store))))
+
 (defun engine-payload-store-state-available-p
     (store hash)
   (not (null
