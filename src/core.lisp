@@ -3282,6 +3282,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           (and parent-hash
                                (engine-payload-store-known-block
                                 store parent-hash))))
+                   (when (or (null parent-hash)
+                             (hash32= parent-hash (zero-hash32)))
+                     (return))
                    (unless parent-block
                      (block-validation-fail
                       "Canonical head ancestry must be fully known"))
@@ -6477,7 +6480,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (engine-rpc-fail
              +engine-rpc-error-invalid-forkchoice-state+
              checkpoint-error)))
-        (chain-store-update-forkchoice-checkpoints store state))
+        (chain-store-update-forkchoice-checkpoints store state)
+        (chain-store-set-canonical-head
+         store
+         (forkchoice-state-head-block-hash state)))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))

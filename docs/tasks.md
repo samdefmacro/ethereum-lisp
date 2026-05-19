@@ -409,7 +409,7 @@ splits can land after the Phase A smoke path closes.
   - Validation: add Engine-imported block RPC tests and run
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] `ENGINE-FORKCHOICE-CANONICAL`: Make `engine_forkchoiceUpdated` update
+- [~] `ENGINE-FORKCHOICE-CANONICAL`: Make `engine_forkchoiceUpdated` update
   canonical chain state, not only block tags.
   - Milestone: 6 / 7
   - Dependencies: `STORE-CANONICAL-REORG`.
@@ -417,6 +417,15 @@ splits can land after the Phase A smoke path closes.
     `latest`/`pending` views follow that canonical head.
   - Validation: forkchoice branch switch tests plus
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: VALID `engine_forkchoiceUpdated` now calls the chain-store
+    canonical head rewrite after safe/finalized checkpoint validation. The
+    canonical rewrite path also accepts the sparse parent-zero fixtures used by
+    the current memory-store tests. Coverage asserts forkchoice head 32
+    rewires the canonical hash at that height, clears a stale higher canonical
+    entry, and keeps public `latest`/`pending`/`eth_blockNumber` views on the
+    forkchoice head. Remaining work: add an explicit two-branch Engine import
+    fixture that switches between competing executed payloads and verifies
+    transaction/receipt visibility follows the selected branch.
 
 ## P0: State, Trie, And Proof Correctness
 

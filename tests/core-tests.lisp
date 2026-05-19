@@ -3727,6 +3727,10 @@
                               "number")))
           (is (string= (quantity-to-hex 32)
                        (field block-number-response "result")))
+          (is (string= (hash32-to-hex (block-hash head-block))
+                       (hash32-to-hex
+                        (chain-store-canonical-hash store 32))))
+          (is (not (chain-store-canonical-hash store 33)))
           (is (string= (quantity-to-hex 31)
                        (field (field safe-header-response "result")
                               "number")))
