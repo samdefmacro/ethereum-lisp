@@ -298,6 +298,11 @@ ones.
     (`fixtures/transaction_tests`) and geth-style checked-out spec-test roots
     (`spec-tests/fixtures/transaction_tests`), which prepares the next slice to
     load real pinned transaction vectors instead of seed vectors.
+  - Progress: added a minimal EEST transaction-test file adapter. The harness
+    now recognizes geth-style EEST JSON cases keyed by test name with `txbytes`
+    plus per-fork `result` objects, validates case/result field shapes, and
+    normalizes unprefixed EEST hash/sender hex into local `0x`-prefixed values
+    before later vector conversion.
 
 ## P0: Module Boundaries
 

@@ -3,6 +3,9 @@
 (defparameter +transaction-envelope-fixture-path+
   "tests/fixtures/execution-spec-tests/transaction-envelopes.json")
 
+(defparameter +eest-transaction-test-sample-path+
+  "tests/fixtures/execution-spec-tests-root/fixtures/transaction_tests/phase-a-sample.json")
+
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
@@ -32,6 +35,12 @@
 
 (defparameter +transaction-fixture-result-entry-fields+
   '("exception" "intrinsicGas"))
+
+(defparameter +eest-transaction-test-case-fields+
+  '("txbytes" "result"))
+
+(defparameter +eest-transaction-test-result-entry-fields+
+  '("hash" "sender" "exception" "intrinsicGas"))
 
 (defun validate-transaction-fixture-object-fields
     (object allowed-fields label)
@@ -114,6 +123,105 @@
 
 (defun validate-transaction-fixture-address-field (vector)
   (address-from-hex (fixture-required-field vector "sender")))
+
+(defun transaction-fixture-hex-prefixed-p (value)
+  (and (stringp value)
+       (<= 2 (length value))
+       (char= #\0 (char value 0))
+       (char= #\x (char-downcase (char value 1)))))
+
+(defun transaction-fixture-normalized-hex (value label)
+  (when (blank-string-p value)
+    (error "~A must be present" label))
+  (unless (stringp value)
+    (error "~A must be a hex string" label))
+  (if (transaction-fixture-hex-prefixed-p value)
+      value
+      (concatenate 'string "0x" value)))
+
+(defun normalize-eest-transaction-result-entry (case-name fork result)
+  (unless (listp result)
+    (error "EEST transaction case ~A result for fork ~A must be a JSON object"
+           case-name
+           fork))
+  (validate-transaction-fixture-object-fields
+   result
+   +eest-transaction-test-result-entry-fields+
+   (format nil "EEST transaction case ~A result for fork ~A"
+           case-name
+           fork))
+  (let ((hash-present-p (fixture-field-present-p result "hash"))
+        (sender-present-p (fixture-field-present-p result "sender"))
+        (exception (fixture-object-field result "exception"))
+        (intrinsic-gas (fixture-object-field result "intrinsicGas")))
+    (when (and (not hash-present-p) (blank-string-p exception))
+      (error "EEST transaction case ~A result for fork ~A needs hash or exception"
+             case-name
+             fork))
+    (when (and hash-present-p (not sender-present-p))
+      (error "EEST transaction case ~A result for fork ~A needs sender with hash"
+             case-name
+             fork))
+    (when (and hash-present-p (blank-string-p intrinsic-gas))
+      (error "EEST transaction case ~A result for fork ~A needs intrinsicGas with hash"
+             case-name
+             fork))
+    (let ((normalized nil))
+      (when hash-present-p
+        (let ((hash (transaction-fixture-normalized-hex
+                     (fixture-required-field result "hash")
+                     "EEST transaction hash"))
+              (sender (transaction-fixture-normalized-hex
+                       (fixture-required-field result "sender")
+                       "EEST transaction sender")))
+          (hash32-from-hex hash)
+          (address-from-hex sender)
+          (push (cons "hash" hash) normalized)
+          (push (cons "sender" sender) normalized)
+          (push (cons "intrinsicGas"
+                      (quantity-to-hex (hex-to-quantity intrinsic-gas)))
+                normalized)))
+      (unless (blank-string-p exception)
+        (push (cons "exception" exception) normalized))
+      (nreverse normalized))))
+
+(defun normalize-eest-transaction-test-case (name case)
+  (unless (listp case)
+    (error "EEST transaction case ~A must be a JSON object" name))
+  (validate-transaction-fixture-object-fields
+   case
+   +eest-transaction-test-case-fields+
+   (format nil "EEST transaction case ~A" name))
+  (let ((txbytes (transaction-fixture-normalized-hex
+                  (fixture-required-field case "txbytes")
+                  "EEST transaction txbytes"))
+        (result (fixture-required-field case "result")))
+    (when (zerop (length (hex-to-bytes txbytes)))
+      (error "EEST transaction case ~A txbytes must encode at least one byte"
+             name))
+    (unless (listp result)
+      (error "EEST transaction case ~A result must be a JSON object" name))
+    (list
+     (cons "name" name)
+     (cons "txbytes" txbytes)
+     (cons "result"
+           (mapcar
+            (lambda (entry)
+              (cons (car entry)
+                    (normalize-eest-transaction-result-entry
+                     name
+                     (car entry)
+                     (cdr entry))))
+            result)))))
+
+(defun load-eest-transaction-test-file (path)
+  (let ((cases (load-handwritten-fixture-file path)))
+    (unless (listp cases)
+      (error "EEST transaction test file must be a JSON object"))
+    (mapcar
+     (lambda (entry)
+       (normalize-eest-transaction-test-case (car entry) (cdr entry)))
+     cases)))
 
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
@@ -713,6 +821,43 @@
                 (cons "Shanghai" (list (cons "intrinsicGas" "0x5208")))
                 (cons "Cancun" (list (cons "intrinsicGas" "0x5208")))
                 (cons "Prague" (list (cons "intrinsicGas" "0x5208"))))))))))
+
+(deftest eest-transaction-test-file-shape-validation
+  (let* ((case (first (load-eest-transaction-test-file
+                       +eest-transaction-test-sample-path+)))
+         (result (fixture-object-field case "result"))
+         (shanghai (fixture-object-field result "Shanghai")))
+    (is (string= "legacy-eip155-sample"
+                 (fixture-object-field case "name")))
+    (is (string= "0xf86c098504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276a067cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83"
+                 (fixture-object-field case "txbytes")))
+    (is (string= "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788"
+                 (fixture-object-field shanghai "hash")))
+    (is (string= "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"
+                 (fixture-object-field shanghai "sender")))
+    (is (string= "0x5208"
+                 (fixture-object-field shanghai "intrinsicGas"))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "missing-result"
+     (list (cons "txbytes" "0x01"))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "unknown-case-field"
+     (list (cons "txbytes" "0x01")
+           (cons "result" nil)
+           (cons "unexpected" t))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "missing-success-sender"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "hash"
+                               "0x0000000000000000000000000000000000000000000000000000000000000001")
+                         (cons "intrinsicGas" "0x5208")))))))))
 
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
