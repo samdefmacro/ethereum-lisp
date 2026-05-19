@@ -522,8 +522,16 @@
    #:engine-new-payload-version-status
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store
+   #:engine-transaction-location
+   #:engine-transaction-location-block
+   #:engine-transaction-location-index
+   #:engine-transaction-location-transaction
+   #:engine-transaction-location-receipt
+   #:engine-transaction-location-log-index-start
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
+   #:engine-payload-store-block-by-number
+   #:engine-payload-store-transaction-location
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
    #:engine-payload-store-put-account-code
@@ -536,6 +544,18 @@
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
+   #:chain-store-put-block
+   #:chain-store-known-block
+   #:chain-store-block-by-number
+   #:chain-store-transaction-location
+   #:chain-store-block-receipts
+   #:chain-store-state-available-p
+   #:chain-store-update-forkchoice-checkpoints
+   #:chain-store-head-block
+   #:chain-store-safe-block
+   #:chain-store-finalized-block
+   #:chain-store-put-prepared-payload
+   #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2
@@ -1310,8 +1330,16 @@
    #:engine-new-payload-version-status
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store
+   #:engine-transaction-location
+   #:engine-transaction-location-block
+   #:engine-transaction-location-index
+   #:engine-transaction-location-transaction
+   #:engine-transaction-location-receipt
+   #:engine-transaction-location-log-index-start
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
+   #:engine-payload-store-block-by-number
+   #:engine-payload-store-transaction-location
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
    #:engine-payload-store-put-account-code
@@ -1324,6 +1352,18 @@
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
+   #:chain-store-put-block
+   #:chain-store-known-block
+   #:chain-store-block-by-number
+   #:chain-store-transaction-location
+   #:chain-store-block-receipts
+   #:chain-store-state-available-p
+   #:chain-store-update-forkchoice-checkpoints
+   #:chain-store-head-block
+   #:chain-store-safe-block
+   #:chain-store-finalized-block
+   #:chain-store-put-prepared-payload
+   #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2
@@ -2059,8 +2099,16 @@
    #:engine-new-payload-version-status
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store
+   #:engine-transaction-location
+   #:engine-transaction-location-block
+   #:engine-transaction-location-index
+   #:engine-transaction-location-transaction
+   #:engine-transaction-location-receipt
+   #:engine-transaction-location-log-index-start
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
+   #:engine-payload-store-block-by-number
+   #:engine-payload-store-transaction-location
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
    #:engine-payload-store-put-account-code
@@ -2073,6 +2121,18 @@
    #:engine-payload-id-to-hex
    #:engine-payload-store-put-prepared-payload
    #:engine-payload-store-prepared-payload
+   #:chain-store-put-block
+   #:chain-store-known-block
+   #:chain-store-block-by-number
+   #:chain-store-transaction-location
+   #:chain-store-block-receipts
+   #:chain-store-state-available-p
+   #:chain-store-update-forkchoice-checkpoints
+   #:chain-store-head-block
+   #:chain-store-safe-block
+   #:chain-store-finalized-block
+   #:chain-store-put-prepared-payload
+   #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2

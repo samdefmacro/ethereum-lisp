@@ -2557,6 +2557,63 @@
       (is (string= +payload-status-valid+ (payload-status-status status)))
       (is (typep block 'ethereum-block)))))
 
+(deftest chain-store-interface-wraps-memory-payload-store
+  (let* ((store (make-engine-payload-memory-store))
+         (payload-id #(1 2 3 4 5 6 7 8))
+         (transaction
+           (make-legacy-transaction
+            :nonce 1
+            :gas-price 2
+            :gas-limit 21000
+            :to (address-from-hex "0x0000000000000000000000000000000000000001")
+            :value 3
+            :v 27
+            :r 4
+            :s 5))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (header (make-block-header :number 43
+                                    :state-root +empty-trie-hash+))
+         (block (make-block :header header
+                            :transactions (list transaction)
+                            :receipts (list receipt)))
+         (block-hash (block-hash block))
+         (transaction-hash (transaction-hash transaction))
+         (forkchoice-state
+           (make-forkchoice-state
+            :head-block-hash block-hash
+            :safe-block-hash block-hash
+            :finalized-block-hash block-hash))
+         (prepared-payload
+           (make-engine-prepared-payload
+            :payload-id payload-id
+            :version 3
+            :block block)))
+    (is (eq block
+            (chain-store-put-block store block :state-available-p t)))
+    (is (eq block (chain-store-known-block store block-hash)))
+    (is (eq block (chain-store-block-by-number store 43)))
+    (is (chain-store-state-available-p store block-hash))
+    (let ((location
+            (chain-store-transaction-location store transaction-hash)))
+      (is (typep location 'engine-transaction-location))
+      (is (eq block (engine-transaction-location-block location)))
+      (is (= 0 (engine-transaction-location-index location)))
+      (is (eq transaction
+              (engine-transaction-location-transaction location)))
+      (is (eq receipt (engine-transaction-location-receipt location))))
+    (is (equal (list receipt)
+               (chain-store-block-receipts store block-hash)))
+    (is (eq store
+            (chain-store-update-forkchoice-checkpoints
+             store forkchoice-state)))
+    (is (eq block (chain-store-head-block store)))
+    (is (eq block (chain-store-safe-block store)))
+    (is (eq block (chain-store-finalized-block store)))
+    (is (eq prepared-payload
+            (chain-store-put-prepared-payload store prepared-payload)))
+    (is (eq prepared-payload
+            (chain-store-prepared-payload store payload-id)))))
+
 (deftest engine-new-payload-memory-status-caches-invalid-ancestors
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :london-block 0))

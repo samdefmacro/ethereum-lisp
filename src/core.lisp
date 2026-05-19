@@ -3126,6 +3126,76 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-transaction-locations store)))
 
+(defun chain-store-require-memory-store (store)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Chain store must be an engine payload memory store"))
+  store)
+
+(defun chain-store-put-block (store block &key (state-available-p nil))
+  (engine-payload-store-put-block
+   (chain-store-require-memory-store store)
+   block
+   :state-available-p state-available-p))
+
+(defun chain-store-known-block (store hash)
+  (engine-payload-store-known-block
+   (chain-store-require-memory-store store)
+   hash))
+
+(defun chain-store-block-by-number (store number)
+  (engine-payload-store-block-by-number
+   (chain-store-require-memory-store store)
+   number))
+
+(defun chain-store-transaction-location (store hash)
+  (engine-payload-store-transaction-location
+   (chain-store-require-memory-store store)
+   hash))
+
+(defun chain-store-block-receipts (store hash)
+  (let ((block (chain-store-known-block store hash)))
+    (when block
+      (copy-list (block-receipts block)))))
+
+(defun chain-store-state-available-p (store hash)
+  (engine-payload-store-state-available-p
+   (chain-store-require-memory-store store)
+   hash))
+
+(defun chain-store-update-forkchoice-checkpoints (store state)
+  (engine-payload-store-update-forkchoice-checkpoints
+   (chain-store-require-memory-store store)
+   state))
+
+(defun chain-store-checkpoint-block (store hash)
+  (when hash
+    (chain-store-known-block store hash)))
+
+(defun chain-store-head-block (store)
+  (chain-store-checkpoint-block
+   (chain-store-require-memory-store store)
+   (engine-payload-memory-store-head-block-hash store)))
+
+(defun chain-store-safe-block (store)
+  (chain-store-checkpoint-block
+   (chain-store-require-memory-store store)
+   (engine-payload-memory-store-safe-block-hash store)))
+
+(defun chain-store-finalized-block (store)
+  (chain-store-checkpoint-block
+   (chain-store-require-memory-store store)
+   (engine-payload-memory-store-finalized-block-hash store)))
+
+(defun chain-store-put-prepared-payload (store prepared-payload)
+  (engine-payload-store-put-prepared-payload
+   (chain-store-require-memory-store store)
+   prepared-payload))
+
+(defun chain-store-prepared-payload (store payload-id)
+  (engine-payload-store-prepared-payload
+   (chain-store-require-memory-store store)
+   payload-id))
+
 (defun engine-payload-store-put-pending-transaction (store transaction)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))

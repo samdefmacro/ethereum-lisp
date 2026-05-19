@@ -240,7 +240,7 @@ splits can land after the Phase A smoke path closes.
 
 ## P0: Chain Store And Canonical Indexes
 
-- [ ] `STORE-CHAIN-INTERFACE`: Define a chain-store interface over the current
+- [~] `STORE-CHAIN-INTERFACE`: Define a chain-store interface over the current
   memory payload store.
   - Milestone: 6 / 7
   - References: geth `core/rawdb`, `core/blockchain.go`; Nethermind DB/provider
@@ -248,6 +248,15 @@ splits can land after the Phase A smoke path closes.
   - Acceptance: known block, block-by-number, transaction location, receipts,
     state-available, head/safe/finalized, and prepared payload lookups go
     through a small chain-store boundary.
+  - Progress:
+    - Added a thin `chain-store-*` boundary over the memory payload store for
+      known blocks, block-by-number, transaction locations, block receipts,
+      state availability, forkchoice head/safe/finalized checkpoints, and
+      prepared payloads.
+  - Remaining:
+    - Migrate Engine and public RPC call sites onto the chain-store boundary,
+      then keep account/state access behind the same store edge as later
+      persistence work lands.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
 - [ ] `STORE-CANONICAL-INDEXES`: Add explicit canonical hash indexes.
