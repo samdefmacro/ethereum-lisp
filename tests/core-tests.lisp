@@ -3053,6 +3053,8 @@
          (proof #(#xcc #xdd))
          (sidecar nil)
          (versioned-hash nil)
+         (head-checkpoint
+           (chain-store-head-checkpoint store))
          (prepared-payload
            (make-engine-prepared-payload
             :payload-id payload-id
@@ -3087,6 +3089,9 @@
                   store versioned-hash))
                 0)
                #xff)
+         (setf (ethereum-lisp.core::chain-store-checkpoint-label
+                (chain-store-head-checkpoint store))
+               :mutated-head)
          (state-db-set-account state address
                                (make-state-account :balance 99))
          (error "Injected atomic commit failure"))))
@@ -3113,6 +3118,11 @@
              (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
               store versioned-hash))
             0)))
+    (is (eq :head
+            (ethereum-lisp.core::chain-store-checkpoint-label
+             (chain-store-head-checkpoint store))))
+    (is (not (eq head-checkpoint
+                 (chain-store-head-checkpoint store))))
     (is (= 10
            (state-account-balance
             (state-db-get-account state address))))))

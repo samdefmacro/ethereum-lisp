@@ -619,6 +619,10 @@ splits can land after the Phase A smoke path closes.
     response entries. Atomic rollback now copies blob/proof byte vectors, and
     coverage asserts that a failed atomic import cannot leak mutations to an
     existing `engine_getBlobs` response entry.
+  - Progress: extended memory-store snapshot isolation to forkchoice
+    checkpoint wrappers. Atomic rollback now copies head/safe/finalized
+    checkpoint objects, and coverage asserts that a failed atomic import
+    cannot leak mutations to the existing head checkpoint.
 
 - [x] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.

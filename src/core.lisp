@@ -3405,6 +3405,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              table)
     copy))
 
+(defun engine-payload-store-copy-checkpoint (checkpoint)
+  (when checkpoint
+    (make-chain-store-checkpoint
+     :label (chain-store-checkpoint-label checkpoint)
+     :block-hash (chain-store-checkpoint-block-hash checkpoint))))
+
 (defun engine-payload-store-snapshot (store)
   (make-engine-payload-memory-store
    :blocks
@@ -3455,10 +3461,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (engine-payload-memory-store-log-filters store))
    :next-log-filter-id
    (engine-payload-memory-store-next-log-filter-id store)
-   :head-checkpoint (engine-payload-memory-store-head-checkpoint store)
-   :safe-checkpoint (engine-payload-memory-store-safe-checkpoint store)
+   :head-checkpoint
+   (engine-payload-store-copy-checkpoint
+    (engine-payload-memory-store-head-checkpoint store))
+   :safe-checkpoint
+   (engine-payload-store-copy-checkpoint
+    (engine-payload-memory-store-safe-checkpoint store))
    :finalized-checkpoint
-   (engine-payload-memory-store-finalized-checkpoint store)))
+   (engine-payload-store-copy-checkpoint
+    (engine-payload-memory-store-finalized-checkpoint store))))
 
 (defun engine-payload-store-restore (store snapshot)
   (setf (engine-payload-memory-store-blocks store)
