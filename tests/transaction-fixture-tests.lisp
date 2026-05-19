@@ -19,6 +19,11 @@
       (error "Transaction fixture vectors must be a JSON array"))
     vectors))
 
+(defun transaction-fixture-txbytes (vector)
+  (or (fixture-object-field vector "txbytes")
+      (fixture-object-field vector "raw")
+      (error "Transaction fixture vector is missing txbytes")))
+
 (defun transaction-fixture-fork-config (fork)
   (cond
     ((string= fork "Frontier")
@@ -39,11 +44,14 @@
                         :prague-time 0))
     (t (error "Unknown transaction fixture fork: ~A" fork))))
 
-(defun transaction-fixture-fork-checks (vector)
-  (let ((checks (fixture-object-field vector "forkChecks")))
-    (unless (listp checks)
-      (error "Transaction fixture forkChecks must be a JSON array"))
-    checks))
+(defun transaction-fixture-result-checks (vector)
+  (let ((result (fixture-object-field vector "result")))
+    (unless (listp result)
+      (error "Transaction fixture result must be a JSON object"))
+    result))
+
+(defun transaction-fixture-result-valid-p (result)
+  (blank-string-p (fixture-object-field result "exception")))
 
 (defun transaction-vector-type (transaction)
   (typecase transaction
@@ -57,7 +65,7 @@
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
                    +transaction-envelope-fixture-path+))
-    (let* ((raw (fixture-object-field vector "raw"))
+    (let* ((raw (transaction-fixture-txbytes vector))
            (chain-id (fixture-object-field vector "chainId"))
            (transaction (transaction-from-encoding (hex-to-bytes raw)))
            (sender (transaction-sender transaction :expected-chain-id chain-id)))
@@ -72,13 +80,16 @@
                    (address-to-hex sender)))
       (is (null (transaction-sender transaction
                                     :expected-chain-id (1+ chain-id))))
-      (dolist (check (transaction-fixture-fork-checks vector))
-        (let ((config
-                (transaction-fixture-fork-config
-                 (fixture-object-field check "fork"))))
-          (if (fixture-object-field check "valid")
-              (is (validate-transaction-type-for-config
-                   transaction config 0 0))
+      (dolist (check (transaction-fixture-result-checks vector))
+        (let ((config (transaction-fixture-fork-config (car check)))
+              (result (cdr check)))
+          (if (transaction-fixture-result-valid-p result)
+              (progn
+                (is (validate-transaction-type-for-config
+                     transaction config 0 0))
+                (is (string= (fixture-object-field result "intrinsicGas")
+                             (quantity-to-hex
+                              (transaction-intrinsic-gas transaction)))))
               (signals error
                 (validate-transaction-type-for-config
                  transaction config 0 0))))))))

@@ -194,6 +194,15 @@ ones.
     txbytes case records fork-specific success or rejection. Remaining work:
     draw or transcribe the vector data from the pinned `execution-spec-tests`
     release instead of the current in-repo seed vectors.
+  - Progress: migrated the transaction fixture shape closer to
+    execution-spec-tests transaction tests by using `txbytes` plus a
+    per-fork `result` object. Valid fork entries now assert intrinsic gas,
+    while invalid entries carry EEST-style exception tokens for pre-fork typed
+    transaction rejection. The runner still accepts the older `raw` key as a
+    compatibility fallback, but the checked fixture now follows the
+    `txbytes` / `result` layout used by reference transaction-test harnesses.
+    Remaining work: replace the in-repo seed vectors with vectors drawn from
+    the pinned `execution-spec-tests` release.
 
 ## P0: Module Boundaries
 
