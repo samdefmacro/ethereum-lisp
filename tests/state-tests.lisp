@@ -22,6 +22,40 @@
     (state-db-set-storage state address slot 0)
     (is (= 0 (state-db-get-storage state address slot)))))
 
+(deftest state-zero-storage-write-does-not-create-empty-account
+  (let* ((state (make-state-db))
+         (address (address-from-hex "0x0000000000000000000000000000000000000003"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000008"))
+         (empty-root (state-db-root-hex state)))
+    (state-db-set-storage state address slot 0)
+    (is (null (state-db-get-account state address)))
+    (is (= 0 (state-db-get-storage state address slot)))
+    (is (string= empty-root (state-db-root-hex state)))))
+
+(deftest state-storage-delete-prunes-empty-storage-created-account
+  (let* ((state (make-state-db))
+         (address (address-from-hex "0x0000000000000000000000000000000000000004"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000009"))
+         (empty-root (state-db-root-hex state)))
+    (state-db-set-storage state address slot 99)
+    (is (state-db-get-account state address))
+    (state-db-set-storage state address slot 0)
+    (is (null (state-db-get-account state address)))
+    (is (string= empty-root (state-db-root-hex state)))))
+
+(deftest state-storage-delete-keeps-non-empty-account
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000005"))
+        (slot (hash32-from-hex
+               "0x000000000000000000000000000000000000000000000000000000000000000a")))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (state-db-set-storage state address slot 99)
+    (state-db-set-storage state address slot 0)
+    (is (= 0 (state-db-get-storage state address slot)))
+    (is (= 1 (state-account-balance (state-db-get-account state address))))))
+
 (deftest state-db-from-genesis-json-applies-alloc
   (let* ((json (concatenate
                 'string

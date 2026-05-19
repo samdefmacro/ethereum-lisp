@@ -31,6 +31,26 @@
   (let ((object (state-db-get-object state address)))
     (and object (state-object-account object))))
 
+(defun empty-state-account-p (account)
+  (and account
+       (zerop (state-account-nonce account))
+       (zerop (state-account-balance account))
+       (bytes= (hash32-bytes (state-account-storage-root account))
+               (hash32-bytes +empty-trie-hash+))
+       (bytes= (hash32-bytes (state-account-code-hash account))
+               (hash32-bytes +empty-code-hash+))))
+
+(defun empty-state-object-p (object)
+  (and object
+       (empty-state-account-p (state-object-account object))
+       (zerop (length (state-object-code object)))
+       (zerop (hash-table-count (state-object-storage object)))))
+
+(defun prune-empty-state-object (state key object)
+  (when (empty-state-object-p object)
+    (remhash key (state-db-objects state)))
+  state)
+
 (defun state-db-set-account (state address account)
   (let* ((key (address-key address))
          (object (or (gethash key (state-db-objects state))
@@ -106,15 +126,21 @@
 
 (defun state-db-set-storage (state address slot value)
   (let* ((key (address-key address))
+         (value (ensure-state-uint256 value "Storage value"))
          (object (or (gethash key (state-db-objects state))
-                     (setf (gethash key (state-db-objects state))
-                           (make-state-object
-                            :account (make-state-account)))))
+                     (and (not (zerop value))
+                          (setf (gethash key (state-db-objects state))
+                                (make-state-object
+                                 :account (make-state-account))))))
          (storage-key (storage-key slot))
-         (value (ensure-state-uint256 value "Storage value")))
-    (if (zerop value)
-        (remhash storage-key (state-object-storage object))
-        (setf (gethash storage-key (state-object-storage object)) value))
+         (storage (and object (state-object-storage object))))
+    (cond
+      ((zerop value)
+       (when object
+         (remhash storage-key storage)
+         (prune-empty-state-object state key object)))
+      (t
+       (setf (gethash storage-key storage) value)))
     state))
 
 (defun state-db-get-storage (state address slot)
