@@ -12,6 +12,17 @@
       "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7, 16]
     },
     {
+      "name": "delete-missing-key-keeps-leaf",
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "delete", "keyAscii": "cat" }
+      ],
+      "expectedRoot": "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7, 16],
+      "expectedRootValueAscii": "puppy"
+    },
+    {
       "name": "duplicate-key-overwrites-leaf-value",
       "operations": [
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
