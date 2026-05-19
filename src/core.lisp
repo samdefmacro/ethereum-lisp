@@ -7525,6 +7525,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      &key (parent-beacon-root nil parent-beacon-root-supplied-p)
           (versioned-hashes nil versioned-hashes-supplied-p)
           (requests nil requests-supplied-p)
+          import-function
           (import-state-available-p t))
   (unless (typep store 'engine-payload-memory-store)
     (return-from engine-new-payload-memory-status
@@ -7601,13 +7602,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   :validation-error
                   (block-validation-error-message condition))
                  nil)))))
-        (engine-payload-store-put-block
-         store block
-         :state-available-p import-state-available-p)
-        (values (make-payload-status
-                 :status +payload-status-valid+
-                 :latest-valid-hash hash)
-                block)))))
+        (if import-function
+            (handler-case
+                (multiple-value-bind (imported-block receipts)
+                    (funcall import-function store block config)
+                  (declare (ignore receipts))
+                  (let ((imported-block (or imported-block block)))
+                    (values (make-payload-status
+                             :status +payload-status-valid+
+                             :latest-valid-hash (block-hash imported-block))
+                            imported-block)))
+              (error (condition)
+                (engine-payload-store-mark-invalid store block)
+                (values
+                 (make-payload-status
+                  :status +payload-status-invalid+
+                  :latest-valid-hash parent-hash
+                  :validation-error
+                  (if (typep condition 'block-validation-error)
+                      (block-validation-error-message condition)
+                      (format nil "~A" condition)))
+                 nil)))
+            (progn
+              (engine-payload-store-put-block
+               store block
+               :state-available-p import-state-available-p)
+              (values (make-payload-status
+                       :status +payload-status-valid+
+                       :latest-valid-hash hash)
+                      block)))))))
 
 (defun execution-requests-hash (requests)
   (sha256-hash

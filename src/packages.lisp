@@ -111,6 +111,7 @@
         #:ethereum-lisp.trie)
   (:export
    #:+empty-ommers-hash+
+   #:ommers-hash
    #:+initial-base-fee+
    #:+base-fee-elasticity-multiplier+
    #:+base-fee-change-denominator+
@@ -864,6 +865,7 @@
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:chain-store-state-db
+   #:execute-and-commit-engine-payload
    #:execute-and-commit-block
    #:execute-and-commit-signed-block
    #:execute-signed-block))
@@ -948,6 +950,7 @@
    #:mpt-root-node)
   (:import-from #:ethereum-lisp.core
    #:+empty-ommers-hash+
+   #:ommers-hash
    #:+initial-base-fee+
    #:+base-fee-elasticity-multiplier+
    #:+base-fee-change-denominator+
@@ -1672,6 +1675,7 @@
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:chain-store-state-db
+   #:execute-and-commit-engine-payload
    #:execute-and-commit-block
    #:execute-and-commit-signed-block
    #:execute-signed-block)
@@ -1746,6 +1750,7 @@
    #:mpt-root-hex
    #:mpt-root-node
    #:+empty-ommers-hash+
+   #:ommers-hash
    #:+initial-base-fee+
    #:+base-fee-elasticity-multiplier+
    #:+base-fee-change-denominator+
@@ -2467,6 +2472,7 @@
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:chain-store-state-db
+   #:execute-and-commit-engine-payload
    #:execute-and-commit-block
    #:execute-and-commit-signed-block
    #:execute-signed-block))

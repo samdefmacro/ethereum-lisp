@@ -360,6 +360,15 @@ splits can land after the Phase A smoke path closes.
     rebuild a `state-db` from balance, nonce, code, and storage indexes.
     Remaining work: call this helper from `engine_newPayload` for known-parent
     state, then run the payload through `execute-and-commit-signed-block`.
+  - Progress: added `execute-and-commit-engine-payload`, which reconstructs
+    the parent state and executes an Engine payload block through the signed
+    block atomic commit path. `engine_newPayload` memory status now accepts an
+    injectable import function, returns `VALID` after a successful executable
+    import, and maps execution commitment failures to Engine `INVALID` without
+    storing the bad block. Tests cover a ready-parent empty payload execution
+    and a bad state-root rollback. Remaining work: wire the production RPC
+    dispatcher to this import function and replace the empty payload smoke with
+    the one-transaction `newPayloadV2` fixture.
 
 - [ ] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

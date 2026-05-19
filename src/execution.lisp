@@ -1418,6 +1418,35 @@
            (state-db-set-storage state address (car entry) (cdr entry)))))
       state)))
 
+(defun execute-and-commit-engine-payload
+    (store block config &key (state-available-p t))
+  (let* ((header (block-header block))
+         (number (block-header-number header))
+         (parent-hash (block-header-parent-hash header))
+         (state (if (plusp number)
+                    (chain-store-state-db store parent-hash)
+                    (make-state-db))))
+    (unless state
+      (error 'block-validation-error
+             :message "Engine payload parent state is unavailable"))
+    (apply
+     #'execute-and-commit-signed-block
+     store
+     state
+     (block-transactions block)
+     (append
+      (list :expected-chain-id (chain-config-chain-id config)
+            :header header
+            :chain-config config
+            :ommers (block-ommers block)
+            :state-available-p state-available-p)
+      (when (block-withdrawals-present-p block)
+        (list :withdrawals (block-withdrawals block)))
+      (when (block-requests-present-p block)
+        (list :requests (block-requests block)))
+      (when (block-block-access-list-present-p block)
+        (list :block-access-list (block-block-access-list block)))))))
+
 (defun execute-and-commit-block
     (store state executor &key (state-available-p t))
   (execute-atomic-block-commit
