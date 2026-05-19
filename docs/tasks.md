@@ -628,6 +628,9 @@ splits can land after the Phase A smoke path closes.
     Added the same pinned-source metadata guard to the Phase A Shanghai
     genesis fixture before validating its state root, header root, account
     allocation, code hash, and storage root.
+    Added Phase A Shanghai genesis fixture shape validation for top-level,
+    config, account, and storage fields so the Phase A smoke genesis vector
+    rejects wrapper drift before state-root assertions run.
     Added branch child-reference assertions to trie fixtures, including a
     mixed embedded/hashed branch case where a large child leaf crosses the
     32-byte RLP reference threshold while a sibling remains embedded.

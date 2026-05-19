@@ -3,6 +3,138 @@
 (defparameter +phase-a-shanghai-genesis-fixture-path+
   "tests/fixtures/execution-spec-tests/phase-a-shanghai-genesis.json")
 
+(defparameter +phase-a-shanghai-genesis-fixture-format+
+  "ethereum-lisp/phase-a-shanghai-genesis-fixture-v1")
+
+(defparameter +phase-a-shanghai-genesis-top-level-fields+
+  '("format"
+    "source"
+    "executionSpecTests"
+    "config"
+    "nonce"
+    "timestamp"
+    "extraData"
+    "gasLimit"
+    "difficulty"
+    "mixHash"
+    "coinbase"
+    "stateRoot"
+    "alloc"))
+
+(defparameter +phase-a-shanghai-genesis-config-fields+
+  '("chainId"
+    "terminalTotalDifficulty"
+    "londonBlock"
+    "shanghaiTime"))
+
+(defparameter +phase-a-shanghai-genesis-account-fields+
+  '("balance" "nonce" "code" "storage"))
+
+(defun validate-phase-a-shanghai-genesis-object-fields
+    (object allowed-fields label)
+  (unless (listp object)
+    (error "~A must be a JSON object" label))
+  (dolist (field object)
+    (unless (member (car field) allowed-fields :test #'string=)
+      (error "~A has unknown field ~A" label (car field)))))
+
+(defun validate-phase-a-shanghai-genesis-non-negative-value
+    (object field label &key required-p)
+  (let ((present-p (fixture-field-present-p object field))
+        (value (fixture-object-field object field)))
+    (when (or present-p required-p)
+      (unless (or (and (integerp value) (not (minusp value)))
+                  (and (stringp value)
+                       (not (minusp (hex-to-quantity value)))))
+        (error "~A field ~A must be a non-negative integer or hex quantity"
+               label
+               field)))))
+
+(defun validate-phase-a-shanghai-genesis-config-shape (config)
+  (validate-phase-a-shanghai-genesis-object-fields
+   config
+   +phase-a-shanghai-genesis-config-fields+
+   "Phase A Shanghai genesis config")
+  (dolist (field +phase-a-shanghai-genesis-config-fields+)
+    (validate-phase-a-shanghai-genesis-non-negative-value
+     config
+     field
+     "Phase A Shanghai genesis config"
+     :required-p t)))
+
+(defun validate-phase-a-shanghai-genesis-storage-shape (storage address)
+  (unless (listp storage)
+    (error "Phase A Shanghai genesis account ~A storage must be a JSON object"
+           address))
+  (dolist (entry storage)
+    (unless (and (stringp (car entry))
+                 (not (minusp (hex-to-quantity (car entry)))))
+      (error "Phase A Shanghai genesis account ~A has malformed storage slot ~A"
+             address
+             (car entry)))
+    (let ((value (cdr entry)))
+      (unless (or (and (integerp value) (not (minusp value)))
+                  (and (stringp value)
+                       (not (minusp (hex-to-quantity value)))))
+        (error "Phase A Shanghai genesis account ~A storage slot ~A has malformed value ~A"
+               address
+               (car entry)
+               value)))))
+
+(defun validate-phase-a-shanghai-genesis-account-shape (address account)
+  (address-from-hex address)
+  (validate-phase-a-shanghai-genesis-object-fields
+   account
+   +phase-a-shanghai-genesis-account-fields+
+   (format nil "Phase A Shanghai genesis account ~A" address))
+  (validate-phase-a-shanghai-genesis-non-negative-value
+   account
+   "balance"
+   (format nil "Phase A Shanghai genesis account ~A" address)
+   :required-p t)
+  (validate-phase-a-shanghai-genesis-non-negative-value
+   account
+   "nonce"
+   (format nil "Phase A Shanghai genesis account ~A" address))
+  (when (fixture-field-present-p account "code")
+    (hex-to-bytes (fixture-required-field account "code")))
+  (when (fixture-field-present-p account "storage")
+    (validate-phase-a-shanghai-genesis-storage-shape
+     (fixture-object-field account "storage")
+     address)))
+
+(defun validate-phase-a-shanghai-genesis-alloc-shape (alloc)
+  (unless (and (listp alloc) alloc)
+    (error "Phase A Shanghai genesis alloc must be a non-empty JSON object"))
+  (dolist (entry alloc)
+    (validate-phase-a-shanghai-genesis-account-shape (car entry) (cdr entry))))
+
+(defun validate-phase-a-shanghai-genesis-fixture-shape (fixture)
+  (validate-phase-a-shanghai-genesis-object-fields
+   fixture
+   +phase-a-shanghai-genesis-top-level-fields+
+   "Phase A Shanghai genesis fixture")
+  (dolist (field +phase-a-shanghai-genesis-top-level-fields+)
+    (fixture-required-field fixture field))
+  (validate-fixture-format fixture +phase-a-shanghai-genesis-fixture-format+)
+  (when (blank-string-p (fixture-required-field fixture "source"))
+    (error "Phase A Shanghai genesis fixture source must be present"))
+  (validate-fixture-pinned-eest-source fixture)
+  (validate-phase-a-shanghai-genesis-config-shape
+   (fixture-required-field fixture "config"))
+  (dolist (field '("nonce" "timestamp" "gasLimit" "difficulty"))
+    (validate-phase-a-shanghai-genesis-non-negative-value
+     fixture
+     field
+     "Phase A Shanghai genesis fixture"
+     :required-p t))
+  (hex-to-bytes (fixture-required-field fixture "extraData"))
+  (hash32-from-hex (fixture-required-field fixture "mixHash"))
+  (address-from-hex (fixture-required-field fixture "coinbase"))
+  (hash32-from-hex (fixture-required-field fixture "stateRoot"))
+  (validate-phase-a-shanghai-genesis-alloc-shape
+   (fixture-required-field fixture "alloc")))
+
 (deftest state-empty-root
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                (state-db-root-hex (make-state-db)))))
@@ -233,10 +365,7 @@
                   "0x0000000000000000000000000000000000000000000000000000000000000000"))
          (slot-1 (hash32-from-hex
                   "0x0000000000000000000000000000000000000000000000000000000000000001")))
-    (validate-fixture-format
-     fixture
-     "ethereum-lisp/phase-a-shanghai-genesis-fixture-v1")
-    (validate-fixture-pinned-eest-source fixture)
+    (validate-phase-a-shanghai-genesis-fixture-shape fixture)
     (is (validate-genesis-json-state-root json))
     (is (string= (hash32-to-hex expected-root)
                  (hash32-to-hex computed-root)))
@@ -256,6 +385,66 @@
     (is (string= "0x81d1fa699f807735499cf6f7df860797cf66f6a66b565cfcda3fae3521eb6861"
                  (hash32-to-hex
                   (state-db-get-storage-root state contract))))))
+
+(defun phase-a-shanghai-genesis-shape-test-fixture
+    (&key top-extra config-extra account-extra storage)
+  (append
+   (list
+    (cons "format" +phase-a-shanghai-genesis-fixture-format+)
+    (cons "source" "test fixture")
+    (cons "executionSpecTests"
+          (list (cons "release" +phase-a-eest-release+)
+                (cons "tagTarget" +phase-a-eest-tag-target+)
+                (cons "archive" +phase-a-eest-archive+)
+                (cons "status" "test")))
+    (cons "config"
+          (append
+           (list (cons "chainId" 1337)
+                 (cons "terminalTotalDifficulty" 0)
+                 (cons "londonBlock" 0)
+                 (cons "shanghaiTime" 0))
+           config-extra))
+    (cons "nonce" "0x0")
+    (cons "timestamp" "0x0")
+    (cons "extraData" "0x")
+    (cons "gasLimit" "0x1c9c380")
+    (cons "difficulty" "0x0")
+    (cons "mixHash"
+          "0x0000000000000000000000000000000000000000000000000000000000000000")
+    (cons "coinbase" "0x0000000000000000000000000000000000000000")
+    (cons "stateRoot"
+          "0x23cc0c47d1238030e9c1ec18013dcb17024d3d42729567adbb6406a64d3007f3")
+    (cons "alloc"
+          (list
+           (cons "0x0000000000000000000000000000000000001001"
+                 (append
+                  (list (cons "balance" "0xde0b6b3a7640000")
+                        (cons "nonce" "0x1")
+                        (cons "storage"
+                              (or storage
+                                  (list (cons "0x00" "0x2a")))))
+                  account-extra)))))
+   top-extra))
+
+(deftest phase-a-shanghai-genesis-fixture-shape-validation
+  (validate-phase-a-shanghai-genesis-fixture-shape
+   (phase-a-shanghai-genesis-shape-test-fixture))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :top-extra (list (cons "unexpectedTopField" t)))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :config-extra (list (cons "unexpectedFork" 0)))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :account-extra (list (cons "unexpectedAccountField" "0x1")))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :storage (list (cons "0x00" -1))))))
 
 (deftest withdrawals-credit-state-balances-in-wei
   (let* ((state (make-state-db))
