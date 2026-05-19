@@ -184,18 +184,30 @@
   (hash32-from-hex (fixture-required-field case "expectedRoot"))
   (when (fixture-field-present-p case "expectedStorageRoots")
     (let ((expected-storage-roots
-            (fixture-object-field case "expectedStorageRoots")))
+            (fixture-object-field case "expectedStorageRoots"))
+          (seen-addresses (make-hash-table :test 'equal)))
       (unless (listp expected-storage-roots)
         (error "State root fixture case expectedStorageRoots must be a JSON array"))
       (dolist (expected expected-storage-roots)
-        (validate-state-root-fixture-storage-root-shape expected))))
+        (validate-state-root-fixture-storage-root-shape expected)
+        (let ((address (fixture-required-field expected "address")))
+          (when (gethash address seen-addresses)
+            (error "State root fixture case has duplicate expectedStorageRoots address ~A"
+                   address))
+          (setf (gethash address seen-addresses) t)))))
   (when (fixture-field-present-p case "expectedAccounts")
     (let ((expected-accounts
-            (fixture-object-field case "expectedAccounts")))
+            (fixture-object-field case "expectedAccounts"))
+          (seen-addresses (make-hash-table :test 'equal)))
       (unless (listp expected-accounts)
         (error "State root fixture case expectedAccounts must be a JSON array"))
       (dolist (expected expected-accounts)
-        (validate-state-root-fixture-account-shape expected)))))
+        (validate-state-root-fixture-account-shape expected)
+        (let ((address (fixture-required-field expected "address")))
+          (when (gethash address seen-addresses)
+            (error "State root fixture case has duplicate expectedAccounts address ~A"
+                   address))
+          (setf (gethash address seen-addresses) t))))))
 
 (defun validate-state-root-fixture-cases (cases)
   (unless (listp cases)
@@ -514,6 +526,22 @@
                                    "0x23cc0c47d1238030e9c1ec18013dcb17024d3d42729567adbb6406a64d3007f3")))))))
   (signals error
     (validate-state-root-fixture-case-shape
+     (list (cons "name" "duplicate-storage-root-address")
+           (cons "tags" (list "storage-root-projection"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedStorageRoots"
+                 (list (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "root"
+                                   "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))
+                       (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "root"
+                                   "0x23cc0c47d1238030e9c1ec18013dcb17024d3d42729567adbb6406a64d3007f3")))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-account-field")
            (cons "tags" (list "account-projection"))
            (cons "operations" nil)
@@ -535,6 +563,20 @@
                  (list (list (cons "address"
                                    "0x0000000000000000000000000000000000000001")
                              (cons "balance" 1)
+                             (cons "balance" 2)))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "duplicate-account-address")
+           (cons "tags" (list "account-projection"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedAccounts"
+                 (list (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "balance" 1))
+                       (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
                              (cons "balance" 2)))))))
   (signals error
     (validate-state-root-fixture-case-shape

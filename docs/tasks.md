@@ -706,6 +706,9 @@ splits can land after the Phase A smoke path closes.
     coverage. State-root fixtures now fail early if empty state, account root,
     storage root/delete/prune, code root/delete/prune, multi-account, account
     projection, or storage-root projection coverage is dropped.
+    Added duplicate address rejection for state-root fixture account and
+    storage-root projection lists, so imported fixture expectations cannot
+    assert the same account twice with conflicting roots or balances.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
