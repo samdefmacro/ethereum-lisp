@@ -616,6 +616,10 @@ splits can land after the Phase A smoke path closes.
     collapse, delete-to-empty, embedded-vs-hashed child reference, branch
     value, missing-delete no-op, duplicate-overwrite, hex-key, lookup, or
     mixed branch child-reference coverage is accidentally dropped.
+    Added trie fixture operation-shape validation. Trie vector cases now reject
+    missing or ambiguous key fields, `put` operations without `valueAscii`,
+    `delete` operations that still carry a value, malformed expected lookup
+    entries, and `expectedMissing` entries that accidentally encode a value.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

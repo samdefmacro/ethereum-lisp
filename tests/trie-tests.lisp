@@ -56,6 +56,69 @@
         (error "Trie fixture case ~A has unknown tag ~A" name tag))
       (setf (gethash tag seen-tags) t))))
 
+(defun validate-trie-fixture-key-fields (object label)
+  (let ((has-hex (fixture-field-present-p object "keyHex"))
+        (has-ascii (fixture-field-present-p object "keyAscii")))
+    (unless (or has-hex has-ascii)
+      (error "~A must include keyHex or keyAscii" label))
+    (when (and has-hex has-ascii)
+      (error "~A must not include both keyHex and keyAscii" label))
+    (when has-hex
+      (unless (stringp (fixture-object-field object "keyHex"))
+        (error "~A keyHex must be a string" label)))
+    (when has-ascii
+      (let ((key (fixture-object-field object "keyAscii")))
+        (when (blank-string-p key)
+          (error "~A keyAscii must be non-empty" label))))))
+
+(defun validate-trie-fixture-operation (operation case-name)
+  (unless (listp operation)
+    (error "Trie fixture case ~A operation must be a JSON object" case-name))
+  (validate-trie-fixture-key-fields operation
+                                    (format nil "Trie fixture case ~A operation"
+                                            case-name))
+  (let ((op (fixture-object-field operation "op")))
+    (cond
+      ((and (stringp op) (string= op "put"))
+       (when (blank-string-p (fixture-object-field operation "valueAscii"))
+         (error "Trie fixture case ~A put operation needs valueAscii"
+                case-name)))
+      ((and (stringp op) (string= op "delete"))
+       (when (fixture-field-present-p operation "valueAscii")
+         (error "Trie fixture case ~A delete operation must not include valueAscii"
+                case-name)))
+      (t (error "Unknown trie fixture operation in case ~A: ~A"
+                case-name op)))))
+
+(defun validate-trie-fixture-expected-lookup (expected case-name field)
+  (unless (listp expected)
+    (error "Trie fixture case ~A ~A entry must be a JSON object"
+           case-name field))
+  (validate-trie-fixture-key-fields expected
+                                    (format nil "Trie fixture case ~A ~A entry"
+                                            case-name field))
+  (cond
+    ((string= field "expectedGets")
+     (when (blank-string-p (fixture-object-field expected "valueAscii"))
+       (error "Trie fixture case ~A expectedGets entry needs valueAscii"
+              case-name)))
+    ((string= field "expectedMissing")
+     (when (fixture-field-present-p expected "valueAscii")
+       (error "Trie fixture case ~A expectedMissing entry must not include valueAscii"
+              case-name)))))
+
+(defun validate-trie-fixture-case-shape (case)
+  (let ((name (fixture-object-field case "name"))
+        (operations (fixture-object-field case "operations")))
+    (unless (and (listp operations) operations)
+      (error "Trie fixture case ~A must include non-empty operations" name))
+    (dolist (operation operations)
+      (validate-trie-fixture-operation operation name))
+    (dolist (expected (fixture-object-field case "expectedGets"))
+      (validate-trie-fixture-expected-lookup expected name "expectedGets"))
+    (dolist (expected (fixture-object-field case "expectedMissing"))
+      (validate-trie-fixture-expected-lookup expected name "expectedMissing"))))
+
 (defun validate-trie-fixture-case-coverage (cases)
   (unless (and (listp cases) cases)
     (error "Trie fixture must include at least one case"))
@@ -69,6 +132,11 @@
     (dolist (tag +trie-fixture-required-tags+)
       (unless (gethash tag seen-tags)
         (error "Trie fixture is missing required coverage tag ~A" tag)))))
+
+(defun validate-trie-fixture-cases (cases)
+  (validate-trie-fixture-case-coverage cases)
+  (dolist (case cases)
+    (validate-trie-fixture-case-shape case)))
 
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
@@ -211,13 +279,43 @@
     (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (mpt-root-hex trie)))))
 
+(deftest trie-fixture-shape-validation-rejects-ambiguous-operations
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "missing-key")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "valueAscii" "value")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "ambiguous-key")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyHex" "0x00")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "put-without-value")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "missing-entry-with-value")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog"))))
+           (cons "expectedMissing"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))))))
+
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json
                    (fixture-file-string +trie-vector-fixture-path+)))
          (cases (fixture-object-field fixture "cases")))
     (validate-fixture-format fixture "ethereum-lisp/trie-vectors-v1")
     (validate-fixture-pinned-eest-source fixture)
-    (validate-trie-fixture-case-coverage cases)
+    (validate-trie-fixture-cases cases)
     (dolist (case cases)
       (let ((trie (run-trie-fixture-case case)))
         (is (string= (fixture-object-field case "expectedRoot")
