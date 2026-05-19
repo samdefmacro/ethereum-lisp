@@ -231,7 +231,8 @@
 (defun validate-trie-fixture-root-child-references (case)
   (when (fixture-field-present-p case "expectedRootChildReferences")
     (let ((references
-            (fixture-object-field case "expectedRootChildReferences")))
+            (fixture-object-field case "expectedRootChildReferences"))
+          (seen-indexes (make-hash-table)))
       (unless (listp references)
         (error "Trie fixture case ~A expectedRootChildReferences must be a JSON object"
                (fixture-object-field case "name")))
@@ -242,6 +243,11 @@
             (error "Trie fixture case ~A has malformed child reference index ~A"
                    (fixture-object-field case "name")
                    (car reference)))
+          (when (gethash index seen-indexes)
+            (error "Trie fixture case ~A has duplicate child reference index ~A"
+                   (fixture-object-field case "name")
+                   (car reference)))
+          (setf (gethash index seen-indexes) t)
           (unless (trie-fixture-valid-child-reference-kind-p kind)
             (error "Trie fixture case ~A has unknown child reference kind ~A"
                    (fixture-object-field case "name")
@@ -586,7 +592,20 @@
            (cons "operations"
                  (list (list (cons "op" "put")
                              (cons "keyAscii" "do")
-                             (cons "valueAscii" "v"))))))))
+                             (cons "valueAscii" "v")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "duplicate-child-reference")
+           (cons "expectedRoot"
+                 "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5")
+           (cons "expectedShape" "branch")
+           (cons "expectedRootChildReferences"
+                 (list (cons "1" "embedded")
+                       (cons "01" "hashed")))
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyHex" "0x10")
+                             (cons "valueAscii" "left"))))))))
 
 (deftest trie-fixture-shape-validation-rejects-unknown-fields
   (signals error

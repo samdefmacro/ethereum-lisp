@@ -709,6 +709,8 @@ splits can land after the Phase A smoke path closes.
     Added duplicate address rejection for state-root fixture account and
     storage-root projection lists, so imported fixture expectations cannot
     assert the same account twice with conflicting roots or balances.
+    Added duplicate child-reference index rejection to trie fixture branch
+    projection validation, including numeric aliases such as `1` and `01`.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
