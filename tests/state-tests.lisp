@@ -67,6 +67,10 @@
     (state-db-set-storage state address slot 42)
     (is (string= "0x5a82156cc229d54915dd2737745f27d84bf65f46e046a2dc1a1c214175747583"
                  (hash32-to-hex (state-db-get-storage-root state address))))
+    (is (string= (hash32-to-hex (state-db-get-storage-root state address))
+                 (hash32-to-hex
+                  (state-account-storage-root
+                   (state-db-get-account state address)))))
     (state-db-set-storage state address slot 0)
     (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (hash32-to-hex (state-db-get-storage-root state address))))))

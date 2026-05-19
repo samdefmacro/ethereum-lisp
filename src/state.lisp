@@ -29,7 +29,9 @@
 
 (defun state-db-get-account (state address)
   (let ((object (state-db-get-object state address)))
-    (and object (state-object-account object))))
+    (and object
+         (state-object-account object)
+         (account-with-storage-root object))))
 
 (defun empty-state-account-p (account)
   (and account
