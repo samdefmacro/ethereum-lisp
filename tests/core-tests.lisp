@@ -3985,10 +3985,13 @@
                   "\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]},"
                   "{\"jsonrpc\":\"2.0\",\"id\":56,"
                   "\"method\":\"eth_feeHistory\","
-                  "\"params\":[\"0x2\",\"latest\",[10.5,90]]}]")
+                  "\"params\":[\"0x2\",\"latest\",[10.5,90]]},"
+                  "{\"jsonrpc\":\"2.0\",\"id\":59,"
+                  "\"method\":\"eth_feeHistory\","
+                  "\"params\":[\"0x1\",\"safe\",[]]}]")
                  store
                  config))))
-        (is (= 5 (length responses)))
+        (is (= 6 (length responses)))
         (is (= 26 (field (first responses) "id")))
         (is (string= (quantity-to-hex
                       (expected-base-fee-per-gas (block-header head)))
@@ -4031,7 +4034,11 @@
                         (block-header-blob-base-fee (block-header head)))
                        (third blob-base-fees)))
           (is (= 0 (first blob-ratios)))
-          (is (= 0 (second blob-ratios))))))
+          (is (= 0 (second blob-ratios))))
+        (let ((safe-fee-history (field (sixth responses) "result")))
+          (is (= 59 (field (sixth responses) "id")))
+          (is (string= (quantity-to-hex 30)
+                       (field safe-fee-history "oldestBlock"))))))
     (let* ((responses
              (parse-json
               (engine-rpc-handle-request-json
@@ -4705,6 +4712,24 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"0xc\"]}"
                  store
                  config)))
+             (pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":120,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"pending\"]}"
+                 store
+                 config)))
+             (safe-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":121,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"safe\"]}"
+                 store
+                 config)))
+             (finalized-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":122,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"finalized\"]}"
+                 store
+                 config)))
              (missing-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -4751,6 +4776,12 @@
                             "number")))
         (is (string= (field latest "hash")
                      (field (field quantity-response "result") "hash")))
+        (is (string= (field latest "hash")
+                     (field (field pending-response "result") "hash")))
+        (is (string= (field latest "hash")
+                     (field (field safe-response "result") "hash")))
+        (is (string= (field latest "hash")
+                     (field (field finalized-response "result") "hash")))
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 

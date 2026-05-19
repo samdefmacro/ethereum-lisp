@@ -622,8 +622,9 @@ when present for legacy transaction callers;
 `eth_blobBaseFee` exposes the current head blob base fee when Cancun blob-gas
 fields are present, and `eth_feeHistory` now returns a first memory-store fee
 history window with base fee progression, gas-used ratios, optional blob fee
-history, and zero-filled reward percentile placeholders until transaction
-reward accounting is indexed,
+history, `latest`/`pending`/`safe`/`finalized` head-tag resolution, and
+zero-filled reward percentile placeholders until transaction reward accounting
+is indexed,
 `eth_getBalance` can read retained per-block account balance snapshots by
 block tag, number, or hash while returning `null` when the block or retained
 state is unavailable, `eth_getTransactionCount` does the same for retained
@@ -632,8 +633,8 @@ snapshots with empty code for missing accounts, `eth_getStorageAt` reads
 retained account storage slot snapshots as 32-byte words with zero words for
 missing accounts/slots, and
 `eth_getHeaderByNumber`/`eth_getHeaderByHash` can return canonical memory-store
-headers for `latest`, `earliest`, hex block quantities, or block hashes using
-the geth-style header object shape while
+headers for `latest`, `pending`, `safe`, `finalized`, `earliest`, hex block
+quantities, or block hashes using the geth-style header object shape while
 returning JSON `null` for unknown blocks. `eth_getBlockByNumber`/`eth_getBlockByHash` now handle both the
 transaction-hash form (`fullTx=false`) and full mined transaction object form
 (`fullTx=true`) for memory-store blocks, adding block size, ommer hashes, and

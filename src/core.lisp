@@ -4119,6 +4119,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defconstant +eth-rpc-max-fee-history-block-count+ 1024)
 (defconstant +eth-rpc-max-fee-history-reward-percentiles+ 100)
 
+(defun eth-rpc-head-block-tag-p (value)
+  (and (stringp value)
+       (or (string= value "latest")
+           (string= value "pending")
+           (string= value "safe")
+           (string= value "finalized"))))
+
 (defun eth-rpc-fee-history-block-count (params method)
   (let ((count (parse-genesis-quantity
                 (engine-rpc-required-param params 0 "block count" method)
@@ -4132,16 +4139,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun eth-rpc-fee-history-newest-block-number (params store method)
   (let ((value (engine-rpc-required-param params 1 "newest block" method)))
     (cond
-      ((and (stringp value)
-            (or (string= value "latest")
-                (string= value "pending")))
+      ((eth-rpc-head-block-tag-p value)
        (engine-payload-memory-store-head-number store))
       ((and (stringp value) (string= value "earliest")) 0)
       ((and (stringp value) (genesis-hex-quantity-string-p value))
        (parse-genesis-quantity value "newest block" :required-p t))
       (t
        (block-validation-fail
-        "~A newest block must be latest, pending, earliest, or a hex quantity"
+        "~A newest block must be latest, pending, safe, finalized, earliest, or a hex quantity"
         method)))))
 
 (defun eth-rpc-fee-history-reward-percentiles (params method)
@@ -4351,7 +4356,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            method))
   (let ((value (first params)))
     (cond
-      ((and (stringp value) (string= value "latest"))
+      ((eth-rpc-head-block-tag-p value)
        (engine-payload-memory-store-head-number store))
       ((and (stringp value) (string= value "earliest")) 0)
       ((and (stringp value)
@@ -4359,7 +4364,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (parse-genesis-quantity value "block number" :required-p t))
       (t
        (block-validation-fail
-        "~A block number must be latest, earliest, or a hex quantity"
+        "~A block number must be latest, pending, safe, finalized, earliest, or a hex quantity"
         method)))))
 
 (defun eth-rpc-block-param (params store method)
