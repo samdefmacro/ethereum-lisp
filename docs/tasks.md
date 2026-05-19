@@ -226,6 +226,11 @@ ones.
     archive metadata before consuming seed vectors, making fixture-only
     transaction coverage explicit until the pinned transaction cases are
     transcribed.
+  - Progress: added transaction fixture coverage guards for required envelope
+    families and duplicate vector identities. The runner now rejects missing
+    legacy, EIP-2930, EIP-1559, EIP-4844, or EIP-7702 coverage, duplicate
+    names, duplicate `txbytes` / `raw`, duplicate hashes, blank senders, and
+    invalid chain ids before running per-fork checks.
 
 ## P0: Module Boundaries
 

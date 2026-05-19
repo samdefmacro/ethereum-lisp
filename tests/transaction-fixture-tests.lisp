@@ -9,6 +9,9 @@
 (defparameter +transaction-fixture-forks+
   '("Frontier" "Berlin" "London" "Cancun" "Prague"))
 
+(defparameter +transaction-fixture-required-types+
+  '(:legacy :access-list :dynamic-fee :blob :set-code))
+
 (defun validate-transaction-envelope-fixture-metadata (fixture)
   (validate-fixture-format fixture +transaction-envelope-fixture-format+)
   (when (blank-string-p
@@ -37,12 +40,62 @@
     ((string= type "set-code") :set-code)
     (t (error "Unknown transaction fixture type: ~A" type))))
 
+(defun validate-transaction-fixture-string-field (vector field)
+  (when (blank-string-p (fixture-required-field vector field))
+    (error "Transaction fixture ~A must be present" field)))
+
+(defun validate-transaction-fixture-unique-field
+    (seen vector field)
+  (let ((value (fixture-required-field vector field)))
+    (when (blank-string-p value)
+      (error "Transaction fixture ~A must be present" field))
+    (let ((previous (gethash value seen)))
+      (when previous
+        (error "Transaction fixture duplicate ~A ~A in ~A and ~A"
+               field value previous (fixture-object-field vector "name"))))
+    (setf (gethash value seen) (fixture-object-field vector "name"))))
+
+(defun validate-transaction-fixture-unique-txbytes (seen vector)
+  (let ((value (or (fixture-object-field vector "txbytes")
+                   (fixture-object-field vector "raw"))))
+    (when (blank-string-p value)
+      (error "Transaction fixture txbytes must be present"))
+    (let ((previous (gethash value seen)))
+      (when previous
+        (error "Transaction fixture duplicate txbytes ~A in ~A and ~A"
+               value previous (fixture-object-field vector "name"))))
+    (setf (gethash value seen) (fixture-object-field vector "name"))))
+
+(defun validate-transaction-envelope-vector-coverage (vectors)
+  (let ((seen-names (make-hash-table :test 'equal))
+        (seen-txbytes (make-hash-table :test 'equal))
+        (seen-hashes (make-hash-table :test 'equal))
+        (seen-types '()))
+    (dolist (vector vectors)
+      (unless (listp vector)
+        (error "Transaction fixture vector must be a JSON object"))
+      (validate-transaction-fixture-unique-field seen-names vector "name")
+      (validate-transaction-fixture-unique-txbytes seen-txbytes vector)
+      (validate-transaction-fixture-unique-field seen-hashes vector "hash")
+      (validate-transaction-fixture-string-field vector "sender")
+      (let ((type (transaction-fixture-type-keyword
+                   (fixture-required-field vector "type"))))
+        (pushnew type seen-types))
+      (unless (and (integerp (fixture-required-field vector "chainId"))
+                   (not (minusp (fixture-required-field vector "chainId"))))
+        (error "Transaction fixture chainId must be a non-negative integer")))
+    (dolist (type +transaction-fixture-required-types+)
+      (unless (member type seen-types)
+        (error "Transaction fixture vectors are missing required type ~A"
+               type)))))
+
 (defun load-transaction-envelope-vectors (path)
   (let* ((fixture (load-handwritten-fixture-file path))
          (vectors (fixture-object-field fixture "vectors")))
     (validate-transaction-envelope-fixture-metadata fixture)
     (unless (listp vectors)
       (error "Transaction fixture vectors must be a JSON array"))
+    (validate-transaction-envelope-vector-coverage vectors)
     vectors))
 
 (defun transaction-fixture-txbytes (vector)
