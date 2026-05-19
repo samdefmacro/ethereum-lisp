@@ -99,8 +99,26 @@
 (defun transaction-fixture-known-exception-p (exception)
   (member exception +transaction-fixture-known-exceptions+ :test #'string=))
 
+(defun transaction-fixture-type-valid-on-fork-p (type fork)
+  (ecase type
+    (:legacy t)
+    (:access-list (member fork '("Berlin" "London" "Cancun" "Prague")
+                          :test #'string=))
+    (:dynamic-fee (member fork '("London" "Cancun" "Prague")
+                          :test #'string=))
+    (:blob (member fork '("Cancun" "Prague") :test #'string=))
+    (:set-code (string= fork "Prague"))))
+
+(defun transaction-fixture-expected-pre-fork-exception (type)
+  (ecase type
+    (:legacy nil)
+    (:access-list "TransactionException.TYPE_1_TX_PRE_FORK")
+    (:dynamic-fee "TransactionException.TYPE_2_TX_PRE_FORK")
+    (:blob "TransactionException.TYPE_3_TX_PRE_FORK")
+    (:set-code "TransactionException.TYPE_4_TX_PRE_FORK")))
+
 (defun validate-transaction-fixture-result-entry
-    (vector fork result)
+    (vector type fork result)
   (unless (listp result)
     (error "Transaction fixture ~A result for fork ~A must be a JSON object"
            (fixture-object-field vector "name")
@@ -121,15 +139,33 @@
           (when intrinsic-gas
             (error "Transaction fixture ~A invalid result for fork ~A must not include intrinsicGas"
                    (fixture-object-field vector "name")
+                   fork))))
+    (let ((expected-valid
+            (transaction-fixture-type-valid-on-fork-p type fork)))
+      (if expected-valid
+          (unless (blank-string-p exception)
+            (error "Transaction fixture ~A type ~A should be valid on fork ~A"
+                   (fixture-object-field vector "name")
+                   type
+                   fork))
+          (unless (string= exception
+                           (transaction-fixture-expected-pre-fork-exception
+                            type))
+            (error "Transaction fixture ~A type ~A has wrong pre-fork result on ~A"
+                   (fixture-object-field vector "name")
+                   type
                    fork))))))
 
 (defun validate-transaction-fixture-result-shape (vector)
-  (let ((result (fixture-object-field vector "result")))
+  (let ((type (transaction-fixture-type-keyword
+               (fixture-required-field vector "type")))
+        (result (fixture-object-field vector "result")))
     (unless (listp result)
       (error "Transaction fixture result must be a JSON object"))
     (dolist (check result)
       (validate-transaction-fixture-result-entry
        vector
+       type
        (car check)
        (cdr check)))))
 
@@ -231,27 +267,44 @@
     (otherwise :unknown)))
 
 (deftest transaction-fixture-result-shape-validation
-  (let ((vector (list (cons "name" "shape-test"))))
+  (let ((vector (list (cons "name" "shape-test")
+                      (cons "type" "dynamic-fee"))))
     (signals error
       (validate-transaction-fixture-result-entry
-       vector "London" nil))
+       vector :dynamic-fee "London" nil))
     (signals error
       (validate-transaction-fixture-result-entry
-       vector "London" (list (cons "exception" ""))))
-    (signals error
-      (validate-transaction-fixture-result-entry
-       vector "London" (list (cons "exception"
-                                   "TransactionException.UNKNOWN"))))
+       vector :dynamic-fee "London" (list (cons "exception" ""))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector
-       "London"
+       :dynamic-fee
+       "Berlin"
+       (list (cons "exception" "TransactionException.UNKNOWN"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "Berlin"
        (list (cons "exception" "TransactionException.TYPE_2_TX_PRE_FORK")
              (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
+       (list (cons "exception" "TransactionException.TYPE_2_TX_PRE_FORK")
+             (cons "intrinsicGas" nil))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "Berlin"
+       (list (cons "exception" "TransactionException.TYPE_1_TX_PRE_FORK"))))
     (validate-transaction-fixture-result-entry
-     vector "London" (list (cons "intrinsicGas" "0x5208")))
+     vector :dynamic-fee "London" (list (cons "intrinsicGas" "0x5208")))
     (validate-transaction-fixture-result-entry
-     vector "London" (list (cons "exception"
+     vector :dynamic-fee "Berlin" (list (cons "exception"
                                  "TransactionException.TYPE_2_TX_PRE_FORK")))))
 
 (deftest transaction-fixture-vector-shape-validation

@@ -239,6 +239,11 @@ ones.
     reject ambiguous `txbytes` / `raw` usage, empty encoded transaction bytes,
     malformed transaction hashes, and malformed sender addresses before the
     runner attempts to decode or recover the transaction.
+  - Progress: added transaction type activation profile validation. The
+    fixture runner now checks that legacy vectors are valid on every tracked
+    fork, EIP-2930 vectors start at Berlin, EIP-1559 vectors start at London,
+    EIP-4844 vectors start at Cancun, and EIP-7702 vectors start at Prague,
+    with matching pre-fork exception tokens.
 
 ## P0: Module Boundaries
 
