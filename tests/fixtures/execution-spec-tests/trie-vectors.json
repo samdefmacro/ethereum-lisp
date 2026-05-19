@@ -83,6 +83,16 @@
       "expectedShape": "branch",
       "expectedRootChildren": [1],
       "expectedRootValueAscii": "root"
+    },
+    {
+      "name": "delete-root-branch-value-collapses-to-leaf",
+      "operations": [
+        { "op": "put", "keyHex": "0x", "valueAscii": "root" },
+        { "op": "put", "keyHex": "0x10", "valueAscii": "child" },
+        { "op": "delete", "keyHex": "0x" }
+      ],
+      "expectedRoot": "0xae9b7371f5ef144daa2780a50feb85d5918708e10357eb25c275cc2562f219d4",
+      "expectedShape": "leaf"
     }
   ]
 }

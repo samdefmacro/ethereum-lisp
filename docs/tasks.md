@@ -513,8 +513,10 @@ splits can land after the Phase A smoke path closes.
     Added hex-key trie fixture operations and a sparse root-branch vector that
     asserts only the expected child slots are populated. Added prefix-key
     branch value coverage so a key ending at a branch preserves its value slot
-    while longer sibling keys remain under child references. Added a
-    multi-account secure state-root fixture that asserts account nonce,
+    while longer sibling keys remain under child references. Added delete
+    coverage for the inverse branch-value case: removing the root branch value
+    collapses the remaining single child path back to a leaf with a locked root.
+    Added a multi-account secure state-root fixture that asserts account nonce,
     balance, storage root, code hash, and account RLP projections alongside the
     final root.
     Remaining work: replace/extend the in-repo vectors with pinned
