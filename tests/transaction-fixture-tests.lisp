@@ -27,6 +27,9 @@
 (defparameter +transaction-fixture-vector-fields+
   '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
 
+(defparameter +transaction-fixture-required-vector-fields+
+  '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
+
 (defun validate-transaction-fixture-object-fields
     (object allowed-fields label)
   (unless (listp object)
@@ -109,6 +112,15 @@
    vector
    +transaction-fixture-vector-fields+
    "Transaction fixture vector")
+  (dolist (field +transaction-fixture-required-vector-fields+)
+    (fixture-required-field vector field))
+  (validate-transaction-fixture-string-field vector "name")
+  (transaction-fixture-type-keyword (fixture-required-field vector "type"))
+  (unless (and (integerp (fixture-required-field vector "chainId"))
+               (not (minusp (fixture-required-field vector "chainId"))))
+    (error "Transaction fixture chainId must be a non-negative integer"))
+  (unless (listp (fixture-required-field vector "result"))
+    (error "Transaction fixture result must be a JSON object"))
   (transaction-fixture-txbytes-value vector)
   (validate-transaction-fixture-hash-field vector)
   (validate-transaction-fixture-address-field vector))
@@ -247,9 +259,6 @@
       (let ((type (transaction-fixture-type-keyword
                    (fixture-required-field vector "type"))))
         (pushnew type seen-types))
-      (unless (and (integerp (fixture-required-field vector "chainId"))
-                   (not (minusp (fixture-required-field vector "chainId"))))
-        (error "Transaction fixture chainId must be a non-negative integer"))
       (validate-transaction-fixture-result-shape vector)
       (validate-transaction-fixture-decoded-vector vector))
     (dolist (type +transaction-fixture-required-types+)
@@ -491,53 +500,103 @@
 (deftest transaction-fixture-vector-shape-validation
   (let ((valid-vector
           (list (cons "name" "shape-test")
+                (cons "type" "legacy")
+                (cons "chainId" 1)
                 (cons "txbytes" "0x01")
                 (cons "hash"
                       "0x0000000000000000000000000000000000000000000000000000000000000001")
-                (cons "sender" "0x0000000000000000000000000000000000000001"))))
+                (cons "sender" "0x0000000000000000000000000000000000000001")
+                (cons "result" nil))))
     (validate-transaction-fixture-vector-shape valid-vector))
   (signals error
     (validate-transaction-fixture-vector-shape
-     (list (cons "name" "both-raw-and-txbytes")
-           (cons "txbytes" "0x01")
-           (cons "raw" "0x01")
-           (cons "hash"
-                 "0x0000000000000000000000000000000000000000000000000000000000000001")
-           (cons "sender" "0x0000000000000000000000000000000000000001"))))
-  (signals error
-    (validate-transaction-fixture-vector-shape
-     (list (cons "name" "raw-only")
-           (cons "raw" "0x01")
-           (cons "hash"
-                 "0x0000000000000000000000000000000000000000000000000000000000000001")
-           (cons "sender" "0x0000000000000000000000000000000000000001"))))
-  (signals error
-    (validate-transaction-fixture-vector-shape
-     (list (cons "name" "empty-txbytes")
-           (cons "txbytes" "0x")
-           (cons "hash"
-                 "0x0000000000000000000000000000000000000000000000000000000000000001")
-           (cons "sender" "0x0000000000000000000000000000000000000001"))))
-  (signals error
-    (validate-transaction-fixture-vector-shape
-     (list (cons "name" "bad-hash")
-           (cons "txbytes" "0x01")
-           (cons "hash" "0x01")
-           (cons "sender" "0x0000000000000000000000000000000000000001"))))
-  (signals error
-    (validate-transaction-fixture-vector-shape
-     (list (cons "name" "bad-sender")
+     (list (cons "name" "missing-result")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
            (cons "txbytes" "0x01")
            (cons "hash"
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
-           (cons "sender" "0x01"))))
+           (cons "sender" "0x0000000000000000000000000000000000000001"))))
   (signals error
     (validate-transaction-fixture-vector-shape
-     (list (cons "name" "unknown-vector-field")
+     (list (cons "name" "bad-type")
+           (cons "type" "unknown")
+           (cons "chainId" 1)
            (cons "txbytes" "0x01")
            (cons "hash"
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
            (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "result" nil))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "bad-chain-id")
+           (cons "type" "legacy")
+           (cons "chainId" -1)
+           (cons "txbytes" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "result" nil))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "both-raw-and-txbytes")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
+           (cons "txbytes" "0x01")
+           (cons "raw" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "result" nil))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "raw-only")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
+           (cons "raw" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "result" nil))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "empty-txbytes")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
+           (cons "txbytes" "0x")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "result" nil))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "bad-hash")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
+           (cons "txbytes" "0x01")
+           (cons "hash" "0x01")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "result" nil))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "bad-sender")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
+           (cons "txbytes" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x01")
+           (cons "result" nil))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "unknown-vector-field")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
+           (cons "txbytes" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "result" nil)
            (cons "unexpectedVectorField" t)))))
 
 (deftest transaction-fixture-decoded-envelope-validation

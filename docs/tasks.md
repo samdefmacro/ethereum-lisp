@@ -270,6 +270,11 @@ ones.
     reference-client, or vector fields now fail before decoding, preventing
     misspelled imported EEST transaction assertions from being silently
     ignored.
+  - Progress: moved transaction vector required-field checks into the vector
+    shape phase. Vectors now reject missing `name`, `type`, `chainId`,
+    `txbytes`, `hash`, `sender`, or `result`, unknown transaction types,
+    negative/non-integer chain ids, and malformed result objects before
+    uniqueness, decoding, or fork-result validation runs.
 
 ## P0: Module Boundaries
 
