@@ -24,6 +24,16 @@
       ((typep root 'ethereum-lisp.trie::branch-node) "branch")
       (t "unknown"))))
 
+(defun trie-fixture-extension-child-reference-kind (trie)
+  (let ((root (mpt-root-node trie)))
+    (when (typep root 'ethereum-lisp.trie::extension-node)
+      (let* ((child (ethereum-lisp.trie::extension-node-child root))
+             (reference (ethereum-lisp.trie::node-reference child)))
+        (cond
+          ((typep reference 'ethereum-lisp.rlp::rlp-list) "embedded")
+          ((and (vectorp reference) (= 32 (length reference))) "hashed")
+          (t "unknown"))))))
+
 (defun apply-trie-fixture-operation (trie operation)
   (let ((op (trie-fixture-object-field operation "op"))
         (key (ascii-to-bytes (trie-fixture-object-field operation "keyAscii"))))
@@ -81,4 +91,11 @@
         (is (string= (trie-fixture-object-field case "expectedRoot")
                      (mpt-root-hex trie)))
         (is (string= (trie-fixture-object-field case "expectedShape")
-                     (trie-fixture-root-shape trie)))))))
+                     (trie-fixture-root-shape trie)))
+        (let ((reference-kind
+                (trie-fixture-object-field case
+                                           "expectedChildReference")))
+          (when reference-kind
+            (is (string= reference-kind
+                         (trie-fixture-extension-child-reference-kind
+                          trie)))))))))

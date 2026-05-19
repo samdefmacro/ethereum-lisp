@@ -67,9 +67,7 @@ ones.
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
 - `STATE-ATOMIC-COMMIT`
-- `SENDER-RECOVERY-ENFORCEMENT`
 - `RECEIPT-DERIVATION-INVARIANTS`
-- `ENGINE-EXECUTE-NEWPAYLOAD`
 
 ## P0: Phase A Discipline
 
@@ -510,9 +508,12 @@ splits can land after the Phase A smoke path closes.
     whose `storage-root` reflects the current storage trie. Added an in-repo
     Phase A Shanghai genesis fixture with a locked `stateRoot`, funded account,
     code account, nonzero and zero storage entries, genesis header/block root
-    checks, and contract storage-root checks. Remaining work: replace/extend
-    the in-repo vectors with pinned execution-spec-tests trie fixtures and
-    broaden secure/account trie root coverage against external references.
+    checks, and contract storage-root checks. Added trie fixture coverage for
+    the RLP child-reference threshold: compact extension children remain
+    embedded, while larger children are referenced by their 32-byte Keccak hash.
+    Remaining work: replace/extend the in-repo vectors with pinned
+    execution-spec-tests trie fixtures and broaden secure/account trie root
+    coverage against external references.
 
 - [ ] `STATE-PROOFS`: Add account/storage proof generation and verification.
   - Milestone: 3 / 7
