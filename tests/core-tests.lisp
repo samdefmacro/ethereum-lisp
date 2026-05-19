@@ -3969,6 +3969,129 @@
           (is (string= (hash32-to-hex (block-hash child-block))
                        (field receipt "blockHash"))))))))
 
+(deftest engine-rpc-new-payload-v2-access-list-typed-receipt
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (receipt-request (id hash)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getTransactionReceipt")
+                   (cons "params" (list (hash32-to-hex hash))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :berlin-block 0
+                                      :london-block 0
+                                      :shanghai-time 0))
+           (sender
+             (address-from-hex "0x27cf7d8449c9da59189427619ba59f985cee9c0f"))
+           (recipient
+             (address-from-hex "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b"))
+           (fee-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000001"))
+           (withdrawal-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (transaction
+             (make-access-list-transaction
+              :chain-id 1
+              :nonce 3
+              :gas-price 1
+              :gas-limit 25000
+              :to recipient
+              :value 10
+              :data (hex-to-bytes "0x5544")
+              :y-parity 1
+              :r #xc9519f4f2b30335884581971573fadf60c6204f59a911df35ee8a540456b2660
+              :s #x32f1e8e2c5dd761f9e4f88f41c8310aeaba26a8bfcdacfedfa12ec3862d37521))
+           (withdrawal
+             (make-withdrawal :index 0
+                              :validator-index 1
+                              :address withdrawal-recipient
+                              :amount 1))
+           (parent-state (make-state-db)))
+      (state-db-set-account parent-state sender
+                            (make-state-account
+                             :nonce 3
+                             :balance 1000000000))
+      (let* ((parent-header
+               (make-block-header
+                :parent-hash (zero-hash32)
+                :beneficiary fee-recipient
+                :state-root (state-db-root parent-state)
+                :mix-hash (zero-hash32)
+                :number 41
+                :gas-limit 100000
+                :gas-used 50000
+                :timestamp 98
+                :base-fee-per-gas 1
+                :withdrawals-root (withdrawal-list-root '())))
+             (parent-block (make-block :header parent-header))
+             (execution-state (state-db-copy parent-state))
+             (child-block
+               (execute-signed-block
+                execution-state
+                (list transaction)
+                :expected-chain-id 1
+                :header (make-block-header
+                         :parent-hash (block-hash parent-block)
+                         :beneficiary fee-recipient
+                         :mix-hash (zero-hash32)
+                         :number 42
+                         :gas-limit 100000
+                         :gas-used 0
+                         :timestamp 99
+                         :base-fee-per-gas 1)
+                :chain-config config
+                :withdrawals (list withdrawal)))
+             (payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data child-block)))
+             (request
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 33)
+                     (cons "method" "engine_newPayloadV2")
+                     (cons "params"
+                           (list (engine-rpc-executable-data-object
+                                  payload))))))
+        (engine-payload-store-put-block
+         store parent-block :state-available-p t)
+        (commit-state-db-to-chain-store
+         store (block-hash parent-block) parent-state)
+        (let* ((import-response
+                 (engine-rpc-handle-request
+                  request store config
+                  :import-function #'execute-and-commit-engine-payload))
+               (import-result (field import-response "result"))
+               (receipts
+                 (chain-store-block-receipts store (block-hash child-block)))
+               (receipt-response
+                 (engine-rpc-handle-request
+                  (receipt-request 34 (transaction-hash transaction))
+                  store config))
+               (receipt (field receipt-response "result")))
+          (is (string= +payload-status-valid+
+                       (field import-result "status")))
+          (is (= 1 (length receipts)))
+          (is (string= (hash32-to-hex
+                        (transaction-receipt-list-root
+                         (list transaction)
+                         receipts))
+                       (hash32-to-hex
+                        (block-header-receipts-root
+                         (block-header child-block)))))
+          (is (not
+               (string= (hash32-to-hex (receipt-list-root receipts))
+                        (hash32-to-hex
+                         (block-header-receipts-root
+                          (block-header child-block))))))
+          (is (string= (quantity-to-hex 1) (field receipt "type")))
+          (is (string= (quantity-to-hex 1) (field receipt "status")))
+          (is (string= (quantity-to-hex 1)
+                       (field receipt "effectiveGasPrice")))
+          (is (string= (hash32-to-hex (transaction-hash transaction))
+                       (field receipt "transactionHash")))
+          (is (string= (hash32-to-hex (block-hash child-block))
+                       (field receipt "blockHash"))))))))
+
 (deftest engine-rpc-forkchoice-switches-executed-payload-visibility
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

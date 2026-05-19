@@ -632,6 +632,14 @@ splits can land after the Phase A smoke path closes.
     differing from the legacy-only `receipt-list-root`. Remaining work:
     external-style typed receipt vectors for legacy, EIP-2930, and EIP-4844,
     CREATE2 coverage where applicable, and explicit pre-Byzantium exclusion.
+  - Progress: added the matching Engine-imported EIP-2930 typed receipt
+    smoke. A real signed access-list transaction now imports with Berlin and
+    London active; the test verifies RPC receipt `type` is `0x1`, effective
+    gas price reflects the legacy gas price/base-fee path, and the imported
+    receipts root uses typed transaction receipt encoding rather than the
+    legacy-only receipt list root. Remaining work: external-style typed
+    receipt vectors for legacy and EIP-4844, CREATE2 coverage where
+    applicable, and explicit pre-Byzantium exclusion.
 
 ## P0: EVM Correctness Gaps
 
