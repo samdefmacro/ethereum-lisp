@@ -654,6 +654,14 @@ splits can land after the Phase A smoke path closes.
     rejection and the same receipt shape passing once Byzantium is active.
     Remaining work: external-style typed receipt vectors, EIP-4844
     import-path coverage, and CREATE2 coverage where applicable.
+  - Progress: added the Engine-imported EIP-4844 blob typed receipt smoke. A
+    real signed blob transaction now imports through `engine_newPayloadV3`
+    with versioned hashes and Cancun header fields; the test verifies RPC
+    receipt `type` is `0x3`, effective gas price follows the block base fee,
+    and the imported block's receipts root uses typed transaction receipt
+    encoding rather than the legacy-only receipt list root. Remaining work:
+    external-style typed receipt vectors and CREATE2 coverage where
+    applicable.
 
 ## P0: EVM Correctness Gaps
 
