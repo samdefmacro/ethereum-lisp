@@ -446,6 +446,12 @@ splits can land after the Phase A smoke path closes.
     lookups and `latest` balance follows the selected sibling. Remaining work:
     extend this fixture into a multi-height reorg and block-receipt/log
     visibility check.
+  - Progress: extended the executed Engine import fixture into a multi-height
+    reorg. The transaction branch now imports an additional executed child at
+    block 43; forkchoice can advance `latest`/`eth_blockNumber` to that child,
+    then switch back to the competing block-42 sibling and clear the stale
+    canonical block-43 index. Remaining work: add a log-producing Engine
+    fixture so `eth_getLogs` visibility is covered across the same reorg path.
 
 ## P0: State, Trie, And Proof Correctness
 

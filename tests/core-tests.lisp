@@ -3592,6 +3592,11 @@
                    (cons "id" id)
                    (cons "method" "eth_getBlockReceipts")
                    (cons "params" (list "latest"))))
+           (block-number-request (id)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_blockNumber")
+                   (cons "params" '())))
            (transaction-count-request (id address)
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
@@ -3676,6 +3681,23 @@
                          :base-fee-per-gas 100)
                 :chain-config config
                 :withdrawals (list withdrawal)))
+             (branch-a-child-state (state-db-copy branch-a-state))
+             (branch-a-child-block
+               (execute-signed-block
+                branch-a-child-state
+                '()
+                :expected-chain-id 1
+                :header (make-block-header
+                         :parent-hash (block-hash branch-a-block)
+                         :beneficiary fee-recipient
+                         :mix-hash (zero-hash32)
+                         :number 43
+                         :gas-limit 50000
+                         :gas-used 0
+                         :timestamp 101
+                         :base-fee-per-gas 98)
+                :chain-config config
+                :withdrawals (list withdrawal)))
              (branch-b-state (state-db-copy parent-state))
              (branch-b-block
                (execute-signed-block
@@ -3697,6 +3719,9 @@
              (branch-a-payload
                (execution-payload-envelope-execution-payload
                 (block-to-executable-data branch-a-block)))
+             (branch-a-child-payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data branch-a-child-block)))
              (branch-b-payload
                (execution-payload-envelope-execution-payload
                 (block-to-executable-data branch-b-block)))
@@ -3706,7 +3731,8 @@
         (commit-state-db-to-chain-store
          store (block-hash parent-block) parent-state)
         (dolist (request (list (payload-request 37 branch-a-payload)
-                               (payload-request 38 branch-b-payload)))
+                               (payload-request 38 branch-a-child-payload)
+                               (payload-request 39 branch-b-payload)))
           (let* ((response
                    (engine-rpc-handle-request
                     request store config
@@ -3715,7 +3741,7 @@
                    (field (field response "result") "status")))
             (is (string= +payload-status-valid+ status))))
         (engine-rpc-handle-request
-         (forkchoice-request 39 (block-hash branch-a-block))
+         (forkchoice-request 40 (block-hash branch-a-block))
          store config)
         (is (string= (hash32-to-hex (block-hash branch-a-block))
                      (hash32-to-hex (chain-store-canonical-hash store 42))))
@@ -3754,40 +3780,58 @@
                              store config)
                             "result")))
         (engine-rpc-handle-request
-         (forkchoice-request 47 (block-hash branch-b-block))
+         (forkchoice-request 47 (block-hash branch-a-child-block))
+         store config)
+        (is (string= (hash32-to-hex (block-hash branch-a-child-block))
+                     (hash32-to-hex (chain-store-canonical-hash store 43))))
+        (is (= 43 (chain-store-block-tag-number store "latest")))
+        (is (string= (quantity-to-hex 43)
+                     (field (engine-rpc-handle-request
+                             (block-number-request 48)
+                             store config)
+                            "result")))
+        (engine-rpc-handle-request
+         (forkchoice-request 49 (block-hash branch-b-block))
          store config)
         (is (string= (hash32-to-hex (block-hash branch-b-block))
                      (hash32-to-hex (chain-store-canonical-hash store 42))))
+        (is (not (chain-store-canonical-hash store 43)))
+        (is (= 42 (chain-store-block-tag-number store "latest")))
+        (is (string= (quantity-to-hex 42)
+                     (field (engine-rpc-handle-request
+                             (block-number-request 50)
+                             store config)
+                            "result")))
         (is (not (field (engine-rpc-handle-request
-                         (transaction-request 48 transaction-hash)
+                         (transaction-request 51 transaction-hash)
                          store config)
                         "result")))
         (is (not (field (engine-rpc-handle-request
-                         (receipt-request 49 transaction-hash)
+                         (receipt-request 52 transaction-hash)
                          store config)
                         "result")))
         (is (not (field (engine-rpc-handle-request
-                         (block-receipts-request 50)
+                         (block-receipts-request 53)
                          store config)
                         "result")))
         (is (string= (quantity-to-hex 0)
                      (field (engine-rpc-handle-request
-                             (balance-request 51 recipient)
+                             (balance-request 54 recipient)
                              store config)
                             "result")))
         (is (string= (quantity-to-hex 9)
                      (field (engine-rpc-handle-request
-                             (transaction-count-request 52 sender)
+                             (transaction-count-request 55 sender)
                              store config)
                             "result")))
         (is (string= "0x010203"
                      (field (engine-rpc-handle-request
-                             (code-request 53 contract)
+                             (code-request 56 contract)
                              store config)
                             "result")))
         (is (string= "0x000000000000000000000000000000000000000000000000000000000000002a"
                      (field (engine-rpc-handle-request
-                             (storage-request 54 contract)
+                             (storage-request 57 contract)
                              store config)
                             "result")))))))
 
