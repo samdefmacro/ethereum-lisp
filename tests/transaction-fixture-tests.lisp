@@ -3,6 +3,9 @@
 (defparameter +transaction-envelope-fixture-path+
   "tests/fixtures/execution-spec-tests/transaction-envelopes.json")
 
+(defparameter +transaction-fixture-forks+
+  '("Frontier" "Berlin" "London" "Cancun" "Prague"))
+
 (defun transaction-fixture-type-keyword (type)
   (cond
     ((string= type "legacy") :legacy)
@@ -48,6 +51,16 @@
   (let ((result (fixture-object-field vector "result")))
     (unless (listp result)
       (error "Transaction fixture result must be a JSON object"))
+    (dolist (fork +transaction-fixture-forks+)
+      (unless (assoc fork result :test #'string=)
+        (error "Transaction fixture ~A is missing result for fork ~A"
+               (fixture-object-field vector "name")
+               fork)))
+    (dolist (check result)
+      (unless (member (car check) +transaction-fixture-forks+ :test #'string=)
+        (error "Transaction fixture ~A has unknown result fork ~A"
+               (fixture-object-field vector "name")
+               (car check))))
     result))
 
 (defun transaction-fixture-result-valid-p (result)

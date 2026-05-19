@@ -209,6 +209,12 @@ ones.
     fail for the expected reason, not merely with any error. Remaining work:
     replace the in-repo seed vectors with vectors drawn from the pinned
     `execution-spec-tests` release.
+  - Progress: tightened transaction fixture coverage accounting. The runner
+    now requires every vector's `result` object to include all currently
+    checked fork labels and rejects unknown fork labels, preventing partial
+    per-fork fixtures from silently reducing coverage. Remaining work:
+    replace the in-repo seed vectors with vectors drawn from the pinned
+    `execution-spec-tests` release.
 
 ## P0: Module Boundaries
 
