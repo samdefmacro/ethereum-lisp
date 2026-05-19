@@ -596,6 +596,11 @@ splits can land after the Phase A smoke path closes.
     Added fixture-driven trie lookup assertions so shared-prefix, deletion,
     and mixed child-reference cases verify `mpt-get` results in addition to
     root hash and node-shape commitments.
+    Added operation-derived final lookup assertions to the trie fixture
+    runner. Every fixture case now replays its `put`/`delete` operations into
+    an expected final key set and checks `mpt-get` for all touched keys,
+    matching geth's update/delete/get semantics and preventing root-only
+    vectors from hiding lookup regressions.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

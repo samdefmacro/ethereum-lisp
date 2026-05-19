@@ -82,6 +82,31 @@
       (apply-trie-fixture-operation trie operation))
     trie))
 
+(defun trie-fixture-final-operation-state (case)
+  (let ((entries '()))
+    (dolist (operation (fixture-object-field case "operations"))
+      (let ((key (trie-fixture-key operation))
+            (op (fixture-object-field operation "op")))
+        (setf entries (remove key entries :key #'car :test #'bytes=))
+        (cond
+          ((string= op "put")
+           (push (cons key
+                       (ascii-to-bytes
+                        (fixture-object-field operation "valueAscii")))
+                 entries))
+          ((string= op "delete")
+           (push (cons key nil) entries))
+          (t (error "Unknown trie fixture operation: ~A" op)))))
+    (nreverse entries)))
+
+(defun assert-trie-fixture-final-operation-lookups (trie case)
+  (dolist (entry (trie-fixture-final-operation-state case))
+    (let ((key (car entry))
+          (value (cdr entry)))
+      (if value
+          (is (bytes= value (mpt-get trie key)))
+          (is (null (mpt-get trie key)))))))
+
 (defun assert-trie-fixture-lookups (trie case)
   (dolist (expected (fixture-object-field case "expectedGets"))
     (is (bytes= (ascii-to-bytes (fixture-object-field expected "valueAscii"))
@@ -161,4 +186,5 @@
           (when branch-value
             (is (string= branch-value
                          (trie-fixture-root-value trie)))))
+        (assert-trie-fixture-final-operation-lookups trie case)
         (assert-trie-fixture-lookups trie case)))))
