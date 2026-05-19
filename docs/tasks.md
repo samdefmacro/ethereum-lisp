@@ -243,6 +243,11 @@ splits can land after the Phase A smoke path closes.
     `chain-rules`, blob schedule entry structures, and fork activation
     predicates into `src/chain-config.lisp`. Genesis config parsing and blob
     schedule validation remain in `core.lisp` for a follow-up slice.
+  - Progress: hardened the module-load validation path by making the
+    EIP-7702 delegation prefix, Engine API payload status strings, and default
+    Engine RPC host reload-safe under SBCL/ASDF. The main script test remains
+    the primary validation, and ASDF load is now an additional module-boundary
+    smoke check.
 
 - [ ] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
   `src/core.lisp`.

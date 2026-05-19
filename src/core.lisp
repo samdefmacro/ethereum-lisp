@@ -1613,7 +1613,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        r
        s))))
 
-(defconstant +set-code-delegation-prefix+ #(#xef #x01 #x00))
+(defparameter +set-code-delegation-prefix+ #(#xef #x01 #x00))
 
 (defun set-code-delegation-code (address)
   (concat-bytes +set-code-delegation-prefix+ (address-bytes address)))
@@ -2271,10 +2271,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   requests
   override-p)
 
-(defconstant +payload-status-valid+ "VALID")
-(defconstant +payload-status-invalid+ "INVALID")
-(defconstant +payload-status-syncing+ "SYNCING")
-(defconstant +payload-status-accepted+ "ACCEPTED")
+(defparameter +payload-status-valid+ "VALID")
+(defparameter +payload-status-invalid+ "INVALID")
+(defparameter +payload-status-syncing+ "SYNCING")
+(defparameter +payload-status-accepted+ "ACCEPTED")
 (defconstant +eth-protocol-version+ 70)
 
 (defstruct (payload-status
@@ -6877,7 +6877,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defparameter +engine-rpc-http-accepted-content-types+
   '("application/json" "application/json-rpc" "application/jsonrequest"))
 
-(defconstant +engine-rpc-default-http-host+ "localhost")
+(defparameter +engine-rpc-default-http-host+ "localhost")
 (defconstant +engine-rpc-default-http-port+ 8551)
 
 (defconstant +engine-rpc-jwt-expiry-seconds+ 60)
