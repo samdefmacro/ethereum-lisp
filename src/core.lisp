@@ -2949,6 +2949,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        :parent-beacon-root parent-beacon-root
        :versioned-hashes versioned-hashes)))
 
+(defstruct (chain-store-checkpoint
+            (:constructor make-chain-store-checkpoint
+                (&key label block-hash)))
+  label
+  block-hash)
+
 (defstruct (engine-payload-memory-store
             (:constructor make-engine-payload-memory-store
                 (&key (blocks (make-hash-table :test 'equal))
@@ -2968,9 +2974,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (pending-transactions (make-hash-table :test 'equal))
                       (log-filters (make-hash-table :test 'eql))
                       (next-log-filter-id 1)
-                      head-block-hash
-                      safe-block-hash
-                      finalized-block-hash)))
+                      (head-checkpoint
+                       (make-chain-store-checkpoint :label :head))
+                      (safe-checkpoint
+                       (make-chain-store-checkpoint :label :safe))
+                      (finalized-checkpoint
+                       (make-chain-store-checkpoint :label :finalized)))))
   blocks
   number-blocks
   canonical-hashes
@@ -2988,9 +2997,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   pending-transactions
   log-filters
   (next-log-filter-id 1 :type (integer 1 *))
-  head-block-hash
-  safe-block-hash
-  finalized-block-hash)
+  head-checkpoint
+  safe-checkpoint
+  finalized-checkpoint)
 
 (defstruct (engine-transaction-location
             (:constructor make-engine-transaction-location
@@ -3084,8 +3093,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-blocks store)))
 
-(defun engine-payload-store-checkpoint-number (store hash)
-  (let ((block (and hash (engine-payload-store-known-block store hash))))
+(defun engine-payload-store-checkpoint-number (store checkpoint)
+  (let* ((hash (and checkpoint
+                    (chain-store-checkpoint-block-hash checkpoint)))
+         (block (and hash (engine-payload-store-known-block store hash))))
     (if block
         (block-header-number (block-header block))
         (engine-payload-memory-store-head-number store))))
@@ -3093,7 +3104,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-head-number (store)
   (engine-payload-store-checkpoint-number
    store
-   (engine-payload-memory-store-head-block-hash store)))
+   (engine-payload-memory-store-head-checkpoint store)))
 
 (defun engine-payload-store-block-tag-number (store tag)
   (cond
@@ -3102,26 +3113,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     ((string= tag "safe")
      (engine-payload-store-checkpoint-number
       store
-      (engine-payload-memory-store-safe-block-hash store)))
+      (engine-payload-memory-store-safe-checkpoint store)))
     ((string= tag "finalized")
      (engine-payload-store-checkpoint-number
       store
-      (engine-payload-memory-store-finalized-block-hash store)))))
+      (engine-payload-memory-store-finalized-checkpoint store)))))
 
 (defun engine-payload-store-forkchoice-checkpoint-hash (hash)
   (unless (hash32= hash (zero-hash32))
     hash))
 
 (defun engine-payload-store-update-forkchoice-checkpoints (store state)
-  (setf (engine-payload-memory-store-head-block-hash store)
-        (engine-payload-store-forkchoice-checkpoint-hash
-         (forkchoice-state-head-block-hash state))
-        (engine-payload-memory-store-safe-block-hash store)
-        (engine-payload-store-forkchoice-checkpoint-hash
-         (forkchoice-state-safe-block-hash state))
-        (engine-payload-memory-store-finalized-block-hash store)
-        (engine-payload-store-forkchoice-checkpoint-hash
-         (forkchoice-state-finalized-block-hash state)))
+  (setf (engine-payload-memory-store-head-checkpoint store)
+        (make-chain-store-checkpoint
+         :label :head
+         :block-hash
+         (engine-payload-store-forkchoice-checkpoint-hash
+          (forkchoice-state-head-block-hash state)))
+        (engine-payload-memory-store-safe-checkpoint store)
+        (make-chain-store-checkpoint
+         :label :safe
+         :block-hash
+         (engine-payload-store-forkchoice-checkpoint-hash
+          (forkchoice-state-safe-block-hash state)))
+        (engine-payload-memory-store-finalized-checkpoint store)
+        (make-chain-store-checkpoint
+         :label :finalized
+         :block-hash
+         (engine-payload-store-forkchoice-checkpoint-hash
+          (forkchoice-state-finalized-block-hash state))))
   store)
 
 (defun engine-payload-store-block-by-number (store number)
@@ -3208,24 +3228,38 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (chain-store-require-memory-store store)
    state))
 
-(defun chain-store-checkpoint-block (store hash)
-  (when hash
-    (chain-store-known-block store hash)))
+(defun chain-store-head-checkpoint (store)
+  (engine-payload-memory-store-head-checkpoint
+   (chain-store-require-memory-store store)))
+
+(defun chain-store-safe-checkpoint (store)
+  (engine-payload-memory-store-safe-checkpoint
+   (chain-store-require-memory-store store)))
+
+(defun chain-store-finalized-checkpoint (store)
+  (engine-payload-memory-store-finalized-checkpoint
+   (chain-store-require-memory-store store)))
+
+(defun chain-store-checkpoint-block (store checkpoint)
+  (let ((hash (and checkpoint
+                   (chain-store-checkpoint-block-hash checkpoint))))
+    (when hash
+      (chain-store-known-block store hash))))
 
 (defun chain-store-head-block (store)
   (chain-store-checkpoint-block
-   (chain-store-require-memory-store store)
-   (engine-payload-memory-store-head-block-hash store)))
+   store
+   (chain-store-head-checkpoint store)))
 
 (defun chain-store-safe-block (store)
   (chain-store-checkpoint-block
-   (chain-store-require-memory-store store)
-   (engine-payload-memory-store-safe-block-hash store)))
+   store
+   (chain-store-safe-checkpoint store)))
 
 (defun chain-store-finalized-block (store)
   (chain-store-checkpoint-block
-   (chain-store-require-memory-store store)
-   (engine-payload-memory-store-finalized-block-hash store)))
+   store
+   (chain-store-finalized-checkpoint store)))
 
 (defun chain-store-put-prepared-payload (store prepared-payload)
   (engine-payload-store-put-prepared-payload

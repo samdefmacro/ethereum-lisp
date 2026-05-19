@@ -66,13 +66,13 @@ ones.
 
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
-- `STORE-CHAIN-INTERFACE`
+- `STORE-CHECKPOINTS`
+- `STORE-CANONICAL-REORG`
+- `STORE-REORG-INVARIANTS`
 - `STATE-ATOMIC-COMMIT`
 - `SENDER-RECOVERY-ENFORCEMENT`
 - `RECEIPT-DERIVATION-INVARIANTS`
 - `ENGINE-EXECUTE-NEWPAYLOAD`
-- `STORE-CANONICAL-INDEXES`
-- `STORE-REORG-INVARIANTS`
 
 ## P0: Phase A Discipline
 
@@ -282,12 +282,17 @@ splits can land after the Phase A smoke path closes.
   - Validation: add competing same-number block coverage and run
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] `STORE-CHECKPOINTS`: Represent canonical head, safe head, and finalized
+- [x] `STORE-CHECKPOINTS`: Represent canonical head, safe head, and finalized
   head as typed store checkpoints.
   - Milestone: 6 / 7
   - Dependencies: `STORE-CHAIN-INTERFACE`.
   - Acceptance: forkchoice checkpoint data is not just loose hash slots on the
     memory store; block tag resolution uses the checkpoint abstraction.
+  - Progress:
+    - Added a `chain-store-checkpoint` structure for `head`, `safe`, and
+      `finalized`, replaced the memory store's loose checkpoint hash slots with
+      typed checkpoint slots, and routed block tag / checkpoint block
+      resolution through the checkpoint abstraction.
   - Validation: existing forkchoice/block tag tests plus
     `sbcl --script tests/run-tests.lisp`.
 

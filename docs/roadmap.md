@@ -72,7 +72,8 @@ fixes in those areas are allowed; expansion is not.
   first-pass EVM/block-execution coverage, in-memory Engine payload storage,
   forkchoice checkpoints, public read RPCs, polling filters, local pending
   transaction placeholders, and the first chain-store boundary over the memory
-  store with explicit canonical number-to-hash indexes.
+  store with explicit canonical number-to-hash indexes and typed head/safe/
+  finalized checkpoints.
 - **Partial:** trie/state compatibility, EVM fixture coverage, Engine payload
   import, canonical chain state, retained state snapshots, txpool admission, and
   concrete HTTP/socket serving.

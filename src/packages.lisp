@@ -520,6 +520,10 @@
    #:executable-data-to-block
    #:engine-new-payload-params-status
    #:engine-new-payload-version-status
+   #:chain-store-checkpoint
+   #:make-chain-store-checkpoint
+   #:chain-store-checkpoint-label
+   #:chain-store-checkpoint-block-hash
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store
    #:engine-transaction-location
@@ -564,6 +568,9 @@
    #:chain-store-put-account-storage
    #:chain-store-account-storage
    #:chain-store-update-forkchoice-checkpoints
+   #:chain-store-head-checkpoint
+   #:chain-store-safe-checkpoint
+   #:chain-store-finalized-checkpoint
    #:chain-store-head-block
    #:chain-store-safe-block
    #:chain-store-finalized-block
@@ -1341,6 +1348,10 @@
    #:executable-data-to-block
    #:engine-new-payload-params-status
    #:engine-new-payload-version-status
+   #:chain-store-checkpoint
+   #:make-chain-store-checkpoint
+   #:chain-store-checkpoint-label
+   #:chain-store-checkpoint-block-hash
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store
    #:engine-transaction-location
@@ -1385,6 +1396,9 @@
    #:chain-store-put-account-storage
    #:chain-store-account-storage
    #:chain-store-update-forkchoice-checkpoints
+   #:chain-store-head-checkpoint
+   #:chain-store-safe-checkpoint
+   #:chain-store-finalized-checkpoint
    #:chain-store-head-block
    #:chain-store-safe-block
    #:chain-store-finalized-block
@@ -2123,6 +2137,10 @@
    #:executable-data-to-block
    #:engine-new-payload-params-status
    #:engine-new-payload-version-status
+   #:chain-store-checkpoint
+   #:make-chain-store-checkpoint
+   #:chain-store-checkpoint-label
+   #:chain-store-checkpoint-block-hash
    #:engine-payload-memory-store
    #:make-engine-payload-memory-store
    #:engine-transaction-location
@@ -2167,6 +2185,9 @@
    #:chain-store-put-account-storage
    #:chain-store-account-storage
    #:chain-store-update-forkchoice-checkpoints
+   #:chain-store-head-checkpoint
+   #:chain-store-safe-checkpoint
+   #:chain-store-finalized-checkpoint
    #:chain-store-head-block
    #:chain-store-safe-block
    #:chain-store-finalized-block

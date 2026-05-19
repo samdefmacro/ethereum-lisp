@@ -2650,6 +2650,25 @@
     (is (eq store
             (chain-store-update-forkchoice-checkpoints
              store forkchoice-state)))
+    (is (typep (chain-store-head-checkpoint store)
+               'chain-store-checkpoint))
+    (is (eq :head
+            (chain-store-checkpoint-label
+             (chain-store-head-checkpoint store))))
+    (is (string= (hash32-to-hex block-hash)
+                 (hash32-to-hex
+                  (chain-store-checkpoint-block-hash
+                   (chain-store-head-checkpoint store)))))
+    (is (typep (chain-store-safe-checkpoint store)
+               'chain-store-checkpoint))
+    (is (eq :safe
+            (chain-store-checkpoint-label
+             (chain-store-safe-checkpoint store))))
+    (is (typep (chain-store-finalized-checkpoint store)
+               'chain-store-checkpoint))
+    (is (eq :finalized
+            (chain-store-checkpoint-label
+             (chain-store-finalized-checkpoint store))))
     (is (eq block (chain-store-head-block store)))
     (is (eq block (chain-store-safe-block store)))
     (is (eq block (chain-store-finalized-block store)))
