@@ -1,0 +1,80 @@
+{
+  "format": "ethereum-lisp/state-root-fixture-v1",
+  "cases": [
+    {
+      "name": "empty-state-root",
+      "operations": [],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    {
+      "name": "single-account-nonce-balance-root",
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000101",
+          "nonce": 1,
+          "balance": 1000
+        }
+      ],
+      "expectedRoot": "0x347c439d44650f6280a9a4c057975292b7bdd604f2ad15d4815355708d8fd449"
+    },
+    {
+      "name": "single-account-storage-root",
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000102",
+          "balance": 5
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000102",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000007",
+          "value": 42
+        }
+      ],
+      "expectedRoot": "0x63b78ae8a07be48792d6ed74e86ea91d8b754ca4655facbfbf794837f0b1d352"
+    },
+    {
+      "name": "storage-created-account-prunes-to-empty-root",
+      "operations": [
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000103",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000008",
+          "value": 99
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000103",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000008",
+          "value": 0
+        }
+      ],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    {
+      "name": "storage-delete-keeps-funded-account-root",
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000104",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000104",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
+          "value": 99
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000104",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
+          "value": 0
+        }
+      ],
+      "expectedRoot": "0x6439f64edbc9131a808f8c5ae56c2d0b71d938b485f7c523570181f3a4d79e6b"
+    }
+  ]
+}

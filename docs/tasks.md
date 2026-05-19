@@ -368,9 +368,11 @@ splits can land after the Phase A smoke path closes.
     delete-to-empty-root cases, tests that compare expected root and root node
     shape, and state-root coverage ensuring zero-value storage writes do not
     create empty accounts while deletion prunes storage-created empty accounts.
-    Remaining work: replace/extend the in-repo vectors with pinned
-    execution-spec-tests trie fixtures and broaden secure/account/storage trie
-    root coverage for the Phase A smoke genesis.
+    Added in-repo state-root fixture vectors for empty state, account
+    nonce/balance, account storage, storage-created account pruning, and
+    funded-account storage deletion. Remaining work: replace/extend the
+    in-repo vectors with pinned execution-spec-tests trie fixtures and broaden
+    secure/account/storage trie root coverage for the Phase A smoke genesis.
 
 - [ ] `STATE-PROOFS`: Add account/storage proof generation and verification.
   - Milestone: 3 / 7
