@@ -117,6 +117,21 @@
     (:blob "TransactionException.TYPE_3_TX_PRE_FORK")
     (:set-code "TransactionException.TYPE_4_TX_PRE_FORK")))
 
+(defun validate-transaction-fixture-quantity-field
+    (vector fork result field)
+  (let ((value (fixture-object-field result field)))
+    (when (blank-string-p value)
+      (error "Transaction fixture ~A valid result for fork ~A needs ~A"
+             (fixture-object-field vector "name")
+             fork
+             field))
+    (unless (string= value
+                     (quantity-to-hex (hex-to-quantity value)))
+      (error "Transaction fixture ~A result for fork ~A has non-canonical ~A"
+             (fixture-object-field vector "name")
+             fork
+             field))))
+
 (defun validate-transaction-fixture-result-entry
     (vector type fork result)
   (unless (listp result)
@@ -126,10 +141,8 @@
   (let ((exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
     (if (blank-string-p exception)
-        (when (blank-string-p intrinsic-gas)
-          (error "Transaction fixture ~A valid result for fork ~A needs intrinsicGas"
-                 (fixture-object-field vector "name")
-                 fork))
+        (validate-transaction-fixture-quantity-field
+         vector fork result "intrinsicGas")
         (progn
           (unless (transaction-fixture-known-exception-p exception)
             (error "Transaction fixture ~A result for fork ~A has unknown exception ~A"
@@ -275,6 +288,12 @@
     (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" (list (cons "exception" ""))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector :dynamic-fee "London" (list (cons "intrinsicGas" "5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector :dynamic-fee "London" (list (cons "intrinsicGas" "0x05208"))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector
