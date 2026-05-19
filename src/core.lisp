@@ -5599,6 +5599,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (when transaction
     (bytes-to-hex (transaction-encoding transaction))))
 
+(defun eth-rpc-validate-set-code-authorization-signatures (transaction)
+  (when (typep transaction 'set-code-transaction)
+    (dolist (authorization (set-code-transaction-authorization-list transaction))
+      (unless (secp256k1-valid-signature-values-p
+               (set-code-authorization-y-parity authorization)
+               (set-code-authorization-r authorization)
+               (set-code-authorization-s authorization)
+               :low-s-p t)
+        (block-validation-fail
+         "Authorization signature values are invalid"))))
+  t)
+
 (defun eth-rpc-receipt-gas-used (receipt previous-receipt)
   (- (receipt-cumulative-gas-used receipt)
      (if previous-receipt
@@ -6002,6 +6014,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              "eth_sendRawTransaction transaction"))
          (transaction (transaction-from-encoding raw-bytes))
          (hash (transaction-hash transaction)))
+    (validate-set-code-transaction-fields transaction)
+    (eth-rpc-validate-set-code-authorization-signatures transaction)
     (unless (transaction-sender
              transaction
              :expected-chain-id (chain-config-chain-id config))

@@ -6858,6 +6858,82 @@
       (is (string= (quantity-to-hex 0) (field status "pending")))
       (is (search "\"result\":[]" filter-response)))))
 
+(deftest eth-rpc-send-raw-transaction-rejects-malformed-set-code-authorizations
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw (transaction id store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+               (bytes-to-hex (transaction-encoding transaction))
+               "\"]}")
+               store
+               config)))
+           (first-authorization (transaction)
+             (first (set-code-transaction-authorization-list transaction))))
+    (let* ((raw-transaction
+             "0x04f90126820539800285012a05f2008307a1209471562b71999873db5b286df957af199ec94617f78080c0f8baf85c82053994000000000000000000000000000000000000aaaa0101a07ed17af7d2d2b9ba7d797a202125bf505b9a0f962a67b3b61b56783d8faf7461a001b73b6e586edc706dce6c074eaec28692fa6359fb3446a2442f36777e1c0669f85a8094000000000000000000000000000000000000bbbb8001a05011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98a056c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf6101a0167b0ecfc343a497095c22ee4270d3cc3b971cc3599fc73bbff727e0d2ed432da01c003c72306807492bf1150e39b2f79da23b49a4e83eb6e9209ae30d3572368f")
+           (store (make-engine-payload-memory-store))
+           (bad-y-parity-transaction
+             (transaction-from-encoding (hex-to-bytes raw-transaction)))
+           (high-s-transaction
+             (transaction-from-encoding (hex-to-bytes raw-transaction)))
+           (config (make-chain-config :chain-id 1337))
+           (new-filter-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":106,\"method\":\"eth_newPendingTransactionFilter\"}"
+               store
+               config)))
+           (filter-id (field new-filter-response "result")))
+      (setf (set-code-authorization-y-parity
+             (first-authorization bad-y-parity-transaction))
+            2)
+      (setf (set-code-authorization-s
+             (first-authorization high-s-transaction))
+            #x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1)
+      (let* ((bad-y-parity-response
+               (send-raw bad-y-parity-transaction 107 store config))
+             (high-s-response
+               (send-raw high-s-transaction 108 store config))
+             (pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":109,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                 store
+                 config)))
+             (status-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":110,\"method\":\"txpool_status\",\"params\":[]}"
+                 store
+                 config)))
+             (filter-response
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":111,"
+                 "\"method\":\"eth_getFilterChanges\","
+                 "\"params\":[\"" filter-id "\"]}")
+                store
+                config))
+             (bad-y-parity-error (field bad-y-parity-response "error"))
+             (high-s-error (field high-s-response "error"))
+             (status (field status-response "result")))
+        (is (= -32602 (field bad-y-parity-error "code")))
+        (is (string= "Authorization signature values are invalid"
+                     (field bad-y-parity-error "message")))
+        (is (= -32602 (field high-s-error "code")))
+        (is (string= "Authorization signature values are invalid"
+                     (field high-s-error "message")))
+        (is (= 0 (length (field pending-response "result"))))
+        (is (string= (quantity-to-hex 0) (field status "pending")))
+        (is (search "\"result\":[]" filter-response))))))
+
 (deftest eth-rpc-get-transaction-receipt
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

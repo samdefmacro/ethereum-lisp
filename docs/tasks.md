@@ -499,8 +499,11 @@ splits can land after the Phase A smoke path closes.
     produce RPC errors instead of zero-address `from` fields. Added typed raw
     transaction admission coverage for malformed `yParity` and high-s
     signatures, asserting rejection preserves pending pool and filter state.
-    Remaining work: enforce EIP-7702 malformed admission cases and Engine
-    `newPayload` once execution is wired there.
+    Added `eth_sendRawTransaction` set-code authorization admission validation,
+    rejecting malformed EIP-7702 authorization `yParity` and high-s signatures
+    before pending insertion while preserving pending pool and filter state.
+    Remaining work: enforce sender recovery through Engine `newPayload` once
+    execution is wired there.
 
 - [ ] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.
