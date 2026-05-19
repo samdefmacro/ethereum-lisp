@@ -253,10 +253,14 @@ splits can land after the Phase A smoke path closes.
       known blocks, block-by-number, transaction locations, block receipts,
       state availability, forkchoice head/safe/finalized checkpoints, and
       prepared payloads.
+    - Migrated public RPC block/transaction/receipt/log read paths, Engine
+      payload-body lookups, forkchoice checkpoint checks, prepared payload
+      lookups, and new-payload parent/state availability checks onto the
+      chain-store boundary.
   - Remaining:
-    - Migrate Engine and public RPC call sites onto the chain-store boundary,
-      then keep account/state access behind the same store edge as later
-      persistence work lands.
+    - Keep account/state access behind the same store edge as later
+      persistence work lands, and decide whether pending txpool/filter cursors
+      stay in the in-memory store or move behind their own boundary.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
 - [ ] `STORE-CANONICAL-INDEXES`: Add explicit canonical hash indexes.
