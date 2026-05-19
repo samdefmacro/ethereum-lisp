@@ -56,6 +56,34 @@
     (is (= 0 (state-db-get-storage state address slot)))
     (is (= 1 (state-account-balance (state-db-get-account state address))))))
 
+(deftest state-empty-code-write-does-not-create-empty-account
+  (let* ((state (make-state-db))
+         (address (address-from-hex "0x0000000000000000000000000000000000000006"))
+         (empty-root (state-db-root-hex state)))
+    (state-db-set-code state address #())
+    (is (null (state-db-get-account state address)))
+    (is (string= "0x" (bytes-to-hex (state-db-get-code state address))))
+    (is (string= empty-root (state-db-root-hex state)))))
+
+(deftest state-code-delete-prunes-empty-code-created-account
+  (let* ((state (make-state-db))
+         (address (address-from-hex "0x0000000000000000000000000000000000000007"))
+         (empty-root (state-db-root-hex state)))
+    (state-db-set-code state address (hex-to-bytes "0x60016000"))
+    (is (state-db-get-account state address))
+    (state-db-set-code state address #())
+    (is (null (state-db-get-account state address)))
+    (is (string= empty-root (state-db-root-hex state)))))
+
+(deftest state-code-delete-keeps-non-empty-account
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000008")))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (state-db-set-code state address (hex-to-bytes "0x60016000"))
+    (state-db-set-code state address #())
+    (is (string= "0x" (bytes-to-hex (state-db-get-code state address))))
+    (is (= 1 (state-account-balance (state-db-get-account state address))))))
+
 (deftest state-db-from-genesis-json-applies-alloc
   (let* ((json (concatenate
                 'string

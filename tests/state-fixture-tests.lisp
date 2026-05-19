@@ -22,6 +22,10 @@
         state address
         (hash32-from-hex (fixture-object-field operation "slot"))
         (state-fixture-number operation "value")))
+      ((string= op "setCode")
+       (state-db-set-code
+        state address
+        (hex-to-bytes (fixture-object-field operation "code"))))
       (t
        (error "Unknown state root fixture operation: ~A" op))))
   state)

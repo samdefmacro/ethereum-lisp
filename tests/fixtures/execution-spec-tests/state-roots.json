@@ -75,6 +75,54 @@
         }
       ],
       "expectedRoot": "0x6439f64edbc9131a808f8c5ae56c2d0b71d938b485f7c523570181f3a4d79e6b"
+    },
+    {
+      "name": "single-code-account-root",
+      "operations": [
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000105",
+          "code": "0x60016000"
+        }
+      ],
+      "expectedRoot": "0xb8dcb19c3ff31a94b0c45b05daaa8a2775f8a22756f6142674f419026956e854"
+    },
+    {
+      "name": "code-created-account-prunes-to-empty-root",
+      "operations": [
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000105",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000105",
+          "code": "0x"
+        }
+      ],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    {
+      "name": "code-delete-keeps-funded-account-root",
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000106",
+          "balance": 1
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000106",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000106",
+          "code": "0x"
+        }
+      ],
+      "expectedRoot": "0x0806aaf085b38f009b4f642a66abf73bd831eeb255f5e5b223836a893cb2b433"
     }
   ]
 }
