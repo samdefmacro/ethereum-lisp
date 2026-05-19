@@ -1,0 +1,45 @@
+{
+  "format": "ethereum-lisp/trie-vectors-v1",
+  "source": "in-repo vectors shaped for ethereum/execution-spec-tests v5.4.0 trie fixture ingestion",
+  "cases": [
+    {
+      "name": "single-leaf",
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" }
+      ],
+      "expectedRoot": "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278",
+      "expectedShape": "leaf"
+    },
+    {
+      "name": "branch-extension-shared-prefix",
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "put", "keyAscii": "horse", "valueAscii": "stallion" }
+      ],
+      "expectedRoot": "0x5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84",
+      "expectedShape": "extension"
+    },
+    {
+      "name": "delete-collapses-path",
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "delete", "keyAscii": "doge" }
+      ],
+      "expectedRoot": "0x779db3986dd4f38416bfde49750ef7b13c6ecb3e2221620bcad9267e94604d36",
+      "expectedShape": "extension"
+    },
+    {
+      "name": "delete-last-entry-empty-root",
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "delete", "keyAscii": "dog" }
+      ],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "expectedShape": "empty"
+    }
+  ]
+}

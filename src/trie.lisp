@@ -17,6 +17,10 @@
         (setf (gethash (trie-key-id key) (mpt-entries trie)) value)))
   trie)
 
+(defun mpt-delete (trie key)
+  (remhash (trie-key-id key) (mpt-entries trie))
+  trie)
+
 (defun mpt-get (trie key)
   (gethash (trie-key-id key) (mpt-entries trie)))
 

@@ -347,7 +347,7 @@ splits can land after the Phase A smoke path closes.
 
 ## P0: State, Trie, And Proof Correctness
 
-- [ ] `TRIE-FIXTURE-GRADE`: Replace the minimal trie root prototype with
+- [~] `TRIE-FIXTURE-GRADE`: Replace the minimal trie root prototype with
   node-shape compatible MPT insertion/deletion coverage sufficient for the
   Phase A smoke path.
   - Milestone: 3
@@ -363,6 +363,12 @@ splits can land after the Phase A smoke path closes.
     behavior produce reference-matching roots.
   - Validation: trie-vector tests plus
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: added explicit `mpt-delete`, in-repo trie vector fixtures for
+    single-leaf, branch/extension shared-prefix, delete-collapse, and
+    delete-to-empty-root cases, and tests that compare expected root and root
+    node shape. Remaining work: replace/extend the in-repo vectors with pinned
+    execution-spec-tests trie fixtures and broaden secure/account/storage trie
+    root coverage for the Phase A smoke genesis.
 
 - [ ] `STATE-PROOFS`: Add account/storage proof generation and verification.
   - Milestone: 3 / 7

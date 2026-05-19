@@ -95,6 +95,7 @@
    #:mpt
    #:make-mpt
    #:mpt-put
+   #:mpt-delete
    #:mpt-get
    #:mpt-root-hash
    #:mpt-root-hex
@@ -890,6 +891,7 @@
    #:mpt
    #:make-mpt
    #:mpt-put
+   #:mpt-delete
    #:mpt-get
    #:mpt-root-hash
    #:mpt-root-hex
@@ -1638,6 +1640,7 @@
    #:mpt
    #:make-mpt
    #:mpt-put
+   #:mpt-delete
    #:mpt-get
    #:mpt-root-hash
    #:mpt-root-hex
