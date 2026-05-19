@@ -2560,12 +2560,17 @@
 (deftest chain-store-interface-wraps-memory-payload-store
   (let* ((store (make-engine-payload-memory-store))
          (payload-id #(1 2 3 4 5 6 7 8))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (storage-slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000002"))
          (transaction
            (make-legacy-transaction
             :nonce 1
             :gas-price 2
             :gas-limit 21000
-            :to (address-from-hex "0x0000000000000000000000000000000000000001")
+            :to address
             :value 3
             :v 27
             :r 4
@@ -2593,6 +2598,26 @@
     (is (eq block (chain-store-known-block store block-hash)))
     (is (eq block (chain-store-block-by-number store 43)))
     (is (chain-store-state-available-p store block-hash))
+    (is (= 99
+           (chain-store-put-account-balance
+            store block-hash address 99)))
+    (is (= 99
+           (chain-store-account-balance store block-hash address)))
+    (is (= 7
+           (chain-store-put-account-nonce store block-hash address 7)))
+    (is (= 7
+           (chain-store-account-nonce store block-hash address)))
+    (is (bytes= #(1 2 3)
+                (chain-store-put-account-code
+                 store block-hash address #(1 2 3))))
+    (is (bytes= #(1 2 3)
+                (chain-store-account-code store block-hash address)))
+    (is (= 5
+           (chain-store-put-account-storage
+            store block-hash address storage-slot 5)))
+    (is (= 5
+           (chain-store-account-storage
+            store block-hash address storage-slot)))
     (let ((location
             (chain-store-transaction-location store transaction-hash)))
       (is (typep location 'engine-transaction-location))

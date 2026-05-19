@@ -3390,6 +3390,64 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            (engine-payload-memory-store-account-storage store)
            0))
 
+(defun chain-store-put-account-balance
+    (store block-hash address balance)
+  (engine-payload-store-put-account-balance
+   (chain-store-require-memory-store store)
+   block-hash
+   address
+   balance))
+
+(defun chain-store-account-balance (store block-hash address)
+  (engine-payload-store-account-balance
+   (chain-store-require-memory-store store)
+   block-hash
+   address))
+
+(defun chain-store-put-account-nonce
+    (store block-hash address nonce)
+  (engine-payload-store-put-account-nonce
+   (chain-store-require-memory-store store)
+   block-hash
+   address
+   nonce))
+
+(defun chain-store-account-nonce (store block-hash address)
+  (engine-payload-store-account-nonce
+   (chain-store-require-memory-store store)
+   block-hash
+   address))
+
+(defun chain-store-put-account-code
+    (store block-hash address code)
+  (engine-payload-store-put-account-code
+   (chain-store-require-memory-store store)
+   block-hash
+   address
+   code))
+
+(defun chain-store-account-code (store block-hash address)
+  (engine-payload-store-account-code
+   (chain-store-require-memory-store store)
+   block-hash
+   address))
+
+(defun chain-store-put-account-storage
+    (store block-hash address slot value)
+  (engine-payload-store-put-account-storage
+   (chain-store-require-memory-store store)
+   block-hash
+   address
+   slot
+   value))
+
+(defun chain-store-account-storage (store block-hash address slot)
+  (engine-payload-store-account-storage
+   (chain-store-require-memory-store store)
+   block-hash
+   address
+   slot))
+
 (defun engine-payload-store-state-available-p
     (store hash)
   (not (null
@@ -4516,8 +4574,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (chain-store-state-available-p
                 store (block-hash block)))
       (quantity-to-hex
-      (engine-payload-store-account-balance
-       store (block-hash block) address)))))
+       (chain-store-account-balance
+        store (block-hash block) address)))))
 
 (defun eth-rpc-pending-account-nonce (store address state-nonce)
   (loop with next-nonce = state-nonce
@@ -4541,7 +4599,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (chain-store-state-available-p
                 store (block-hash block)))
       (let ((state-nonce
-              (engine-payload-store-account-nonce
+              (chain-store-account-nonce
                store (block-hash block) address)))
         (quantity-to-hex
          (if (and (stringp block-id) (string= block-id "pending"))
@@ -4560,7 +4618,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (chain-store-state-available-p
                 store (block-hash block)))
       (bytes-to-hex
-       (engine-payload-store-account-code
+       (chain-store-account-code
         store (block-hash block) address)))))
 
 (defun engine-rpc-handle-eth-get-storage-at (params store)
@@ -4577,7 +4635,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (chain-store-state-available-p
                 store (block-hash block)))
       (eth-rpc-uint256-word-hex
-       (engine-payload-store-account-storage
+       (chain-store-account-storage
         store (block-hash block) address slot)))))
 
 (defun eth-rpc-header-object (header)

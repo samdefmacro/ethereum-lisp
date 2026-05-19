@@ -550,6 +550,14 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-put-account-balance
+   #:chain-store-account-balance
+   #:chain-store-put-account-nonce
+   #:chain-store-account-nonce
+   #:chain-store-put-account-code
+   #:chain-store-account-code
+   #:chain-store-put-account-storage
+   #:chain-store-account-storage
    #:chain-store-update-forkchoice-checkpoints
    #:chain-store-head-block
    #:chain-store-safe-block
@@ -1358,6 +1366,14 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-put-account-balance
+   #:chain-store-account-balance
+   #:chain-store-put-account-nonce
+   #:chain-store-account-nonce
+   #:chain-store-put-account-code
+   #:chain-store-account-code
+   #:chain-store-put-account-storage
+   #:chain-store-account-storage
    #:chain-store-update-forkchoice-checkpoints
    #:chain-store-head-block
    #:chain-store-safe-block
@@ -2127,6 +2143,14 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-put-account-balance
+   #:chain-store-account-balance
+   #:chain-store-put-account-nonce
+   #:chain-store-account-nonce
+   #:chain-store-put-account-code
+   #:chain-store-account-code
+   #:chain-store-put-account-storage
+   #:chain-store-account-storage
    #:chain-store-update-forkchoice-checkpoints
    #:chain-store-head-block
    #:chain-store-safe-block

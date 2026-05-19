@@ -257,10 +257,11 @@ splits can land after the Phase A smoke path closes.
       payload-body lookups, forkchoice checkpoint checks, prepared payload
       lookups, and new-payload parent/state availability checks onto the
       chain-store boundary.
+    - Added chain-store account balance/nonce/code/storage read/write wrappers
+      and moved public account state RPC reads through that boundary.
   - Remaining:
-    - Keep account/state access behind the same store edge as later
-      persistence work lands, and decide whether pending txpool/filter cursors
-      stay in the in-memory store or move behind their own boundary.
+    - Decide whether pending txpool/filter cursors stay in the in-memory store
+      or move behind their own boundary before marking this task complete.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
 - [ ] `STORE-CANONICAL-INDEXES`: Add explicit canonical hash indexes.
