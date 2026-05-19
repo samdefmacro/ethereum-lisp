@@ -376,10 +376,12 @@ splits can land after the Phase A smoke path closes.
     `state-db-get-storage-root` and fixture assertions for per-account storage
     roots so Phase A genesis/proof work can compare state and storage
     commitments separately; account reads now return a committed account view
-    whose `storage-root` reflects the current storage trie. Remaining work:
-    replace/extend the in-repo vectors with pinned execution-spec-tests trie
-    fixtures and broaden secure/account trie root coverage for the Phase A
-    smoke genesis.
+    whose `storage-root` reflects the current storage trie. Added an in-repo
+    Phase A Shanghai genesis fixture with a locked `stateRoot`, funded account,
+    code account, nonzero and zero storage entries, genesis header/block root
+    checks, and contract storage-root checks. Remaining work: replace/extend
+    the in-repo vectors with pinned execution-spec-tests trie fixtures and
+    broaden secure/account trie root coverage against external references.
 
 - [ ] `STATE-PROOFS`: Add account/storage proof generation and verification.
   - Milestone: 3 / 7

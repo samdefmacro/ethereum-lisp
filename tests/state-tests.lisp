@@ -1,5 +1,8 @@
 (in-package #:ethereum-lisp.test)
 
+(defparameter +phase-a-shanghai-genesis-fixture-path+
+  "tests/fixtures/execution-spec-tests/phase-a-shanghai-genesis.json")
+
 (deftest state-empty-root
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                (state-db-root-hex (make-state-db)))))
@@ -215,6 +218,39 @@
                  (hash32-to-hex (block-header-state-root header))))
     (is (block-withdrawals-present-p block))
     (is (null (block-withdrawals block)))))
+
+(deftest phase-a-shanghai-genesis-fixture-roots
+  (let* ((json (fixture-file-string +phase-a-shanghai-genesis-fixture-path+))
+         (expected-root (genesis-expected-state-root-from-genesis-json-string json))
+         (computed-root (genesis-state-root-from-genesis-json-string json))
+         (state (state-db-from-genesis-json-string json))
+         (block (genesis-block-from-state-genesis-json-string json))
+         (header (block-header block))
+         (sender (address-from-hex "0x0000000000000000000000000000000000001001"))
+         (contract (address-from-hex "0x0000000000000000000000000000000000001002"))
+         (slot-0 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000000"))
+         (slot-1 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000001")))
+    (is (validate-genesis-json-state-root json))
+    (is (string= (hash32-to-hex expected-root)
+                 (hash32-to-hex computed-root)))
+    (is (string= (hash32-to-hex computed-root)
+                 (state-db-root-hex state)))
+    (is (string= (hash32-to-hex computed-root)
+                 (hash32-to-hex (block-header-state-root header))))
+    (is (block-withdrawals-present-p block))
+    (is (null (block-withdrawals block)))
+    (is (= 1 (state-account-nonce (state-db-get-account state sender))))
+    (is (= 1000000000000000000
+           (state-account-balance (state-db-get-account state sender))))
+    (is (string= "0x7efcce47028dabcb0d42f3a7eda8820bf6f7f4e618398c2547d52f703cafb073"
+                 (hash32-to-hex (state-db-get-code-hash state contract))))
+    (is (= 42 (state-db-get-storage state contract slot-0)))
+    (is (= 0 (state-db-get-storage state contract slot-1)))
+    (is (string= "0x81d1fa699f807735499cf6f7df860797cf66f6a66b565cfcda3fae3521eb6861"
+                 (hash32-to-hex
+                  (state-db-get-storage-root state contract))))))
 
 (deftest withdrawals-credit-state-balances-in-wei
   (let* ((state (make-state-db))

@@ -1,0 +1,30 @@
+{
+  "config": {
+    "chainId": 1337,
+    "terminalTotalDifficulty": 0,
+    "londonBlock": 0,
+    "shanghaiTime": 0
+  },
+  "nonce": "0x0",
+  "timestamp": "0x0",
+  "extraData": "0x",
+  "gasLimit": "0x1c9c380",
+  "difficulty": "0x0",
+  "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "coinbase": "0x0000000000000000000000000000000000000000",
+  "stateRoot": "0x23cc0c47d1238030e9c1ec18013dcb17024d3d42729567adbb6406a64d3007f3",
+  "alloc": {
+    "0x0000000000000000000000000000000000001001": {
+      "balance": "0xde0b6b3a7640000",
+      "nonce": "0x1"
+    },
+    "0x0000000000000000000000000000000000001002": {
+      "balance": "0x5",
+      "code": "0x6001600055",
+      "storage": {
+        "0x00": "0x2a",
+        "0x01": "0x00"
+      }
+    }
+  }
+}
