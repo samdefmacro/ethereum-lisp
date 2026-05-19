@@ -267,13 +267,18 @@ splits can land after the Phase A smoke path closes.
       they are pool/filter concerns rather than chain-store block/state indexes.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
-- [ ] `STORE-CANONICAL-INDEXES`: Add explicit canonical hash indexes.
+- [x] `STORE-CANONICAL-INDEXES`: Add explicit canonical hash indexes.
   - Milestone: 6
   - Dependencies: `STORE-CHAIN-INTERFACE`.
   - References: geth canonical hash tables in `core/rawdb`; Reth provider
     canonical chain indexes.
   - Acceptance: block-number lookup uses a canonical hash index rather than
     implicitly trusting the latest inserted block at that number.
+  - Progress:
+    - Added an explicit number-to-canonical-hash index to the memory chain
+      store. Block-number lookup now resolves canonical hash first, then block
+      by hash, so same-height side-chain inserts remain retrievable by hash but
+      do not replace the canonical block-number view.
   - Validation: add competing same-number block coverage and run
     `sbcl --script tests/run-tests.lisp`.
 

@@ -531,6 +531,7 @@
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
    #:engine-payload-store-block-by-number
+   #:engine-payload-store-canonical-hash
    #:engine-payload-store-transaction-location
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
@@ -547,6 +548,7 @@
    #:chain-store-put-block
    #:chain-store-known-block
    #:chain-store-block-by-number
+   #:chain-store-canonical-hash
    #:chain-store-head-number
    #:chain-store-block-tag-number
    #:chain-store-latest-block
@@ -1350,6 +1352,7 @@
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
    #:engine-payload-store-block-by-number
+   #:engine-payload-store-canonical-hash
    #:engine-payload-store-transaction-location
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
@@ -1366,6 +1369,7 @@
    #:chain-store-put-block
    #:chain-store-known-block
    #:chain-store-block-by-number
+   #:chain-store-canonical-hash
    #:chain-store-head-number
    #:chain-store-block-tag-number
    #:chain-store-latest-block
@@ -2130,6 +2134,7 @@
    #:engine-payload-store-put-block
    #:engine-payload-store-known-block
    #:engine-payload-store-block-by-number
+   #:engine-payload-store-canonical-hash
    #:engine-payload-store-transaction-location
    #:engine-payload-store-put-account-balance
    #:engine-payload-store-put-account-nonce
@@ -2146,6 +2151,7 @@
    #:chain-store-put-block
    #:chain-store-known-block
    #:chain-store-block-by-number
+   #:chain-store-canonical-hash
    #:chain-store-head-number
    #:chain-store-block-tag-number
    #:chain-store-latest-block

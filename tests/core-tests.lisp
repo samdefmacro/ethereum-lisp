@@ -2581,7 +2581,14 @@
          (block (make-block :header header
                             :transactions (list transaction)
                             :receipts (list receipt)))
+         (competing-block
+           (make-block
+            :header
+            (make-block-header :number 43
+                               :timestamp 1
+                               :extra-data #(99))))
          (block-hash (block-hash block))
+         (competing-block-hash (block-hash competing-block))
          (transaction-hash (transaction-hash transaction))
          (forkchoice-state
            (make-forkchoice-state
@@ -2597,9 +2604,18 @@
             (chain-store-put-block store block :state-available-p t)))
     (is (eq block (chain-store-known-block store block-hash)))
     (is (eq block (chain-store-block-by-number store 43)))
+    (is (string= (hash32-to-hex block-hash)
+                 (hash32-to-hex (chain-store-canonical-hash store 43))))
     (is (= 43 (chain-store-head-number store)))
     (is (= 43 (chain-store-block-tag-number store "latest")))
     (is (eq block (chain-store-latest-block store)))
+    (chain-store-put-block store competing-block)
+    (is (eq competing-block
+            (chain-store-known-block store competing-block-hash)))
+    (is (eq block (chain-store-block-by-number store 43)))
+    (is (eq block (chain-store-latest-block store)))
+    (is (string= (hash32-to-hex block-hash)
+                 (hash32-to-hex (chain-store-canonical-hash store 43))))
     (is (chain-store-state-available-p store block-hash))
     (is (= 99
            (chain-store-put-account-balance

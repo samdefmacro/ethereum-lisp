@@ -2953,6 +2953,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor make-engine-payload-memory-store
                 (&key (blocks (make-hash-table :test 'equal))
                       (number-blocks (make-hash-table :test 'eql))
+                      (canonical-hashes (make-hash-table :test 'eql))
                       (transaction-locations (make-hash-table :test 'equal))
                       (account-balances (make-hash-table :test 'equal))
                       (account-nonces (make-hash-table :test 'equal))
@@ -2972,6 +2973,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       finalized-block-hash)))
   blocks
   number-blocks
+  canonical-hashes
   transaction-locations
   account-balances
   account-nonces
@@ -3040,6 +3042,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (setf (gethash number
                        (engine-payload-memory-store-number-blocks store))
               block)
+        (unless (gethash number
+                         (engine-payload-memory-store-canonical-hashes store))
+          (setf (gethash number
+                         (engine-payload-memory-store-canonical-hashes store))
+                key))
         (when (> number (engine-payload-memory-store-head-number store))
           (setf (engine-payload-memory-store-head-number store) number))))
     (loop with receipts = (block-receipts block)
@@ -3120,7 +3127,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-block-by-number (store number)
   (unless (and (integerp number) (not (minusp number)))
     (block-validation-fail "Engine payload store block number must be non-negative"))
-  (gethash number (engine-payload-memory-store-number-blocks store)))
+  (let ((canonical-key
+          (gethash number
+                   (engine-payload-memory-store-canonical-hashes store))))
+    (when canonical-key
+      (gethash canonical-key
+               (engine-payload-memory-store-blocks store)))))
+
+(defun engine-payload-store-canonical-hash (store number)
+  (unless (and (integerp number) (not (minusp number)))
+    (block-validation-fail
+     "Engine payload store canonical block number must be non-negative"))
+  (let ((canonical-key
+          (gethash number
+                   (engine-payload-memory-store-canonical-hashes store))))
+    (when canonical-key
+      (hash32-from-hex canonical-key))))
 
 (defun engine-payload-store-transaction-location (store hash)
   (gethash (engine-payload-store-key hash)
@@ -3144,6 +3166,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun chain-store-block-by-number (store number)
   (engine-payload-store-block-by-number
+   (chain-store-require-memory-store store)
+   number))
+
+(defun chain-store-canonical-hash (store number)
+  (engine-payload-store-canonical-hash
    (chain-store-require-memory-store store)
    number))
 
