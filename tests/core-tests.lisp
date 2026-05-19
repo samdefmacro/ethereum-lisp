@@ -2679,6 +2679,58 @@
     (is (eq prepared-payload
             (chain-store-prepared-payload store payload-id)))))
 
+(deftest chain-store-set-canonical-head-rewrites-number-indexes
+  (let* ((store (make-engine-payload-memory-store))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :extra-data #(0))))
+         (genesis-hash (block-hash genesis)))
+    (flet ((child-block (number parent-hash marker)
+             (make-block
+              :header
+              (make-block-header :number number
+                                 :parent-hash parent-hash
+                                 :extra-data (vector marker)))))
+      (let* ((a1 (child-block 1 genesis-hash 1))
+             (a2 (child-block 2 (block-hash a1) 2))
+             (b1 (child-block 1 genesis-hash 11))
+             (b2 (child-block 2 (block-hash b1) 12))
+             (b3 (child-block 3 (block-hash b2) 13))
+             (a1-hash (block-hash a1))
+             (a2-hash (block-hash a2))
+             (b1-hash (block-hash b1))
+             (b2-hash (block-hash b2))
+             (b3-hash (block-hash b3)))
+        (dolist (block (list genesis a1 a2 b1 b2 b3))
+          (chain-store-put-block store block))
+        (is (eq a1 (chain-store-block-by-number store 1)))
+        (is (eq a2 (chain-store-block-by-number store 2)))
+        (is (null (chain-store-canonical-hash store 3)))
+        (is (= 2 (chain-store-head-number store)))
+        (is (eq a2 (chain-store-latest-block store)))
+        (is (eq b3 (chain-store-known-block store b3-hash)))
+        (is (eq b3
+                (chain-store-set-canonical-head store b3-hash)))
+        (is (eq b1 (chain-store-block-by-number store 1)))
+        (is (eq b2 (chain-store-block-by-number store 2)))
+        (is (eq b3 (chain-store-block-by-number store 3)))
+        (is (string= (hash32-to-hex b1-hash)
+                     (hash32-to-hex
+                      (chain-store-canonical-hash store 1))))
+        (is (string= (hash32-to-hex b2-hash)
+                     (hash32-to-hex
+                      (chain-store-canonical-hash store 2))))
+        (is (string= (hash32-to-hex b3-hash)
+                     (hash32-to-hex
+                      (chain-store-canonical-hash store 3))))
+        (is (eq a1 (chain-store-known-block store a1-hash)))
+        (is (eq a2 (chain-store-known-block store a2-hash)))
+        (is (eq b3 (chain-store-latest-block store)))
+        (is (= 3 (chain-store-block-tag-number store "latest")))))))
+
 (deftest engine-new-payload-memory-status-caches-invalid-ancestors
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :london-block 0))

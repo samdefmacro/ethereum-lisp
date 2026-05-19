@@ -3038,25 +3038,51 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Engine payload store key must be a hash32"))
   (hash32-to-hex hash))
 
+(defun engine-payload-store-canonical-parent-p (store block)
+  (let* ((header (block-header block))
+         (number (block-header-number header))
+         (parent-hash (block-header-parent-hash header))
+         (parent-block
+           (and parent-hash
+                (engine-payload-store-known-block store parent-hash))))
+    (or (zerop number)
+        (null parent-hash)
+        (hash32= parent-hash (zero-hash32))
+        (null parent-block)
+        (/= (block-header-number (block-header parent-block))
+            (1- number))
+        (let ((parent-key
+                (gethash (1- number)
+                         (engine-payload-memory-store-canonical-hashes
+                          store))))
+          (and parent-key
+               (string= parent-key
+                        (engine-payload-store-key parent-hash)))))))
+
 (defun engine-payload-store-put-block
     (store block &key (state-available-p nil))
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep block 'ethereum-block)
     (block-validation-fail "Engine payload store block must be a block"))
-  (let ((key (engine-payload-store-key (block-hash block))))
+  (let ((key (engine-payload-store-key (block-hash block)))
+        (canonicalized-p nil))
     (setf (gethash key (engine-payload-memory-store-blocks store)) block)
     (let ((number (block-header-number (block-header block))))
       (when (and (integerp number) (not (minusp number)))
         (setf (gethash number
                        (engine-payload-memory-store-number-blocks store))
               block)
-        (unless (gethash number
-                         (engine-payload-memory-store-canonical-hashes store))
+        (when (and (not (gethash
+                         number
+                         (engine-payload-memory-store-canonical-hashes store)))
+                   (engine-payload-store-canonical-parent-p store block))
           (setf (gethash number
                          (engine-payload-memory-store-canonical-hashes store))
-                key))
-        (when (> number (engine-payload-memory-store-head-number store))
+                key
+                canonicalized-p t))
+        (when (and canonicalized-p
+                   (> number (engine-payload-memory-store-head-number store)))
           (setf (engine-payload-memory-store-head-number store) number))))
     (loop with receipts = (block-receipts block)
           with log-index-start = 0
@@ -3164,6 +3190,63 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when canonical-key
       (hash32-from-hex canonical-key))))
 
+(defun engine-payload-store-set-canonical-head (store hash)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (let ((head-block (engine-payload-store-known-block store hash)))
+    (unless head-block
+      (block-validation-fail "Canonical head block must be known"))
+    (let ((path '()))
+      (loop with current = head-block
+            do (let* ((header (block-header current))
+                      (number (block-header-number header))
+                      (current-hash (block-hash current))
+                      (current-key (engine-payload-store-key current-hash))
+                      (canonical-key
+                        (gethash
+                         number
+                         (engine-payload-memory-store-canonical-hashes store))))
+                 (when (and canonical-key
+                            (string= canonical-key current-key))
+                   (return))
+                 (push current path)
+                 (when (zerop number)
+                   (return))
+                 (let* ((parent-hash (block-header-parent-hash header))
+                        (parent-block
+                          (and parent-hash
+                               (engine-payload-store-known-block
+                                store parent-hash))))
+                   (unless parent-block
+                     (block-validation-fail
+                      "Canonical head ancestry must be fully known"))
+                   (setf current parent-block))))
+      (dolist (block path)
+        (let* ((header (block-header block))
+               (number (block-header-number header))
+               (key (engine-payload-store-key (block-hash block))))
+          (setf (gethash number
+                         (engine-payload-memory-store-canonical-hashes store))
+                key
+                (gethash number
+                         (engine-payload-memory-store-number-blocks store))
+                block)))
+      (let ((new-head-number
+              (block-header-number (block-header head-block)))
+            (stale-numbers '()))
+        (maphash (lambda (number key)
+                   (declare (ignore key))
+                   (when (> number new-head-number)
+                     (push number stale-numbers)))
+                 (engine-payload-memory-store-canonical-hashes store))
+        (dolist (number stale-numbers)
+          (remhash number
+                   (engine-payload-memory-store-canonical-hashes store)))
+        (setf (engine-payload-memory-store-head-number store) new-head-number
+              (engine-payload-memory-store-head-checkpoint store)
+              (make-chain-store-checkpoint :label :head :block-hash hash)))
+      head-block)))
+
 (defun engine-payload-store-transaction-location (store hash)
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-transaction-locations store)))
@@ -3193,6 +3276,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-payload-store-canonical-hash
    (chain-store-require-memory-store store)
    number))
+
+(defun chain-store-set-canonical-head (store hash)
+  (engine-payload-store-set-canonical-head
+   (chain-store-require-memory-store store)
+   hash))
 
 (defun chain-store-head-number (store)
   (engine-payload-store-head-number

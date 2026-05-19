@@ -67,7 +67,6 @@ ones.
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
 - `STORE-CHECKPOINTS`
-- `STORE-CANONICAL-REORG`
 - `STORE-REORG-INVARIANTS`
 - `STATE-ATOMIC-COMMIT`
 - `SENDER-RECOVERY-ENFORCEMENT`
@@ -296,13 +295,19 @@ splits can land after the Phase A smoke path closes.
   - Validation: existing forkchoice/block tag tests plus
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] `STORE-CANONICAL-REORG`: Add a first reorg-aware canonical update path.
+- [x] `STORE-CANONICAL-REORG`: Add a first reorg-aware canonical update path.
   - Milestone: 6
   - Dependencies: `STORE-CANONICAL-INDEXES` and `STORE-CHECKPOINTS`.
   - References: geth `BlockChain.SetCanonical`, Reth canonical chain provider.
   - Acceptance: switching canonical head rewrites number-to-hash indexes for
     the affected in-memory range and leaves side-chain blocks retrievable by
     hash.
+  - Progress:
+    - Added `chain-store-set-canonical-head`, which walks a known candidate
+      head back to an already-canonical ancestor, rewrites the affected
+      number-to-hash indexes, removes stale canonical markers above the new
+      head, and updates the typed head checkpoint. Known side-chain blocks
+      remain retrievable by hash.
   - Validation: add two-branch in-memory tests and run
     `sbcl --script tests/run-tests.lisp`.
 

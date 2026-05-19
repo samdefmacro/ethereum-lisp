@@ -553,6 +553,7 @@
    #:chain-store-known-block
    #:chain-store-block-by-number
    #:chain-store-canonical-hash
+   #:chain-store-set-canonical-head
    #:chain-store-head-number
    #:chain-store-block-tag-number
    #:chain-store-latest-block
@@ -1381,6 +1382,7 @@
    #:chain-store-known-block
    #:chain-store-block-by-number
    #:chain-store-canonical-hash
+   #:chain-store-set-canonical-head
    #:chain-store-head-number
    #:chain-store-block-tag-number
    #:chain-store-latest-block
@@ -2170,6 +2172,7 @@
    #:chain-store-known-block
    #:chain-store-block-by-number
    #:chain-store-canonical-hash
+   #:chain-store-set-canonical-head
    #:chain-store-head-number
    #:chain-store-block-tag-number
    #:chain-store-latest-block
