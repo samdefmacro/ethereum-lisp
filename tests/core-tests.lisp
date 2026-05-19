@@ -3622,6 +3622,8 @@
              (address-from-hex "0x0000000000000000000000000000000000000001"))
            (withdrawal-recipient
              (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
            (transaction
              (make-legacy-transaction
               :nonce 9
@@ -3642,6 +3644,8 @@
                             (make-state-account
                              :nonce 9
                              :balance 2000000000000000000))
+      (state-db-set-code parent-state contract #(1 2 3))
+      (state-db-set-storage parent-state contract (zero-hash32) 42)
       (let* ((parent-header
                (make-block-header
                 :parent-hash (zero-hash32)
@@ -3739,14 +3743,14 @@
                              (transaction-count-request 44 sender)
                              store config)
                             "result")))
-        (is (string= "0x"
+        (is (string= "0x010203"
                      (field (engine-rpc-handle-request
-                             (code-request 45 sender)
+                             (code-request 45 contract)
                              store config)
                             "result")))
-        (is (string= "0x0000000000000000000000000000000000000000000000000000000000000000"
+        (is (string= "0x000000000000000000000000000000000000000000000000000000000000002a"
                      (field (engine-rpc-handle-request
-                             (storage-request 46 sender)
+                             (storage-request 46 contract)
                              store config)
                             "result")))
         (engine-rpc-handle-request
@@ -3776,14 +3780,14 @@
                              (transaction-count-request 52 sender)
                              store config)
                             "result")))
-        (is (string= "0x"
+        (is (string= "0x010203"
                      (field (engine-rpc-handle-request
-                             (code-request 53 sender)
+                             (code-request 53 contract)
                              store config)
                             "result")))
-        (is (string= "0x0000000000000000000000000000000000000000000000000000000000000000"
+        (is (string= "0x000000000000000000000000000000000000000000000000000000000000002a"
                      (field (engine-rpc-handle-request
-                             (storage-request 54 sender)
+                             (storage-request 54 contract)
                              store config)
                             "result")))))))
 
