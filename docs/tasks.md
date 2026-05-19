@@ -496,8 +496,10 @@ splits can land after the Phase A smoke path closes.
     mined transaction object sender recovery enforcement for
     `eth_getTransactionByHash`, transaction-by-block/index, and full block
     transaction objects; stale or polluted blocks with unrecoverable senders now
-    produce RPC errors instead of zero-address `from` fields. Remaining work:
-    enforce high-s/yParity/EIP-7702 malformed admission cases and Engine
+    produce RPC errors instead of zero-address `from` fields. Added typed raw
+    transaction admission coverage for malformed `yParity` and high-s
+    signatures, asserting rejection preserves pending pool and filter state.
+    Remaining work: enforce EIP-7702 malformed admission cases and Engine
     `newPayload` once execution is wired there.
 
 - [ ] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and

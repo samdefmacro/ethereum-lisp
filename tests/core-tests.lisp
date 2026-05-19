@@ -6765,6 +6765,99 @@
       (is (string= (quantity-to-hex 0) (field status "pending")))
       (is (search "\"result\":[]" filter-response)))))
 
+(deftest eth-rpc-send-raw-transaction-rejects-malformed-signatures
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (address-from-hex "0x1111111111111111111111111111111111111111"))
+           (bad-y-parity-transaction
+             (make-dynamic-fee-transaction
+              :chain-id 1
+              :nonce 1
+              :max-priority-fee-per-gas 0
+              :max-fee-per-gas #x0fa0
+              :gas-limit #x84d0
+              :to recipient
+              :value 0
+              :y-parity 2
+              :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+              :s #x6261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904))
+           (high-s-transaction
+             (make-dynamic-fee-transaction
+              :chain-id 1
+              :nonce 1
+              :max-priority-fee-per-gas 0
+              :max-fee-per-gas #x0fa0
+              :gas-limit #x84d0
+              :to recipient
+              :value 0
+              :y-parity 1
+              :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+              :s #x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1))
+           (config (make-chain-config))
+           (new-filter-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":100,\"method\":\"eth_newPendingTransactionFilter\"}"
+               store
+               config)))
+           (filter-id (field new-filter-response "result"))
+           (bad-y-parity-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":101,"
+                "\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex
+                 (transaction-encoding bad-y-parity-transaction))
+                "\"]}")
+               store
+               config)))
+           (high-s-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":102,"
+                "\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding high-s-transaction))
+                "\"]}")
+               store
+               config)))
+           (pending-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":103,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+               store
+               config)))
+           (status-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":104,\"method\":\"txpool_status\",\"params\":[]}"
+               store
+               config)))
+           (filter-response
+             (engine-rpc-handle-request-json
+              (concatenate
+               'string
+               "{\"jsonrpc\":\"2.0\",\"id\":105,"
+               "\"method\":\"eth_getFilterChanges\","
+               "\"params\":[\"" filter-id "\"]}")
+              store
+              config))
+           (bad-y-parity-error (field bad-y-parity-response "error"))
+           (high-s-error (field high-s-response "error"))
+           (status (field status-response "result")))
+      (is (= -32602 (field bad-y-parity-error "code")))
+      (is (= -32602 (field high-s-error "code")))
+      (is (= 0 (length (field pending-response "result"))))
+      (is (string= (quantity-to-hex 0) (field status "pending")))
+      (is (search "\"result\":[]" filter-response)))))
+
 (deftest eth-rpc-get-transaction-receipt
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
