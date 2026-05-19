@@ -67,7 +67,6 @@ ones.
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
 - `STATE-ATOMIC-COMMIT`
-- `RECEIPT-DERIVATION-INVARIANTS`
 
 ## P0: Phase A Discipline
 
@@ -607,7 +606,7 @@ splits can land after the Phase A smoke path closes.
     state projection, and does not commit the child block, state availability,
     or transaction lookup index.
 
-- [~] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
+- [x] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.
   - Milestone: 2 / 5
   - References: geth `core/types/receipt`, Reth receipt encoding, Nethermind
@@ -694,6 +693,15 @@ splits can land after the Phase A smoke path closes.
     prefixes, encoded lengths, the mixed typed receipt trie root, and the
     legacy-only root for contrast. Remaining work: CREATE2 coverage where
     applicable.
+  - Result: added an Engine-imported internal CREATE2 receipt boundary. The
+    test imports a signed transaction that calls an existing contract whose
+    code performs CREATE2, verifies the internally-created runtime code is
+    committed to the imported state, and asserts the RPC receipt still reports
+    `contractAddress` as `null` with `to` set to the called contract. With the
+    external-style typed receipt vectors, import-path cumulative gas/log/bloom
+    checks, top-level CREATE contract-address derivation, and pre-Byzantium
+    exclusion already covered, the Phase A receipt-derivation invariant task is
+    complete.
 
 ## P0: EVM Correctness Gaps
 
