@@ -34,9 +34,14 @@
     (object allowed-fields label)
   (unless (listp object)
     (error "~A must be a JSON object" label))
-  (dolist (field object)
-    (unless (member (car field) allowed-fields :test #'string=)
-      (error "~A has unknown field ~A" label (car field)))))
+  (let ((seen-fields (make-hash-table :test 'equal)))
+    (dolist (field object)
+      (let ((name (car field)))
+        (when (gethash name seen-fields)
+          (error "~A has duplicate field ~A" label name))
+        (setf (gethash name seen-fields) t)
+        (unless (member name allowed-fields :test #'string=)
+          (error "~A has unknown field ~A" label name))))))
 
 (defun validate-phase-a-shanghai-genesis-non-negative-value
     (object field label &key required-p)
@@ -66,20 +71,27 @@
   (unless (listp storage)
     (error "Phase A Shanghai genesis account ~A storage must be a JSON object"
            address))
-  (dolist (entry storage)
-    (unless (and (stringp (car entry))
-                 (not (minusp (hex-to-quantity (car entry)))))
-      (error "Phase A Shanghai genesis account ~A has malformed storage slot ~A"
-             address
-             (car entry)))
-    (let ((value (cdr entry)))
-      (unless (or (and (integerp value) (not (minusp value)))
-                  (and (stringp value)
-                       (not (minusp (hex-to-quantity value)))))
-        (error "Phase A Shanghai genesis account ~A storage slot ~A has malformed value ~A"
-               address
-               (car entry)
-               value)))))
+  (let ((seen-slots (make-hash-table :test 'equal)))
+    (dolist (entry storage)
+      (let ((slot (car entry)))
+        (when (gethash slot seen-slots)
+          (error "Phase A Shanghai genesis account ~A storage has duplicate slot ~A"
+                 address
+                 slot))
+        (setf (gethash slot seen-slots) t)
+        (unless (and (stringp slot)
+                     (not (minusp (hex-to-quantity slot))))
+          (error "Phase A Shanghai genesis account ~A has malformed storage slot ~A"
+                 address
+                 slot))
+        (let ((value (cdr entry)))
+          (unless (or (and (integerp value) (not (minusp value)))
+                      (and (stringp value)
+                           (not (minusp (hex-to-quantity value)))))
+            (error "Phase A Shanghai genesis account ~A storage slot ~A has malformed value ~A"
+                   address
+                   slot
+                   value)))))))
 
 (defun validate-phase-a-shanghai-genesis-account-shape (address account)
   (address-from-hex address)
@@ -106,8 +118,16 @@
 (defun validate-phase-a-shanghai-genesis-alloc-shape (alloc)
   (unless (and (listp alloc) alloc)
     (error "Phase A Shanghai genesis alloc must be a non-empty JSON object"))
-  (dolist (entry alloc)
-    (validate-phase-a-shanghai-genesis-account-shape (car entry) (cdr entry))))
+  (let ((seen-addresses (make-hash-table :test 'equal)))
+    (dolist (entry alloc)
+      (let ((address (car entry)))
+        (when (gethash address seen-addresses)
+          (error "Phase A Shanghai genesis alloc has duplicate address ~A"
+                 address))
+        (setf (gethash address seen-addresses) t)
+        (validate-phase-a-shanghai-genesis-account-shape
+         address
+         (cdr entry))))))
 
 (defun validate-phase-a-shanghai-genesis-fixture-shape (fixture)
   (validate-phase-a-shanghai-genesis-object-fields
@@ -387,7 +407,7 @@
                   (state-db-get-storage-root state contract))))))
 
 (defun phase-a-shanghai-genesis-shape-test-fixture
-    (&key top-extra config-extra account-extra storage)
+    (&key top-extra config-extra account-extra storage alloc-extra)
   (append
    (list
     (cons "format" +phase-a-shanghai-genesis-fixture-format+)
@@ -415,15 +435,17 @@
     (cons "stateRoot"
           "0x23cc0c47d1238030e9c1ec18013dcb17024d3d42729567adbb6406a64d3007f3")
     (cons "alloc"
-          (list
-           (cons "0x0000000000000000000000000000000000001001"
-                 (append
-                  (list (cons "balance" "0xde0b6b3a7640000")
-                        (cons "nonce" "0x1")
-                        (cons "storage"
-                              (or storage
-                                  (list (cons "0x00" "0x2a")))))
-                  account-extra)))))
+          (append
+           (list
+            (cons "0x0000000000000000000000000000000000001001"
+                  (append
+                   (list (cons "balance" "0xde0b6b3a7640000")
+                         (cons "nonce" "0x1")
+                         (cons "storage"
+                               (or storage
+                                   (list (cons "0x00" "0x2a")))))
+                   account-extra)))
+           alloc-extra)))
    top-extra))
 
 (deftest phase-a-shanghai-genesis-fixture-shape-validation
@@ -436,11 +458,35 @@
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
+      :top-extra (list (cons "source" "duplicate source")))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
       :config-extra (list (cons "unexpectedFork" 0)))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
+      :config-extra (list (cons "chainId" 1338)))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
       :account-extra (list (cons "unexpectedAccountField" "0x1")))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :account-extra (list (cons "balance" "0x2")))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :alloc-extra
+      (list
+       (cons "0x0000000000000000000000000000000000001001"
+             (list (cons "balance" "0x1")))))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :storage (list (cons "0x00" "0x2a")
+                     (cons "0x00" "0x2b")))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture

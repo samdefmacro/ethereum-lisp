@@ -698,6 +698,9 @@ splits can land after the Phase A smoke path closes.
     Added duplicate semantic-tag rejection to trie and state-root fixture
     cases so coverage maps cannot silently collapse repeated tags within a
     single case.
+    Added duplicate-field and duplicate-key rejection to the Phase A Shanghai
+    genesis fixture validators, including top-level/config/account fields,
+    duplicate alloc addresses, and duplicate storage slots.
     Added semantic coverage tags to state-root fixture cases plus runner-side
     guards for duplicate case names, unknown tags, and required secure-state
     coverage. State-root fixtures now fail early if empty state, account root,
