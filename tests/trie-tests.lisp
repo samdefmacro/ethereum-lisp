@@ -3,6 +3,73 @@
 (defparameter +trie-vector-fixture-path+
   "tests/fixtures/execution-spec-tests/trie-vectors.json")
 
+(defparameter +trie-fixture-known-tags+
+  '("leaf-root"
+    "branch-root"
+    "extension-root"
+    "path-compression"
+    "delete-collapse"
+    "delete-to-empty"
+    "embedded-child-reference"
+    "hashed-child-reference"
+    "branch-child-references"
+    "branch-children"
+    "branch-value"
+    "missing-delete-noop"
+    "duplicate-overwrite"
+    "hex-key"
+    "lookup-assertions"))
+
+(defparameter +trie-fixture-required-tags+
+  '("leaf-root"
+    "branch-root"
+    "extension-root"
+    "delete-collapse"
+    "delete-to-empty"
+    "embedded-child-reference"
+    "hashed-child-reference"
+    "branch-child-references"
+    "branch-value"
+    "missing-delete-noop"
+    "duplicate-overwrite"
+    "hex-key"
+    "lookup-assertions"))
+
+(defun validate-trie-fixture-case-name (case seen-names)
+  (let ((name (fixture-object-field case "name")))
+    (when (blank-string-p name)
+      (error "Trie fixture case is missing a non-empty name"))
+    (let ((previous (gethash name seen-names)))
+      (when previous
+        (error "Duplicate trie fixture case name: ~A" name)))
+    (setf (gethash name seen-names) t)))
+
+(defun validate-trie-fixture-case-tags (case seen-tags)
+  (let ((name (fixture-object-field case "name"))
+        (tags (fixture-object-field case "tags")))
+    (unless (and (listp tags) tags)
+      (error "Trie fixture case ~A must include non-empty tags" name))
+    (dolist (tag tags)
+      (unless (and (stringp tag)
+                   (member tag +trie-fixture-known-tags+
+                           :test #'string=))
+        (error "Trie fixture case ~A has unknown tag ~A" name tag))
+      (setf (gethash tag seen-tags) t))))
+
+(defun validate-trie-fixture-case-coverage (cases)
+  (unless (and (listp cases) cases)
+    (error "Trie fixture must include at least one case"))
+  (let ((seen-names (make-hash-table :test #'equal))
+        (seen-tags (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (unless (listp case)
+        (error "Trie fixture case must be a JSON object"))
+      (validate-trie-fixture-case-name case seen-names)
+      (validate-trie-fixture-case-tags case seen-tags))
+    (dolist (tag +trie-fixture-required-tags+)
+      (unless (gethash tag seen-tags)
+        (error "Trie fixture is missing required coverage tag ~A" tag)))))
+
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
     (cond
@@ -150,6 +217,7 @@
          (cases (fixture-object-field fixture "cases")))
     (validate-fixture-format fixture "ethereum-lisp/trie-vectors-v1")
     (validate-fixture-pinned-eest-source fixture)
+    (validate-trie-fixture-case-coverage cases)
     (dolist (case cases)
       (let ((trie (run-trie-fixture-case case)))
         (is (string= (fixture-object-field case "expectedRoot")

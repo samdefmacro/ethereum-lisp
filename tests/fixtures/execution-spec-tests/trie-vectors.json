@@ -10,6 +10,7 @@
   "cases": [
     {
       "name": "single-leaf",
+      "tags": ["leaf-root", "path-compression"],
       "operations": [
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" }
       ],
@@ -19,6 +20,7 @@
     },
     {
       "name": "delete-missing-key-keeps-leaf",
+      "tags": ["leaf-root", "path-compression", "missing-delete-noop"],
       "operations": [
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
         { "op": "delete", "keyAscii": "cat" }
@@ -30,6 +32,7 @@
     },
     {
       "name": "duplicate-key-overwrites-leaf-value",
+      "tags": ["leaf-root", "path-compression", "duplicate-overwrite"],
       "operations": [
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
         { "op": "put", "keyAscii": "dog", "valueAscii": "hound" }
@@ -41,6 +44,7 @@
     },
     {
       "name": "branch-extension-shared-prefix",
+      "tags": ["extension-root", "hashed-child-reference", "lookup-assertions"],
       "operations": [
         { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
@@ -60,6 +64,7 @@
     },
     {
       "name": "extension-embedded-child-reference",
+      "tags": ["extension-root", "embedded-child-reference"],
       "operations": [
         { "op": "put", "keyAscii": "do", "valueAscii": "v" },
         { "op": "put", "keyAscii": "dog", "valueAscii": "p" }
@@ -71,6 +76,7 @@
     },
     {
       "name": "extension-hashed-child-reference",
+      "tags": ["extension-root", "hashed-child-reference"],
       "operations": [
         { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
@@ -83,6 +89,7 @@
     },
     {
       "name": "delete-collapses-path",
+      "tags": ["extension-root", "delete-collapse", "lookup-assertions"],
       "operations": [
         { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
@@ -102,6 +109,7 @@
     },
     {
       "name": "delete-last-entry-empty-root",
+      "tags": ["delete-to-empty"],
       "operations": [
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
         { "op": "delete", "keyAscii": "dog" }
@@ -111,6 +119,7 @@
     },
     {
       "name": "root-branch-sparse-children",
+      "tags": ["branch-root", "branch-children", "hex-key"],
       "operations": [
         { "op": "put", "keyHex": "0x00", "valueAscii": "left" },
         { "op": "put", "keyHex": "0xf0", "valueAscii": "right" }
@@ -125,6 +134,14 @@
     },
     {
       "name": "root-branch-mixed-child-references",
+      "tags": [
+        "branch-root",
+        "branch-child-references",
+        "embedded-child-reference",
+        "hashed-child-reference",
+        "hex-key",
+        "lookup-assertions"
+      ],
       "operations": [
         {
           "op": "put",
@@ -150,6 +167,7 @@
     },
     {
       "name": "delete-missing-branch-child-keeps-root-branch",
+      "tags": ["branch-root", "branch-children", "missing-delete-noop", "hex-key"],
       "operations": [
         { "op": "put", "keyHex": "0x00", "valueAscii": "left" },
         { "op": "put", "keyHex": "0xf0", "valueAscii": "right" },
@@ -161,6 +179,7 @@
     },
     {
       "name": "root-branch-value-for-prefix-key",
+      "tags": ["branch-root", "branch-children", "branch-value", "hex-key"],
       "operations": [
         { "op": "put", "keyHex": "0x", "valueAscii": "root" },
         { "op": "put", "keyHex": "0x10", "valueAscii": "child" }
@@ -172,6 +191,7 @@
     },
     {
       "name": "delete-root-branch-value-collapses-to-leaf",
+      "tags": ["leaf-root", "path-compression", "delete-collapse", "branch-value", "hex-key"],
       "operations": [
         { "op": "put", "keyHex": "0x", "valueAscii": "root" },
         { "op": "put", "keyHex": "0x10", "valueAscii": "child" },
@@ -183,6 +203,7 @@
     },
     {
       "name": "delete-root-branch-child-collapses-to-root-value-leaf",
+      "tags": ["leaf-root", "path-compression", "delete-collapse", "branch-value", "hex-key"],
       "operations": [
         { "op": "put", "keyHex": "0x", "valueAscii": "root" },
         { "op": "put", "keyHex": "0x10", "valueAscii": "child" },

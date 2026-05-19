@@ -610,6 +610,12 @@ splits can land after the Phase A smoke path closes.
     `setCode`, and `setStorage` into an expected final account model, then
     verify the local state DB read APIs for every touched account and storage
     slot in addition to the final root.
+    Added semantic coverage tags to trie vector cases plus runner-side guards
+    for duplicate case names, unknown tags, and required MPT shape coverage.
+    The trie fixture now fails early if leaf, branch, extension, deletion
+    collapse, delete-to-empty, embedded-vs-hashed child reference, branch
+    value, missing-delete no-op, duplicate-overwrite, hex-key, lookup, or
+    mixed branch child-reference coverage is accidentally dropped.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
