@@ -54,9 +54,16 @@
 
 (defun validate-state-root-fixture-object-fields
     (object allowed-fields label)
-  (dolist (field object)
-    (unless (member (car field) allowed-fields :test #'string=)
-      (error "~A has unknown field ~A" label (car field)))))
+  (unless (listp object)
+    (error "~A must be a JSON object" label))
+  (let ((seen-fields (make-hash-table :test 'equal)))
+    (dolist (field object)
+      (let ((name (car field)))
+        (when (gethash name seen-fields)
+          (error "~A has duplicate field ~A" label name))
+        (setf (gethash name seen-fields) t)
+        (unless (member name allowed-fields :test #'string=)
+          (error "~A has unknown field ~A" label name))))))
 
 (defun validate-state-root-fixture-metadata (fixture)
   (validate-state-root-fixture-object-fields
@@ -413,6 +420,16 @@
     (validate-state-root-fixture-metadata
      (list (cons "format" +state-root-fixture-format+)
            (cons "source" "seed")
+           (cons "source" "duplicate seed")
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-state-root-fixture-metadata
+     (list (cons "format" +state-root-fixture-format+)
+           (cons "source" "seed")
            (cons "unexpected" t)
            (cons "executionSpecTests"
                  (list (cons "release" +phase-a-eest-release+)
@@ -437,6 +454,13 @@
            (cons "root" "unexpected"))))
   (signals error
     (validate-state-root-fixture-case-shape
+     (list (cons "name" "duplicate-case-field")
+           (cons "name" "duplicate-case-field-shadow")
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-operation-field")
            (cons "tags" (list "account-root"))
            (cons "operations"
@@ -445,6 +469,18 @@
                                    "0x0000000000000000000000000000000000000001")
                              (cons "balance" 1)
                              (cons "storage" nil))))
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "duplicate-operation-field")
+           (cons "tags" (list "account-root"))
+           (cons "operations"
+                 (list (list (cons "op" "setAccount")
+                             (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "balance" 1)
+                             (cons "balance" 2))))
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
   (signals error
@@ -460,6 +496,20 @@
                              (cons "root" "0x01")))))))
   (signals error
     (validate-state-root-fixture-case-shape
+     (list (cons "name" "duplicate-storage-root-field")
+           (cons "tags" (list "storage-root-projection"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedStorageRoots"
+                 (list (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "root"
+                                   "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+                             (cons "root"
+                                   "0x23cc0c47d1238030e9c1ec18013dcb17024d3d42729567adbb6406a64d3007f3")))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-account-field")
            (cons "tags" (list "account-projection"))
            (cons "operations" nil)
@@ -470,6 +520,18 @@
                                    "0x0000000000000000000000000000000000000001")
                              (cons "balance" 1)
                              (cons "storage" nil)))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "duplicate-account-field")
+           (cons "tags" (list "account-projection"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedAccounts"
+                 (list (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "balance" 1)
+                             (cons "balance" 2)))))))
   (signals error
     (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-tag")

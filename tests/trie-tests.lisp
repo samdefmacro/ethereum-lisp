@@ -71,9 +71,16 @@
   '("keyHex" "keyAscii"))
 
 (defun validate-trie-fixture-object-fields (object allowed-fields label)
-  (dolist (field object)
-    (unless (member (car field) allowed-fields :test #'string=)
-      (error "~A has unknown field ~A" label (car field)))))
+  (unless (listp object)
+    (error "~A must be a JSON object" label))
+  (let ((seen-fields (make-hash-table :test 'equal)))
+    (dolist (field object)
+      (let ((name (car field)))
+        (when (gethash name seen-fields)
+          (error "~A has duplicate field ~A" label name))
+        (setf (gethash name seen-fields) t)
+        (unless (member name allowed-fields :test #'string=)
+          (error "~A has unknown field ~A" label name))))))
 
 (defun validate-trie-fixture-metadata (fixture)
   (validate-trie-fixture-object-fields
@@ -499,6 +506,16 @@
     (validate-trie-fixture-metadata
      (list (cons "format" +trie-vector-fixture-format+)
            (cons "source" "seed")
+           (cons "source" "duplicate seed")
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-trie-fixture-metadata
+     (list (cons "format" +trie-vector-fixture-format+)
+           (cons "source" "seed")
            (cons "unexpected" t)
            (cons "executionSpecTests"
                  (list (cons "release" +phase-a-eest-release+)
@@ -580,6 +597,16 @@
                              (cons "keyAscii" "dog")))))))
   (signals error
     (validate-trie-fixture-case-shape
+     (list (cons "name" "duplicate-case-field")
+           (cons "name" "duplicate-case-field-shadow")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
      (list (cons "name" "unknown-operation-field")
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
@@ -588,6 +615,16 @@
                  (list (list (cons "op" "delete")
                              (cons "keyAscii" "dog")
                              (cons "valueHex" "0x01")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "duplicate-operation-field")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")
+                             (cons "keyAscii" "cat")))))))
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "unknown-get-field")
@@ -602,6 +639,20 @@
                  (list (list (cons "keyAscii" "dog")
                              (cons "valueAscii" "puppy")
                              (cons "root" t)))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "duplicate-get-field")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedGets"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy")
+                             (cons "valueAscii" "shadow")))))))
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "unknown-missing-field")

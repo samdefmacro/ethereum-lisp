@@ -691,6 +691,10 @@ splits can land after the Phase A smoke path closes.
     state-root runner now checks the top-level wrapper, source metadata, case
     and operation field sets, expected storage roots, and expected account
     projections before replaying state operations.
+    Added duplicate-field rejection to trie and state-root fixture object
+    validators. Wrappers, cases, operations, lookup expectations, storage-root
+    projections, and account projections now fail before alist lookup can
+    silently select one duplicate key and hide another.
     Added semantic coverage tags to state-root fixture cases plus runner-side
     guards for duplicate case names, unknown tags, and required secure-state
     coverage. State-root fixtures now fail early if empty state, account root,
