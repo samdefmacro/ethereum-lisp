@@ -670,6 +670,10 @@ splits can land after the Phase A smoke path closes.
     Added trie fixture wrapper metadata validation. The runner now checks the
     top-level fixture field set, format string, non-empty source note, and
     pinned EEST release/archive metadata before consuming trie cases.
+    Added state-root fixture wrapper and projection-shape validation. The
+    state-root runner now checks the top-level wrapper, source metadata, case
+    and operation field sets, expected storage roots, and expected account
+    projections before replaying state operations.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

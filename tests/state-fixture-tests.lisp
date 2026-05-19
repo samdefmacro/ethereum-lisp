@@ -3,6 +3,44 @@
 (defparameter +state-root-fixture-path+
   "tests/fixtures/execution-spec-tests/state-roots.json")
 
+(defparameter +state-root-fixture-format+
+  "ethereum-lisp/state-root-fixture-v1")
+
+(defparameter +state-root-fixture-top-level-fields+
+  '("format" "source" "executionSpecTests" "cases"))
+
+(defparameter +state-root-fixture-case-fields+
+  '("name"
+    "operations"
+    "expectedRoot"
+    "expectedStorageRoots"
+    "expectedAccounts"))
+
+(defparameter +state-root-fixture-operation-fields+
+  '("op" "address" "nonce" "balance" "slot" "value" "code"))
+
+(defparameter +state-root-fixture-storage-root-fields+
+  '("address" "root"))
+
+(defparameter +state-root-fixture-account-fields+
+  '("address" "nonce" "balance" "storageRoot" "codeHash" "rlp"))
+
+(defun validate-state-root-fixture-object-fields
+    (object allowed-fields label)
+  (dolist (field object)
+    (unless (member (car field) allowed-fields :test #'string=)
+      (error "~A has unknown field ~A" label (car field)))))
+
+(defun validate-state-root-fixture-metadata (fixture)
+  (validate-state-root-fixture-object-fields
+   fixture
+   +state-root-fixture-top-level-fields+
+   "State root fixture")
+  (validate-fixture-format fixture +state-root-fixture-format+)
+  (when (blank-string-p (fixture-required-field fixture "source"))
+    (error "State root fixture source must be present"))
+  (validate-fixture-pinned-eest-source fixture))
+
 (defun state-fixture-number (object name &optional (default 0))
   (let ((value (fixture-object-field object name)))
     (if value value default)))
@@ -23,6 +61,10 @@
 (defun validate-state-root-fixture-operation-shape (operation)
   (unless (listp operation)
     (error "State root fixture operation must be a JSON object"))
+  (validate-state-root-fixture-object-fields
+   operation
+   +state-root-fixture-operation-fields+
+   "State root fixture operation")
   (let ((op (fixture-required-field operation "op")))
     (validate-state-root-fixture-address operation)
     (cond
@@ -38,9 +80,40 @@
       (t
        (error "Unknown state root fixture operation: ~A" op)))))
 
+(defun validate-state-root-fixture-storage-root-shape (expected)
+  (unless (listp expected)
+    (error "State root fixture expectedStorageRoots entry must be a JSON object"))
+  (validate-state-root-fixture-object-fields
+   expected
+   +state-root-fixture-storage-root-fields+
+   "State root fixture expectedStorageRoots entry")
+  (address-from-hex (fixture-required-field expected "address"))
+  (hash32-from-hex (fixture-required-field expected "root")))
+
+(defun validate-state-root-fixture-account-shape (expected)
+  (unless (listp expected)
+    (error "State root fixture expectedAccounts entry must be a JSON object"))
+  (validate-state-root-fixture-object-fields
+   expected
+   +state-root-fixture-account-fields+
+   "State root fixture expectedAccounts entry")
+  (address-from-hex (fixture-required-field expected "address"))
+  (validate-state-root-fixture-non-negative-integer expected "nonce")
+  (validate-state-root-fixture-non-negative-integer expected "balance")
+  (when (fixture-field-present-p expected "storageRoot")
+    (hash32-from-hex (fixture-required-field expected "storageRoot")))
+  (when (fixture-field-present-p expected "codeHash")
+    (hash32-from-hex (fixture-required-field expected "codeHash")))
+  (when (fixture-field-present-p expected "rlp")
+    (hex-to-bytes (fixture-required-field expected "rlp"))))
+
 (defun validate-state-root-fixture-case-shape (case)
   (unless (listp case)
     (error "State root fixture case must be a JSON object"))
+  (validate-state-root-fixture-object-fields
+   case
+   +state-root-fixture-case-fields+
+   "State root fixture case")
   (when (blank-string-p (fixture-required-field case "name"))
     (error "State root fixture case name must be present"))
   (let ((operations (fixture-required-field case "operations")))
@@ -48,7 +121,21 @@
       (error "State root fixture case operations must be a JSON array"))
     (dolist (operation operations)
       (validate-state-root-fixture-operation-shape operation)))
-  (hash32-from-hex (fixture-required-field case "expectedRoot")))
+  (hash32-from-hex (fixture-required-field case "expectedRoot"))
+  (when (fixture-field-present-p case "expectedStorageRoots")
+    (let ((expected-storage-roots
+            (fixture-object-field case "expectedStorageRoots")))
+      (unless (listp expected-storage-roots)
+        (error "State root fixture case expectedStorageRoots must be a JSON array"))
+      (dolist (expected expected-storage-roots)
+        (validate-state-root-fixture-storage-root-shape expected))))
+  (when (fixture-field-present-p case "expectedAccounts")
+    (let ((expected-accounts
+            (fixture-object-field case "expectedAccounts")))
+      (unless (listp expected-accounts)
+        (error "State root fixture case expectedAccounts must be a JSON array"))
+      (dolist (expected expected-accounts)
+        (validate-state-root-fixture-account-shape expected)))))
 
 (defun validate-state-root-fixture-cases (cases)
   (unless (listp cases)
@@ -265,6 +352,64 @@
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
     (validate-state-root-fixture-case-shape valid-case))
   (signals error
+    (validate-state-root-fixture-metadata
+     (list (cons "format" +state-root-fixture-format+)
+           (cons "source" "seed")
+           (cons "unexpected" t)
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-state-root-fixture-metadata
+     (list (cons "format" +state-root-fixture-format+)
+           (cons "source" "")
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "unknown-case-field")
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "root" "unexpected"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "unknown-operation-field")
+           (cons "operations"
+                 (list (list (cons "op" "setAccount")
+                             (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "balance" 1)
+                             (cons "storage" nil))))
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "bad-storage-root-shape")
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedStorageRoots"
+                 (list (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "root" "0x01")))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "unknown-account-field")
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedAccounts"
+                 (list (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "balance" 1)
+                             (cons "storage" nil)))))))
+  (signals error
     (validate-state-root-fixture-operation-shape
      (list (cons "op" "setAccount")
            (cons "address" "0x01")
@@ -295,8 +440,7 @@
 (deftest state-root-fixture-vectors
   (let* ((fixture (load-handwritten-fixture-file +state-root-fixture-path+))
          (cases (fixture-object-field fixture "cases")))
-    (validate-fixture-format fixture "ethereum-lisp/state-root-fixture-v1")
-    (validate-fixture-pinned-eest-source fixture)
+    (validate-state-root-fixture-metadata fixture)
     (validate-state-root-fixture-cases cases)
     (dolist (case cases)
       (let ((state (run-state-root-fixture-case case)))
