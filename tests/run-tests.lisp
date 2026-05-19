@@ -21,6 +21,7 @@
 (load "tests/fixture-tests.lisp")
 (load "tests/fixture-runner-tests.lisp")
 (load "tests/transaction-fixture-tests.lisp")
+(load "tests/receipt-fixture-tests.lisp")
 (load "tests/state-fixture-tests.lisp")
 (load "tests/core-tests.lisp")
 (load "tests/state-tests.lisp")

@@ -662,6 +662,12 @@ splits can land after the Phase A smoke path closes.
     encoding rather than the legacy-only receipt list root. Remaining work:
     external-style typed receipt vectors and CREATE2 coverage where
     applicable.
+  - Progress: added the first external-style receipt-root fixture vectors. The
+    new fixture drives legacy, EIP-2930, EIP-1559, and EIP-4844 transaction
+    envelopes with post-Byzantium receipts, asserting typed receipt encoding
+    prefixes, encoded lengths, the mixed typed receipt trie root, and the
+    legacy-only root for contrast. Remaining work: CREATE2 coverage where
+    applicable.
 
 ## P0: EVM Correctness Gaps
 

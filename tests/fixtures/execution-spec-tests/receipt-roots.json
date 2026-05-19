@@ -1,0 +1,52 @@
+{
+  "format": "ethereum-lisp/receipt-root-fixtures-v1",
+  "source": "in-repo receipt vectors shaped for ethereum/execution-spec-tests ingestion",
+  "referenceClients": {
+    "geth": "8a0223e",
+    "nethermind": "1c72a72",
+    "reth": null
+  },
+  "vectors": [
+    {
+      "name": "mixed-post-byzantium-typed-receipts",
+      "transactions": [
+        "0xf86c098504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276a067cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83",
+        "0x01f8630103018261a894b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a825544c001a0c9519f4f2b30335884581971573fadf60c6204f59a911df35ee8a540456b2660a032f1e8e2c5dd761f9e4f88f41c8310aeaba26a8bfcdacfedfa12ec3862d37521",
+        "0x02f864010180820fa08284d09411111111111111111111111111111111111111118080c001a0b7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0a06261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904",
+        "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675"
+      ],
+      "receipts": [
+        {
+          "status": "0x1",
+          "cumulativeGasUsed": "0x5208"
+        },
+        {
+          "status": "0x1",
+          "cumulativeGasUsed": "0xa410"
+        },
+        {
+          "status": "0x1",
+          "cumulativeGasUsed": "0xf618"
+        },
+        {
+          "status": "0x1",
+          "cumulativeGasUsed": "0x14820"
+        }
+      ],
+      "expectedEncodingPrefixes": [
+        "0xf9010801825208",
+        "0x01f901080182a410",
+        "0x02f901080182f618",
+        "0x03f901090183014820"
+      ],
+      "expectedEncodingLengths": [
+        536,
+        538,
+        538,
+        540
+      ],
+      "expectedRoot": "0x0c82719448356ba6807d6edfcd8e5aea575a5e97f36038ffb3e395749b26d41c",
+      "legacyOnlyRoot": "0x04deb4be6955e1a300123be48007597f67e4229f8ce70f4f10388de6fd3fa267"
+    }
+  ]
+}
