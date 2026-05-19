@@ -616,6 +616,14 @@ splits can land after the Phase A smoke path closes.
     vectors, cumulative gas/order checks from imported multi-transaction
     blocks, CREATE2 coverage where applicable, and explicit pre-Byzantium
     exclusion.
+  - Progress: broadened the same Engine-imported logging fixture to two
+    same-block transactions. The canonical branch now returns two ordered
+    logs through `eth_getLogs`, two ordered receipts through
+    `eth_getBlockReceipts`, monotonic `cumulativeGasUsed`, per-transaction
+    `gasUsed` derived from the previous cumulative value, and block-level gas
+    used matching the final receipt cumulative gas. Remaining work:
+    external-style typed receipt vectors, CREATE2 coverage where applicable,
+    and explicit pre-Byzantium exclusion.
 
 ## P0: EVM Correctness Gaps
 

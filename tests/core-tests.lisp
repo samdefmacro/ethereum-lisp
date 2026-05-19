@@ -4162,6 +4162,11 @@
                    (cons "id" id)
                    (cons "method" "eth_getTransactionReceipt")
                    (cons "params" (list (hash32-to-hex hash)))))
+           (block-receipts-request (id)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getBlockReceipts")
+                   (cons "params" (list "latest"))))
            (private-key-address (private-key)
              (let* ((point
                       (ethereum-lisp.crypto::secp256k1-scalar-multiply
@@ -4270,6 +4275,15 @@
                                        :value 5)
               private-key
               1))
+           (second-transaction
+             (sign-legacy-transaction
+              (make-legacy-transaction :nonce 1
+                                       :gas-price 100
+                                       :gas-limit 50000
+                                       :to contract
+                                       :value 6)
+              private-key
+              1))
            (withdrawal
              (make-withdrawal :index 0
                               :validator-index 1
@@ -4298,7 +4312,7 @@
              (branch-a-block
                (execute-signed-block
                 branch-a-state
-                (list transaction)
+                (list transaction second-transaction)
                 :expected-chain-id 1
                 :header (make-block-header
                          :parent-hash (block-hash parent-block)
@@ -4362,15 +4376,28 @@
                          (logs-request 61)
                          store config)
                         "result"))
-               (log (first logs)))
-          (is (= 1 (length logs)))
-          (is (string= (address-to-hex contract) (field log "address")))
-          (is (string= expected-data (field log "data")))
-          (is (string= expected-topic (first (field log "topics"))))
-          (is (string= (hash32-to-hex (block-hash branch-a-block))
-                       (field log "blockHash")))
+               (first-log (first logs))
+               (second-log (second logs)))
+          (is (= 2 (length logs)))
+          (dolist (log logs)
+            (is (string= (address-to-hex contract) (field log "address")))
+            (is (string= expected-data (field log "data")))
+            (is (string= expected-topic (first (field log "topics"))))
+            (is (string= (hash32-to-hex (block-hash branch-a-block))
+                         (field log "blockHash"))))
           (is (string= (hash32-to-hex (transaction-hash transaction))
-                       (field log "transactionHash"))))
+                       (field first-log "transactionHash")))
+          (is (string= (quantity-to-hex 0)
+                       (field first-log "transactionIndex")))
+          (is (string= (quantity-to-hex 0)
+                       (field first-log "logIndex")))
+          (is (string= (hash32-to-hex
+                        (transaction-hash second-transaction))
+                       (field second-log "transactionHash")))
+          (is (string= (quantity-to-hex 1)
+                       (field second-log "transactionIndex")))
+          (is (string= (quantity-to-hex 1)
+                       (field second-log "logIndex"))))
         (let* ((receipt
                  (field (engine-rpc-handle-request
                          (receipt-request 64 (transaction-hash transaction))
@@ -4380,6 +4407,45 @@
                  (make-bloom (hex-to-bytes (field receipt "logsBloom")))))
           (is (bloom-contains-p bloom (address-bytes contract)))
           (is (bloom-contains-p bloom (hash32-bytes expected-topic-hash))))
+        (let* ((receipts
+                 (field (engine-rpc-handle-request
+                         (block-receipts-request 65)
+                         store config)
+                        "result"))
+               (first-receipt (first receipts))
+               (second-receipt (second receipts))
+               (first-cumulative
+                 (hex-to-quantity
+                  (field first-receipt "cumulativeGasUsed")))
+               (second-cumulative
+                 (hex-to-quantity
+                  (field second-receipt "cumulativeGasUsed"))))
+          (is (= 2 (length receipts)))
+          (is (string= (hash32-to-hex (transaction-hash transaction))
+                       (field first-receipt "transactionHash")))
+          (is (string= (hash32-to-hex
+                        (transaction-hash second-transaction))
+                       (field second-receipt "transactionHash")))
+          (is (< first-cumulative second-cumulative))
+          (is (= (block-header-gas-used (block-header branch-a-block))
+                 second-cumulative))
+          (is (string= (quantity-to-hex first-cumulative)
+                       (field first-receipt "gasUsed")))
+          (is (string= (quantity-to-hex
+                        (- second-cumulative first-cumulative))
+                       (field second-receipt "gasUsed")))
+          (is (string= (quantity-to-hex 0)
+                       (field first-receipt "transactionIndex")))
+          (is (string= (quantity-to-hex 1)
+                       (field second-receipt "transactionIndex")))
+          (is (= 1 (length (field first-receipt "logs"))))
+          (is (= 1 (length (field second-receipt "logs"))))
+          (is (string= (quantity-to-hex 0)
+                       (field (first (field first-receipt "logs"))
+                              "logIndex")))
+          (is (string= (quantity-to-hex 1)
+                       (field (first (field second-receipt "logs"))
+                              "logIndex"))))
         (engine-rpc-handle-request
          (forkchoice-request 62 (block-hash branch-b-block))
          store config)
