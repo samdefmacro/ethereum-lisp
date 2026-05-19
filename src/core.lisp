@@ -3011,6 +3011,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor make-engine-block-filter (&key last-block-number)))
   (last-block-number 0 :type (integer 0 *)))
 
+(defstruct (engine-pending-transaction-filter
+            (:constructor make-engine-pending-transaction-filter
+                (&key hashes)))
+  hashes)
+
 (defun engine-payload-store-key (hash)
   (unless (hash32-p hash)
     (block-validation-fail "Engine payload store key must be a hash32"))
@@ -3084,6 +3089,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (engine-payload-store-key (transaction-hash transaction))
          (engine-payload-memory-store-pending-transactions store))
         transaction)
+  (loop for filter
+          being the hash-values of
+            (engine-payload-memory-store-log-filters store)
+        when (typep filter 'engine-pending-transaction-filter)
+          do (setf (engine-pending-transaction-filter-hashes filter)
+                   (append
+                    (engine-pending-transaction-filter-hashes filter)
+                    (list (transaction-hash transaction)))))
   transaction)
 
 (defun engine-payload-store-pending-transaction (store hash)
@@ -3121,6 +3134,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (make-engine-block-filter
            :last-block-number
            (engine-payload-memory-store-head-number store)))
+    (incf (engine-payload-memory-store-next-log-filter-id store))
+    id))
+
+(defun engine-payload-store-put-pending-transaction-filter (store)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (let ((id (engine-payload-memory-store-next-log-filter-id store)))
+    (setf (gethash id (engine-payload-memory-store-log-filters store))
+          (make-engine-pending-transaction-filter))
     (incf (engine-payload-memory-store-next-log-filter-id store))
     id))
 
@@ -5314,6 +5336,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (prog1 (eth-rpc-json-array hashes)
       (setf (engine-block-filter-last-block-number block-filter) latest))))
 
+(defun engine-pending-transaction-filter-changes (pending-filter)
+  (let ((hashes (engine-pending-transaction-filter-hashes pending-filter)))
+    (prog1 (eth-rpc-json-array (mapcar #'hash32-to-hex hashes))
+      (setf (engine-pending-transaction-filter-hashes pending-filter) nil))))
+
 (defun engine-rpc-handle-eth-get-logs (params store)
   (let* ((method "eth_getLogs")
          (filter (eth-rpc-log-filter-object params method)))
@@ -5333,6 +5360,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "eth_newBlockFilter params must be empty"))
   (quantity-to-hex
    (engine-payload-store-put-block-filter store)))
+
+(defun engine-rpc-handle-eth-new-pending-transaction-filter (params store)
+  (when params
+    (block-validation-fail
+     "eth_newPendingTransactionFilter params must be empty"))
+  (quantity-to-hex
+   (engine-payload-store-put-pending-transaction-filter store)))
 
 (defun eth-rpc-filter-id-param (params method)
   (unless (= 1 (length params))
@@ -5358,6 +5392,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (engine-log-filter-changes filter store method))
       ((typep filter 'engine-block-filter)
        (engine-block-filter-changes filter store))
+      ((typep filter 'engine-pending-transaction-filter)
+       (engine-pending-transaction-filter-changes filter))
       (t
        (block-validation-fail "~A filter not found" method)))))
 
@@ -6176,6 +6212,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-new-block-filter params store)))
+              ((string= method "eth_newPendingTransactionFilter")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-new-pending-transaction-filter
+                 params store)))
               ((string= method "eth_getFilterLogs")
                (engine-rpc-response
                 id
