@@ -106,12 +106,16 @@
         (tags (fixture-object-field case "tags")))
     (unless (and (listp tags) tags)
       (error "State root fixture case ~A must include non-empty tags" name))
-    (dolist (tag tags)
-      (unless (and (stringp tag)
-                   (member tag +state-root-fixture-known-tags+
-                           :test #'string=))
-        (error "State root fixture case ~A has unknown tag ~A" name tag))
-      (setf (gethash tag seen-tags) t))))
+    (let ((case-tags (make-hash-table :test 'equal)))
+      (dolist (tag tags)
+        (when (gethash tag case-tags)
+          (error "State root fixture case ~A has duplicate tag ~A" name tag))
+        (setf (gethash tag case-tags) t)
+        (unless (and (stringp tag)
+                     (member tag +state-root-fixture-known-tags+
+                             :test #'string=))
+          (error "State root fixture case ~A has unknown tag ~A" name tag))
+        (setf (gethash tag seen-tags) t)))))
 
 (defun validate-state-root-fixture-operation-shape (operation)
   (unless (listp operation)
@@ -536,6 +540,13 @@
     (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-tag")
            (cons "tags" (list "unknown"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "duplicate-tag")
+           (cons "tags" (list "account-root" "account-root"))
            (cons "operations" nil)
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))

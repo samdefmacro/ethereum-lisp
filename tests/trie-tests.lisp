@@ -106,12 +106,16 @@
         (tags (fixture-object-field case "tags")))
     (unless (and (listp tags) tags)
       (error "Trie fixture case ~A must include non-empty tags" name))
-    (dolist (tag tags)
-      (unless (and (stringp tag)
-                   (member tag +trie-fixture-known-tags+
-                           :test #'string=))
-        (error "Trie fixture case ~A has unknown tag ~A" name tag))
-      (setf (gethash tag seen-tags) t))))
+    (let ((case-tags (make-hash-table :test 'equal)))
+      (dolist (tag tags)
+        (when (gethash tag case-tags)
+          (error "Trie fixture case ~A has duplicate tag ~A" name tag))
+        (setf (gethash tag case-tags) t)
+        (unless (and (stringp tag)
+                     (member tag +trie-fixture-known-tags+
+                             :test #'string=))
+          (error "Trie fixture case ~A has unknown tag ~A" name tag))
+        (setf (gethash tag seen-tags) t)))))
 
 (defun validate-trie-fixture-key-fields (object label)
   (let ((has-hex (fixture-field-present-p object "keyHex"))
@@ -665,6 +669,13 @@
            (cons "expectedMissing"
                  (list (list (cons "keyAscii" "dog")
                              (cons "proof" nil))))))))
+
+(deftest trie-fixture-tag-validation-rejects-duplicates
+  (signals error
+    (validate-trie-fixture-case-tags
+     (list (cons "name" "duplicate-tag")
+           (cons "tags" (list "leaf-root" "leaf-root")))
+     (make-hash-table :test 'equal))))
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json
