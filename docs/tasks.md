@@ -512,7 +512,9 @@ splits can land after the Phase A smoke path closes.
     the RLP child-reference threshold: compact extension children remain
     embedded, while larger children are referenced by their 32-byte Keccak hash.
     Added hex-key trie fixture operations and a sparse root-branch vector that
-    asserts only the expected child slots are populated.
+    asserts only the expected child slots are populated. Added prefix-key
+    branch value coverage so a key ending at a branch preserves its value slot
+    while longer sibling keys remain under child references.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

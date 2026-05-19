@@ -42,6 +42,12 @@
                        index)
               collect index))))
 
+(defun trie-fixture-root-branch-value (trie)
+  (let ((root (mpt-root-node trie)))
+    (when (typep root 'ethereum-lisp.trie::branch-node)
+      (bytes-to-ascii
+       (ethereum-lisp.trie::branch-node-value root)))))
+
 (defun apply-trie-fixture-operation (trie operation)
   (let ((op (trie-fixture-object-field operation "op"))
         (key (or (let ((hex (trie-fixture-object-field operation "keyHex")))
@@ -114,4 +120,10 @@
                 (trie-fixture-object-field case "expectedRootChildren")))
           (when children
             (is (equal children
-                       (trie-fixture-root-children trie)))))))))
+                       (trie-fixture-root-children trie)))))
+        (let ((branch-value
+                (trie-fixture-object-field case
+                                           "expectedRootValueAscii")))
+          (when branch-value
+            (is (string= branch-value
+                         (trie-fixture-root-branch-value trie)))))))))

@@ -72,6 +72,17 @@
       "expectedRoot": "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5",
       "expectedShape": "branch",
       "expectedRootChildren": [0, 15]
+    },
+    {
+      "name": "root-branch-value-for-prefix-key",
+      "operations": [
+        { "op": "put", "keyHex": "0x", "valueAscii": "root" },
+        { "op": "put", "keyHex": "0x10", "valueAscii": "child" }
+      ],
+      "expectedRoot": "0x322d957ebcabf5ba295218b9b8920a905f7da6078010c2228989ebcf004e43d8",
+      "expectedShape": "branch",
+      "expectedRootChildren": [1],
+      "expectedRootValueAscii": "root"
     }
   ]
 }
