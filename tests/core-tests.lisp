@@ -6213,6 +6213,134 @@
         (is (null (field uninstall-missing-response "result")))
         (is (search "\"result\":false" uninstall-missing-json))))))
 
+(deftest eth-rpc-block-filter
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (block-1
+             (make-block
+              :header (make-block-header :number 7
+                                         :timestamp 70
+                                         :gas-limit 30000000)))
+           (block-2
+             (make-block
+              :header (make-block-header :number 8
+                                         :timestamp 80
+                                         :gas-limit 30000000)))
+           (block-3
+             (make-block
+              :header (make-block-header :number 10
+                                         :timestamp 100
+                                         :gas-limit 30000000))))
+      (engine-payload-store-put-block store block-1 :state-available-p t)
+      (let* ((new-filter-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":80,\"method\":\"eth_newBlockFilter\"}"
+                 store
+                 config)))
+             (filter-id (field new-filter-response "result"))
+             (initial-changes-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":81,"
+                 "\"method\":\"eth_getFilterChanges\","
+                 "\"params\":[\"" filter-id "\"]}")
+                store
+                config))
+             (first-changes-response
+               (progn
+                 (engine-payload-store-put-block
+                  store block-2 :state-available-p t)
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   (concatenate
+                    'string
+                    "{\"jsonrpc\":\"2.0\",\"id\":82,"
+                    "\"method\":\"eth_getFilterChanges\","
+                    "\"params\":[\"" filter-id "\"]}")
+                   store
+                   config))))
+             (first-changes (field first-changes-response "result"))
+             (empty-changes-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":83,"
+                 "\"method\":\"eth_getFilterChanges\","
+                 "\"params\":[\"" filter-id "\"]}")
+                store
+                config))
+             (second-changes-response
+               (progn
+                 (engine-payload-store-put-block
+                  store block-3 :state-available-p t)
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   (concatenate
+                    'string
+                    "{\"jsonrpc\":\"2.0\",\"id\":84,"
+                    "\"method\":\"eth_getFilterChanges\","
+                    "\"params\":[\"" filter-id "\"]}")
+                   store
+                   config))))
+             (second-changes (field second-changes-response "result"))
+             (get-logs-error-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":85,"
+                  "\"method\":\"eth_getFilterLogs\","
+                  "\"params\":[\"" filter-id "\"]}")
+                 store
+                 config)))
+             (uninstall-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":86,"
+                  "\"method\":\"eth_uninstallFilter\","
+                  "\"params\":[\"" filter-id "\"]}")
+                 store
+                 config)))
+             (missing-changes-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":87,"
+                  "\"method\":\"eth_getFilterChanges\","
+                  "\"params\":[\"" filter-id "\"]}")
+                 store
+                 config)))
+             (invalid-new-filter-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":88,\"method\":\"eth_newBlockFilter\",\"params\":[\"unexpected\"]}"
+                 store
+                 config))))
+        (is (string= (quantity-to-hex 1) filter-id))
+        (is (search "\"result\":[]" initial-changes-json))
+        (is (= 1 (length first-changes)))
+        (is (string= (hash32-to-hex (block-hash block-2))
+                     (first first-changes)))
+        (is (search "\"result\":[]" empty-changes-json))
+        (is (= 1 (length second-changes)))
+        (is (string= (hash32-to-hex (block-hash block-3))
+                     (first second-changes)))
+        (is (= -32602
+               (field (field get-logs-error-response "error") "code")))
+        (is (eq t (field uninstall-response "result")))
+        (is (= -32602
+               (field (field missing-changes-response "error") "code")))
+        (is (= -32602
+               (field (field invalid-new-filter-response "error")
+                      "code")))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

@@ -3007,6 +3007,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   last-block-number
   (block-hash-consumed-p nil :type boolean))
 
+(defstruct (engine-block-filter
+            (:constructor make-engine-block-filter (&key last-block-number)))
+  (last-block-number 0 :type (integer 0 *)))
+
 (defun engine-payload-store-key (hash)
   (unless (hash32-p hash)
     (block-validation-fail "Engine payload store key must be a hash32"))
@@ -3106,6 +3110,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((id (engine-payload-memory-store-next-log-filter-id store)))
     (setf (gethash id (engine-payload-memory-store-log-filters store))
           (make-engine-log-filter :criteria filter))
+    (incf (engine-payload-memory-store-next-log-filter-id store))
+    id))
+
+(defun engine-payload-store-put-block-filter (store)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (let ((id (engine-payload-memory-store-next-log-filter-id store)))
+    (setf (gethash id (engine-payload-memory-store-log-filters store))
+          (make-engine-block-filter
+           :last-block-number
+           (engine-payload-memory-store-head-number store)))
     (incf (engine-payload-memory-store-next-log-filter-id store))
     id))
 
@@ -5288,6 +5303,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (setf (engine-log-filter-last-block-number log-filter)
                     (max (or cursor 0) to-number))))))))
 
+(defun engine-block-filter-changes (block-filter store)
+  (let* ((cursor (engine-block-filter-last-block-number block-filter))
+         (latest (engine-payload-memory-store-head-number store))
+         (hashes (loop for number from (1+ cursor) to latest
+                       for block =
+                         (engine-payload-store-block-by-number store number)
+                       when block
+                         collect (hash32-to-hex (block-hash block)))))
+    (prog1 (eth-rpc-json-array hashes)
+      (setf (engine-block-filter-last-block-number block-filter) latest))))
+
 (defun engine-rpc-handle-eth-get-logs (params store)
   (let* ((method "eth_getLogs")
          (filter (eth-rpc-log-filter-object params method)))
@@ -5302,6 +5328,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (quantity-to-hex
      (engine-payload-store-put-log-filter store filter))))
 
+(defun engine-rpc-handle-eth-new-block-filter (params store)
+  (when params
+    (block-validation-fail "eth_newBlockFilter params must be empty"))
+  (quantity-to-hex
+   (engine-payload-store-put-block-filter store)))
+
 (defun eth-rpc-filter-id-param (params method)
   (unless (= 1 (length params))
     (block-validation-fail "~A params must contain exactly one filter id"
@@ -5312,7 +5344,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((method "eth_getFilterLogs")
          (id (eth-rpc-filter-id-param params method))
          (log-filter (engine-payload-store-log-filter store id)))
-    (unless log-filter
+    (unless (typep log-filter 'engine-log-filter)
       (block-validation-fail "~A filter not found" method))
     (eth-rpc-filter-logs
      (engine-log-filter-criteria log-filter) store method)))
@@ -5320,10 +5352,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-eth-get-filter-changes (params store)
   (let* ((method "eth_getFilterChanges")
          (id (eth-rpc-filter-id-param params method))
-         (log-filter (engine-payload-store-log-filter store id)))
-    (unless log-filter
-      (block-validation-fail "~A filter not found" method))
-    (engine-log-filter-changes log-filter store method)))
+         (filter (engine-payload-store-log-filter store id)))
+    (cond
+      ((typep filter 'engine-log-filter)
+       (engine-log-filter-changes filter store method))
+      ((typep filter 'engine-block-filter)
+       (engine-block-filter-changes filter store))
+      (t
+       (block-validation-fail "~A filter not found" method)))))
 
 (defun engine-rpc-handle-eth-uninstall-filter (params store)
   (let* ((method "eth_uninstallFilter")
@@ -6135,6 +6171,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-new-filter params store)))
+              ((string= method "eth_newBlockFilter")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-new-block-filter params store)))
               ((string= method "eth_getFilterLogs")
                (engine-rpc-response
                 id
