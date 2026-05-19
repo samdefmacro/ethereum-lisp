@@ -674,6 +674,11 @@ splits can land after the Phase A smoke path closes.
     state-root runner now checks the top-level wrapper, source metadata, case
     and operation field sets, expected storage roots, and expected account
     projections before replaying state operations.
+    Added semantic coverage tags to state-root fixture cases plus runner-side
+    guards for duplicate case names, unknown tags, and required secure-state
+    coverage. State-root fixtures now fail early if empty state, account root,
+    storage root/delete/prune, code root/delete/prune, multi-account, account
+    projection, or storage-root projection coverage is dropped.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

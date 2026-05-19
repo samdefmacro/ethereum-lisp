@@ -10,11 +10,13 @@
   "cases": [
     {
       "name": "empty-state-root",
+      "tags": ["empty-state-root"],
       "operations": [],
       "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
     },
     {
       "name": "single-account-nonce-balance-root",
+      "tags": ["account-root"],
       "operations": [
         {
           "op": "setAccount",
@@ -27,6 +29,7 @@
     },
     {
       "name": "single-account-storage-root",
+      "tags": ["account-root", "storage-root", "storage-root-projection"],
       "operations": [
         {
           "op": "setAccount",
@@ -50,6 +53,7 @@
     },
     {
       "name": "storage-created-account-prunes-to-empty-root",
+      "tags": ["storage-root", "storage-delete", "storage-prune"],
       "operations": [
         {
           "op": "setStorage",
@@ -68,6 +72,7 @@
     },
     {
       "name": "storage-delete-keeps-funded-account-root",
+      "tags": ["account-root", "storage-root", "storage-delete", "storage-root-projection"],
       "operations": [
         {
           "op": "setAccount",
@@ -97,6 +102,7 @@
     },
     {
       "name": "single-code-account-root",
+      "tags": ["code-root"],
       "operations": [
         {
           "op": "setCode",
@@ -108,6 +114,7 @@
     },
     {
       "name": "code-created-account-prunes-to-empty-root",
+      "tags": ["code-root", "code-delete", "code-prune"],
       "operations": [
         {
           "op": "setCode",
@@ -124,6 +131,7 @@
     },
     {
       "name": "code-delete-keeps-funded-account-root",
+      "tags": ["account-root", "code-root", "code-delete"],
       "operations": [
         {
           "op": "setAccount",
@@ -145,6 +153,14 @@
     },
     {
       "name": "multi-account-secure-state-root",
+      "tags": [
+        "multi-account",
+        "account-root",
+        "storage-root",
+        "storage-root-projection",
+        "code-root",
+        "account-projection"
+      ],
       "operations": [
         {
           "op": "setAccount",

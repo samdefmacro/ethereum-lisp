@@ -11,6 +11,7 @@
 
 (defparameter +state-root-fixture-case-fields+
   '("name"
+    "tags"
     "operations"
     "expectedRoot"
     "expectedStorageRoots"
@@ -24,6 +25,32 @@
 
 (defparameter +state-root-fixture-account-fields+
   '("address" "nonce" "balance" "storageRoot" "codeHash" "rlp"))
+
+(defparameter +state-root-fixture-known-tags+
+  '("empty-state-root"
+    "account-root"
+    "storage-root"
+    "storage-delete"
+    "storage-prune"
+    "storage-root-projection"
+    "code-root"
+    "code-delete"
+    "code-prune"
+    "multi-account"
+    "account-projection"))
+
+(defparameter +state-root-fixture-required-tags+
+  '("empty-state-root"
+    "account-root"
+    "storage-root"
+    "storage-delete"
+    "storage-prune"
+    "storage-root-projection"
+    "code-root"
+    "code-delete"
+    "code-prune"
+    "multi-account"
+    "account-projection"))
 
 (defun validate-state-root-fixture-object-fields
     (object allowed-fields label)
@@ -57,6 +84,27 @@
 
 (defun validate-state-root-fixture-address (operation)
   (address-from-hex (fixture-required-field operation "address")))
+
+(defun validate-state-root-fixture-case-name (case seen-names)
+  (let ((name (fixture-object-field case "name")))
+    (when (blank-string-p name)
+      (error "State root fixture case name must be present"))
+    (let ((previous (gethash name seen-names)))
+      (when previous
+        (error "Duplicate state root fixture case name: ~A" name)))
+    (setf (gethash name seen-names) t)))
+
+(defun validate-state-root-fixture-case-tags (case seen-tags)
+  (let ((name (fixture-object-field case "name"))
+        (tags (fixture-object-field case "tags")))
+    (unless (and (listp tags) tags)
+      (error "State root fixture case ~A must include non-empty tags" name))
+    (dolist (tag tags)
+      (unless (and (stringp tag)
+                   (member tag +state-root-fixture-known-tags+
+                           :test #'string=))
+        (error "State root fixture case ~A has unknown tag ~A" name tag))
+      (setf (gethash tag seen-tags) t))))
 
 (defun validate-state-root-fixture-operation-shape (operation)
   (unless (listp operation)
@@ -116,6 +164,7 @@
    "State root fixture case")
   (when (blank-string-p (fixture-required-field case "name"))
     (error "State root fixture case name must be present"))
+  (validate-state-root-fixture-case-tags case (make-hash-table :test 'equal))
   (let ((operations (fixture-required-field case "operations")))
     (unless (listp operations)
       (error "State root fixture case operations must be a JSON array"))
@@ -140,8 +189,16 @@
 (defun validate-state-root-fixture-cases (cases)
   (unless (listp cases)
     (error "State root fixture cases must be a JSON array"))
-  (dolist (case cases)
-    (validate-state-root-fixture-case-shape case)))
+  (let ((seen-names (make-hash-table :test 'equal))
+        (seen-tags (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (validate-state-root-fixture-case-name case seen-names)
+      (validate-state-root-fixture-case-tags case seen-tags)
+      (validate-state-root-fixture-case-shape case))
+    (dolist (tag +state-root-fixture-required-tags+)
+      (unless (gethash tag seen-tags)
+        (error "State root fixture is missing required coverage tag ~A"
+               tag)))))
 
 (defun apply-state-root-fixture-operation (state operation)
   (let* ((op (fixture-object-field operation "op"))
@@ -331,6 +388,7 @@
   (let ((valid-case
           (list
            (cons "name" "valid-shape")
+           (cons "tags" (list "account-root" "storage-root" "code-root"))
            (cons "operations"
                  (list
                   (list (cons "op" "setAccount")
@@ -380,6 +438,7 @@
   (signals error
     (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-operation-field")
+           (cons "tags" (list "account-root"))
            (cons "operations"
                  (list (list (cons "op" "setAccount")
                              (cons "address"
@@ -391,6 +450,7 @@
   (signals error
     (validate-state-root-fixture-case-shape
      (list (cons "name" "bad-storage-root-shape")
+           (cons "tags" (list "storage-root-projection"))
            (cons "operations" nil)
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
@@ -401,6 +461,7 @@
   (signals error
     (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-account-field")
+           (cons "tags" (list "account-projection"))
            (cons "operations" nil)
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
@@ -409,6 +470,34 @@
                                    "0x0000000000000000000000000000000000000001")
                              (cons "balance" 1)
                              (cons "storage" nil)))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "unknown-tag")
+           (cons "tags" (list "unknown"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-cases
+     (list
+      (list (cons "name" "duplicate")
+            (cons "tags" +state-root-fixture-required-tags+)
+            (cons "operations" nil)
+            (cons "expectedRoot"
+                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))
+      (list (cons "name" "duplicate")
+            (cons "tags" +state-root-fixture-required-tags+)
+            (cons "operations" nil)
+            (cons "expectedRoot"
+                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")))))
+  (signals error
+    (validate-state-root-fixture-cases
+     (list
+      (list (cons "name" "missing-required-coverage")
+            (cons "tags" (list "empty-state-root"))
+            (cons "operations" nil)
+            (cons "expectedRoot"
+                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")))))
   (signals error
     (validate-state-root-fixture-operation-shape
      (list (cons "op" "setAccount")
