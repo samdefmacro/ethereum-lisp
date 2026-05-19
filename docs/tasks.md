@@ -387,6 +387,13 @@ splits can land after the Phase A smoke path closes.
     production service constructor choose the execution importer by default
     once package layering is settled, and lift this smoke to a pinned fixture
     runner case that also drives forkchoice/canonical/public-RPC checks.
+  - Progress: made the production Engine HTTP service constructor default to
+    the executable payload importer when the execution package is loaded,
+    while retaining an explicit `:import-function nil` compatibility escape
+    hatch. The service configuration test now asserts the default importer is
+    present. Remaining work: lift the one-transaction smoke to a pinned
+    fixture runner case that also drives forkchoice/canonical/public-RPC
+    checks.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

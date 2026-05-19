@@ -662,9 +662,12 @@ gas-used mismatches with `latestValidHash` pointing at the known parent. That
 import hook is now threaded through parsed
 JSON-RPC objects, request strings, HTTP request strings, stream handling, and
 the HTTP service configuration, so configured services can execute
-ready-parent `engine_newPayload` imports while the default compatibility path
-still only stores payloads. A parsed JSON-RPC object dispatcher can now route
-`engine_newPayloadV1` through `engine_newPayloadV5` calls into that store and
+ready-parent `engine_newPayload` imports. The production Engine HTTP service
+constructor now selects that executable importer by default when the execution
+package is loaded, while direct request helpers can still run the compatibility
+store-only path by omitting an importer. A parsed JSON-RPC object dispatcher
+can now route `engine_newPayloadV1` through `engine_newPayloadV5` calls into
+that store and
 return Engine-style payload status result objects. The same core can now encode
 single and batch JSON-RPC response strings for request-string entry points,
 and advertises the currently implemented `engine_newPayloadV1` through

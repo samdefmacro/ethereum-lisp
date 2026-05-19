@@ -9448,6 +9448,8 @@ Content-Length: 4
                    (engine-rpc-http-service-endpoint default-service)))
       (is (string= "127.0.0.1:8551"
                    (engine-rpc-http-service-endpoint service)))
+      (is (functionp
+           (engine-rpc-http-service-import-function default-service)))
       (is (typep (engine-rpc-http-service-store service)
                  'engine-payload-memory-store))
       (is (typep (engine-rpc-http-service-config service) 'chain-config))

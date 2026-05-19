@@ -7067,6 +7067,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   accept-function
   close-function)
 
+(defun engine-rpc-default-import-function ()
+  (let* ((package (find-package "ETHEREUM-LISP.EXECUTION"))
+         (symbol (and package
+                      (find-symbol "EXECUTE-AND-COMMIT-ENGINE-PAYLOAD"
+                                   package))))
+    (when (and symbol (fboundp symbol))
+      (symbol-function symbol))))
+
 (defun make-engine-rpc-http-service
     (&key
        (host +engine-rpc-default-http-host+)
@@ -7075,7 +7083,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (config (make-chain-config))
        jwt-secret
        (now-provider (lambda () 0))
-       import-function)
+       (import-function (engine-rpc-default-import-function)))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
   (unless (and (integerp port) (<= 0 port 65535))
