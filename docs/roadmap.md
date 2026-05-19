@@ -657,7 +657,9 @@ The execution layer now has a narrow Engine payload import helper that runs
 ready-parent payload blocks through the signed block atomic commit path, and
 the memory `newPayload` status path can inject that importer and translate
 post-execution commitment failures into Engine `INVALID` status without
-storing the bad block. That import hook is now threaded through parsed
+storing the bad block; tests cover state-root, receipts-root, logs-bloom, and
+gas-used mismatches with `latestValidHash` pointing at the known parent. That
+import hook is now threaded through parsed
 JSON-RPC objects, request strings, HTTP request strings, stream handling, and
 the HTTP service configuration, so configured services can execute
 ready-parent `engine_newPayload` imports while the default compatibility path

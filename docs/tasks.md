@@ -388,7 +388,7 @@ splits can land after the Phase A smoke path closes.
     once package layering is settled, and lift this smoke to a pinned fixture
     runner case that also drives forkchoice/canonical/public-RPC checks.
 
-- [ ] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
+- [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
   - Milestone: 7
   - Dependencies: `ENGINE-EXECUTE-NEWPAYLOAD`.
@@ -397,6 +397,11 @@ splits can land after the Phase A smoke path closes.
     invalid-ancestor cache model.
   - Validation: add invalid payload status tests and run
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: covered all four post-execution commitment mismatch classes on
+    the executable Engine import path. Bad state root, receipts root, logs
+    bloom, and gas used now each return `INVALID`, report the specific
+    validation error, set `latestValidHash` to the known parent, avoid storing
+    the bad block, and cache it as invalid.
 
 - [x] `ENGINE-PERSIST-EXECUTED-BLOCK`: Persist block receipts and state
   snapshots from executed Engine payloads.
