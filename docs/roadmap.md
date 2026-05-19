@@ -683,7 +683,9 @@ pending-transaction placeholder, and returns the transaction hash; locally
 submitted pending raw bytes are also visible through
 `eth_getRawTransactionByHash`, while `eth_getTransactionByHash` now returns a
 geth-style pending transaction object with null block location metadata for
-those locally submitted transactions. `eth_pendingTransactions` exposes the
+those locally submitted transactions; when a later retained block contains the
+same transaction hash, the local pending placeholder is removed and mined
+lookup metadata takes over. `eth_pendingTransactions` exposes the
 same local pending placeholder as a deterministic hash-sorted array of pending
 transaction objects, and `txpool_status` reports the local pending count with
 zero queued transactions until a queued pool exists. `txpool_content` now

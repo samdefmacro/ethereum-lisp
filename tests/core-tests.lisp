@@ -5653,6 +5653,12 @@
                          :s 2))
            (raw-transaction (bytes-to-hex (transaction-encoding transaction)))
            (transaction-hash (hash32-to-hex (transaction-hash transaction)))
+           (mined-block
+             (make-block
+              :header (make-block-header :number 15
+                                         :timestamp 150
+                                         :gas-limit 30000000)
+              :transactions (list transaction)))
            (config (make-chain-config)))
       (let* ((new-pending-filter-response
                (parse-json
@@ -5886,6 +5892,44 @@
                                (address-to-hex recipient))
                        summary))
           (is (search "\"queued\":{}" txpool-inspect-json)))
+        (engine-payload-store-put-block store mined-block)
+        (let* ((mined-transaction-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   (concatenate
+                    'string
+                    "{\"jsonrpc\":\"2.0\",\"id\":82,"
+                    "\"method\":\"eth_getTransactionByHash\","
+                    "\"params\":[\"" transaction-hash "\"]}")
+                   store
+                   config)))
+               (post-mined-pending-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":83,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                   store
+                   config)))
+               (post-mined-status-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":84,\"method\":\"txpool_status\",\"params\":[]}"
+                   store
+                   config)))
+               (mined-transaction
+                 (field mined-transaction-response "result"))
+               (post-mined-status
+                 (field post-mined-status-response "result")))
+          (is (string= transaction-hash
+                       (field mined-transaction "hash")))
+          (is (string= (hash32-to-hex (block-hash mined-block))
+                       (field mined-transaction "blockHash")))
+          (is (string= (quantity-to-hex 15)
+                       (field mined-transaction "blockNumber")))
+          (is (string= (quantity-to-hex 0)
+                       (field mined-transaction "transactionIndex")))
+          (is (= 0 (length (field post-mined-pending-response "result"))))
+          (is (string= (quantity-to-hex 0)
+                       (field post-mined-status "pending"))))
         (is (= -32602
                (field (field invalid-rlp-response "error") "code")))
         (is (= -32602

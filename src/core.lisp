@@ -3047,16 +3047,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           for transaction in (block-transactions block)
           for index from 0
           for receipt = (nth index receipts)
+          for transaction-key =
+            (engine-payload-store-key (transaction-hash transaction))
           do (progn
-               (setf (gethash
-                      (engine-payload-store-key (transaction-hash transaction))
-                      (engine-payload-memory-store-transaction-locations store))
+               (setf (gethash transaction-key
+                              (engine-payload-memory-store-transaction-locations
+                               store))
                      (make-engine-transaction-location
                       :block block
                       :index index
                       :transaction transaction
                       :receipt receipt
                       :log-index-start log-index-start))
+               (remhash transaction-key
+                        (engine-payload-memory-store-pending-transactions
+                         store))
                (when receipt
                  (incf log-index-start
                        (length (receipt-logs receipt))))))
