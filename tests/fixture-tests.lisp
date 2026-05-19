@@ -31,6 +31,16 @@
         (error "Fixture body should not run when the root is absent: ~S"
                root)))))
 
+(deftest execution-spec-tests-transaction-root-discovers-known-layouts
+  (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
+        (geth-root (probe-file "tests/fixtures/geth-spec-tests-root/")))
+    (is (execution-spec-tests-transaction-test-root direct-root))
+    (is (execution-spec-tests-transaction-test-root geth-root))))
+
+(deftest execution-spec-tests-transaction-root-ignores-missing-layout
+  (is (null (execution-spec-tests-transaction-test-root
+             (probe-file "tests/fixtures/execution-spec-tests/")))))
+
 (deftest pinned-execution-spec-tests-source-validation
   (flet ((fixture (source)
            (list (cons "executionSpecTests" source))))

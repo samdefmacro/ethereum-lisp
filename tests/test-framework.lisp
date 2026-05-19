@@ -11,6 +11,7 @@
    #:test-skipped-reason
    #:skip-test
    #:execution-spec-tests-fixture-root
+   #:execution-spec-tests-transaction-test-root
    #:with-execution-spec-tests-fixture-root))
 
 (in-package #:ethereum-lisp.test)
@@ -26,6 +27,10 @@
 
 (defparameter +phase-a-eest-source-fields+
   '("release" "tagTarget" "archive" "status"))
+
+(defparameter +execution-spec-tests-transaction-test-subdirs+
+  '("fixtures/transaction_tests/"
+    "spec-tests/fixtures/transaction_tests/"))
 
 (defun default-environment-reader (name)
   #+sbcl (sb-ext:posix-getenv name)
@@ -114,6 +119,17 @@
   (let ((value (funcall *fixture-root-environment-reader* env-var)))
     (unless (blank-string-p value)
       (probe-file value))))
+
+(defun execution-spec-tests-subdirectory (root subdir)
+  (probe-file (merge-pathnames subdir (pathname root))))
+
+(defun execution-spec-tests-transaction-test-root (&optional root)
+  (let ((base (or root (execution-spec-tests-fixture-root))))
+    (when base
+      (dolist (subdir +execution-spec-tests-transaction-test-subdirs+)
+        (let ((candidate (execution-spec-tests-subdirectory base subdir)))
+          (when candidate
+            (return candidate)))))))
 
 (defmacro with-execution-spec-tests-fixture-root ((root) &body body)
   `(let ((,root (execution-spec-tests-fixture-root)))

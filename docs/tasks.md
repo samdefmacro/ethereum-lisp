@@ -293,6 +293,11 @@ ones.
     The Phase A target fork is now checked directly for every transaction
     envelope vector, while blob and set-code vectors still assert their
     Cancun/Prague activation boundaries.
+  - Progress: added transaction-test fixture root discovery for pinned EEST
+    layouts. The harness now detects both unpacked EEST archive roots
+    (`fixtures/transaction_tests`) and geth-style checked-out spec-test roots
+    (`spec-tests/fixtures/transaction_tests`), which prepares the next slice to
+    load real pinned transaction vectors instead of seed vectors.
 
 ## P0: Module Boundaries
 
