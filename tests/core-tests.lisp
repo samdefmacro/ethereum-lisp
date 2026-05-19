@@ -2773,11 +2773,32 @@
            (config (make-chain-config))
            (known-block (make-block))
            (known-hash (block-hash known-block))
+           (finalized-block
+             (make-block
+              :header (make-block-header :number 30
+                                         :timestamp 30
+                                         :gas-limit 30000000)))
+           (safe-block
+             (make-block
+              :header (make-block-header :number 31
+                                         :timestamp 31
+                                         :gas-limit 30000000)))
+           (head-block
+             (make-block
+              :header (make-block-header :number 32
+                                         :timestamp 32
+                                         :gas-limit 30000000)))
            (unknown-hash
              (hash32-from-hex
               "0x1111111111111111111111111111111111111111111111111111111111111111")))
       (engine-payload-store-put-block
        store known-block :state-available-p t)
+      (engine-payload-store-put-block
+       store finalized-block :state-available-p t)
+      (engine-payload-store-put-block
+       store safe-block :state-available-p t)
+      (engine-payload-store-put-block
+       store head-block :state-available-p t)
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -2830,6 +2851,39 @@
                        (field payload "parentHash")))
           (is (= 1 (hex-to-quantity (field payload "blockNumber"))))
           (is (not (field payload "transactions"))))
+        (let* ((checkpoint-response
+                 (engine-rpc-handle-request
+                  (forkchoice-request
+                   28
+                   (forkchoice-state-object
+                    (block-hash head-block)
+                    :safe (block-hash safe-block)
+                    :finalized (block-hash finalized-block)))
+                  store
+                  config))
+               (checkpoint-status
+                 (field (field checkpoint-response "result") "payloadStatus"))
+               (safe-header-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":29,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"safe\"]}"
+                   store
+                   config)))
+               (finalized-header-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"finalized\"]}"
+                   store
+                   config))))
+          (is (= 28 (field checkpoint-response "id")))
+          (is (string= +payload-status-valid+
+                       (field checkpoint-status "status")))
+          (is (string= (quantity-to-hex 31)
+                       (field (field safe-header-response "result")
+                              "number")))
+          (is (string= (quantity-to-hex 30)
+                       (field (field finalized-header-response "result")
+                              "number"))))
       (let* ((get-payload-response
                (engine-rpc-handle-request
                 (list (cons "jsonrpc" "2.0")

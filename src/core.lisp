@@ -2966,7 +2966,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (blob-sidecars (make-hash-table :test 'equal))
                       (pending-transactions (make-hash-table :test 'equal))
                       (log-filters (make-hash-table :test 'eql))
-                      (next-log-filter-id 1))))
+                      (next-log-filter-id 1)
+                      safe-block-hash
+                      finalized-block-hash)))
   blocks
   number-blocks
   transaction-locations
@@ -2982,7 +2984,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   blob-sidecars
   pending-transactions
   log-filters
-  (next-log-filter-id 1 :type (integer 1 *)))
+  (next-log-filter-id 1 :type (integer 1 *))
+  safe-block-hash
+  finalized-block-hash)
 
 (defstruct (engine-transaction-location
             (:constructor make-engine-transaction-location
@@ -3065,6 +3069,38 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (store hash)
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-blocks store)))
+
+(defun engine-payload-store-checkpoint-number (store hash)
+  (let ((block (and hash (engine-payload-store-known-block store hash))))
+    (if block
+        (block-header-number (block-header block))
+        (engine-payload-memory-store-head-number store))))
+
+(defun engine-payload-store-block-tag-number (store tag)
+  (cond
+    ((or (string= tag "latest") (string= tag "pending"))
+     (engine-payload-memory-store-head-number store))
+    ((string= tag "safe")
+     (engine-payload-store-checkpoint-number
+      store
+      (engine-payload-memory-store-safe-block-hash store)))
+    ((string= tag "finalized")
+     (engine-payload-store-checkpoint-number
+      store
+      (engine-payload-memory-store-finalized-block-hash store)))))
+
+(defun engine-payload-store-forkchoice-checkpoint-hash (hash)
+  (unless (hash32= hash (zero-hash32))
+    hash))
+
+(defun engine-payload-store-update-forkchoice-checkpoints (store state)
+  (setf (engine-payload-memory-store-safe-block-hash store)
+        (engine-payload-store-forkchoice-checkpoint-hash
+         (forkchoice-state-safe-block-hash state))
+        (engine-payload-memory-store-finalized-block-hash store)
+        (engine-payload-store-forkchoice-checkpoint-hash
+         (forkchoice-state-finalized-block-hash state)))
+  store)
 
 (defun engine-payload-store-block-by-number (store number)
   (unless (and (integerp number) (not (minusp number)))
@@ -4140,7 +4176,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((value (engine-rpc-required-param params 1 "newest block" method)))
     (cond
       ((eth-rpc-head-block-tag-p value)
-       (engine-payload-memory-store-head-number store))
+       (engine-payload-store-block-tag-number store value))
       ((and (stringp value) (string= value "earliest")) 0)
       ((and (stringp value) (genesis-hex-quantity-string-p value))
        (parse-genesis-quantity value "newest block" :required-p t))
@@ -4357,7 +4393,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((value (first params)))
     (cond
       ((eth-rpc-head-block-tag-p value)
-       (engine-payload-memory-store-head-number store))
+       (engine-payload-store-block-tag-number store value))
       ((and (stringp value) (string= value "earliest")) 0)
       ((and (stringp value)
             (genesis-hex-quantity-string-p value))
@@ -5808,7 +5844,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (when checkpoint-error
             (engine-rpc-fail
              +engine-rpc-error-invalid-forkchoice-state+
-             checkpoint-error))))
+             checkpoint-error)))
+        (engine-payload-store-update-forkchoice-checkpoints store state))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))
