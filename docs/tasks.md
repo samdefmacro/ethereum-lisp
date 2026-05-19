@@ -573,6 +573,11 @@ splits can land after the Phase A smoke path closes.
     and storage for the imported block hash. Remaining work: wire
     `execute-and-commit-block` into Engine `newPayload` and enforce signed
     sender recovery on that path.
+  - Progress: added an Engine `newPayloadV2` atomic rollback check for a
+    post-execution gas-used mismatch after a real signed transfer plus
+    withdrawal. The invalid import now asserts that the child block, state
+    availability marker, transaction lookup, and child account projection are
+    absent while the parent account projection remains intact.
 
 - [x] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.
