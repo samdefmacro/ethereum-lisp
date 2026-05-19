@@ -581,7 +581,7 @@ splits can land after the Phase A smoke path closes.
     state projection, and does not commit the child block, state availability,
     or transaction lookup index.
 
-- [ ] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
+- [~] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.
   - Milestone: 2 / 5
   - References: geth `core/types/receipt`, Reth receipt encoding, Nethermind
@@ -595,6 +595,18 @@ splits can land after the Phase A smoke path closes.
     rejected by config.
   - Validation: receipt fixture tests plus
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: added the first import-path receipt derivation check for
+    contract creation. Following geth's `state_processor.go` /
+    `types/receipt.go` behavior and Nethermind's receipt RPC shape, receipt
+    JSON now derives `contractAddress` from the recovered sender and
+    transaction nonce when `to` is `null`. A new Engine `newPayloadV2` test
+    imports a signed contract-creation payload, reads it through
+    `eth_getTransactionReceipt`, and asserts the expected created address,
+    `null` recipient, status, transaction hash, and block hash.
+    Remaining work: external-style typed receipt vectors for legacy,
+    EIP-2930, EIP-1559, and EIP-4844, plus import-path assertions for
+    cumulative gas monotonicity, log order, logs bloom membership, CREATE2
+    receipt behavior where applicable, and explicit pre-Byzantium exclusion.
 
 ## P0: EVM Correctness Gaps
 

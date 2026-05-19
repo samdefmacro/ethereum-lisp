@@ -122,6 +122,77 @@
     (setf (legacy-transaction-r tx) 0)
     (is (null (legacy-transaction-sender tx :expected-chain-id 1)))))
 
+(defun fixture-private-key-address (private-key)
+  (let* ((point
+           (ethereum-lisp.crypto::secp256k1-scalar-multiply
+            private-key
+            (ethereum-lisp.crypto::secp256k1-point
+             ethereum-lisp.crypto::+secp256k1-gx+
+             ethereum-lisp.crypto::+secp256k1-gy+)))
+         (public-key
+           (concat-bytes
+            (ethereum-lisp.crypto::integer-to-fixed-bytes
+             (ethereum-lisp.crypto::secp256k1-point-x point) 32)
+            (ethereum-lisp.crypto::integer-to-fixed-bytes
+             (ethereum-lisp.crypto::secp256k1-point-y point) 32)))
+         (hashed (keccak-256 public-key))
+         (bytes (make-byte-vector 20)))
+    (replace bytes hashed :start2 12)
+    (make-address bytes)))
+
+(defun fixture-sign-legacy-transaction (transaction private-key chain-id)
+  (let* ((n ethereum-lisp.crypto::+secp256k1-n+)
+         (half-n ethereum-lisp.crypto::+secp256k1-half-n+)
+         (generator
+           (ethereum-lisp.crypto::secp256k1-point
+            ethereum-lisp.crypto::+secp256k1-gx+
+            ethereum-lisp.crypto::+secp256k1-gy+))
+         (hash (legacy-transaction-signing-hash transaction
+                                                :chain-id chain-id))
+         (message (bytes-to-integer (hash32-bytes hash)))
+         (expected-sender (fixture-private-key-address private-key)))
+    (loop for k from 1 below 256
+          for r-point =
+            (ethereum-lisp.crypto::secp256k1-scalar-multiply k generator)
+          for r =
+            (mod (ethereum-lisp.crypto::secp256k1-point-x r-point) n)
+          for inverse-k = (ethereum-lisp.crypto::modular-inverse k n)
+          when (and (plusp r) inverse-k)
+            do (let* ((raw-s
+                        (mod (* (+ message (* r private-key)) inverse-k) n))
+                      (s raw-s)
+                      (y-parity
+                        (if (oddp
+                             (ethereum-lisp.crypto::secp256k1-point-y
+                              r-point))
+                            1
+                            0)))
+                 (when (plusp raw-s)
+                   (when (> s half-n)
+                     (setf s (- n s)
+                           y-parity (- 1 y-parity)))
+                   (let ((signed
+                           (make-legacy-transaction
+                            :nonce (legacy-transaction-nonce transaction)
+                            :gas-price
+                            (legacy-transaction-gas-price transaction)
+                            :gas-limit
+                            (legacy-transaction-gas-limit transaction)
+                            :to (legacy-transaction-to transaction)
+                            :value (legacy-transaction-value transaction)
+                            :data (legacy-transaction-data transaction)
+                            :v (+ 35 (* 2 chain-id) y-parity)
+                            :r r
+                            :s s)))
+                     (when (bytes=
+                            (address-bytes expected-sender)
+                            (address-bytes
+                             (legacy-transaction-sender
+                              signed :expected-chain-id chain-id)))
+                       (return signed)))))
+          finally
+            (error "Unable to sign legacy transaction fixture"))))
+
 (deftest typed-transaction-signing-hash-vectors
   (let ((empty-access
           (make-access-list-transaction :chain-id 1 :nonce 1))
@@ -3660,6 +3731,120 @@
           (is (= 0
                  (chain-store-account-balance
                   store (block-hash parent-block) recipient))))))))
+
+(deftest engine-rpc-new-payload-v2-receipt-contract-address
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (receipt-request (id hash)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getTransactionReceipt")
+                   (cons "params" (list (hash32-to-hex hash))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :london-block 0
+                                      :shanghai-time 0))
+           (private-key 1)
+           (sender (fixture-private-key-address private-key))
+           (fee-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000001"))
+           (withdrawal-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000002"))
+           ;; Store byte 0 in memory, then return it as one byte of runtime code.
+           (initcode #(96 0 96 0 83 96 1 96 0 243))
+           (transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 0
+                                       :gas-price 100
+                                       :gas-limit 80000
+                                       :to nil
+                                       :value 7
+                                       :data initcode)
+              private-key
+              1))
+           (contract
+             (make-address
+              (subseq
+               (keccak-256
+                (rlp-encode
+                 (make-rlp-list (address-bytes sender) 0)))
+               12 32)))
+           (withdrawal
+             (make-withdrawal :index 0
+                              :validator-index 1
+                              :address withdrawal-recipient
+                              :amount 1))
+           (parent-state (make-state-db)))
+      (state-db-set-account parent-state sender
+                            (make-state-account
+                             :nonce 0
+                             :balance 1000000000))
+      (let* ((parent-header
+               (make-block-header
+                :parent-hash (zero-hash32)
+                :beneficiary fee-recipient
+                :state-root (state-db-root parent-state)
+                :mix-hash (zero-hash32)
+                :number 41
+                :gas-limit 100000
+                :gas-used 50000
+                :timestamp 98
+                :base-fee-per-gas 100
+                :withdrawals-root (withdrawal-list-root '())))
+             (parent-block (make-block :header parent-header))
+             (execution-state (state-db-copy parent-state))
+             (child-block
+               (execute-signed-block
+                execution-state
+                (list transaction)
+                :expected-chain-id 1
+                :header (make-block-header
+                         :parent-hash (block-hash parent-block)
+                         :beneficiary fee-recipient
+                         :mix-hash (zero-hash32)
+                         :number 42
+                         :gas-limit 100000
+                         :gas-used 0
+                         :timestamp 99
+                         :base-fee-per-gas 100)
+                :chain-config config
+                :withdrawals (list withdrawal)))
+             (payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data child-block)))
+             (request
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 29)
+                     (cons "method" "engine_newPayloadV2")
+                     (cons "params"
+                           (list (engine-rpc-executable-data-object
+                                  payload))))))
+        (engine-payload-store-put-block
+         store parent-block :state-available-p t)
+        (commit-state-db-to-chain-store
+         store (block-hash parent-block) parent-state)
+        (let* ((import-response
+                 (engine-rpc-handle-request
+                  request store config
+                  :import-function #'execute-and-commit-engine-payload))
+               (import-result (field import-response "result"))
+               (receipt-response
+                 (engine-rpc-handle-request
+                  (receipt-request 30 (transaction-hash transaction))
+                  store config))
+               (receipt (field receipt-response "result")))
+          (is (string= +payload-status-valid+
+                       (field import-result "status")))
+          (is (string= (address-to-hex contract)
+                       (field receipt "contractAddress")))
+          (is (null (field receipt "to")))
+          (is (string= (quantity-to-hex 1) (field receipt "status")))
+          (is (string= (quantity-to-hex 0)
+                       (field receipt "transactionIndex")))
+          (is (string= (hash32-to-hex (transaction-hash transaction))
+                       (field receipt "transactionHash")))
+          (is (string= (hash32-to-hex (block-hash child-block))
+                       (field receipt "blockHash"))))))))
 
 (deftest engine-rpc-forkchoice-switches-executed-payload-visibility
   (labels ((field (object name)

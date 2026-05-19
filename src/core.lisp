@@ -5694,6 +5694,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (when transaction
     (bytes-to-hex (transaction-encoding transaction))))
 
+(defun eth-rpc-contract-creation-address (transaction sender)
+  (when (and (null (transaction-to transaction)) sender)
+    (let* ((hash (keccak-256
+                  (rlp-encode
+                   (make-rlp-list (address-bytes sender)
+                                  (transaction-nonce transaction)))))
+           (bytes (make-byte-vector 20)))
+      (replace bytes hash :start2 12)
+      (make-address bytes))))
+
 (defun eth-rpc-validate-set-code-authorization-signatures (transaction)
   (when (typep transaction 'set-code-transaction)
     (dolist (authorization (set-code-transaction-authorization-list transaction))
@@ -5768,7 +5778,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (cons "gasUsed"
                 (quantity-to-hex
                  (eth-rpc-receipt-gas-used receipt previous-receipt)))
-          (cons "contractAddress" nil)
+          (cons "contractAddress"
+                (eth-rpc-address-or-null
+                 (eth-rpc-contract-creation-address transaction from)))
           (cons "logs" logs)
           (cons "logsBloom"
                 (bytes-to-hex
