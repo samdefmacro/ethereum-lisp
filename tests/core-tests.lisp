@@ -4157,6 +4157,11 @@
                          (list
                           (list (cons "fromBlock" "latest")
                                 (cons "toBlock" "latest"))))))
+           (receipt-request (id hash)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getTransactionReceipt")
+                   (cons "params" (list (hash32-to-hex hash)))))
            (private-key-address (private-key)
              (let* ((point
                       (ethereum-lisp.crypto::secp256k1-scalar-multiply
@@ -4330,10 +4335,10 @@
              (branch-b-payload
                (execution-payload-envelope-execution-payload
                 (block-to-executable-data branch-b-block)))
-             (expected-topic
-               (hash32-to-hex
-                (hash32-from-hex
-                 "0x0000000000000000000000000000000000000000000000000000000000000009")))
+             (expected-topic-hash
+               (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000009"))
+             (expected-topic (hash32-to-hex expected-topic-hash))
              (expected-data
                "0x0000000000000000000000000000000000000000000000000000000000000007"))
         (engine-payload-store-put-block
@@ -4366,6 +4371,15 @@
                        (field log "blockHash")))
           (is (string= (hash32-to-hex (transaction-hash transaction))
                        (field log "transactionHash"))))
+        (let* ((receipt
+                 (field (engine-rpc-handle-request
+                         (receipt-request 64 (transaction-hash transaction))
+                         store config)
+                        "result"))
+               (bloom
+                 (make-bloom (hex-to-bytes (field receipt "logsBloom")))))
+          (is (bloom-contains-p bloom (address-bytes contract)))
+          (is (bloom-contains-p bloom (hash32-bytes expected-topic-hash))))
         (engine-rpc-handle-request
          (forkchoice-request 62 (block-hash branch-b-block))
          store config)

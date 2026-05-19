@@ -607,6 +607,15 @@ splits can land after the Phase A smoke path closes.
     EIP-2930, EIP-1559, and EIP-4844, plus import-path assertions for
     cumulative gas monotonicity, log order, logs bloom membership, CREATE2
     receipt behavior where applicable, and explicit pre-Byzantium exclusion.
+  - Progress: extended the Engine-imported log-producing forkchoice fixture to
+    assert receipt bloom membership from the RPC receipt itself. After the
+    logging branch is selected as canonical, the test reads
+    `eth_getTransactionReceipt`, builds a bloom from the returned
+    `logsBloom`, and verifies that both the emitting contract address and
+    emitted topic are present. Remaining work: external-style typed receipt
+    vectors, cumulative gas/order checks from imported multi-transaction
+    blocks, CREATE2 coverage where applicable, and explicit pre-Byzantium
+    exclusion.
 
 ## P0: EVM Correctness Gaps
 
