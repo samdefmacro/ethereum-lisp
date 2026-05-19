@@ -73,7 +73,8 @@ fixes in those areas are allowed; expansion is not.
   forkchoice checkpoints, public read RPCs, polling filters, local pending
   transaction placeholders, and the first chain-store boundary over the memory
   store with explicit canonical number-to-hash indexes and typed head/safe/
-  finalized checkpoints, plus a first in-memory canonical-head switch path.
+  finalized checkpoints, plus a first in-memory canonical-head switch path with
+  transaction/receipt lookup and safe/finalized reorg invariants.
 - **Partial:** trie/state compatibility, EVM fixture coverage, Engine payload
   import, canonical chain state, retained state snapshots, txpool admission, and
   concrete HTTP/socket serving.
@@ -84,8 +85,8 @@ fixes in those areas are allowed; expansion is not.
   matching reference state roots, strict sender recovery on every signed
   import/admission/mined RPC path, receipt-derivation invariants (typed
   encoding, cumulative-gas monotonicity, bloom, log order, post-Byzantium
-  status), and forkchoice-driven canonical rewrites with reorg invariants
-  preserved.
+  status), and connecting Engine forkchoice updates to the canonical rewrite
+  path.
 - **Next checkpoint:** a one-transaction post-Merge Shanghai payload can be
   imported from a known genesis/parent state through `engine_newPayloadV2`,
   executed atomically, commitment-validated against a pinned fixture, made

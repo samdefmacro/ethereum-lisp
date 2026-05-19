@@ -3150,6 +3150,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     hash))
 
 (defun engine-payload-store-update-forkchoice-checkpoints (store state)
+  (let ((head-hash (forkchoice-state-head-block-hash state))
+        (safe-hash
+          (engine-payload-store-forkchoice-checkpoint-hash
+           (forkchoice-state-safe-block-hash state)))
+        (finalized-hash
+          (engine-payload-store-forkchoice-checkpoint-hash
+           (forkchoice-state-finalized-block-hash state))))
+    (when (and safe-hash
+               (not (engine-payload-store-ancestor-p
+                     store safe-hash head-hash)))
+      (block-validation-fail
+       "forkchoice safe block is not an ancestor of head"))
+    (when (and finalized-hash
+               (not (engine-payload-store-ancestor-p
+                     store finalized-hash head-hash)))
+      (block-validation-fail
+       "forkchoice finalized block is not an ancestor of head")))
   (setf (engine-payload-memory-store-head-checkpoint store)
         (make-chain-store-checkpoint
          :label :head
@@ -3202,6 +3219,41 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (and canonical-key
          (string= canonical-key
                   (engine-payload-store-key (block-hash block))))))
+
+(defun engine-payload-store-ancestor-p (store ancestor-hash head-hash)
+  (cond
+    ((hash32= ancestor-hash head-hash) t)
+    ((or (hash32= ancestor-hash (zero-hash32))
+         (hash32= head-hash (zero-hash32)))
+     nil)
+    (t
+     (let ((ancestor-block
+             (engine-payload-store-known-block store ancestor-hash))
+           (current
+             (engine-payload-store-known-block store head-hash)))
+       (when (and ancestor-block current)
+         (let ((ancestor-number
+                 (block-header-number (block-header ancestor-block))))
+           (loop
+             (let* ((header (block-header current))
+                    (number (block-header-number header)))
+               (cond
+                 ((< number ancestor-number)
+                  (return nil))
+                 ((and (= number ancestor-number)
+                       (hash32= (block-hash current) ancestor-hash))
+                  (return t))
+                 ((zerop number)
+                  (return nil))
+                 (t
+                  (let* ((parent-hash (block-header-parent-hash header))
+                         (parent-block
+                           (and parent-hash
+                                (engine-payload-store-known-block
+                                 store parent-hash))))
+                    (unless parent-block
+                      (return nil))
+                    (setf current parent-block))))))))))))
 
 (defun engine-payload-store-set-canonical-head (store hash)
   (unless (typep store 'engine-payload-memory-store)
@@ -4184,10 +4236,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-build-empty-payload-v1 (parent-block attributes)
   (engine-build-empty-payload parent-block attributes))
 
-(defun engine-forkchoice-checkpoint-error-message (store hash label)
-  (when (and (not (hash32= hash (zero-hash32)))
-             (not (chain-store-known-block store hash)))
-    (format nil "forkchoice ~A block is not available" label)))
+(defun engine-forkchoice-checkpoint-error-message
+    (store hash label &key head-hash)
+  (when (not (hash32= hash (zero-hash32)))
+    (cond
+      ((not (chain-store-known-block store hash))
+       (format nil "forkchoice ~A block is not available" label))
+      ((and head-hash
+            (not (engine-payload-store-ancestor-p store hash head-hash)))
+       (format nil "forkchoice ~A block is not an ancestor of head"
+               label)))))
 
 (defun engine-forkchoice-memory-status (store state)
   (unless (typep store 'engine-payload-memory-store)
@@ -6180,10 +6238,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (or
                  (engine-forkchoice-checkpoint-error-message
                   store (forkchoice-state-finalized-block-hash state)
-                  "finalized")
+                  "finalized"
+                  :head-hash (forkchoice-state-head-block-hash state))
                  (engine-forkchoice-checkpoint-error-message
                   store (forkchoice-state-safe-block-hash state)
-                  "safe"))))
+                  "safe"
+                  :head-hash (forkchoice-state-head-block-hash state)))))
           (when checkpoint-error
             (engine-rpc-fail
              +engine-rpc-error-invalid-forkchoice-state+

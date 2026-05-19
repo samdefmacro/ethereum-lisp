@@ -3004,21 +3004,28 @@
            (finalized-block
              (make-block
               :header (make-block-header :number 30
+                                         :parent-hash (zero-hash32)
                                          :timestamp 30
                                          :gas-limit 30000000)))
            (safe-block
              (make-block
-              :header (make-block-header :number 31
+              :header (make-block-header :parent-hash
+                                         (block-hash finalized-block)
+                                         :number 31
                                          :timestamp 31
                                          :gas-limit 30000000)))
            (head-block
              (make-block
-              :header (make-block-header :number 32
+              :header (make-block-header :parent-hash
+                                         (block-hash safe-block)
+                                         :number 32
                                          :timestamp 32
                                          :gas-limit 30000000)))
            (non-head-block
              (make-block
-              :header (make-block-header :number 33
+              :header (make-block-header :parent-hash
+                                         (block-hash finalized-block)
+                                         :number 33
                                          :timestamp 33
                                          :gas-limit 30000000)))
            (unknown-hash
@@ -3182,6 +3189,15 @@
         (is (= -38003 (field error "code")))
         (is (string= "Payload attributes timestamp must be greater than parent timestamp"
                      (field error "message"))))
+      (engine-rpc-handle-request
+       (forkchoice-request
+        36
+        (forkchoice-state-object
+         (block-hash head-block)
+         :safe (block-hash safe-block)
+         :finalized (block-hash finalized-block)))
+       store
+       config)
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -3221,6 +3237,20 @@
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
+                 34
+                 (forkchoice-state-object
+                  (block-hash head-block)
+                  :safe (block-hash non-head-block)))
+                store
+                config))
+             (error (field response "error")))
+        (is (= -38002 (field error "code")))
+        (is (string= "forkchoice safe block is not an ancestor of head"
+                     (field error "message")))
+        (is (eq safe-block (chain-store-safe-block store))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
                  23
                  (forkchoice-state-object
                   known-hash :finalized unknown-hash))
@@ -3230,6 +3260,20 @@
         (is (= -38002 (field error "code")))
         (is (string= "forkchoice finalized block is not available"
                      (field error "message"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 35
+                 (forkchoice-state-object
+                  (block-hash head-block)
+                  :finalized (block-hash non-head-block)))
+                store
+                config))
+             (error (field response "error")))
+        (is (= -38002 (field error "code")))
+        (is (string= "forkchoice finalized block is not an ancestor of head"
+                     (field error "message")))
+        (is (eq finalized-block (chain-store-finalized-block store))))
       (let* ((bad-state
                (list (cons "headBlockHash" (hash32-to-hex known-hash))))
              (response
