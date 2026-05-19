@@ -27,31 +27,94 @@ soon as they enter an active queue or dependency chain.
 
 ## Current Focus
 
-Phase A is a verifiable chain-import core. The useful end-to-end smoke scenario
-is:
+Phase A is a verifiable chain-import core. The Phase A scope and invariants are
+defined in `docs/roadmap.md` ("Phase A Scope Gate") and bind every task below
+until the smoke path passes once end-to-end:
+
+- target fork: post-Merge Shanghai via `engine_newPayloadV2`;
+- atomic import (snapshot → execute → derive → validate → commit, all or
+  nothing);
+- strict sender recovery on every signed import/admission/mined-tx path;
+- receipt-derivation invariants locked;
+- reorg invariants on canonical / safe / finalized indexes;
+- comparison against a pinned execution-spec-tests release and a small
+  in-repo fixture set.
+
+The end-to-end smoke scenario is:
 
 1. load genesis/state;
-2. accept an executable `engine_newPayload` whose parent state is available;
-3. execute transactions and validate state root, receipts root, logs bloom, and
-   gas used;
+2. accept an executable `engine_newPayloadV2` whose parent state is available;
+3. execute transactions atomically and validate state root, receipts root,
+   logs bloom, and gas used;
 4. persist enough block, receipt, and state snapshot data for local RPC reads;
-5. apply `engine_forkchoiceUpdated` to canonical indexes;
-6. compare the same path against fixtures and reference clients.
+5. apply `engine_forkchoiceUpdated` to canonical indexes and verify side-chain
+   blocks remain hash-retrievable;
+6. compare the same path against the pinned fixtures and, where local
+   reference clones exist, a recorded geth/Nethermind/Reth commit.
 
-Module splits are still important, but they should usually happen as part of a
-vertical slice above. Avoid broad behavior-preserving refactors while the chain
-import path still lacks storage, execution, and fixture validation.
+While Phase A is open, do not expand Engine/RPC/txpool surface beyond fixing
+Phase A blockers (see `PHASE-A-SURFACE-FREEZE`). Module splits should usually
+happen as part of a vertical slice above; avoid broad behavior-preserving
+refactors while the chain import path still lacks storage, atomic commit,
+execution wiring, and fixture validation.
 
 ## Immediate Queue
 
 Long-running automation should pick from this queue before other P0 items unless
-a listed dependency is blocked:
+a listed dependency is blocked. Order matters: earlier items unblock later
+ones.
 
+- `PHASE-A-SCOPE-GATE`
+- `PHASE-A-SURFACE-FREEZE`
 - `HARNESS-FIXTURE-ROOT`
+- `HARNESS-TX-VECTORS`
+- `TRIE-FIXTURE-GRADE`
 - `HARNESS-FIXTURE-RUNNER`
 - `STORE-CHAIN-INTERFACE`
-- `STORE-CANONICAL-INDEXES`
+- `STATE-ATOMIC-COMMIT`
+- `SENDER-RECOVERY-ENFORCEMENT`
+- `RECEIPT-DERIVATION-INVARIANTS`
 - `ENGINE-EXECUTE-NEWPAYLOAD`
+- `STORE-CANONICAL-INDEXES`
+- `STORE-REORG-INVARIANTS`
+- `REF-COMMIT-PIN`
+
+## P0: Phase A Discipline
+
+- [ ] `PHASE-A-SCOPE-GATE`: Lock the Phase A fork target and fixture pin.
+  - Milestone: 5 / 7 / 8
+  - References: `docs/roadmap.md` ("Phase A Scope Gate"), Ethereum
+    execution-spec-tests release tags, geth/Nethermind fork activation tables.
+  - Acceptance: a short note in `docs/roadmap.md` or `docs/tasks.md` records
+    (a) Phase A target fork (default: post-Merge Shanghai via
+    `engine_newPayloadV2`), (b) the pinned `ethereum/execution-spec-tests`
+    release commit or tag the smoke path will compare against, and (c) which
+    later forks (Cancun blob path, Prague requests, Amsterdam BAL, BPOx) are
+    explicitly out of Phase A. KZG real verification only becomes a Phase A
+    blocker if Cancun is chosen.
+  - Validation: docs-only diff.
+
+- [ ] `PHASE-A-SURFACE-FREEZE`: Freeze new Engine/RPC/txpool surface until the
+  Phase A smoke path passes end-to-end.
+  - Milestone: project hygiene
+  - Dependencies: `PHASE-A-SCOPE-GATE`.
+  - Acceptance: `docs/roadmap.md` and `docs/tasks.md` make the freeze explicit
+    (already drafted in the roadmap "Surface freeze" paragraph), and any new
+    task that would expand Engine versions, far-fork support (Amsterdam BAL
+    beyond what already parses, BPO5, `engine_getPayloadV6`), or non-blocker
+    public RPC surface is rejected or filed under P1/P2.
+  - Validation: docs-only diff plus reviewer discipline.
+
+- [ ] `REF-COMMIT-PIN`: Require reference-client commit recording on tasks that
+  claim parity comparison.
+  - Milestone: documentation maintenance
+  - References: `docs/reference-map.md` ("Comparison rule"), `docs/roadmap.md`
+    ("Reference Pinning Rule").
+  - Acceptance: `docs/reference-map.md` is updated to state that PRs/tasks
+    must record the inspected geth / Nethermind / Reth commit or tag, and that
+    a missing local clone forces an explicit "fixture-only" or
+    "single-client" downgrade in the PR description rather than a silent skip.
+  - Validation: docs-only diff.
 
 ## P0: Reference And Harness
 
@@ -92,17 +155,25 @@ a listed dependency is blocked:
 - [ ] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
   - Milestone: 2 / 8
+  - Dependencies: `PHASE-A-SCOPE-GATE` (for fork-set selection); no code
+    dependencies — this is a near-free, high-coverage slice.
   - References: geth `core/types`, Nethermind `Nethermind.Core`, Rust
-    primitives/reference transaction tests.
+    primitives/reference transaction tests, the pinned execution-spec-tests
+    release.
   - Acceptance: legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702 transaction
-    encoding/hash/sender recovery are covered by external-style fixtures.
+    encoding/hash/sender recovery are covered by external-style fixtures
+    drawn from the pinned release. Sender recovery is exercised on every
+    typed transaction case so the result feeds `SENDER-RECOVERY-ENFORCEMENT`.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
 ## P0: Module Boundaries
 
 These tasks reduce long-term maintenance risk, but they should normally be
 selected when they unblock the chain-store, Engine import, fixture harness, or
-state/EVM correctness work above.
+state/EVM correctness work above. Prefer extracting the **minimum boundary**
+required by the current vertical slice (e.g. just the chain-rules entry points
+used by Engine import) over a full behavior-preserving file move; full module
+splits can land after the Phase A smoke path closes.
 
 - [ ] `MOD-CHAIN-CONFIG`: Split chain configuration and fork rules out of
   `src/core.lisp`.
@@ -181,18 +252,40 @@ state/EVM correctness work above.
   - Validation: add two-branch in-memory tests and run
     `sbcl --script tests/run-tests.lisp`.
 
+- [ ] `STORE-REORG-INVARIANTS`: Lock reorg invariants on canonical, safe, and
+  finalized indexes.
+  - Milestone: 6 / 7
+  - Dependencies: `STORE-CANONICAL-REORG`.
+  - References: geth `BlockChain.SetCanonical` plus `core/blockchain_reader`,
+    Reth canonical chain provider, Nethermind block tree.
+  - Acceptance: tests assert that after a canonical switch (a) side-chain
+    blocks remain retrievable by hash, (b) number-to-hash, transaction
+    lookup, and receipt lookup only return canonical results, (c) `safe`
+    and `finalized` checkpoints never move to a block that is not an
+    ancestor of the new head, and (d) `latest`/`pending` block-tag
+    resolution follows the new canonical head immediately.
+  - Validation: two-branch reorg fixtures plus
+    `sbcl --script tests/run-tests.lisp`.
+
 ## P0: Engine Payload Import
 
 - [ ] `ENGINE-EXECUTE-NEWPAYLOAD`: Route `engine_newPayload` through block
   execution when parent state is available.
   - Milestone: 5 / 7
-  - Dependencies: `STORE-CHAIN-INTERFACE`.
+  - Dependencies: `STORE-CHAIN-INTERFACE`, `STATE-ATOMIC-COMMIT`,
+    `TRIE-FIXTURE-GRADE`, `SENDER-RECOVERY-ENFORCEMENT`,
+    `RECEIPT-DERIVATION-INVARIANTS`.
   - References: geth `eth/catalyst`, `core/state_processor.go`; Nethermind
     block processor; Reth consensus/executor integration.
-  - Acceptance: valid executable payloads with known parent state execute
-    transactions, compute receipts/state root/logs bloom/gas used, and are
-    stored as known blocks.
-  - Validation: add a one-transaction payload import test and run
+  - Acceptance: a valid executable `engine_newPayloadV2` payload with known
+    parent state executes transactions atomically (via
+    `STATE-ATOMIC-COMMIT`), derives receipts/state root/logs bloom/gas used,
+    is stored as a known block when commitments match, and leaves no
+    partial state when any commitment or signature check fails. The
+    one-transaction smoke fixture from `HARNESS-FIXTURE-RUNNER` is the
+    primary success case.
+  - Validation: add a one-transaction `newPayloadV2` import test plus a
+    bad-commitment rollback test, and run
     `sbcl --script tests/run-tests.lisp`.
 
 - [ ] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
@@ -227,28 +320,73 @@ state/EVM correctness work above.
 
 ## P0: State, Trie, And Proof Correctness
 
-- [ ] Replace the minimal trie root prototype with node-shape compatible MPT
-  insertion/deletion coverage.
+- [ ] `TRIE-FIXTURE-GRADE`: Replace the minimal trie root prototype with
+  node-shape compatible MPT insertion/deletion coverage sufficient for the
+  Phase A smoke path.
   - Milestone: 3
-  - References: geth `trie`, Nethermind `Nethermind.Trie`, Reth/trie crates.
-  - Acceptance: branch, extension, and leaf node encodings are covered by
-    fixtures including deletion and path-compression edge cases.
-  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Dependencies: `PHASE-A-SCOPE-GATE`.
+  - References: geth `trie`, Nethermind `Nethermind.Trie`, Reth/trie crates,
+    pinned execution-spec-tests trie vectors.
+  - Acceptance: branch, extension, and leaf node encodings (including empty
+    children, single-child collapse, embedded-vs-hashed reference, deletion,
+    and path-compression edge cases) are covered by external fixture vectors.
+    Account, storage, and secure-trie roots match reference output for the
+    genesis allocation used by the Phase A smoke path; zero-value storage
+    writes correctly delete keys; empty accounts and EIP-161 state-clearing
+    behavior produce reference-matching roots.
+  - Validation: trie-vector tests plus
+    `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Add account/storage proof generation and verification.
+- [ ] `STATE-PROOFS`: Add account/storage proof generation and verification.
   - Milestone: 3 / 7
-  - Dependencies: compatible MPT insertion/deletion.
+  - Dependencies: `TRIE-FIXTURE-GRADE`.
   - References: geth `eth_getProof`, trie proof APIs; Nethermind proof APIs.
   - Acceptance: local state can produce and verify account/storage proofs for
     retained state snapshots.
   - Validation: dedicated proof tests and `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Add persistent state snapshot/change-set interfaces.
-  - Milestone: 3 / 6
-  - Dependencies: chain-store interface.
-  - Acceptance: transaction/block execution can commit state changes behind an
-    interface that can later be backed by a real database.
-  - Validation: state rollback/commit tests plus
+- [ ] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
+  for block import.
+  - Milestone: 3 / 5 / 6
+  - Dependencies: `STORE-CHAIN-INTERFACE`.
+  - References: geth `core/state` journal/snapshot, Reth `BundleState` /
+    `ExecutionOutcome`, Nethermind state snapshot.
+  - Acceptance: a single block-import call takes a pre-state snapshot, runs
+    transaction execution, derives receipts / state root / logs bloom / gas
+    used, validates post-execution commitments, and only then commits state,
+    receipt, and number/hash/tx-lookup indexes; any failure rolls all of
+    those back so no partial state is observable through state DB or RPC.
+  - Validation: failure-injection tests covering bad state root, bad
+    receipts root, bad logs bloom, bad gas used, and intra-tx errors, plus
+    `sbcl --script tests/run-tests.lisp`.
+
+- [ ] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
+  signed import, admission, and mined-tx RPC path.
+  - Milestone: 1 / 2 / 5 / 7
+  - Dependencies: `HARNESS-TX-VECTORS`.
+  - References: geth `types.Sender`, Reth `SignedTransaction::recover_signer`,
+    Nethermind tx signature handling.
+  - Acceptance: signed block import, `eth_sendRawTransaction`, and mined
+    transaction RPC objects never substitute a zero address or empty sender;
+    invalid signatures (wrong chain id, high-s, malformed yParity, malformed
+    EIP-7702 authorization tuple at the transaction level) reject the
+    payload/admission outright. A test enumerates each path and asserts that
+    sender recovery failure cannot leak state mutation.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+
+- [ ] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
+  derivation invariants on the import path.
+  - Milestone: 2 / 5
+  - References: geth `core/types/receipt`, Reth receipt encoding, Nethermind
+    receipt building.
+  - Acceptance: receipt-root derivation is covered against fixtures for
+    legacy, EIP-2930, EIP-1559, and EIP-4844 receipt types; cumulative-gas
+    monotonicity, log order, logs-bloom membership, contract-address
+    derivation for CREATE/CREATE2, and post-Byzantium status semantics are
+    asserted from import (not only from hand-built receipt lists). Pre-
+    Byzantium post-state receipts are explicitly out of Phase A scope and
+    rejected by config.
+  - Validation: receipt fixture tests plus
     `sbcl --script tests/run-tests.lisp`.
 
 ## P0: EVM Correctness Gaps
@@ -279,9 +417,16 @@ state/EVM correctness work above.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5
-  - References: geth `crypto/kzg4844`, Reth KZG integration.
-  - Acceptance: blob sidecars and the point-evaluation precompile verify actual
-    proofs rather than only shape/versioned-hash checks.
+  - Dependencies: `PHASE-A-SCOPE-GATE`. Only blocks Phase A if the scope gate
+    selects Cancun (or later) as the Phase A target fork; for the default
+    Shanghai target this remains P0 but follows the smoke-path closure.
+  - References: geth `crypto/kzg4844`, Reth KZG integration, c-kzg-4844
+    trusted-setup file.
+  - Acceptance: blob sidecars and the point-evaluation precompile verify
+    actual proofs rather than only shape/versioned-hash checks. The trusted
+    setup file source is documented and pinned. If real KZG cannot land in
+    Phase A's window, blob transactions and `engine_newPayloadV3+` are
+    explicitly recorded as "shape-checked only, not Phase A VALID".
   - Validation: KZG vector tests plus `sbcl --script tests/run-tests.lisp`.
 
 - [ ] Add EOF planning notes and fork gates.
@@ -293,13 +438,19 @@ state/EVM correctness work above.
 
 ## P1: Documentation Health
 
-- [ ] `DOC-ROADMAP-STATUS-SPLIT`: Split detailed implementation history out of
+- [~] `DOC-ROADMAP-STATUS-SPLIT`: Split detailed implementation history out of
   the strategic roadmap.
   - Milestone: documentation maintenance
-  - Acceptance: `docs/roadmap.md` milestone sections use concise
-    Done/Partial/Missing/Next summaries, and detailed historical implementation
-    notes are preserved in `docs/status.md` or an equivalent status/changelog
+  - Status: a Done/Partial/Missing summary header has been added to Section 5
+    Block Execution; the detailed prose log below it has not yet been moved
+    out. Remaining work is to add equivalent summary headers to other
+    milestone sections (especially Section 4 EVM and Section 7 Engine/RPC)
+    and migrate the historical prose into `docs/status.md` or a changelog
     document.
+  - Acceptance: every milestone section in `docs/roadmap.md` opens with a
+    concise Done/Partial/Missing/Next summary, and detailed historical
+    implementation notes are preserved in `docs/status.md` or an equivalent
+    status/changelog document.
   - Validation: docs-only diff.
 
 ## P1: Txpool Beyond Placeholder

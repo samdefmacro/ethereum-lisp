@@ -28,6 +28,41 @@ done, what is partial, what remains, and what validation closes the gap. Detaile
 small-slice history belongs in `docs/tasks.md` or a future status/changelog
 document.
 
+## Phase A Scope Gate
+
+Phase A locks a single fork target and a pinned fixture set so the smoke path
+is unambiguous. Other forks and Engine/RPC versions remain implemented in the
+tree but are explicitly outside the Phase A acceptance bar.
+
+- **Target fork:** post-Merge Shanghai, driven through `engine_newPayloadV2`.
+  Cancun and blob-aware paths only join Phase A once real KZG proof
+  verification lands; until then they are exercised as shape checks only.
+- **Fixture set:** a pinned `ethereum/execution-spec-tests` release commit plus
+  a small in-repo hand-written set. Both are chosen before harness work starts
+  and recorded by `HARNESS-FIXTURE-ROOT` / `HARNESS-TX-VECTORS`.
+- **Invariants required before Phase A closes:**
+  - *Atomic import.* `engine_newPayload` runs pre-state snapshot → transaction
+    execution → receipt/root derivation → post-execution commitment validation
+    → block/state/receipt index commit, all or nothing. No partial state is
+    visible if any later step fails.
+  - *Strict sender recovery.* Every signed import, admission, and mined-tx RPC
+    path requires real signature recovery. No zero-address or empty-sender
+    fallback is allowed in those paths.
+  - *Receipt root correctness.* Typed receipt encoding, cumulative-gas
+    monotonicity, log order, logs bloom, contract-address derivation, and
+    post-Byzantium status semantics are all locked. Pre-Byzantium post-state
+    receipts are out of Phase A scope.
+  - *Reorg invariants.* Side-chain blocks remain retrievable by hash, the
+    canonical number-to-hash index only references canonical blocks,
+    transaction and receipt lookups follow canonical rewrites, and `safe` /
+    `finalized` may not move to a non-ancestor of the current head.
+
+**Surface freeze.** While Phase A is open, new work on Engine/RPC/txpool
+surface beyond fixing Phase A blockers is paused. Far-fork support (Amsterdam
+BAL beyond what already parses, BPO5, `engine_getPayloadV6`) does not receive
+new feature work until the Phase A smoke path passes once end-to-end. Bug
+fixes in those areas are allowed; expansion is not.
+
 ## Current Strategic Read
 
 - **Done:** project substrate, Ethereum domain types, RLP/Keccak basics, broad
@@ -39,12 +74,18 @@ document.
   concrete HTTP/socket serving.
 - **Missing for Phase A:** execution-spec fixture harness, chain-store boundary,
   explicit canonical indexes, executable `engine_newPayload` import with parent
-  state, persisted receipts/state snapshots from imported payloads, and
-  forkchoice-driven canonical rewrites.
-- **Next checkpoint:** a one-transaction Engine payload can be imported from a
-  known genesis/parent state, executed, commitment-validated, made canonical via
-  forkchoice, queried through public RPC, and compared against fixture-style
-  expectations.
+  state, atomic state/receipt/index commit (all-or-nothing on validation
+  failure), persisted receipts/state snapshots from imported payloads,
+  fixture-grade MPT (Section 3) capable of matching reference state roots,
+  strict sender recovery on every signed import/admission/mined RPC path,
+  receipt-derivation invariants (typed encoding, cumulative-gas monotonicity,
+  bloom, log order, post-Byzantium status), and forkchoice-driven canonical
+  rewrites with reorg invariants preserved.
+- **Next checkpoint:** a one-transaction post-Merge Shanghai payload can be
+  imported from a known genesis/parent state through `engine_newPayloadV2`,
+  executed atomically, commitment-validated against a pinned fixture, made
+  canonical via `engine_forkchoiceUpdated`, queried through public RPC, and
+  re-checked under a two-branch reorg.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing
@@ -246,6 +287,26 @@ remain. CREATE collision handling is covered for nonce/code collisions.
 
 Validation targets: geth `core`, Nethermind `Nethermind.Consensus`, and
 Reth consensus/executor integration.
+
+**Phase A summary**
+
+- *Done:* legacy and typed transaction execution shape through Shanghai,
+  in-memory receipt / log / state-root derivation, broad EIP coverage up to
+  Cancun fields, block-body and post-execution commitment preflight,
+  Ethash reward hook, and Merge/Paris validation.
+- *Partial:* atomic state/receipt/index commit semantics on validation
+  failure, EIP-7702 set-code execution beyond delegation shape, blob
+  transaction semantics without KZG verification, and post-execution rollback
+  symmetry across all failure modes.
+- *Missing for Phase A:* an atomic block-import commit boundary, fixture-grade
+  state-root verification (depends on Section 3 trie work), strict sender
+  recovery on every signed import/admission/mined RPC path, receipt-derivation
+  invariants locked (typed encoding, cumulative-gas monotonicity, bloom, log
+  order, post-Byzantium status), and a pinned post-Merge Shanghai fixture set
+  the smoke path is compared against.
+
+The detailed implementation log below is preserved for historical context and
+is queued for migration into a status document via `DOC-ROADMAP-STATUS-SPLIT`.
 
 Status: minimal legacy transfer, contract-creation, recipient-code execution,
 EIP-4895 withdrawal balance-crediting, and a lightweight legacy block execution
@@ -770,6 +831,15 @@ deterministic execution correctness.
 - cross-check selected fixtures against geth, Nethermind, and Reth/Rust outputs
   where available
 - CI entry points for SBCL
+
+## Reference Pinning Rule
+
+Every PR or task that claims comparison against geth, Nethermind, or Reth must
+record the commit or release tag it inspected. When the local clone for a
+reference client is absent, the PR or task must explicitly downgrade its claim
+to "fixture-only" or "single-client comparison" instead of implying parity.
+"Validated against the reference clients" without a commit reference is
+treated as no comparison having been performed.
 
 ## Working Principle
 
