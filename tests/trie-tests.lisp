@@ -12,15 +12,26 @@
       ((typep root 'ethereum-lisp.trie::branch-node) "branch")
       (t "unknown"))))
 
+(defun trie-fixture-node-reference-kind (node)
+  (let ((reference (ethereum-lisp.trie::node-reference node)))
+    (cond
+      ((typep reference 'ethereum-lisp.rlp::rlp-list) "embedded")
+      ((and (vectorp reference) (= 32 (length reference))) "hashed")
+      (t "unknown"))))
+
 (defun trie-fixture-extension-child-reference-kind (trie)
   (let ((root (mpt-root-node trie)))
     (when (typep root 'ethereum-lisp.trie::extension-node)
-      (let* ((child (ethereum-lisp.trie::extension-node-child root))
-             (reference (ethereum-lisp.trie::node-reference child)))
-        (cond
-          ((typep reference 'ethereum-lisp.rlp::rlp-list) "embedded")
-          ((and (vectorp reference) (= 32 (length reference))) "hashed")
-          (t "unknown"))))))
+      (trie-fixture-node-reference-kind
+       (ethereum-lisp.trie::extension-node-child root)))))
+
+(defun trie-fixture-root-child-reference-kind (trie index)
+  (let ((root (mpt-root-node trie)))
+    (when (typep root 'ethereum-lisp.trie::branch-node)
+      (let ((child (aref (ethereum-lisp.trie::branch-node-children root)
+                         index)))
+        (when child
+          (trie-fixture-node-reference-kind child))))))
 
 (defun trie-fixture-root-children (trie)
   (let ((root (mpt-root-node trie)))
@@ -122,6 +133,15 @@
           (when children
             (is (equal children
                        (trie-fixture-root-children trie)))))
+        (let ((child-references
+                (fixture-object-field case "expectedRootChildReferences")))
+          (when child-references
+            (dolist (expected child-references)
+              (is (string=
+                   (cdr expected)
+                   (trie-fixture-root-child-reference-kind
+                    trie
+                    (parse-integer (car expected))))))))
         (let ((path-nibbles
                 (fixture-object-field case "expectedRootPathNibbles")))
           (when path-nibbles

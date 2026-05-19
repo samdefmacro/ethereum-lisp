@@ -104,7 +104,29 @@
       ],
       "expectedRoot": "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5",
       "expectedShape": "branch",
-      "expectedRootChildren": [0, 15]
+      "expectedRootChildren": [0, 15],
+      "expectedRootChildReferences": {
+        "0": "embedded",
+        "15": "embedded"
+      }
+    },
+    {
+      "name": "root-branch-mixed-child-references",
+      "operations": [
+        {
+          "op": "put",
+          "keyHex": "0x00",
+          "valueAscii": "this value is deliberately long enough to hash the child leaf"
+        },
+        { "op": "put", "keyHex": "0xf0", "valueAscii": "right" }
+      ],
+      "expectedRoot": "0x4f558f208941283dc0b60b900277073b03079edc0936d703718f88bf511f715d",
+      "expectedShape": "branch",
+      "expectedRootChildren": [0, 15],
+      "expectedRootChildReferences": {
+        "0": "hashed",
+        "15": "embedded"
+      }
     },
     {
       "name": "delete-missing-branch-child-keeps-root-branch",

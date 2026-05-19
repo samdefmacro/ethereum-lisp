@@ -590,6 +590,9 @@ splits can land after the Phase A smoke path closes.
     Added the same pinned-source metadata guard to the Phase A Shanghai
     genesis fixture before validating its state root, header root, account
     allocation, code hash, and storage root.
+    Added branch child-reference assertions to trie fixtures, including a
+    mixed embedded/hashed branch case where a large child leaf crosses the
+    32-byte RLP reference threshold while a sibling remains embedded.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
