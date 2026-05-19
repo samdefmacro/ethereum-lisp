@@ -544,7 +544,7 @@ splits can land after the Phase A smoke path closes.
     `execute-and-commit-block` into Engine `newPayload` and enforce signed
     sender recovery on that path.
 
-- [~] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
+- [x] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.
   - Milestone: 1 / 2 / 5 / 7
   - Dependencies: `HARNESS-TX-VECTORS`.
@@ -575,8 +575,11 @@ splits can land after the Phase A smoke path closes.
     Added `eth_sendRawTransaction` set-code authorization admission validation,
     rejecting malformed EIP-7702 authorization `yParity` and high-s signatures
     before pending insertion while preserving pending pool and filter state.
-    Remaining work: enforce sender recovery through Engine `newPayload` once
-    execution is wired there.
+    Added Engine `newPayloadV2` sender-recovery enforcement coverage: a
+    payload containing a real EIP-155 transaction signed for chain id 1 returns
+    Engine `INVALID` when imported under chain id 2, preserves the parent
+    state projection, and does not commit the child block, state availability,
+    or transaction lookup index.
 
 - [ ] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.

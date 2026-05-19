@@ -75,7 +75,9 @@ fixes in those areas are allowed; expansion is not.
   store with explicit canonical number-to-hash indexes and typed head/safe/
   finalized checkpoints. Engine forkchoice updates now drive the in-memory
   canonical-head switch path, including transaction, receipt, block-receipt,
-  state, and log visibility across branch switches.
+  state, and log visibility across branch switches. Signed block import,
+  Engine payload import, transaction admission, and mined transaction RPC
+  objects require real sender recovery rather than zero-address fallbacks.
 - **Partial:** trie/state compatibility, EVM fixture coverage, Engine payload
   import, retained state snapshots, txpool admission, and concrete HTTP/socket
   serving.
@@ -83,8 +85,7 @@ fixes in those areas are allowed; expansion is not.
   `engine_newPayload` import with parent state, atomic state/receipt/index
   commit (all-or-nothing on validation failure), persisted receipts/state
   snapshots from imported payloads, fixture-grade MPT (Section 3) capable of
-  matching reference state roots, strict sender recovery on every signed
-  import/admission/mined RPC path, receipt-derivation invariants (typed
+  matching reference state roots, receipt-derivation invariants (typed
   encoding, cumulative-gas monotonicity, bloom, log order, post-Byzantium
   status), and a pinned fixture-grade smoke path that combines these pieces.
 - **Next checkpoint:** promote the new one-transaction Shanghai
