@@ -2695,15 +2695,53 @@
                                  :parent-hash parent-hash
                                  :extra-data (vector marker)))))
       (let* ((a1 (child-block 1 genesis-hash 1))
-             (a2 (child-block 2 (block-hash a1) 2))
+             (a2-header (block-header (child-block 2 (block-hash a1) 2)))
              (b1 (child-block 1 genesis-hash 11))
              (b2 (child-block 2 (block-hash b1) 12))
-             (b3 (child-block 3 (block-hash b2) 13))
+             (a2-transaction
+               (make-legacy-transaction
+                :nonce 1
+                :gas-price 2
+                :gas-limit 21000
+                :value 3
+                :data #(1)
+                :v 27
+                :r 4
+                :s 5))
+             (b3-transaction
+               (make-legacy-transaction
+                :nonce 2
+                :gas-price 3
+                :gas-limit 21000
+                :value 4
+                :data #(2)
+                :v 27
+                :r 6
+                :s 7))
+             (a2-receipt
+               (make-receipt :status 1 :cumulative-gas-used 21000))
+             (b3-receipt
+               (make-receipt :status 1 :cumulative-gas-used 21000))
+             (b3
+               (make-block
+                :header
+                (make-block-header :number 3
+                                   :parent-hash (block-hash b2)
+                                   :extra-data #(13))
+                :transactions (list b3-transaction)
+                :receipts (list b3-receipt)))
+             (a2
+               (make-block
+                :header a2-header
+                :transactions (list a2-transaction)
+                :receipts (list a2-receipt)))
              (a1-hash (block-hash a1))
              (a2-hash (block-hash a2))
              (b1-hash (block-hash b1))
              (b2-hash (block-hash b2))
-             (b3-hash (block-hash b3)))
+             (b3-hash (block-hash b3))
+             (a2-transaction-hash (transaction-hash a2-transaction))
+             (b3-transaction-hash (transaction-hash b3-transaction)))
         (dolist (block (list genesis a1 a2 b1 b2 b3))
           (chain-store-put-block store block))
         (is (eq a1 (chain-store-block-by-number store 1)))
@@ -2711,6 +2749,11 @@
         (is (null (chain-store-canonical-hash store 3)))
         (is (= 2 (chain-store-head-number store)))
         (is (eq a2 (chain-store-latest-block store)))
+        (is (typep (chain-store-transaction-location
+                    store a2-transaction-hash)
+                   'engine-transaction-location))
+        (is (null (chain-store-transaction-location
+                   store b3-transaction-hash)))
         (is (eq b3 (chain-store-known-block store b3-hash)))
         (is (eq b3
                 (chain-store-set-canonical-head store b3-hash)))
@@ -2728,6 +2771,17 @@
                       (chain-store-canonical-hash store 3))))
         (is (eq a1 (chain-store-known-block store a1-hash)))
         (is (eq a2 (chain-store-known-block store a2-hash)))
+        (is (null (chain-store-transaction-location
+                   store a2-transaction-hash)))
+        (let ((location
+                (chain-store-transaction-location
+                 store b3-transaction-hash)))
+          (is (typep location 'engine-transaction-location))
+          (is (eq b3 (engine-transaction-location-block location)))
+          (is (eq b3-transaction
+                  (engine-transaction-location-transaction location)))
+          (is (eq b3-receipt
+                  (engine-transaction-location-receipt location))))
         (is (eq b3 (chain-store-latest-block store)))
         (is (= 3 (chain-store-block-tag-number store "latest")))))))
 

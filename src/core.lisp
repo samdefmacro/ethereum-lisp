@@ -3190,6 +3190,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (when canonical-key
       (hash32-from-hex canonical-key))))
 
+(defun engine-payload-store-canonical-block-p (store block)
+  (let* ((header (block-header block))
+         (number (block-header-number header))
+         (canonical-key
+           (and (integerp number)
+                (not (minusp number))
+                (gethash number
+                         (engine-payload-memory-store-canonical-hashes
+                          store)))))
+    (and canonical-key
+         (string= canonical-key
+                  (engine-payload-store-key (block-hash block))))))
+
 (defun engine-payload-store-set-canonical-head (store hash)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
@@ -3248,8 +3261,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       head-block)))
 
 (defun engine-payload-store-transaction-location (store hash)
-  (gethash (engine-payload-store-key hash)
-           (engine-payload-memory-store-transaction-locations store)))
+  (let ((location
+          (gethash (engine-payload-store-key hash)
+                   (engine-payload-memory-store-transaction-locations
+                    store))))
+    (when (and location
+               (engine-payload-store-canonical-block-p
+                store
+                (engine-transaction-location-block location)))
+      location)))
 
 (defun chain-store-require-memory-store (store)
   (unless (typep store 'engine-payload-memory-store)

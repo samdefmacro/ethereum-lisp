@@ -311,7 +311,7 @@ splits can land after the Phase A smoke path closes.
   - Validation: add two-branch in-memory tests and run
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] `STORE-REORG-INVARIANTS`: Lock reorg invariants on canonical, safe, and
+- [~] `STORE-REORG-INVARIANTS`: Lock reorg invariants on canonical, safe, and
   finalized indexes.
   - Milestone: 6 / 7
   - Dependencies: `STORE-CANONICAL-REORG`.
@@ -323,6 +323,12 @@ splits can land after the Phase A smoke path closes.
     and `finalized` checkpoints never move to a block that is not an
     ancestor of the new head, and (d) `latest`/`pending` block-tag
     resolution follows the new canonical head immediately.
+  - Progress:
+    - Transaction-location lookup now filters out non-canonical blocks. After a
+      canonical switch, orphaned branch transactions remain stored with their
+      blocks but `chain-store-transaction-location`,
+      `eth_getTransactionByHash`, and `eth_getTransactionReceipt` only expose
+      transactions from the current canonical number-to-hash view.
   - Validation: two-branch reorg fixtures plus
     `sbcl --script tests/run-tests.lisp`.
 
