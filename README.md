@@ -45,4 +45,6 @@ sbcl --script tests/run-tests.lisp
 ## Reference layout
 
 See `docs/reference-map.md` for the source modules used as the main comparison
-points, and `docs/roadmap.md` for the long-running implementation plan.
+points, `docs/roadmap.md` for the long-running implementation plan, and
+`docs/tasks.md` for the tactical backlog used by long-running implementation
+work.

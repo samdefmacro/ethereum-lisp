@@ -3,6 +3,10 @@
 The goal is a Common Lisp Ethereum execution-layer client. The work is split
 into milestones that can be validated independently.
 
+This file is the strategic roadmap. Tactical implementation slices live in
+`docs/tasks.md`; long-running automation should choose work from that backlog
+instead of picking ad hoc roadmap items.
+
 ## 0. Project Substrate
 
 - ASDF systems and packages
