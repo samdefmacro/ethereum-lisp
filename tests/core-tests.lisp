@@ -2597,6 +2597,9 @@
             (chain-store-put-block store block :state-available-p t)))
     (is (eq block (chain-store-known-block store block-hash)))
     (is (eq block (chain-store-block-by-number store 43)))
+    (is (= 43 (chain-store-head-number store)))
+    (is (= 43 (chain-store-block-tag-number store "latest")))
+    (is (eq block (chain-store-latest-block store)))
     (is (chain-store-state-available-p store block-hash))
     (is (= 99
            (chain-store-put-account-balance
@@ -2634,6 +2637,8 @@
     (is (eq block (chain-store-head-block store)))
     (is (eq block (chain-store-safe-block store)))
     (is (eq block (chain-store-finalized-block store)))
+    (is (= 43 (chain-store-block-tag-number store "safe")))
+    (is (= 43 (chain-store-block-tag-number store "finalized")))
     (is (eq prepared-payload
             (chain-store-put-prepared-payload store prepared-payload)))
     (is (eq prepared-payload

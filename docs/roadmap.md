@@ -70,18 +70,18 @@ fixes in those areas are allowed; expansion is not.
 
 - **Done:** project substrate, Ethereum domain types, RLP/Keccak basics, broad
   first-pass EVM/block-execution coverage, in-memory Engine payload storage,
-  forkchoice checkpoints, public read RPCs, polling filters, and local pending
-  transaction placeholders.
-- **Partial:** trie/state compatibility, EVM fixture coverage, the initial
-  chain-store boundary, Engine payload import, canonical chain state, retained
-  state snapshots, txpool admission, and concrete HTTP/socket serving.
-- **Missing for Phase A:** execution-spec fixture harness, full chain-store
-  boundary adoption, explicit canonical indexes, executable
-  `engine_newPayload` import with parent state, atomic state/receipt/index
-  commit (all-or-nothing on validation failure), persisted receipts/state
-  snapshots from imported payloads, fixture-grade MPT (Section 3) capable of
-  matching reference state roots, strict sender recovery on every signed
-  import/admission/mined RPC path, receipt-derivation invariants (typed
+  forkchoice checkpoints, public read RPCs, polling filters, local pending
+  transaction placeholders, and the first chain-store boundary over the memory
+  store.
+- **Partial:** trie/state compatibility, EVM fixture coverage, Engine payload
+  import, canonical chain state, retained state snapshots, txpool admission, and
+  concrete HTTP/socket serving.
+- **Missing for Phase A:** execution-spec fixture harness, explicit canonical
+  indexes, executable `engine_newPayload` import with parent state, atomic
+  state/receipt/index commit (all-or-nothing on validation failure), persisted
+  receipts/state snapshots from imported payloads, fixture-grade MPT (Section 3)
+  capable of matching reference state roots, strict sender recovery on every
+  signed import/admission/mined RPC path, receipt-derivation invariants (typed
   encoding, cumulative-gas monotonicity, bloom, log order, post-Byzantium
   status), and forkchoice-driven canonical rewrites with reorg invariants
   preserved.

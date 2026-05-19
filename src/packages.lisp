@@ -547,6 +547,9 @@
    #:chain-store-put-block
    #:chain-store-known-block
    #:chain-store-block-by-number
+   #:chain-store-head-number
+   #:chain-store-block-tag-number
+   #:chain-store-latest-block
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
@@ -1363,6 +1366,9 @@
    #:chain-store-put-block
    #:chain-store-known-block
    #:chain-store-block-by-number
+   #:chain-store-head-number
+   #:chain-store-block-tag-number
+   #:chain-store-latest-block
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
@@ -2140,6 +2146,9 @@
    #:chain-store-put-block
    #:chain-store-known-block
    #:chain-store-block-by-number
+   #:chain-store-head-number
+   #:chain-store-block-tag-number
+   #:chain-store-latest-block
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p

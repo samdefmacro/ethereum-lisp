@@ -3147,6 +3147,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (chain-store-require-memory-store store)
    number))
 
+(defun chain-store-head-number (store)
+  (engine-payload-store-head-number
+   (chain-store-require-memory-store store)))
+
+(defun chain-store-block-tag-number (store tag)
+  (engine-payload-store-block-tag-number
+   (chain-store-require-memory-store store)
+   tag))
+
+(defun chain-store-latest-block (store)
+  (chain-store-block-by-number
+   store
+   (chain-store-head-number store)))
+
 (defun chain-store-transaction-location (store hash)
   (engine-payload-store-transaction-location
    (chain-store-require-memory-store store)
@@ -4210,7 +4224,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-eth-block-number (params store)
   (when params
     (block-validation-fail "eth_blockNumber params must be empty"))
-  (quantity-to-hex (engine-payload-store-head-number store)))
+  (quantity-to-hex (chain-store-head-number store)))
 
 (defun engine-rpc-handle-eth-protocol-version (params)
   (when params
@@ -4254,7 +4268,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-eth-gas-price (params store)
   (when params
     (block-validation-fail "eth_gasPrice params must be empty"))
-  (let* ((head (engine-payload-store-head-block store))
+  (let* ((head (chain-store-latest-block store))
          (header (and head (block-header head)))
          (base-fee (if header
                        (or (block-header-base-fee-per-gas header) 0)
@@ -4263,14 +4277,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                         (engine-rpc-suggest-gas-tip-cap store)))))
 
 (defun engine-payload-store-head-block (store)
-  (engine-payload-store-block-by-number
+  (chain-store-block-by-number
    store
    (engine-payload-store-head-number store)))
 
 (defun engine-rpc-handle-eth-base-fee (params store config)
   (when params
     (block-validation-fail "eth_baseFee params must be empty"))
-  (let ((head (engine-payload-store-head-block store)))
+  (let ((head (chain-store-latest-block store)))
     (when (and head
                (chain-config-london-p
                 config
@@ -4284,7 +4298,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-eth-blob-base-fee (params store config)
   (when params
     (block-validation-fail "eth_blobBaseFee params must be empty"))
-  (let* ((head (engine-payload-store-head-block store))
+  (let* ((head (chain-store-latest-block store))
          (header (and head (block-header head))))
     (when (and header (block-header-excess-blob-gas header))
       (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
@@ -4321,7 +4335,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((value (engine-rpc-required-param params 1 "newest block" method)))
     (cond
       ((eth-rpc-head-block-tag-p value)
-       (engine-payload-store-block-tag-number store value))
+       (chain-store-block-tag-number store value))
       ((and (stringp value) (string= value "earliest")) 0)
       ((and (stringp value) (genesis-hex-quantity-string-p value))
        (parse-genesis-quantity value "newest block" :required-p t))
@@ -4538,7 +4552,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((value (first params)))
     (cond
       ((eth-rpc-head-block-tag-p value)
-       (engine-payload-store-block-tag-number store value))
+       (chain-store-block-tag-number store value))
       ((and (stringp value) (string= value "earliest")) 0)
       ((and (stringp value)
             (genesis-hex-quantity-string-p value))
@@ -5527,7 +5541,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-block-filter-changes (block-filter store)
   (let* ((cursor (engine-block-filter-last-block-number block-filter))
-         (latest (engine-payload-memory-store-head-number store))
+         (latest (chain-store-head-number store))
          (hashes (loop for number from (1+ cursor) to latest
                        for block =
                          (chain-store-block-by-number store number)
@@ -5955,7 +5969,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-rpc-fail
        +engine-rpc-error-too-large-request+
        "The number of requested bodies must not exceed 1024"))
-    (let* ((head (engine-payload-memory-store-head-number store))
+    (let* ((head (chain-store-head-number store))
            (last (min (+ start count -1) head)))
       (if (< last start)
           '()

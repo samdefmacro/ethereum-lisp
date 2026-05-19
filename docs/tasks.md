@@ -240,7 +240,7 @@ splits can land after the Phase A smoke path closes.
 
 ## P0: Chain Store And Canonical Indexes
 
-- [~] `STORE-CHAIN-INTERFACE`: Define a chain-store interface over the current
+- [x] `STORE-CHAIN-INTERFACE`: Define a chain-store interface over the current
   memory payload store.
   - Milestone: 6 / 7
   - References: geth `core/rawdb`, `core/blockchain.go`; Nethermind DB/provider
@@ -259,9 +259,12 @@ splits can land after the Phase A smoke path closes.
       chain-store boundary.
     - Added chain-store account balance/nonce/code/storage read/write wrappers
       and moved public account state RPC reads through that boundary.
-  - Remaining:
-    - Decide whether pending txpool/filter cursors stay in the in-memory store
-      or move behind their own boundary before marking this task complete.
+    - Added chain-store head number and block-tag number wrappers, then moved
+      public block-number/tag resolution, fee-history bounds, block filter
+      cursors, and Engine payload-body range bounds through the boundary.
+  - Follow-up:
+    - Pending txpool and filter cursors remain in the in-memory store because
+      they are pool/filter concerns rather than chain-store block/state indexes.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
 - [ ] `STORE-CANONICAL-INDEXES`: Add explicit canonical hash indexes.
