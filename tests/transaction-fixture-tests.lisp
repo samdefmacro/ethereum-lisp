@@ -3,8 +3,40 @@
 (defparameter +transaction-envelope-fixture-path+
   "tests/fixtures/execution-spec-tests/transaction-envelopes.json")
 
+(defparameter +transaction-envelope-fixture-format+
+  "ethereum-lisp/transaction-envelope-fixtures-v1")
+
 (defparameter +transaction-fixture-forks+
   '("Frontier" "Berlin" "London" "Cancun" "Prague"))
+
+(defun transaction-fixture-field-present-p (object name)
+  (not (null (assoc name object :test #'string=))))
+
+(defun transaction-fixture-required-field (object name)
+  (unless (transaction-fixture-field-present-p object name)
+    (error "Transaction fixture is missing top-level field ~A" name))
+  (fixture-object-field object name))
+
+(defun validate-transaction-envelope-fixture-metadata (fixture)
+  (unless (string= +transaction-envelope-fixture-format+
+                   (transaction-fixture-required-field fixture "format"))
+    (error "Transaction fixture format must be ~A"
+           +transaction-envelope-fixture-format+))
+  (when (blank-string-p
+         (transaction-fixture-required-field fixture "source"))
+    (error "Transaction fixture source must be present"))
+  (let ((references
+          (transaction-fixture-required-field fixture "referenceClients")))
+    (unless (listp references)
+      (error "Transaction fixture referenceClients must be a JSON object"))
+    (dolist (client '("geth" "nethermind" "reth"))
+      (unless (transaction-fixture-field-present-p references client)
+        (error "Transaction fixture referenceClients is missing ~A"
+               client)))
+    (dolist (client '("geth" "nethermind"))
+      (when (blank-string-p (fixture-object-field references client))
+        (error "Transaction fixture referenceClients.~A must be present"
+               client)))))
 
 (defun transaction-fixture-type-keyword (type)
   (cond
@@ -18,6 +50,7 @@
 (defun load-transaction-envelope-vectors (path)
   (let* ((fixture (load-handwritten-fixture-file path))
          (vectors (fixture-object-field fixture "vectors")))
+    (validate-transaction-envelope-fixture-metadata fixture)
     (unless (listp vectors)
       (error "Transaction fixture vectors must be a JSON array"))
     vectors))

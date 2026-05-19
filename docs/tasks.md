@@ -215,6 +215,12 @@ ones.
     per-fork fixtures from silently reducing coverage. Remaining work:
     replace the in-repo seed vectors with vectors drawn from the pinned
     `execution-spec-tests` release.
+  - Progress: added top-level transaction fixture metadata validation. The
+    runner now checks the expected fixture format string, non-empty source
+    note, and reference-client metadata before consuming vectors, so future
+    pinned EEST fixture imports fail early if the wrapper shape drifts.
+    Remaining work: replace the in-repo seed vectors with vectors drawn from
+    the pinned `execution-spec-tests` release.
 
 ## P0: Module Boundaries
 
