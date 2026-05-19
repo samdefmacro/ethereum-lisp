@@ -537,6 +537,10 @@ splits can land after the Phase A smoke path closes.
     root hash after a later `put` replaces an earlier value for the same key.
     Added geth-aligned no-op delete coverage for a missing key, asserting that
     the existing leaf root, path, and value remain unchanged.
+    Added branch child deletion coverage for the complementary root-value case:
+    when deleting the only child from a root branch that still has a value slot,
+    the branch collapses back to a terminator-only leaf with the root value
+    preserved.
     Added fixture assertions for compressed root path nibbles on leaf and
     extension roots, locking the path-compression shape in addition to root
     hashes and node kinds.

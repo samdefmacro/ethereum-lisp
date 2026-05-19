@@ -121,6 +121,18 @@
       "expectedRoot": "0xae9b7371f5ef144daa2780a50feb85d5918708e10357eb25c275cc2562f219d4",
       "expectedShape": "leaf",
       "expectedRootPathNibbles": [1, 0, 16]
+    },
+    {
+      "name": "delete-root-branch-child-collapses-to-root-value-leaf",
+      "operations": [
+        { "op": "put", "keyHex": "0x", "valueAscii": "root" },
+        { "op": "put", "keyHex": "0x10", "valueAscii": "child" },
+        { "op": "delete", "keyHex": "0x10" }
+      ],
+      "expectedRoot": "0xdecd353bef3878c819cdb73943e0a744d14551d9626f656c4baca465e5db165c",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [16],
+      "expectedRootValueAscii": "root"
     }
   ]
 }
