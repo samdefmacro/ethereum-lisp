@@ -64,7 +64,6 @@ Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked. Order matters: earlier items unblock later
 ones.
 
-- `HARNESS-FIXTURE-ROOT`
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
 - `HARNESS-FIXTURE-RUNNER`
