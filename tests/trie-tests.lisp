@@ -59,12 +59,14 @@
        (bytes-to-ascii
         (ethereum-lisp.trie::branch-node-value root))))))
 
+(defun trie-fixture-key (object)
+  (or (let ((hex (fixture-object-field object "keyHex")))
+        (when hex (hex-to-bytes hex)))
+      (ascii-to-bytes (fixture-object-field object "keyAscii"))))
+
 (defun apply-trie-fixture-operation (trie operation)
   (let ((op (fixture-object-field operation "op"))
-        (key (or (let ((hex (fixture-object-field operation "keyHex")))
-                   (when hex (hex-to-bytes hex)))
-                 (ascii-to-bytes
-                  (fixture-object-field operation "keyAscii")))))
+        (key (trie-fixture-key operation)))
     (cond
       ((string= op "put")
        (mpt-put trie key
@@ -79,6 +81,13 @@
     (dolist (operation (fixture-object-field case "operations"))
       (apply-trie-fixture-operation trie operation))
     trie))
+
+(defun assert-trie-fixture-lookups (trie case)
+  (dolist (expected (fixture-object-field case "expectedGets"))
+    (is (bytes= (ascii-to-bytes (fixture-object-field expected "valueAscii"))
+                (mpt-get trie (trie-fixture-key expected)))))
+  (dolist (expected (fixture-object-field case "expectedMissing"))
+    (is (null (mpt-get trie (trie-fixture-key expected))))))
 
 (deftest trie-empty-root
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
@@ -151,4 +160,5 @@
                 (fixture-object-field case "expectedRootValueAscii")))
           (when branch-value
             (is (string= branch-value
-                         (trie-fixture-root-value trie)))))))))
+                         (trie-fixture-root-value trie)))))
+        (assert-trie-fixture-lookups trie case)))))

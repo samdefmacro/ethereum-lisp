@@ -593,6 +593,9 @@ splits can land after the Phase A smoke path closes.
     Added branch child-reference assertions to trie fixtures, including a
     mixed embedded/hashed branch case where a large child leaf crosses the
     32-byte RLP reference threshold while a sibling remains embedded.
+    Added fixture-driven trie lookup assertions so shared-prefix, deletion,
+    and mixed child-reference cases verify `mpt-get` results in addition to
+    root hash and node-shape commitments.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

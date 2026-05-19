@@ -50,7 +50,13 @@
       "expectedRoot": "0x5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84",
       "expectedShape": "extension",
       "expectedRootPathNibbles": [6],
-      "expectedChildReference": "hashed"
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "doge", "valueAscii": "coin" },
+        { "keyAscii": "horse", "valueAscii": "stallion" }
+      ]
     },
     {
       "name": "extension-embedded-child-reference",
@@ -85,7 +91,14 @@
       ],
       "expectedRoot": "0x779db3986dd4f38416bfde49750ef7b13c6ecb3e2221620bcad9267e94604d36",
       "expectedShape": "extension",
-      "expectedRootPathNibbles": [6, 4, 6, 15]
+      "expectedRootPathNibbles": [6, 4, 6, 15],
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "dog", "valueAscii": "puppy" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "doge" }
+      ]
     },
     {
       "name": "delete-last-entry-empty-root",
@@ -126,7 +139,14 @@
       "expectedRootChildReferences": {
         "0": "hashed",
         "15": "embedded"
-      }
+      },
+      "expectedGets": [
+        {
+          "keyHex": "0x00",
+          "valueAscii": "this value is deliberately long enough to hash the child leaf"
+        },
+        { "keyHex": "0xf0", "valueAscii": "right" }
+      ]
     },
     {
       "name": "delete-missing-branch-child-keeps-root-branch",
