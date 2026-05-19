@@ -231,6 +231,10 @@ ones.
     legacy, EIP-2930, EIP-1559, EIP-4844, or EIP-7702 coverage, duplicate
     names, duplicate `txbytes` / `raw`, duplicate hashes, blank senders, and
     invalid chain ids before running per-fork checks.
+  - Progress: added transaction fixture result-shape validation. Per-fork
+    `result` entries now reject unknown exception tokens, valid entries without
+    `intrinsicGas`, invalid entries that also carry `intrinsicGas`, and
+    malformed result objects before transaction decoding begins.
 
 ## P0: Module Boundaries
 

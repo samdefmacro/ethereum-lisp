@@ -12,6 +12,12 @@
 (defparameter +transaction-fixture-required-types+
   '(:legacy :access-list :dynamic-fee :blob :set-code))
 
+(defparameter +transaction-fixture-known-exceptions+
+  '("TransactionException.TYPE_1_TX_PRE_FORK"
+    "TransactionException.TYPE_2_TX_PRE_FORK"
+    "TransactionException.TYPE_3_TX_PRE_FORK"
+    "TransactionException.TYPE_4_TX_PRE_FORK"))
+
 (defun validate-transaction-envelope-fixture-metadata (fixture)
   (validate-fixture-format fixture +transaction-envelope-fixture-format+)
   (when (blank-string-p
@@ -66,6 +72,43 @@
                value previous (fixture-object-field vector "name"))))
     (setf (gethash value seen) (fixture-object-field vector "name"))))
 
+(defun transaction-fixture-known-exception-p (exception)
+  (member exception +transaction-fixture-known-exceptions+ :test #'string=))
+
+(defun validate-transaction-fixture-result-entry
+    (vector fork result)
+  (unless (listp result)
+    (error "Transaction fixture ~A result for fork ~A must be a JSON object"
+           (fixture-object-field vector "name")
+           fork))
+  (let ((exception (fixture-object-field result "exception"))
+        (intrinsic-gas (fixture-object-field result "intrinsicGas")))
+    (if (blank-string-p exception)
+        (when (blank-string-p intrinsic-gas)
+          (error "Transaction fixture ~A valid result for fork ~A needs intrinsicGas"
+                 (fixture-object-field vector "name")
+                 fork))
+        (progn
+          (unless (transaction-fixture-known-exception-p exception)
+            (error "Transaction fixture ~A result for fork ~A has unknown exception ~A"
+                   (fixture-object-field vector "name")
+                   fork
+                   exception))
+          (when intrinsic-gas
+            (error "Transaction fixture ~A invalid result for fork ~A must not include intrinsicGas"
+                   (fixture-object-field vector "name")
+                   fork))))))
+
+(defun validate-transaction-fixture-result-shape (vector)
+  (let ((result (fixture-object-field vector "result")))
+    (unless (listp result)
+      (error "Transaction fixture result must be a JSON object"))
+    (dolist (check result)
+      (validate-transaction-fixture-result-entry
+       vector
+       (car check)
+       (cdr check)))))
+
 (defun validate-transaction-envelope-vector-coverage (vectors)
   (let ((seen-names (make-hash-table :test 'equal))
         (seen-txbytes (make-hash-table :test 'equal))
@@ -83,7 +126,8 @@
         (pushnew type seen-types))
       (unless (and (integerp (fixture-required-field vector "chainId"))
                    (not (minusp (fixture-required-field vector "chainId"))))
-        (error "Transaction fixture chainId must be a non-negative integer")))
+        (error "Transaction fixture chainId must be a non-negative integer"))
+      (validate-transaction-fixture-result-shape vector))
     (dolist (type +transaction-fixture-required-types+)
       (unless (member type seen-types)
         (error "Transaction fixture vectors are missing required type ~A"
@@ -162,6 +206,30 @@
     (blob-transaction :blob)
     (set-code-transaction :set-code)
     (otherwise :unknown)))
+
+(deftest transaction-fixture-result-shape-validation
+  (let ((vector (list (cons "name" "shape-test"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector "London" nil))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector "London" (list (cons "exception" ""))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector "London" (list (cons "exception"
+                                   "TransactionException.UNKNOWN"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       "London"
+       (list (cons "exception" "TransactionException.TYPE_2_TX_PRE_FORK")
+             (cons "intrinsicGas" "0x5208"))))
+    (validate-transaction-fixture-result-entry
+     vector "London" (list (cons "intrinsicGas" "0x5208")))
+    (validate-transaction-fixture-result-entry
+     vector "London" (list (cons "exception"
+                                 "TransactionException.TYPE_2_TX_PRE_FORK")))))
 
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
