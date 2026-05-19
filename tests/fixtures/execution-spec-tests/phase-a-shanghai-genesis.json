@@ -1,4 +1,12 @@
 {
+  "format": "ethereum-lisp/phase-a-shanghai-genesis-fixture-v1",
+  "source": "in-repo Shanghai genesis fixture shaped for ethereum/execution-spec-tests v5.4.0 ingestion",
+  "executionSpecTests": {
+    "release": "v5.4.0",
+    "tagTarget": "88e9fb8",
+    "archive": "fixtures_stable.tar.gz",
+    "status": "seed Phase A genesis fixture shaped for pinned fixture ingestion; extend with transcribed pinned genesis/state cases"
+  },
   "config": {
     "chainId": 1337,
     "terminalTotalDifficulty": 0,

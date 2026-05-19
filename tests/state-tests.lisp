@@ -221,6 +221,7 @@
 
 (deftest phase-a-shanghai-genesis-fixture-roots
   (let* ((json (fixture-file-string +phase-a-shanghai-genesis-fixture-path+))
+         (fixture (parse-json json))
          (expected-root (genesis-expected-state-root-from-genesis-json-string json))
          (computed-root (genesis-state-root-from-genesis-json-string json))
          (state (state-db-from-genesis-json-string json))
@@ -232,6 +233,10 @@
                   "0x0000000000000000000000000000000000000000000000000000000000000000"))
          (slot-1 (hash32-from-hex
                   "0x0000000000000000000000000000000000000000000000000000000000000001")))
+    (validate-fixture-format
+     fixture
+     "ethereum-lisp/phase-a-shanghai-genesis-fixture-v1")
+    (validate-fixture-pinned-eest-source fixture)
     (is (validate-genesis-json-state-root json))
     (is (string= (hash32-to-hex expected-root)
                  (hash32-to-hex computed-root)))

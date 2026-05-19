@@ -587,6 +587,9 @@ splits can land after the Phase A smoke path closes.
     both wrappers now machine-check the Phase A EEST release `v5.4.0`, tag
     target `88e9fb8`, and `fixtures_stable.tar.gz` archive before consuming
     seed cases.
+    Added the same pinned-source metadata guard to the Phase A Shanghai
+    genesis fixture before validating its state root, header root, account
+    allocation, code hash, and storage root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
