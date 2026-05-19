@@ -252,6 +252,9 @@ ones.
     fixture vectors now reject cases whose declared type or `chainId` disagrees
     with the decoded raw transaction before hash, sender, and per-fork checks
     run.
+  - Progress: moved fork coverage validation into transaction result-shape
+    loading. Fixture vectors now reject missing tracked fork labels or unknown
+    fork labels before transaction decoding and execution checks begin.
 
 ## P0: Module Boundaries
 

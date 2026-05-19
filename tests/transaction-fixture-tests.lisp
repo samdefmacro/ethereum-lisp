@@ -169,12 +169,25 @@
                    type
                    fork))))))
 
+(defun validate-transaction-fixture-result-forks (vector result)
+  (dolist (fork +transaction-fixture-forks+)
+    (unless (assoc fork result :test #'string=)
+      (error "Transaction fixture ~A is missing result for fork ~A"
+             (fixture-object-field vector "name")
+             fork)))
+  (dolist (check result)
+    (unless (member (car check) +transaction-fixture-forks+ :test #'string=)
+      (error "Transaction fixture ~A has unknown result fork ~A"
+             (fixture-object-field vector "name")
+             (car check)))))
+
 (defun validate-transaction-fixture-result-shape (vector)
   (let ((type (transaction-fixture-type-keyword
                (fixture-required-field vector "type")))
         (result (fixture-object-field vector "result")))
     (unless (listp result)
       (error "Transaction fixture result must be a JSON object"))
+    (validate-transaction-fixture-result-forks vector result)
     (dolist (check result)
       (validate-transaction-fixture-result-entry
        vector
@@ -243,16 +256,7 @@
   (let ((result (fixture-object-field vector "result")))
     (unless (listp result)
       (error "Transaction fixture result must be a JSON object"))
-    (dolist (fork +transaction-fixture-forks+)
-      (unless (assoc fork result :test #'string=)
-        (error "Transaction fixture ~A is missing result for fork ~A"
-               (fixture-object-field vector "name")
-               fork)))
-    (dolist (check result)
-      (unless (member (car check) +transaction-fixture-forks+ :test #'string=)
-        (error "Transaction fixture ~A has unknown result fork ~A"
-               (fixture-object-field vector "name")
-               (car check))))
+    (validate-transaction-fixture-result-forks vector result)
     result))
 
 (defun transaction-fixture-result-valid-p (result)
@@ -314,6 +318,30 @@
 (deftest transaction-fixture-result-shape-validation
   (let ((vector (list (cons "name" "shape-test")
                       (cons "type" "dynamic-fee"))))
+    (signals error
+      (validate-transaction-fixture-result-shape
+       (list (cons "name" "missing-fork")
+             (cons "type" "dynamic-fee")
+             (cons "result"
+                   (list (cons "Frontier"
+                               (list (cons "exception"
+                                           "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+    (signals error
+      (validate-transaction-fixture-result-shape
+       (list (cons "name" "unknown-fork")
+             (cons "type" "dynamic-fee")
+             (cons "result"
+                   (append
+                    (mapcar
+                     (lambda (fork)
+                       (cons fork
+                             (if (string= fork "London")
+                                 (list (cons "intrinsicGas" "0x5208"))
+                                 (list (cons "exception"
+                                             "TransactionException.TYPE_2_TX_PRE_FORK")))))
+                     +transaction-fixture-forks+)
+                    (list (cons "Osaka"
+                                (list (cons "intrinsicGas" "0x5208")))))))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" nil))
