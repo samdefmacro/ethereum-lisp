@@ -1,39 +1,23 @@
 (in-package #:ethereum-lisp.test)
 
-(defparameter *transaction-envelope-vectors*
-  '((:name "legacy-eip155"
-     :type :legacy
-     :chain-id 1
-     :raw "0xf86c098504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276a067cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83"
-     :hash "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788"
-     :sender "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f")
-    (:name "eip2930-access-list"
-     :type :access-list
-     :chain-id 1
-     :raw "0x01f8630103018261a894b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a825544c001a0c9519f4f2b30335884581971573fadf60c6204f59a911df35ee8a540456b2660a032f1e8e2c5dd761f9e4f88f41c8310aeaba26a8bfcdacfedfa12ec3862d37521"
-     :hash "0xd900408d8fec1ffdb3e360685f94400b2ef6e1211ac0f98abbaa140e1a73683a"
-     :sender "0x27cf7d8449c9da59189427619ba59f985cee9c0f")
-    (:name "eip1559-dynamic-fee"
-     :type :dynamic-fee
-     :chain-id 1
-     :raw "0x02f864010180820fa08284d09411111111111111111111111111111111111111118080c001a0b7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0a06261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904"
-     :hash "0xa98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476"
-     :sender "0xd02d72e067e77158444ef2020ff2d325f929b363")
-    (:name "eip4844-blob"
-     :type :blob
-     :chain-id 1337
-     :raw "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675"
-     :hash "0xc4ad67e7f322994fdabb7a8500e7164c6d28179336eb561d9dae253bb15e3293"
-     :sender "0x0c2c51a0990aee1d73c1228de158688341557508")
-    (:name "eip7702-set-code"
-     :type :set-code
-     :chain-id 1337
-     :raw "0x04f90126820539800285012a05f2008307a1209471562b71999873db5b286df957af199ec94617f78080c0f8baf85c82053994000000000000000000000000000000000000aaaa0101a07ed17af7d2d2b9ba7d797a202125bf505b9a0f962a67b3b61b56783d8faf7461a001b73b6e586edc706dce6c074eaec28692fa6359fb3446a2442f36777e1c0669f85a8094000000000000000000000000000000000000bbbb8001a05011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98a056c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf6101a0167b0ecfc343a497095c22ee4270d3cc3b971cc3599fc73bbff727e0d2ed432da01c003c72306807492bf1150e39b2f79da23b49a4e83eb6e9209ae30d3572368f"
-     :hash "0x3caafc2d5648c6f1153b76b2c20fd3d12de17a546691bd2d844c88f7b7f18313"
-     :sender "0x71562b71999873db5b286df957af199ec94617f7")))
+(defparameter +transaction-envelope-fixture-path+
+  "tests/fixtures/execution-spec-tests/transaction-envelopes.json")
 
-(defun transaction-vector-value (vector key)
-  (getf vector key))
+(defun transaction-fixture-type-keyword (type)
+  (cond
+    ((string= type "legacy") :legacy)
+    ((string= type "access-list") :access-list)
+    ((string= type "dynamic-fee") :dynamic-fee)
+    ((string= type "blob") :blob)
+    ((string= type "set-code") :set-code)
+    (t (error "Unknown transaction fixture type: ~A" type))))
+
+(defun load-transaction-envelope-vectors (path)
+  (let* ((fixture (load-handwritten-fixture-file path))
+         (vectors (fixture-object-field fixture "vectors")))
+    (unless (listp vectors)
+      (error "Transaction fixture vectors must be a JSON array"))
+    vectors))
 
 (defun transaction-vector-type (transaction)
   (typecase transaction
@@ -45,18 +29,20 @@
     (otherwise :unknown)))
 
 (deftest transaction-envelope-fixture-vectors
-  (dolist (vector *transaction-envelope-vectors*)
-    (let* ((raw (transaction-vector-value vector :raw))
-           (chain-id (transaction-vector-value vector :chain-id))
+  (dolist (vector (load-transaction-envelope-vectors
+                   +transaction-envelope-fixture-path+))
+    (let* ((raw (fixture-object-field vector "raw"))
+           (chain-id (fixture-object-field vector "chainId"))
            (transaction (transaction-from-encoding (hex-to-bytes raw)))
            (sender (transaction-sender transaction :expected-chain-id chain-id)))
-      (is (eq (transaction-vector-value vector :type)
+      (is (eq (transaction-fixture-type-keyword
+               (fixture-object-field vector "type"))
               (transaction-vector-type transaction)))
       (is (string= raw (bytes-to-hex (transaction-encoding transaction))))
-      (is (string= (transaction-vector-value vector :hash)
+      (is (string= (fixture-object-field vector "hash")
                    (hash32-to-hex (transaction-hash transaction))))
       (is sender)
-      (is (string= (transaction-vector-value vector :sender)
+      (is (string= (fixture-object-field vector "sender")
                    (address-to-hex sender)))
       (is (null (transaction-sender transaction
                                     :expected-chain-id (1+ chain-id)))))))

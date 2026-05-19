@@ -185,9 +185,12 @@ ones.
   - Progress: added an in-repo external-style transaction envelope vector
     runner covering legacy EIP-155, EIP-2930, EIP-1559, EIP-4844, and
     EIP-7702 raw encodings, transaction hashes, sender recovery, and
-    wrong-chain sender rejection. Reference source availability: geth
-    `8a0223e`, Nethermind `1c72a72`; local Reth clone absent. Remaining work:
-    draw or transcribe the same vector shape from the pinned
+    wrong-chain sender rejection. The vectors now live in
+    `tests/fixtures/execution-spec-tests/transaction-envelopes.json` and are
+    parsed through the fixture runner shape instead of being embedded directly
+    in Lisp. Reference source availability: geth `8a0223e`, Nethermind
+    `1c72a72`; local Reth clone absent. Remaining work: draw or transcribe
+    the same vector shape from the pinned
     `execution-spec-tests` release.
 
 ## P0: Module Boundaries
