@@ -16,6 +16,7 @@
      (:file "crypto")
      (:file "trie-encoding")
      (:file "trie")
+     (:file "chain-config")
      (:file "core")
      (:file "state")
      (:file "evm")
