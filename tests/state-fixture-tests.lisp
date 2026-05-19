@@ -72,6 +72,8 @@
 (deftest state-root-fixture-vectors
   (let* ((fixture (load-handwritten-fixture-file +state-root-fixture-path+))
          (cases (fixture-object-field fixture "cases")))
+    (validate-fixture-format fixture "ethereum-lisp/state-root-fixture-v1")
+    (validate-fixture-pinned-eest-source fixture)
     (dolist (case cases)
       (let ((state (run-state-root-fixture-case case)))
         (is (string= (fixture-object-field case "expectedRoot")

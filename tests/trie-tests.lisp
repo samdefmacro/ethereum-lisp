@@ -3,18 +3,6 @@
 (defparameter +trie-vector-fixture-path+
   "tests/fixtures/execution-spec-tests/trie-vectors.json")
 
-(defun trie-fixture-object-field (object name)
-  (cdr (assoc name object :test #'string=)))
-
-(defun trie-fixture-file-string (path)
-  (with-open-file (stream path :direction :input)
-    (with-output-to-string (out)
-      (loop for line = (read-line stream nil nil)
-            while line
-            do (progn
-                 (write-string line out)
-                 (terpri out))))))
-
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
     (cond
@@ -61,23 +49,23 @@
         (ethereum-lisp.trie::branch-node-value root))))))
 
 (defun apply-trie-fixture-operation (trie operation)
-  (let ((op (trie-fixture-object-field operation "op"))
-        (key (or (let ((hex (trie-fixture-object-field operation "keyHex")))
+  (let ((op (fixture-object-field operation "op"))
+        (key (or (let ((hex (fixture-object-field operation "keyHex")))
                    (when hex (hex-to-bytes hex)))
                  (ascii-to-bytes
-                  (trie-fixture-object-field operation "keyAscii")))))
+                  (fixture-object-field operation "keyAscii")))))
     (cond
       ((string= op "put")
        (mpt-put trie key
                 (ascii-to-bytes
-                 (trie-fixture-object-field operation "valueAscii"))))
+                 (fixture-object-field operation "valueAscii"))))
       ((string= op "delete")
        (mpt-delete trie key))
       (t (error "Unknown trie fixture operation: ~A" op)))))
 
 (defun run-trie-fixture-case (case)
   (let ((trie (make-mpt)))
-    (dolist (operation (trie-fixture-object-field case "operations"))
+    (dolist (operation (fixture-object-field case "operations"))
       (apply-trie-fixture-operation trie operation))
     trie))
 
@@ -113,34 +101,34 @@
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json
-                   (trie-fixture-file-string +trie-vector-fixture-path+)))
-         (cases (trie-fixture-object-field fixture "cases")))
+                   (fixture-file-string +trie-vector-fixture-path+)))
+         (cases (fixture-object-field fixture "cases")))
+    (validate-fixture-format fixture "ethereum-lisp/trie-vectors-v1")
+    (validate-fixture-pinned-eest-source fixture)
     (dolist (case cases)
       (let ((trie (run-trie-fixture-case case)))
-        (is (string= (trie-fixture-object-field case "expectedRoot")
+        (is (string= (fixture-object-field case "expectedRoot")
                      (mpt-root-hex trie)))
-        (is (string= (trie-fixture-object-field case "expectedShape")
+        (is (string= (fixture-object-field case "expectedShape")
                      (trie-fixture-root-shape trie)))
         (let ((reference-kind
-                (trie-fixture-object-field case
-                                           "expectedChildReference")))
+                (fixture-object-field case "expectedChildReference")))
           (when reference-kind
             (is (string= reference-kind
                          (trie-fixture-extension-child-reference-kind
                           trie)))))
         (let ((children
-                (trie-fixture-object-field case "expectedRootChildren")))
+                (fixture-object-field case "expectedRootChildren")))
           (when children
             (is (equal children
                        (trie-fixture-root-children trie)))))
         (let ((path-nibbles
-                (trie-fixture-object-field case "expectedRootPathNibbles")))
+                (fixture-object-field case "expectedRootPathNibbles")))
           (when path-nibbles
             (is (equal path-nibbles
                        (trie-fixture-root-path-nibbles trie)))))
         (let ((branch-value
-                (trie-fixture-object-field case
-                                           "expectedRootValueAscii")))
+                (fixture-object-field case "expectedRootValueAscii")))
           (when branch-value
             (is (string= branch-value
                          (trie-fixture-root-value trie)))))))))

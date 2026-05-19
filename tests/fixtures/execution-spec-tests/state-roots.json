@@ -1,5 +1,12 @@
 {
   "format": "ethereum-lisp/state-root-fixture-v1",
+  "source": "in-repo state root vectors shaped for ethereum/execution-spec-tests v5.4.0 ingestion",
+  "executionSpecTests": {
+    "release": "v5.4.0",
+    "tagTarget": "88e9fb8",
+    "archive": "fixtures_stable.tar.gz",
+    "status": "seed state-root vectors shaped for pinned fixture ingestion; extend with transcribed pinned state cases"
+  },
   "cases": [
     {
       "name": "empty-state-root",

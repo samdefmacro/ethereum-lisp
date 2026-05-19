@@ -3,18 +3,6 @@
 (defparameter +minimal-blockchain-fixture-path+
   "tests/fixtures/execution-spec-tests/minimal-blockchain.json")
 
-(defun fixture-object-field (object name)
-  (cdr (assoc name object :test #'string=)))
-
-(defun fixture-file-string (path)
-  (with-open-file (stream path :direction :input)
-    (with-output-to-string (out)
-      (loop for line = (read-line stream nil nil)
-            while line
-            do (progn
-                 (write-string line out)
-                 (terpri out))))))
-
 (defun load-handwritten-fixture-file (path)
   (parse-json (fixture-file-string path)))
 

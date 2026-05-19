@@ -1,6 +1,12 @@
 {
   "format": "ethereum-lisp/trie-vectors-v1",
   "source": "in-repo vectors shaped for ethereum/execution-spec-tests v5.4.0 trie fixture ingestion",
+  "executionSpecTests": {
+    "release": "v5.4.0",
+    "tagTarget": "88e9fb8",
+    "archive": "fixtures_stable.tar.gz",
+    "status": "seed trie vectors shaped for pinned fixture ingestion; extend with transcribed pinned trie cases"
+  },
   "cases": [
     {
       "name": "single-leaf",

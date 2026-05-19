@@ -6,58 +6,21 @@
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
-(defparameter +transaction-fixture-eest-release+ "v5.4.0")
-(defparameter +transaction-fixture-eest-tag-target+ "88e9fb8")
-(defparameter +transaction-fixture-eest-archive+ "fixtures_stable.tar.gz")
-
 (defparameter +transaction-fixture-forks+
   '("Frontier" "Berlin" "London" "Cancun" "Prague"))
 
-(defun transaction-fixture-field-present-p (object name)
-  (not (null (assoc name object :test #'string=))))
-
-(defun transaction-fixture-required-field (object name)
-  (unless (transaction-fixture-field-present-p object name)
-    (error "Transaction fixture is missing top-level field ~A" name))
-  (fixture-object-field object name))
-
-(defun validate-transaction-fixture-pinned-source (fixture)
-  (let ((source (transaction-fixture-required-field
-                 fixture
-                 "executionSpecTests")))
-    (unless (listp source)
-      (error "Transaction fixture executionSpecTests must be a JSON object"))
-    (unless (string= +transaction-fixture-eest-release+
-                     (transaction-fixture-required-field source "release"))
-      (error "Transaction fixture executionSpecTests.release must be ~A"
-             +transaction-fixture-eest-release+))
-    (unless (string= +transaction-fixture-eest-tag-target+
-                     (transaction-fixture-required-field source "tagTarget"))
-      (error "Transaction fixture executionSpecTests.tagTarget must be ~A"
-             +transaction-fixture-eest-tag-target+))
-    (unless (string= +transaction-fixture-eest-archive+
-                     (transaction-fixture-required-field source "archive"))
-      (error "Transaction fixture executionSpecTests.archive must be ~A"
-             +transaction-fixture-eest-archive+))
-    (when (blank-string-p
-           (transaction-fixture-required-field source "status"))
-      (error "Transaction fixture executionSpecTests.status must be present"))))
-
 (defun validate-transaction-envelope-fixture-metadata (fixture)
-  (unless (string= +transaction-envelope-fixture-format+
-                   (transaction-fixture-required-field fixture "format"))
-    (error "Transaction fixture format must be ~A"
-           +transaction-envelope-fixture-format+))
+  (validate-fixture-format fixture +transaction-envelope-fixture-format+)
   (when (blank-string-p
-         (transaction-fixture-required-field fixture "source"))
+         (fixture-required-field fixture "source"))
     (error "Transaction fixture source must be present"))
-  (validate-transaction-fixture-pinned-source fixture)
+  (validate-fixture-pinned-eest-source fixture)
   (let ((references
-          (transaction-fixture-required-field fixture "referenceClients")))
+          (fixture-required-field fixture "referenceClients")))
     (unless (listp references)
       (error "Transaction fixture referenceClients must be a JSON object"))
     (dolist (client '("geth" "nethermind" "reth"))
-      (unless (transaction-fixture-field-present-p references client)
+      (unless (fixture-field-present-p references client)
         (error "Transaction fixture referenceClients is missing ~A"
                client)))
     (dolist (client '("geth" "nethermind"))

@@ -20,6 +20,10 @@
 (defconstant +execution-spec-tests-fixture-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 
+(defconstant +phase-a-eest-release+ "v5.4.0")
+(defconstant +phase-a-eest-tag-target+ "88e9fb8")
+(defconstant +phase-a-eest-archive+ "fixtures_stable.tar.gz")
+
 (defun default-environment-reader (name)
   #+sbcl (sb-ext:posix-getenv name)
   #-sbcl (declare (ignore name))
@@ -41,6 +45,50 @@
       (every (lambda (char)
                (find char '(#\Space #\Tab #\Newline #\Return)))
              value)))
+
+(defun fixture-object-field (object name)
+  (cdr (assoc name object :test #'string=)))
+
+(defun fixture-field-present-p (object name)
+  (not (null (assoc name object :test #'string=))))
+
+(defun fixture-required-field (object name)
+  (unless (fixture-field-present-p object name)
+    (error "Fixture is missing field ~A" name))
+  (fixture-object-field object name))
+
+(defun fixture-file-string (path)
+  (with-open-file (stream path :direction :input)
+    (with-output-to-string (out)
+      (loop for line = (read-line stream nil nil)
+            while line
+            do (progn
+                 (write-string line out)
+                 (terpri out))))))
+
+(defun validate-fixture-format (fixture expected-format)
+  (unless (string= expected-format
+                   (fixture-required-field fixture "format"))
+    (error "Fixture format must be ~A" expected-format)))
+
+(defun validate-fixture-pinned-eest-source (fixture)
+  (let ((source (fixture-required-field fixture "executionSpecTests")))
+    (unless (listp source)
+      (error "Fixture executionSpecTests must be a JSON object"))
+    (unless (string= +phase-a-eest-release+
+                     (fixture-required-field source "release"))
+      (error "Fixture executionSpecTests.release must be ~A"
+             +phase-a-eest-release+))
+    (unless (string= +phase-a-eest-tag-target+
+                     (fixture-required-field source "tagTarget"))
+      (error "Fixture executionSpecTests.tagTarget must be ~A"
+             +phase-a-eest-tag-target+))
+    (unless (string= +phase-a-eest-archive+
+                     (fixture-required-field source "archive"))
+      (error "Fixture executionSpecTests.archive must be ~A"
+             +phase-a-eest-archive+))
+    (when (blank-string-p (fixture-required-field source "status"))
+      (error "Fixture executionSpecTests.status must be present"))))
 
 (defun execution-spec-tests-fixture-root
     (&key (env-var +execution-spec-tests-fixture-root-env+))
