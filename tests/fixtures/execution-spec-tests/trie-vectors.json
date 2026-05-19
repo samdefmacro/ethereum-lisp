@@ -12,6 +12,17 @@
       "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7, 16]
     },
     {
+      "name": "duplicate-key-overwrites-leaf-value",
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "hound" }
+      ],
+      "expectedRoot": "0x1b8a768e0c5ca7d00a88b634464e25599c849977aefed10eb514fc03a9c4c2eb",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7, 16],
+      "expectedRootValueAscii": "hound"
+    },
+    {
       "name": "branch-extension-shared-prefix",
       "operations": [
         { "op": "put", "keyAscii": "do", "valueAscii": "verb" },

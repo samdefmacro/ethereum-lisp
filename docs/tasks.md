@@ -533,6 +533,8 @@ splits can land after the Phase A smoke path closes.
     while longer sibling keys remain under child references. Added delete
     coverage for the inverse branch-value case: removing the root branch value
     collapses the remaining single child path back to a leaf with a locked root.
+    Added duplicate-key overwrite coverage that locks the final leaf value and
+    root hash after a later `put` replaces an earlier value for the same key.
     Added fixture assertions for compressed root path nibbles on leaf and
     extension roots, locking the path-compression shape in addition to root
     hashes and node kinds.

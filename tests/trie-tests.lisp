@@ -50,11 +50,15 @@
       ((typep root 'ethereum-lisp.trie::extension-node)
        (coerce (ethereum-lisp.trie::extension-node-path root) 'list)))))
 
-(defun trie-fixture-root-branch-value (trie)
+(defun trie-fixture-root-value (trie)
   (let ((root (mpt-root-node trie)))
-    (when (typep root 'ethereum-lisp.trie::branch-node)
-      (bytes-to-ascii
-       (ethereum-lisp.trie::branch-node-value root)))))
+    (cond
+      ((typep root 'ethereum-lisp.trie::leaf-node)
+       (bytes-to-ascii
+        (ethereum-lisp.trie::leaf-node-value root)))
+      ((typep root 'ethereum-lisp.trie::branch-node)
+       (bytes-to-ascii
+        (ethereum-lisp.trie::branch-node-value root))))))
 
 (defun apply-trie-fixture-operation (trie operation)
   (let ((op (trie-fixture-object-field operation "op"))
@@ -139,4 +143,4 @@
                                            "expectedRootValueAscii")))
           (when branch-value
             (is (string= branch-value
-                         (trie-fixture-root-branch-value trie)))))))))
+                         (trie-fixture-root-value trie)))))))))
