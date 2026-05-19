@@ -303,6 +303,11 @@ ones.
     plus per-fork `result` objects, validates case/result field shapes, and
     normalizes unprefixed EEST hash/sender hex into local `0x`-prefixed values
     before later vector conversion.
+  - Progress: added conversion from normalized EEST transaction cases into the
+    local transaction vector shape. The adapter now derives vector type and
+    chain id from decoded `txbytes`, promotes a successful fork's hash/sender,
+    requires all locally tracked fork results, and runs the existing local
+    vector shape, fork-result, hash, sender, and intrinsic-gas checks.
 
 ## P0: Module Boundaries
 

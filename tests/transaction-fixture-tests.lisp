@@ -89,6 +89,14 @@
     ((string= type "set-code") :set-code)
     (t (error "Unknown transaction fixture type: ~A" type))))
 
+(defun transaction-fixture-type-name (type)
+  (ecase type
+    (:legacy "legacy")
+    (:access-list "access-list")
+    (:dynamic-fee "dynamic-fee")
+    (:blob "blob")
+    (:set-code "set-code")))
+
 (defun validate-transaction-fixture-string-field (vector field)
   (when (blank-string-p (fixture-required-field vector field))
     (error "Transaction fixture ~A must be present" field)))
@@ -222,6 +230,54 @@
      (lambda (entry)
        (normalize-eest-transaction-test-case (car entry) (cdr entry)))
      cases)))
+
+(defun eest-transaction-case-success-result (case)
+  (let ((result (fixture-object-field case "result")))
+    (dolist (fork +transaction-fixture-forks+)
+      (let ((entry (fixture-object-field result fork)))
+        (when (and entry (fixture-field-present-p entry "hash"))
+          (return entry))))))
+
+(defun eest-transaction-result-to-fixture-result (case)
+  (let ((result (fixture-object-field case "result")))
+    (mapcar
+     (lambda (fork)
+       (let ((entry (fixture-object-field result fork)))
+         (unless entry
+           (error "EEST transaction case ~A is missing result for fork ~A"
+                  (fixture-object-field case "name")
+                  fork))
+         (cons fork
+               (if (fixture-field-present-p entry "hash")
+                   (list (cons "intrinsicGas"
+                               (fixture-required-field entry "intrinsicGas")))
+                   (list (cons "exception"
+                               (fixture-required-field entry "exception")))))))
+     +transaction-fixture-forks+)))
+
+(defun convert-eest-transaction-case-to-vector (case)
+  (let* ((name (fixture-required-field case "name"))
+         (txbytes (fixture-required-field case "txbytes"))
+         (transaction (transaction-from-encoding (hex-to-bytes txbytes)))
+         (success (eest-transaction-case-success-result case)))
+    (unless success
+      (error "EEST transaction case ~A has no successful tracked fork result"
+             name))
+    (let ((vector
+            (list
+             (cons "name" name)
+             (cons "type" (transaction-fixture-type-name
+                           (transaction-vector-type transaction)))
+             (cons "chainId" (transaction-vector-chain-id transaction))
+             (cons "txbytes" txbytes)
+             (cons "hash" (fixture-required-field success "hash"))
+             (cons "sender" (fixture-required-field success "sender"))
+             (cons "result"
+                   (eest-transaction-result-to-fixture-result case)))))
+      (validate-transaction-fixture-vector-shape vector)
+      (validate-transaction-fixture-result-shape vector)
+      (validate-transaction-fixture-decoded-vector vector)
+      vector)))
 
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
@@ -826,7 +882,8 @@
   (let* ((case (first (load-eest-transaction-test-file
                        +eest-transaction-test-sample-path+)))
          (result (fixture-object-field case "result"))
-         (shanghai (fixture-object-field result "Shanghai")))
+         (shanghai (fixture-object-field result "Shanghai"))
+         (vector (convert-eest-transaction-case-to-vector case)))
     (is (string= "legacy-eip155-sample"
                  (fixture-object-field case "name")))
     (is (string= "0xf86c098504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276a067cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83"
@@ -836,7 +893,14 @@
     (is (string= "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"
                  (fixture-object-field shanghai "sender")))
     (is (string= "0x5208"
-                 (fixture-object-field shanghai "intrinsicGas"))))
+                 (fixture-object-field shanghai "intrinsicGas")))
+    (is (string= "legacy"
+                 (fixture-object-field vector "type")))
+    (is (= 1 (fixture-object-field vector "chainId")))
+    (is (string= "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788"
+                 (fixture-object-field vector "hash")))
+    (is (string= "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"
+                 (fixture-object-field vector "sender"))))
   (signals error
     (normalize-eest-transaction-test-case
      "missing-result"
@@ -858,6 +922,20 @@
                          (cons "hash"
                                "0x0000000000000000000000000000000000000000000000000000000000000001")
                          (cons "intrinsicGas" "0x5208")))))))))
+  (signals error
+    (convert-eest-transaction-case-to-vector
+     (list
+      (cons "name" "missing-tracked-fork")
+      (cons "txbytes"
+            "0xf86c098504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276a067cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83")
+      (cons "result"
+            (list
+             (cons "Shanghai"
+                   (list (cons "hash"
+                               "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788")
+                         (cons "sender"
+                               "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f")
+                         (cons "intrinsicGas" "0x5208"))))))))
 
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
