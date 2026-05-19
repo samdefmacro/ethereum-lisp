@@ -2770,6 +2770,132 @@
            (state-account-balance
             (state-db-get-account state address))))))
 
+(deftest execute-and-commit-block-stores-only-after-execution-success
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (sender
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (transaction
+           (make-legacy-transaction :nonce 0
+                                    :gas-price 1
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 10))
+         (header (make-block-header :number 0
+                                    :parent-hash (zero-hash32)
+                                    :gas-limit 50000)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 100000))
+    (multiple-value-bind (block receipts)
+        (execute-and-commit-block
+         store state
+         (lambda ()
+           (execute-legacy-block state sender (list transaction)
+                                 :header header)))
+      (is (= 1 (length receipts)))
+      (is (eq block (chain-store-known-block store (block-hash block))))
+      (is (eq block (chain-store-block-by-number store 0)))
+      (is (chain-store-state-available-p store (block-hash block)))
+      (is (typep (chain-store-transaction-location
+                  store
+                  (transaction-hash transaction))
+                 'engine-transaction-location))
+      (is (= 10
+             (state-account-balance
+              (state-db-get-account state recipient)))))))
+
+(deftest execute-and-commit-block-rolls-back-bad-execution-commitments
+  (let ((sender
+          (address-from-hex "0x0000000000000000000000000000000000000001"))
+        (recipient
+          (address-from-hex "0x0000000000000000000000000000000000000002")))
+    (labels ((bad-logs-bloom ()
+               (let ((bloom (make-byte-vector 256)))
+                 (setf (aref bloom 0) 1)
+                 bloom))
+             (assert-rejected-header (header)
+               (let* ((store (make-engine-payload-memory-store))
+                      (state (make-state-db))
+                      (transaction
+                        (make-legacy-transaction
+                         :nonce 0
+                         :gas-price 1
+                         :gas-limit 21000
+                         :to recipient
+                         :value 10)))
+                 (state-db-set-account state sender
+                                       (make-state-account :balance 100000))
+                 (signals error
+                   (execute-and-commit-block
+                    store state
+                    (lambda ()
+                      (execute-legacy-block state sender (list transaction)
+                                            :header header))))
+                 (is (null (chain-store-block-by-number store 0)))
+                 (is (null (chain-store-canonical-hash store 0)))
+                 (is (null (chain-store-transaction-location
+                            store
+                            (transaction-hash transaction))))
+                 (is (= 100000
+                        (state-account-balance
+                         (state-db-get-account state sender))))
+                 (is (null (state-db-get-account state recipient))))))
+      (assert-rejected-header
+       (make-block-header :number 0
+                          :parent-hash (zero-hash32)
+                          :gas-limit 50000
+                          :state-root (zero-hash32)))
+      (assert-rejected-header
+       (make-block-header :number 0
+                          :parent-hash (zero-hash32)
+                          :gas-limit 50000
+                          :receipts-root (zero-hash32)))
+      (assert-rejected-header
+       (make-block-header :number 0
+                          :parent-hash (zero-hash32)
+                          :gas-limit 50000
+                          :logs-bloom (bad-logs-bloom)))
+      (assert-rejected-header
+       (make-block-header :number 0
+                          :parent-hash (zero-hash32)
+                          :gas-limit 50000
+                          :gas-used 1)))))
+
+(deftest execute-and-commit-block-rolls-back-intra-transaction-error
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (sender
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (transaction
+           (make-legacy-transaction :nonce 0
+                                    :gas-price 1
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 10))
+         (header (make-block-header :number 0
+                                    :parent-hash (zero-hash32)
+                                    :gas-limit 50000)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 1))
+    (signals error
+      (execute-and-commit-block
+       store state
+       (lambda ()
+         (execute-legacy-block state sender (list transaction)
+                               :header header))))
+    (is (null (chain-store-block-by-number store 0)))
+    (is (null (chain-store-transaction-location
+               store
+               (transaction-hash transaction))))
+    (is (= 1
+           (state-account-balance
+            (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
 (deftest chain-store-set-canonical-head-rewrites-number-indexes
   (let* ((store (make-engine-payload-memory-store))
          (genesis

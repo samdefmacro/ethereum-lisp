@@ -860,6 +860,7 @@
    #:execute-signed-messages
    #:execute-legacy-block
    #:execute-atomic-block-commit
+   #:execute-and-commit-block
    #:execute-signed-block))
 
 (defpackage #:ethereum-lisp
@@ -1662,6 +1663,7 @@
    #:execute-signed-messages
    #:execute-legacy-block
    #:execute-atomic-block-commit
+   #:execute-and-commit-block
    #:execute-signed-block)
   (:export
    #:byte-vector
@@ -2451,4 +2453,5 @@
    #:execute-signed-messages
    #:execute-legacy-block
    #:execute-atomic-block-commit
+   #:execute-and-commit-block
    #:execute-signed-block))

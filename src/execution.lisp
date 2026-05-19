@@ -1350,6 +1350,18 @@
            (state-db-restore state state-snapshot)
            (error condition)))))))
 
+(defun execute-and-commit-block
+    (store state executor &key (state-available-p t))
+  (execute-atomic-block-commit
+   store
+   state
+   (lambda ()
+     (multiple-value-bind (block receipts)
+         (funcall executor)
+       (chain-store-put-block store block
+                              :state-available-p state-available-p)
+       (values block receipts)))))
+
 (defun execute-signed-block (state transactions
                              &key expected-chain-id
                                   (header (make-block-header))

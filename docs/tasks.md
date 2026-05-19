@@ -455,6 +455,14 @@ splits can land after the Phase A smoke path closes.
     wire this boundary into real block execution and add commitment-specific
     failure cases for state root, receipts root, logs bloom, gas used, and
     intra-tx errors.
+  - Progress: added `execute-and-commit-block`, a narrow import entry point
+    that runs a supplied block executor inside the atomic state/store boundary
+    and writes the block/receipt/tx indexes only after execution succeeds.
+    Tests now cover successful execution-store commit plus rollback for bad
+    state root, receipts root, logs bloom, gas used, and intra-transaction
+    errors. Remaining work: use the entry point from Engine `newPayload`,
+    add signed-transaction sender recovery on that path, and persist executed
+    state into the RPC account read indexes.
 
 - [ ] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.
