@@ -3047,6 +3047,12 @@
          (block-hash (block-hash block))
          (transaction-hash (transaction-hash transaction))
          (payload-id #(9 0 0 0 0 0 0 1))
+         (blob #(#xaa #xbb))
+         (commitment (make-byte-vector +kzg-commitment-size+
+                                       :initial-element 0))
+         (proof #(#xcc #xdd))
+         (sidecar nil)
+         (versioned-hash nil)
          (prepared-payload
            (make-engine-prepared-payload
             :payload-id payload-id
@@ -3056,7 +3062,14 @@
            (ethereum-lisp.core::engine-payload-store-put-pending-transaction-filter
             store)))
     (state-db-set-account state address (make-state-account :balance 10))
+    (setf (aref commitment 0) #x11
+          sidecar (make-blob-sidecar
+                   :blobs (list blob)
+                   :commitments (list commitment)
+                   :proofs (list proof))
+          versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
     (chain-store-put-prepared-payload store prepared-payload)
+    (ethereum-lisp.core::engine-payload-store-put-blob-sidecar store sidecar)
     (signals error
       (execute-atomic-block-commit
        store state
@@ -3068,6 +3081,12 @@
          (setf (ethereum-lisp.core::engine-prepared-payload-version
                 (chain-store-prepared-payload store payload-id))
                6)
+         (setf (aref
+                (ethereum-lisp.core::engine-blob-and-proofs-blob
+                 (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+                  store versioned-hash))
+                0)
+               #xff)
          (state-db-set-account state address
                                (make-state-account :balance 99))
          (error "Injected atomic commit failure"))))
@@ -3088,6 +3107,12 @@
     (is (= 3
            (ethereum-lisp.core::engine-prepared-payload-version
             (chain-store-prepared-payload store payload-id))))
+    (is (= #xaa
+           (aref
+            (ethereum-lisp.core::engine-blob-and-proofs-blob
+             (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+              store versioned-hash))
+            0)))
     (is (= 10
            (state-account-balance
             (state-db-get-account state address))))))

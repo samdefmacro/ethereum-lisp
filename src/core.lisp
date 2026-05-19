@@ -3384,6 +3384,27 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              table)
     copy))
 
+(defun engine-payload-store-copy-blob-and-proofs (blob-and-proofs)
+  (cond
+    ((typep blob-and-proofs 'engine-blob-and-proofs)
+     (make-engine-blob-and-proofs
+      :blob (maybe-copy-bytes
+             (engine-blob-and-proofs-blob blob-and-proofs))
+      :proof (maybe-copy-bytes
+              (engine-blob-and-proofs-proof blob-and-proofs))
+      :cell-proofs
+      (mapcar #'maybe-copy-bytes
+              (engine-blob-and-proofs-cell-proofs blob-and-proofs))))
+    (t blob-and-proofs)))
+
+(defun engine-payload-store-copy-blob-sidecar-table (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash (lambda (key value)
+               (setf (gethash key copy)
+                     (engine-payload-store-copy-blob-and-proofs value)))
+             table)
+    copy))
+
 (defun engine-payload-store-snapshot (store)
   (make-engine-payload-memory-store
    :blocks
@@ -3424,7 +3445,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-copy-prepared-payload-table
     (engine-payload-memory-store-prepared-payloads store))
    :blob-sidecars
-   (engine-payload-store-copy-table
+   (engine-payload-store-copy-blob-sidecar-table
     (engine-payload-memory-store-blob-sidecars store))
    :pending-transactions
    (engine-payload-store-copy-table
