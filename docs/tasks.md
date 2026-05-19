@@ -471,7 +471,7 @@ splits can land after the Phase A smoke path closes.
     `execute-and-commit-block` into Engine `newPayload` and enforce signed
     sender recovery on that path.
 
-- [ ] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
+- [~] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.
   - Milestone: 1 / 2 / 5 / 7
   - Dependencies: `HARNESS-TX-VECTORS`.
@@ -484,6 +484,14 @@ splits can land after the Phase A smoke path closes.
     payload/admission outright. A test enumerates each path and asserts that
     sender recovery failure cannot leak state mutation.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Progress: added `execute-and-commit-signed-block`, which routes signed
+    block execution through the atomic block commit boundary while preserving
+    `execute-signed-block` sender recovery. Tests cover successful recovered
+    sender execution with block/transaction/account indexes committed, and a
+    wrong-chain-id signature failure that leaves both state DB and chain-store
+    indexes unchanged. Remaining work: enforce the same no-fallback sender
+    rule on `eth_sendRawTransaction`, mined transaction RPC object construction,
+    and Engine `newPayload` once execution is wired there.
 
 - [ ] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.

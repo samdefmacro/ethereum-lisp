@@ -2919,6 +2919,90 @@
             (state-db-get-account state sender))))
     (is (null (state-db-get-account state recipient)))))
 
+(deftest execute-and-commit-signed-block-recovers-sender-and-stores-indexes
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (sender
+           (address-from-hex "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (make-legacy-transaction
+            :nonce 9
+            :gas-price 20000000000
+            :gas-limit 21000
+            :to recipient
+            :value 1000000000000000000
+            :v 37
+            :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+            :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+         (header (make-block-header :number 0
+                                    :parent-hash (zero-hash32)
+                                    :gas-limit 50000)))
+    (state-db-set-account state sender
+                          (make-state-account
+                           :nonce 9
+                           :balance 2000000000000000000))
+    (multiple-value-bind (block receipts)
+        (execute-and-commit-signed-block
+         store state (list transaction)
+         :expected-chain-id 1
+         :header header)
+      (is (= 1 (length receipts)))
+      (is (eq block (chain-store-block-by-number store 0)))
+      (is (typep (chain-store-transaction-location
+                  store
+                  (transaction-hash transaction))
+                 'engine-transaction-location))
+      (is (= 10
+             (chain-store-account-nonce store (block-hash block) sender)))
+      (is (= 999580000000000000
+             (chain-store-account-balance store (block-hash block) sender)))
+      (is (= 1000000000000000000
+             (chain-store-account-balance store (block-hash block)
+                                          recipient))))))
+
+(deftest execute-and-commit-signed-block-rejects-wrong-chain-id-atomically
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (sender
+           (address-from-hex "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (make-legacy-transaction
+            :nonce 9
+            :gas-price 20000000000
+            :gas-limit 21000
+            :to recipient
+            :value 1000000000000000000
+            :v 37
+            :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+            :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+         (header (make-block-header :number 0
+                                    :parent-hash (zero-hash32)
+                                    :gas-limit 50000)))
+    (state-db-set-account state sender
+                          (make-state-account
+                           :nonce 9
+                           :balance 2000000000000000000))
+    (signals transaction-validation-error
+      (execute-and-commit-signed-block
+       store state (list transaction)
+       :expected-chain-id 2
+       :header header))
+    (is (null (chain-store-block-by-number store 0)))
+    (is (null (chain-store-transaction-location
+               store
+               (transaction-hash transaction))))
+    (is (= 9
+           (state-account-nonce
+            (state-db-get-account state sender))))
+    (is (= 2000000000000000000
+           (state-account-balance
+            (state-db-get-account state sender))))
+    (is (null (state-db-get-account state recipient)))))
+
 (deftest chain-store-set-canonical-head-rewrites-number-indexes
   (let* ((store (make-engine-payload-memory-store))
          (genesis

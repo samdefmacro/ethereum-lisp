@@ -863,6 +863,7 @@
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:execute-and-commit-block
+   #:execute-and-commit-signed-block
    #:execute-signed-block))
 
 (defpackage #:ethereum-lisp
@@ -1668,6 +1669,7 @@
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:execute-and-commit-block
+   #:execute-and-commit-signed-block
    #:execute-signed-block)
   (:export
    #:byte-vector
@@ -2460,4 +2462,5 @@
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:execute-and-commit-block
+   #:execute-and-commit-signed-block
    #:execute-signed-block))
