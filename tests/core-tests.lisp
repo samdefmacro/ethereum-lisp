@@ -2679,6 +2679,97 @@
     (is (eq prepared-payload
             (chain-store-prepared-payload store payload-id)))))
 
+(deftest execute-atomic-block-commit-commits-state-and-store-together
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (transaction
+           (make-legacy-transaction
+            :nonce 1
+            :gas-price 2
+            :gas-limit 21000
+            :to address
+            :value 3
+            :v 27
+            :r 4
+            :s 5))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (block-hash (block-hash block))
+         (transaction-hash (transaction-hash transaction)))
+    (multiple-value-bind (result committed-block)
+        (execute-atomic-block-commit
+         store state
+         (lambda ()
+           (chain-store-put-block store block :state-available-p t)
+           (chain-store-put-account-balance store block-hash address 99)
+           (state-db-set-account state address
+                                 (make-state-account :balance 99))
+           (values :committed block)))
+      (is (eq :committed result))
+      (is (eq block committed-block)))
+    (is (eq block (chain-store-known-block store block-hash)))
+    (is (chain-store-state-available-p store block-hash))
+    (is (= 99 (chain-store-account-balance store block-hash address)))
+    (is (typep (chain-store-transaction-location store transaction-hash)
+               'engine-transaction-location))
+    (is (= 99
+           (state-account-balance
+            (state-db-get-account state address))))))
+
+(deftest execute-atomic-block-commit-rolls-back-state-and-store-on-error
+  (let* ((store (make-engine-payload-memory-store))
+         (state (make-state-db))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (transaction
+           (make-legacy-transaction
+            :nonce 1
+            :gas-price 2
+            :gas-limit 21000
+            :to address
+            :value 3
+            :v 27
+            :r 4
+            :s 5))
+         (receipt (make-receipt :status 1 :cumulative-gas-used 21000))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (block-hash (block-hash block))
+         (transaction-hash (transaction-hash transaction)))
+    (state-db-set-account state address (make-state-account :balance 10))
+    (signals error
+      (execute-atomic-block-commit
+       store state
+       (lambda ()
+         (chain-store-put-block store block :state-available-p t)
+         (chain-store-put-account-balance store block-hash address 99)
+         (state-db-set-account state address
+                               (make-state-account :balance 99))
+         (error "Injected atomic commit failure"))))
+    (is (null (chain-store-known-block store block-hash)))
+    (is (null (chain-store-canonical-hash store 0)))
+    (is (null (chain-store-transaction-location store transaction-hash)))
+    (is (not (chain-store-state-available-p store block-hash)))
+    (is (= 0 (chain-store-account-balance store block-hash address)))
+    (is (= 10
+           (state-account-balance
+            (state-db-get-account state address))))))
+
 (deftest chain-store-set-canonical-head-rewrites-number-indexes
   (let* ((store (make-engine-payload-memory-store))
          (genesis

@@ -1339,6 +1339,17 @@
           (restore-block-header-for-execution header header-snapshot)
           (error condition)))))))
 
+(defun execute-atomic-block-commit (store state thunk)
+  (let ((state-snapshot (state-db-copy state)))
+    (chain-store-atomic-commit
+     store
+     (lambda ()
+       (handler-case
+           (funcall thunk)
+         (error (condition)
+           (state-db-restore state state-snapshot)
+           (error condition)))))))
+
 (defun execute-signed-block (state transactions
                              &key expected-chain-id
                                   (header (make-block-header))

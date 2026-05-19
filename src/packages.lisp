@@ -560,6 +560,7 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-atomic-commit
    #:chain-store-put-account-balance
    #:chain-store-account-balance
    #:chain-store-put-account-nonce
@@ -858,6 +859,7 @@
    #:execute-legacy-messages
    #:execute-signed-messages
    #:execute-legacy-block
+   #:execute-atomic-block-commit
    #:execute-signed-block))
 
 (defpackage #:ethereum-lisp
@@ -1389,6 +1391,7 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-atomic-commit
    #:chain-store-put-account-balance
    #:chain-store-account-balance
    #:chain-store-put-account-nonce
@@ -1658,6 +1661,7 @@
    #:execute-legacy-messages
    #:execute-signed-messages
    #:execute-legacy-block
+   #:execute-atomic-block-commit
    #:execute-signed-block)
   (:export
    #:byte-vector
@@ -2179,6 +2183,7 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-atomic-commit
    #:chain-store-put-account-balance
    #:chain-store-account-balance
    #:chain-store-put-account-nonce
@@ -2445,4 +2450,5 @@
    #:execute-legacy-messages
    #:execute-signed-messages
    #:execute-legacy-block
+   #:execute-atomic-block-commit
    #:execute-signed-block))

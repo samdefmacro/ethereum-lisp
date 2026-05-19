@@ -66,8 +66,6 @@ ones.
 
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
-- `STORE-CHECKPOINTS`
-- `STORE-REORG-INVARIANTS`
 - `STATE-ATOMIC-COMMIT`
 - `SENDER-RECOVERY-ENFORCEMENT`
 - `RECEIPT-DERIVATION-INVARIANTS`
@@ -433,7 +431,7 @@ splits can land after the Phase A smoke path closes.
     retained state snapshots.
   - Validation: dedicated proof tests and `sbcl --script tests/run-tests.lisp`.
 
-- [ ] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
+- [~] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
   - Milestone: 3 / 5 / 6
   - Dependencies: `STORE-CHAIN-INTERFACE`.
@@ -447,6 +445,16 @@ splits can land after the Phase A smoke path closes.
   - Validation: failure-injection tests covering bad state root, bad
     receipts root, bad logs bloom, bad gas used, and intra-tx errors, plus
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: added the first atomic commit boundary. The memory chain-store
+    now snapshots and restores block, number, canonical hash, tx-location,
+    state-availability, account, prepared-payload, pending/filter, and
+    forkchoice checkpoint indexes. `execute-atomic-block-commit` combines that
+    store rollback with `state-db-copy` / `state-db-restore`, and tests cover
+    both multi-value success commit and injected failure rollback across
+    state DB plus block/receipt/tx/account read indexes. Remaining work:
+    wire this boundary into real block execution and add commitment-specific
+    failure cases for state root, receipts root, logs bloom, gas used, and
+    intra-tx errors.
 
 - [ ] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.
