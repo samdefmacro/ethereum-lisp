@@ -318,6 +318,11 @@ ones.
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` now skip cleanly, while a
     configured root containing `transaction_tests` must load and convert at
     least one transaction vector.
+  - Progress: reused the local transaction vector-set guards for EEST root
+    imports. External transaction-test roots now run the same duplicate
+    `name`, `txbytes`, and hash checks plus decoded vector validation as the
+    in-repo transaction fixture, while leaving the seed fixture's stricter
+    "all envelope families required" gate scoped to the seed wrapper.
 
 ## P0: Module Boundaries
 

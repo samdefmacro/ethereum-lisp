@@ -298,8 +298,11 @@
       vector)))
 
 (defun load-eest-transaction-test-root-vectors (root)
-  (mapcar #'convert-eest-transaction-case-to-vector
-          (load-eest-transaction-test-root-cases root)))
+  (let ((vectors
+          (mapcar #'convert-eest-transaction-case-to-vector
+                  (load-eest-transaction-test-root-cases root))))
+    (validate-transaction-fixture-vector-set vectors)
+    vectors))
 
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
@@ -441,7 +444,8 @@
        (car check)
        (cdr check)))))
 
-(defun validate-transaction-envelope-vector-coverage (vectors)
+(defun validate-transaction-fixture-vector-set
+    (vectors &key require-required-types)
   (let ((seen-names (make-hash-table :test 'equal))
         (seen-txbytes (make-hash-table :test 'equal))
         (seen-hashes (make-hash-table :test 'equal))
@@ -459,10 +463,14 @@
         (pushnew type seen-types))
       (validate-transaction-fixture-result-shape vector)
       (validate-transaction-fixture-decoded-vector vector))
-    (dolist (type +transaction-fixture-required-types+)
-      (unless (member type seen-types)
-        (error "Transaction fixture vectors are missing required type ~A"
-               type)))))
+    (when require-required-types
+      (dolist (type +transaction-fixture-required-types+)
+        (unless (member type seen-types)
+          (error "Transaction fixture vectors are missing required type ~A"
+                 type))))))
+
+(defun validate-transaction-envelope-vector-coverage (vectors)
+  (validate-transaction-fixture-vector-set vectors :require-required-types t))
 
 (defun load-transaction-envelope-vectors (path)
   (let* ((fixture (load-handwritten-fixture-file path))
@@ -970,7 +978,10 @@
     (is (string= "legacy-eip155-sample"
                  (fixture-object-field vector "name")))
     (is (string= "legacy"
-                 (fixture-object-field vector "type"))))
+                 (fixture-object-field vector "type")))
+    (signals error
+      (validate-transaction-fixture-vector-set
+       (append vectors (list vector)))))
   (signals error
     (load-eest-transaction-test-root-cases
      "tests/fixtures/geth-spec-tests-root/spec-tests/fixtures/transaction_tests/")))
