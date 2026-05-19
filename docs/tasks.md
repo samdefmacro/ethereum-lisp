@@ -516,6 +516,9 @@ splits can land after the Phase A smoke path closes.
     while longer sibling keys remain under child references. Added delete
     coverage for the inverse branch-value case: removing the root branch value
     collapses the remaining single child path back to a leaf with a locked root.
+    Added fixture assertions for compressed root path nibbles on leaf and
+    extension roots, locking the path-compression shape in addition to root
+    hashes and node kinds.
     Added a multi-account secure state-root fixture that asserts account nonce,
     balance, storage root, code hash, and account RLP projections alongside the
     final root.

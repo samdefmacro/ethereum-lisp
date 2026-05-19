@@ -42,6 +42,14 @@
                        index)
               collect index))))
 
+(defun trie-fixture-root-path-nibbles (trie)
+  (let ((root (mpt-root-node trie)))
+    (cond
+      ((typep root 'ethereum-lisp.trie::leaf-node)
+       (coerce (ethereum-lisp.trie::leaf-node-path root) 'list))
+      ((typep root 'ethereum-lisp.trie::extension-node)
+       (coerce (ethereum-lisp.trie::extension-node-path root) 'list)))))
+
 (defun trie-fixture-root-branch-value (trie)
   (let ((root (mpt-root-node trie)))
     (when (typep root 'ethereum-lisp.trie::branch-node)
@@ -121,6 +129,11 @@
           (when children
             (is (equal children
                        (trie-fixture-root-children trie)))))
+        (let ((path-nibbles
+                (trie-fixture-object-field case "expectedRootPathNibbles")))
+          (when path-nibbles
+            (is (equal path-nibbles
+                       (trie-fixture-root-path-nibbles trie)))))
         (let ((branch-value
                 (trie-fixture-object-field case
                                            "expectedRootValueAscii")))

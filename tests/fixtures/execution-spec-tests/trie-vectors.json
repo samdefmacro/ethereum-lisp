@@ -8,7 +8,8 @@
         { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" }
       ],
       "expectedRoot": "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278",
-      "expectedShape": "leaf"
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7, 16]
     },
     {
       "name": "branch-extension-shared-prefix",
@@ -20,6 +21,7 @@
       ],
       "expectedRoot": "0x5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84",
       "expectedShape": "extension",
+      "expectedRootPathNibbles": [6],
       "expectedChildReference": "hashed"
     },
     {
@@ -30,6 +32,7 @@
       ],
       "expectedRoot": "0x1da465b71da985f1e07e3ed8dcd9e678546164ef2b17fb5c46c678fd91429de3",
       "expectedShape": "extension",
+      "expectedRootPathNibbles": [6, 4, 6, 15],
       "expectedChildReference": "embedded"
     },
     {
@@ -41,6 +44,7 @@
       ],
       "expectedRoot": "0xef7b2fe20f5d2c30c46ad4d83c39811bcbf1721aef2e805c0e107947320888b6",
       "expectedShape": "extension",
+      "expectedRootPathNibbles": [6, 4, 6, 15],
       "expectedChildReference": "hashed"
     },
     {
@@ -52,7 +56,8 @@
         { "op": "delete", "keyAscii": "doge" }
       ],
       "expectedRoot": "0x779db3986dd4f38416bfde49750ef7b13c6ecb3e2221620bcad9267e94604d36",
-      "expectedShape": "extension"
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [6, 4, 6, 15]
     },
     {
       "name": "delete-last-entry-empty-root",
@@ -92,7 +97,8 @@
         { "op": "delete", "keyHex": "0x" }
       ],
       "expectedRoot": "0xae9b7371f5ef144daa2780a50feb85d5918708e10357eb25c275cc2562f219d4",
-      "expectedShape": "leaf"
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [1, 0, 16]
     }
   ]
 }
