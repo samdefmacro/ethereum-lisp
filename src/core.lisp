@@ -3171,6 +3171,71 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              table)
     copy))
 
+(defun maybe-copy-hash32 (hash)
+  (when hash
+    (make-hash32 (copy-seq (hash32-bytes hash)))))
+
+(defun maybe-copy-address (address)
+  (when address
+    (make-address (copy-seq (address-bytes address)))))
+
+(defun engine-payload-store-copy-block-header (header)
+  (when header
+    (make-block-header
+     :parent-hash (maybe-copy-hash32 (block-header-parent-hash header))
+     :ommers-hash (maybe-copy-hash32 (block-header-ommers-hash header))
+     :beneficiary (maybe-copy-address (block-header-beneficiary header))
+     :state-root (maybe-copy-hash32 (block-header-state-root header))
+     :transactions-root
+     (maybe-copy-hash32 (block-header-transactions-root header))
+     :receipts-root (maybe-copy-hash32 (block-header-receipts-root header))
+     :logs-bloom (maybe-copy-bytes (block-header-logs-bloom header))
+     :difficulty (block-header-difficulty header)
+     :number (block-header-number header)
+     :gas-limit (block-header-gas-limit header)
+     :gas-used (block-header-gas-used header)
+     :timestamp (block-header-timestamp header)
+     :extra-data (maybe-copy-bytes (block-header-extra-data header))
+     :mix-hash (maybe-copy-hash32 (block-header-mix-hash header))
+     :nonce (maybe-copy-bytes (block-header-nonce header))
+     :base-fee-per-gas (block-header-base-fee-per-gas header)
+     :withdrawals-root (maybe-copy-hash32 (block-header-withdrawals-root header))
+     :blob-gas-used (block-header-blob-gas-used header)
+     :excess-blob-gas (block-header-excess-blob-gas header)
+     :parent-beacon-root
+     (maybe-copy-hash32 (block-header-parent-beacon-root header))
+     :requests-hash (maybe-copy-hash32 (block-header-requests-hash header))
+     :block-access-list-hash
+     (maybe-copy-hash32 (block-header-block-access-list-hash header))
+     :slot-number (block-header-slot-number header))))
+
+(defun engine-payload-store-copy-block (block)
+  (cond
+    ((typep block 'ethereum-block)
+     (let ((copy (copy-ethereum-block block)))
+       (setf (block-header copy)
+             (engine-payload-store-copy-block-header (block-header block))
+             (block-transactions copy) (copy-list (block-transactions block))
+             (block-receipts copy) (copy-list (block-receipts block))
+             (block-ommers copy) (copy-list (block-ommers block))
+             (block-withdrawals copy)
+             (maybe-copy-withdrawals (block-withdrawals block))
+             (block-requests copy) (maybe-copy-requests (block-requests block))
+             (block-block-access-list copy)
+             (copy-tree (block-block-access-list block))
+             (block-encoded-block-access-list copy)
+             (maybe-copy-bytes (block-encoded-block-access-list block)))
+       copy))
+    (t block)))
+
+(defun engine-payload-store-copy-block-table (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash (lambda (key value)
+               (setf (gethash key copy)
+                     (engine-payload-store-copy-block value)))
+             table)
+    copy))
+
 (defun engine-payload-store-copy-checkpoint (checkpoint)
   (when checkpoint
     (make-chain-store-checkpoint
@@ -3211,7 +3276,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-copy-table
     (engine-payload-memory-store-remote-blocks store))
    :invalid-tipsets
-   (engine-payload-store-copy-table
+   (engine-payload-store-copy-block-table
     (engine-payload-memory-store-invalid-tipsets store))
    :prepared-payloads
    (engine-payload-store-copy-prepared-payload-table

@@ -669,6 +669,10 @@ splits can land after the Phase A smoke path closes.
     checkpoint wrappers. Atomic rollback now copies head/safe/finalized
     checkpoint objects, and coverage asserts that a failed atomic import
     cannot leak mutations to the existing head checkpoint.
+  - Progress: extended memory-store snapshot isolation to invalid payload
+    cache entries. Atomic rollback now copies cached invalid block wrappers and
+    their headers, and coverage asserts that failed imports cannot leak either
+    mutations to an existing invalid marker or newly inserted invalid markers.
 
 - [x] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.

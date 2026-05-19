@@ -3060,6 +3060,22 @@
             :payload-id payload-id
             :version 3
             :block block))
+         (invalid-block
+           (make-block
+            :header
+            (make-block-header :number 7
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-used 0)))
+         (invalid-block-hash (block-hash invalid-block))
+         (new-invalid-block
+           (make-block
+            :header
+            (make-block-header :number 8
+                               :parent-hash invalid-block-hash
+                               :state-root +empty-trie-hash+
+                               :gas-used 0)))
+         (new-invalid-block-hash (block-hash new-invalid-block))
          (pending-filter-id
            (ethereum-lisp.core::engine-payload-store-put-pending-transaction-filter
             store)))
@@ -3072,6 +3088,7 @@
           versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
     (chain-store-put-prepared-payload store prepared-payload)
     (ethereum-lisp.core::engine-payload-store-put-blob-sidecar store sidecar)
+    (ethereum-lisp.core::engine-payload-store-mark-invalid store invalid-block)
     (signals error
       (execute-atomic-block-commit
        store state
@@ -3092,6 +3109,13 @@
          (setf (ethereum-lisp.core::chain-store-checkpoint-label
                 (chain-store-head-checkpoint store))
                :mutated-head)
+         (setf (block-header-gas-used
+                (block-header
+                 (ethereum-lisp.core::engine-payload-store-invalid-block
+                  store invalid-block-hash)))
+               77)
+         (ethereum-lisp.core::engine-payload-store-mark-invalid
+          store new-invalid-block)
          (state-db-set-account state address
                                (make-state-account :balance 99))
          (error "Injected atomic commit failure"))))
@@ -3123,6 +3147,17 @@
              (chain-store-head-checkpoint store))))
     (is (not (eq head-checkpoint
                  (chain-store-head-checkpoint store))))
+    (let ((cached-invalid
+            (ethereum-lisp.core::engine-payload-store-invalid-block
+             store invalid-block-hash)))
+      (is cached-invalid)
+      (is (not (eq invalid-block cached-invalid)))
+      (is (= 0
+             (block-header-gas-used
+              (block-header cached-invalid)))))
+    (is (null
+         (ethereum-lisp.core::engine-payload-store-invalid-block
+          store new-invalid-block-hash)))
     (is (= 10
            (state-account-balance
             (state-db-get-account state address))))))
