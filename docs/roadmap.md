@@ -37,9 +37,12 @@ tree but are explicitly outside the Phase A acceptance bar.
 - **Target fork:** post-Merge Shanghai, driven through `engine_newPayloadV2`.
   Cancun and blob-aware paths only join Phase A once real KZG proof
   verification lands; until then they are exercised as shape checks only.
-- **Fixture set:** a pinned `ethereum/execution-spec-tests` release commit plus
-  a small in-repo hand-written set. Both are chosen before harness work starts
-  and recorded by `HARNESS-FIXTURE-ROOT` / `HARNESS-TX-VECTORS`.
+- **Fixture set:** `ethereum/execution-spec-tests` standard release `v5.4.0`
+  (`88e9fb8` tag target), using `fixtures_stable.tar.gz` and initially
+  selecting the post-Merge Shanghai cases needed by the Phase A smoke path,
+  plus a small in-repo hand-written set. `fixtures_develop`, Osaka/Fusaka
+  additions, BAL/devnet pre-releases, and zkEVM fixtures are outside Phase A
+  unless a later task explicitly widens the gate.
 - **Invariants required before Phase A closes:**
   - *Atomic import.* `engine_newPayload` runs pre-state snapshot → transaction
     execution → receipt/root derivation → post-execution commitment validation

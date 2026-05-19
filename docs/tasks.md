@@ -64,8 +64,6 @@ Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked. Order matters: earlier items unblock later
 ones.
 
-- `PHASE-A-SCOPE-GATE`
-- `PHASE-A-SURFACE-FREEZE`
 - `HARNESS-FIXTURE-ROOT`
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
@@ -77,11 +75,10 @@ ones.
 - `ENGINE-EXECUTE-NEWPAYLOAD`
 - `STORE-CANONICAL-INDEXES`
 - `STORE-REORG-INVARIANTS`
-- `REF-COMMIT-PIN`
 
 ## P0: Phase A Discipline
 
-- [ ] `PHASE-A-SCOPE-GATE`: Lock the Phase A fork target and fixture pin.
+- [x] `PHASE-A-SCOPE-GATE`: Lock the Phase A fork target and fixture pin.
   - Milestone: 5 / 7 / 8
   - References: `docs/roadmap.md` ("Phase A Scope Gate"), Ethereum
     execution-spec-tests release tags, geth/Nethermind fork activation tables.
@@ -93,8 +90,15 @@ ones.
     explicitly out of Phase A. KZG real verification only becomes a Phase A
     blocker if Cancun is chosen.
   - Validation: docs-only diff.
+  - Result: Phase A is locked to post-Merge Shanghai via
+    `engine_newPayloadV2`; fixtures are pinned to
+    `ethereum/execution-spec-tests` standard release `v5.4.0` (`88e9fb8` tag
+    target), using `fixtures_stable.tar.gz` with Shanghai smoke-path
+    selectors. Cancun blob execution/KZG, Prague requests, Osaka/Fusaka
+    additions, Amsterdam BAL/devnet releases, BPOx, and zkEVM fixtures remain
+    outside Phase A.
 
-- [ ] `PHASE-A-SURFACE-FREEZE`: Freeze new Engine/RPC/txpool surface until the
+- [x] `PHASE-A-SURFACE-FREEZE`: Freeze new Engine/RPC/txpool surface until the
   Phase A smoke path passes end-to-end.
   - Milestone: project hygiene
   - Dependencies: `PHASE-A-SCOPE-GATE`.
@@ -104,8 +108,11 @@ ones.
     beyond what already parses, BPO5, `engine_getPayloadV6`), or non-blocker
     public RPC surface is rejected or filed under P1/P2.
   - Validation: docs-only diff plus reviewer discipline.
+  - Result: the roadmap and task backlog now bind automation to Phase A
+    blockers and defer Engine/RPC/txpool surface expansion until the smoke path
+    closes.
 
-- [ ] `REF-COMMIT-PIN`: Require reference-client commit recording on tasks that
+- [x] `REF-COMMIT-PIN`: Require reference-client commit recording on tasks that
   claim parity comparison.
   - Milestone: documentation maintenance
   - References: `docs/reference-map.md` ("Comparison rule"), `docs/roadmap.md`
@@ -115,6 +122,9 @@ ones.
     a missing local clone forces an explicit "fixture-only" or
     "single-client" downgrade in the PR description rather than a silent skip.
   - Validation: docs-only diff.
+  - Result: `docs/reference-map.md` now requires exact reference commit/tag
+    recording for parity claims and explicit downgrade wording when a local
+    reference clone is missing.
 
 ## P0: Reference And Harness
 

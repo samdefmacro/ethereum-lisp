@@ -73,6 +73,10 @@ For each implemented feature:
 2. Identify the Nethermind source path and tests.
 3. Identify the Reth/Rust source path or crate boundary when the feature has a
    clear Rust architecture analogue and the local reference is available.
-4. Write Lisp behavior tests with Ethereum fixture examples where possible.
-5. Prefer consensus behavior over local API shape when the clients organize
+4. Record the exact reference commit, release tag, or version inspected for
+   each reference client that supports a parity claim. If a local clone is
+   absent, explicitly report the downgrade as "fixture-only",
+   "single-client comparison", or "geth/Nethermind-only comparison".
+5. Write Lisp behavior tests with Ethereum fixture examples where possible.
+6. Prefer consensus behavior over local API shape when the clients organize
    code differently.
