@@ -426,6 +426,16 @@ splits can land after the Phase A smoke path closes.
     forkchoice head. Remaining work: add an explicit two-branch Engine import
     fixture that switches between competing executed payloads and verifies
     transaction/receipt visibility follows the selected branch.
+  - Progress: added the explicit two-branch executed Engine import fixture.
+    Two `engine_newPayloadV2` children are imported from the same known parent:
+    one contains a real signed transfer, the other is an empty sibling with
+    withdrawals. Forkchoice first selects the transaction branch and public
+    `eth_getTransactionByHash`, `eth_getTransactionReceipt`, and
+    `eth_getBalance` at `latest` expose that branch; after switching to the
+    empty sibling, the transaction and receipt disappear from canonical
+    lookups and `latest` balance follows the selected sibling. Remaining work:
+    extend this fixture into a multi-height reorg and block-receipt/log
+    visibility check.
 
 ## P0: State, Trie, And Proof Correctness
 

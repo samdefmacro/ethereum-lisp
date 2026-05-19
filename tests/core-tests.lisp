@@ -3552,6 +3552,178 @@
                       (transaction-hash transaction))
                      'engine-transaction-location)))))))
 
+(deftest engine-rpc-forkchoice-switches-executed-payload-visibility
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (payload-request (id payload)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_newPayloadV2")
+                   (cons "params"
+                         (list (engine-rpc-executable-data-object payload)))))
+           (forkchoice-request (id head)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV1")
+                   (cons "params"
+                         (list
+                          (list
+                           (cons "headBlockHash" (hash32-to-hex head))
+                           (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                           (cons "finalizedBlockHash"
+                                 (hash32-to-hex (zero-hash32))))))))
+           (balance-request (id address)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getBalance")
+                   (cons "params" (list (address-to-hex address) "latest"))))
+           (transaction-request (id hash)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getTransactionByHash")
+                   (cons "params" (list (hash32-to-hex hash)))))
+           (receipt-request (id hash)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getTransactionReceipt")
+                   (cons "params" (list (hash32-to-hex hash))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :london-block 0
+                                      :shanghai-time 0))
+           (sender
+             (address-from-hex "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (fee-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000001"))
+           (withdrawal-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000002"))
+           (transaction
+             (make-legacy-transaction
+              :nonce 9
+              :gas-price 20000000000
+              :gas-limit 21000
+              :to recipient
+              :value 1000000000000000000
+              :v 37
+              :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+              :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+           (withdrawal
+             (make-withdrawal :index 0
+                              :validator-index 1
+                              :address withdrawal-recipient
+                              :amount 1))
+           (parent-state (make-state-db)))
+      (state-db-set-account parent-state sender
+                            (make-state-account
+                             :nonce 9
+                             :balance 2000000000000000000))
+      (let* ((parent-header
+               (make-block-header
+                :parent-hash (zero-hash32)
+                :beneficiary fee-recipient
+                :state-root (state-db-root parent-state)
+                :mix-hash (zero-hash32)
+                :number 41
+                :gas-limit 50000
+                :gas-used 25000
+                :timestamp 98
+                :base-fee-per-gas 100
+                :withdrawals-root (withdrawal-list-root '())))
+             (parent-block (make-block :header parent-header))
+             (branch-a-state (state-db-copy parent-state))
+             (branch-a-block
+               (execute-signed-block
+                branch-a-state
+                (list transaction)
+                :expected-chain-id 1
+                :header (make-block-header
+                         :parent-hash (block-hash parent-block)
+                         :beneficiary fee-recipient
+                         :mix-hash (zero-hash32)
+                         :number 42
+                         :gas-limit 50000
+                         :gas-used 0
+                         :timestamp 99
+                         :base-fee-per-gas 100)
+                :chain-config config
+                :withdrawals (list withdrawal)))
+             (branch-b-state (state-db-copy parent-state))
+             (branch-b-block
+               (execute-signed-block
+                branch-b-state
+                '()
+                :expected-chain-id 1
+                :header (make-block-header
+                         :parent-hash (block-hash parent-block)
+                         :beneficiary fee-recipient
+                         :mix-hash (hash32-from-hex
+                                    "0x0100000000000000000000000000000000000000000000000000000000000000")
+                         :number 42
+                         :gas-limit 50000
+                         :gas-used 0
+                         :timestamp 100
+                         :base-fee-per-gas 100)
+                :chain-config config
+                :withdrawals (list withdrawal)))
+             (branch-a-payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data branch-a-block)))
+             (branch-b-payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data branch-b-block)))
+             (transaction-hash (transaction-hash transaction)))
+        (engine-payload-store-put-block
+         store parent-block :state-available-p t)
+        (commit-state-db-to-chain-store
+         store (block-hash parent-block) parent-state)
+        (dolist (request (list (payload-request 37 branch-a-payload)
+                               (payload-request 38 branch-b-payload)))
+          (let* ((response
+                   (engine-rpc-handle-request
+                    request store config
+                    :import-function #'execute-and-commit-engine-payload))
+                 (status
+                   (field (field response "result") "status")))
+            (is (string= +payload-status-valid+ status))))
+        (engine-rpc-handle-request
+         (forkchoice-request 39 (block-hash branch-a-block))
+         store config)
+        (is (string= (hash32-to-hex (block-hash branch-a-block))
+                     (hash32-to-hex (chain-store-canonical-hash store 42))))
+        (is (field (engine-rpc-handle-request
+                    (transaction-request 40 transaction-hash)
+                    store config)
+                   "result"))
+        (is (field (engine-rpc-handle-request
+                    (receipt-request 41 transaction-hash)
+                    store config)
+                   "result"))
+        (is (string= (quantity-to-hex 1000000000000000000)
+                     (field (engine-rpc-handle-request
+                             (balance-request 42 recipient)
+                             store config)
+                            "result")))
+        (engine-rpc-handle-request
+         (forkchoice-request 43 (block-hash branch-b-block))
+         store config)
+        (is (string= (hash32-to-hex (block-hash branch-b-block))
+                     (hash32-to-hex (chain-store-canonical-hash store 42))))
+        (is (not (field (engine-rpc-handle-request
+                         (transaction-request 44 transaction-hash)
+                         store config)
+                        "result")))
+        (is (not (field (engine-rpc-handle-request
+                         (receipt-request 45 transaction-hash)
+                         store config)
+                        "result")))
+        (is (string= (quantity-to-hex 0)
+                     (field (engine-rpc-handle-request
+                             (balance-request 46 recipient)
+                             store config)
+                            "result")))))))
+
 (deftest engine-rpc-forkchoice-updated-v1-reports-memory-status
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
