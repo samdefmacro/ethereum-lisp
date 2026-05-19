@@ -231,6 +231,24 @@
        (normalize-eest-transaction-test-case (car entry) (cdr entry)))
      cases)))
 
+(defun eest-transaction-test-json-paths (root)
+  (let* ((root-path (pathname root))
+         (pattern
+           (make-pathname
+            :directory (append (pathname-directory root-path)
+                               (list :wild-inferiors))
+            :name :wild
+            :type "json"
+            :defaults root-path)))
+    (sort (directory pattern) #'string< :key #'namestring)))
+
+(defun load-eest-transaction-test-root-cases (root)
+  (let ((paths (eest-transaction-test-json-paths root)))
+    (unless paths
+      (error "EEST transaction test root ~A has no JSON files" root))
+    (loop for path in paths
+          append (load-eest-transaction-test-file path))))
+
 (defun eest-transaction-case-success-result (case)
   (let ((result (fixture-object-field case "result")))
     (dolist (fork +transaction-fixture-forks+)
@@ -278,6 +296,10 @@
       (validate-transaction-fixture-result-shape vector)
       (validate-transaction-fixture-decoded-vector vector)
       vector)))
+
+(defun load-eest-transaction-test-root-vectors (root)
+  (mapcar #'convert-eest-transaction-case-to-vector
+          (load-eest-transaction-test-root-cases root)))
 
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
@@ -936,6 +958,22 @@
                          (cons "sender"
                                "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f")
                          (cons "intrinsicGas" "0x5208"))))))))
+
+(deftest eest-transaction-test-root-vector-loading
+  (let* ((root (execution-spec-tests-transaction-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (paths (eest-transaction-test-json-paths root))
+         (vectors (load-eest-transaction-test-root-vectors root))
+         (vector (first vectors)))
+    (is (= 1 (length paths)))
+    (is (= 1 (length vectors)))
+    (is (string= "legacy-eip155-sample"
+                 (fixture-object-field vector "name")))
+    (is (string= "legacy"
+                 (fixture-object-field vector "type"))))
+  (signals error
+    (load-eest-transaction-test-root-cases
+     "tests/fixtures/geth-spec-tests-root/spec-tests/fixtures/transaction_tests/")))
 
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors

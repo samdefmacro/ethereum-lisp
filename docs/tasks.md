@@ -308,6 +308,11 @@ ones.
     chain id from decoded `txbytes`, promotes a successful fork's hash/sender,
     requires all locally tracked fork results, and runs the existing local
     vector shape, fork-result, hash, sender, and intrinsic-gas checks.
+  - Progress: added transaction-test root loading for EEST JSON files. The
+    harness now recursively discovers JSON files under the selected
+    `transaction_tests` root, loads all cases in deterministic path order, and
+    converts the discovered cases into local transaction vectors through the
+    same validation path used by the sample adapter.
 
 ## P0: Module Boundaries
 
