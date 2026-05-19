@@ -23,18 +23,36 @@ Task states:
 
 ## Current Focus
 
-Move from an in-memory Engine/RPC prototype toward a verifiable chain-import
-core:
+Phase A is a verifiable chain-import core. The useful end-to-end smoke scenario
+is:
 
-1. Split the oversized core into stable modules.
-2. Introduce a chain-store boundary with canonical indexes.
-3. Make `engine_newPayload` execute and validate blocks against state.
-4. Add external fixture compatibility harnesses.
-5. Only then broaden txpool, RPC, networking, and persistence.
+1. load genesis/state;
+2. accept an executable `engine_newPayload` whose parent state is available;
+3. execute transactions and validate state root, receipts root, logs bloom, and
+   gas used;
+4. persist enough block, receipt, and state snapshot data for local RPC reads;
+5. apply `engine_forkchoiceUpdated` to canonical indexes;
+6. compare the same path against fixtures and reference clients.
+
+Module splits are still important, but they should usually happen as part of a
+vertical slice above. Avoid broad behavior-preserving refactors while the chain
+import path still lacks storage, execution, and fixture validation.
+
+## Immediate Queue
+
+Long-running automation should pick from this queue before other P0 items unless
+a listed dependency is blocked:
+
+- [ ] Add an execution-spec-tests fixture root configuration.
+- [ ] Add a small fixture runner skeleton for blockchain/state tests.
+- [ ] Define a chain-store interface over the current memory payload store.
+- [ ] Add explicit canonical hash indexes.
+- [ ] Route `engine_newPayload` through block execution when parent state is
+  available.
 
 ## P0: Reference And Harness
 
-- [ ] Add a Rust execution-client reference map.
+- [x] Add a Rust execution-client reference map.
   - Milestone: 0 / 8
   - References: Reth repository layout, especially crates for primitives,
     consensus, EVM integration, provider, pipeline, txpool, RPC, and Engine API.
@@ -66,6 +84,10 @@ core:
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
 ## P0: Module Boundaries
+
+These tasks reduce long-term maintenance risk, but they should normally be
+selected when they unblock the chain-store, Engine import, fixture harness, or
+state/EVM correctness work above.
 
 - [ ] Split chain configuration and fork rules out of `src/core.lisp`.
   - Milestone: 5
@@ -405,6 +427,8 @@ core:
 
 ## Recently Completed
 
+- [x] Add Reth/Rust as a formal reference target and align README/roadmap/tasks
+  around the Phase A chain-import focus.
 - [x] Track forkchoice `head` for `latest`, `pending`, `eth_blockNumber`, and
   head fee paths.
 - [x] Track forkchoice `safe` and `finalized` block tags.

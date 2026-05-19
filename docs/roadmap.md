@@ -7,6 +7,27 @@ This file is the strategic roadmap. Tactical implementation slices live in
 `docs/tasks.md`; long-running automation should choose work from that backlog
 instead of picking ad hoc roadmap items.
 
+## Project Target
+
+The project is not trying to become a production mainnet node in one jump. The
+near-term target is a fixture-checkable execution client core:
+
+1. **Phase A: verifiable chain import.** Load genesis/state, accept executable
+   Engine payloads with known parent state, execute transactions, validate
+   state/receipt/log/gas commitments, persist enough block/state data for local
+   queries, and update canonical forkchoice state.
+2. **Phase B: local devnet Engine/RPC node.** Serve Engine API and public
+   JSON-RPC over a concrete local transport, with enough txpool and retained
+   state behavior to drive small devnet scenarios.
+3. **Phase C: persistence, sync, and production depth.** Add file-backed
+   storage, staged sync shape, pruning/history policies, networking, metrics,
+   and Hive-compatible process wiring.
+
+Roadmap entries should stay strategic: each milestone should summarize what is
+done, what is partial, what remains, and what validation closes the gap. Detailed
+small-slice history belongs in `docs/tasks.md` or a future status/changelog
+document.
+
 ## 0. Project Substrate
 
 - ASDF systems and packages
@@ -34,7 +55,7 @@ Implemented:
 - versioned-hash helpers for blob transactions
 
 Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
-`Nethermind.Core/Crypto`.
+`Nethermind.Core/Crypto`, and Reth/Rust primitive/KZG integration points.
 
 Status: basic Keccak-256, SHA-256, EIP-4844 KZG commitment versioned-hash
 helper, and secp256k1 public-key/address recovery are complete. Transaction
@@ -49,7 +70,8 @@ broader fixture coverage remains.
 - canonical RLP for all pre-SSZ execution payload structures
 - transaction sender recovery
 
-Validation targets: geth `core/types`, Nethermind `Nethermind.Core`.
+Validation targets: geth `core/types`, Nethermind `Nethermind.Core`, and
+Reth/Rust primitive transaction and block types.
 
 Status: first pass for accounts, legacy tx, EIP-2930 tx, EIP-1559 tx,
 EIP-4844 blob tx envelope encoding/hashing, EIP-7702 set-code tx envelope
@@ -71,7 +93,7 @@ headers/body-root derivation are present.
 - journaled state overlay for transaction execution
 
 Validation targets: geth `trie` and `core/state`, Nethermind `Nethermind.Trie`
-and `Nethermind.State`.
+and `Nethermind.State`, and Reth trie/provider boundaries.
 
 Status: minimal in-memory root calculation, code storage, snapshot/restore, and
 secure state root prototype are implemented. The minimal legacy transfer spine
@@ -88,7 +110,8 @@ fixture compatibility remain.
 - precompiles
 - EOF support when required by activated forks
 
-Validation targets: geth `core/vm`, Nethermind `Nethermind.Evm`.
+Validation targets: geth `core/vm`, Nethermind `Nethermind.Evm`, and Reth/revm
+behavior.
 
 Status: interpreter skeleton implemented for a growing opcode subset. Initial
 gas-limit accounting, 1024-item stack limit enforcement, unsigned and signed
@@ -199,7 +222,8 @@ remain. CREATE collision handling is covered for nonce/code collisions.
 - receipt and logs bloom generation
 - post-state root validation
 
-Validation targets: geth `core`, Nethermind `Nethermind.Consensus`.
+Validation targets: geth `core`, Nethermind `Nethermind.Consensus`, and
+Reth consensus/executor integration.
 
 Status: minimal legacy transfer, contract-creation, recipient-code execution,
 EIP-4895 withdrawal balance-crediting, and a lightweight legacy block execution
@@ -721,7 +745,8 @@ deterministic execution correctness.
 
 - Ethereum execution-spec-tests fixture runner
 - RLP/trie/blockchain fixtures
-- cross-check selected fixtures against geth and Nethermind outputs
+- cross-check selected fixtures against geth, Nethermind, and Reth/Rust outputs
+  where available
 - CI entry points for SBCL
 
 ## Working Principle

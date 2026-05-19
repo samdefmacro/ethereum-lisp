@@ -7,24 +7,32 @@ cross-checking behavior against:
 
 - `references/go-ethereum` (`geth`)
 - `references/nethermind` (`Nethermind`)
+- `references/reth` (`Reth`, Rust reference architecture, when present)
 
 The reference repositories are local clones for reading and comparison only;
-they are ignored by git.
+they are ignored by git. `references/reth` is optional until that clone is
+available locally, but the roadmap and task backlog now treat Reth/revm as the
+Rust-side comparison point for architecture, provider boundaries, EVM behavior,
+txpool, RPC, and Engine API work.
 
 ## Current scope
 
-The first milestone is the execution-layer substrate:
+The current milestone is moving from an in-memory Engine/RPC prototype toward a
+verifiable chain-import core:
 
-- byte and hex utilities
-- Ethereum scalar/domain types
-- RLP encoding and decoding
-- Keccak-256
-- Merkle Patricia Trie
-- block, transaction, receipt, and account encodings
-- state transition and EVM execution
+- retain the self-contained Common Lisp substrate and test runner
+- keep consensus data types, RLP, Keccak, trie/state, EVM, and block execution
+  runnable without Quicklisp
+- introduce a chain-store boundary with explicit canonical indexes
+- route `engine_newPayload` through real block execution when parent state is
+  available
+- validate imported blocks against state root, receipts root, logs bloom, gas
+  used, and forkchoice state
+- add external fixture harnesses before widening nonessential RPC, txpool,
+  persistence, networking, or CLI surface area
 
-The project currently ships a self-contained test runner so the initial layers
-can run without Quicklisp.
+The project currently ships a self-contained test runner so the core suite can
+run without Quicklisp.
 
 Implemented so far:
 
@@ -32,9 +40,18 @@ Implemented so far:
 - Merkle Patricia Trie encoding and root calculation
 - account, transaction, receipt, bloom, and header encodings
 - in-memory secure state root prototype
-- early EVM interpreter skeleton with storage, logs, calldata, and basic gas
-- minimal legacy transfer and recipient-code transaction execution paths
-- top-level revert/error rollback for recipient-code execution
+- a broad first-pass EVM interpreter with fork gates, precompile scaffolding,
+  access-list warming, memory/gas accounting, CALL/CREATE paths, refunds, logs,
+  and Cancun/Prague/Amsterdam-oriented fields where currently modeled
+- signed transaction and block execution paths with receipt/root/logs-bloom
+  derivation and rollback coverage
+- geth/Nethermind-shaped Engine payload projection, in-memory payload storage,
+  forkchoice checkpoints, public JSON-RPC read methods, polling filters, a local
+  pending transaction placeholder, and a stream-based HTTP adapter
+
+The main gap is no longer "can the project parse Ethereum-shaped objects"; it
+is whether those objects can be imported, executed, stored, reorged, queried,
+and fixture-checked like a real execution client.
 
 ## Run tests
 
