@@ -203,6 +203,12 @@ ones.
     `txbytes` / `result` layout used by reference transaction-test harnesses.
     Remaining work: replace the in-repo seed vectors with vectors drawn from
     the pinned `execution-spec-tests` release.
+  - Progress: tightened invalid per-fork transaction fixture checks so
+    EEST-style exception tokens are mapped to the local block validation error
+    messages. The runner now verifies that pre-fork typed transaction cases
+    fail for the expected reason, not merely with any error. Remaining work:
+    replace the in-repo seed vectors with vectors drawn from the pinned
+    `execution-spec-tests` release.
 
 ## P0: Module Boundaries
 

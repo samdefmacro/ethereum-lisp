@@ -53,6 +53,18 @@
 (defun transaction-fixture-result-valid-p (result)
   (blank-string-p (fixture-object-field result "exception")))
 
+(defun transaction-fixture-exception-message (exception)
+  (cond
+    ((string= exception "TransactionException.TYPE_1_TX_PRE_FORK")
+     "Access-list transaction before Berlin")
+    ((string= exception "TransactionException.TYPE_2_TX_PRE_FORK")
+     "Dynamic-fee transaction before London")
+    ((string= exception "TransactionException.TYPE_3_TX_PRE_FORK")
+     "Blob transaction before Cancun")
+    ((string= exception "TransactionException.TYPE_4_TX_PRE_FORK")
+     "Set-code transaction before Prague")
+    (t (error "Unknown transaction fixture exception: ~A" exception))))
+
 (defun transaction-vector-type (transaction)
   (typecase transaction
     (legacy-transaction :legacy)
@@ -90,6 +102,14 @@
                 (is (string= (fixture-object-field result "intrinsicGas")
                              (quantity-to-hex
                               (transaction-intrinsic-gas transaction)))))
-              (signals error
-                (validate-transaction-type-for-config
-                 transaction config 0 0))))))))
+              (handler-case
+                  (progn
+                    (validate-transaction-type-for-config
+                     transaction config 0 0)
+                    (error "Expected transaction fixture exception ~A"
+                           (fixture-object-field result "exception")))
+                (block-validation-error (condition)
+                  (is (string=
+                       (transaction-fixture-exception-message
+                        (fixture-object-field result "exception"))
+                       (block-validation-error-message condition)))))))))))
