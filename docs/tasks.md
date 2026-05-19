@@ -235,6 +235,10 @@ ones.
     `result` entries now reject unknown exception tokens, valid entries without
     `intrinsicGas`, invalid entries that also carry `intrinsicGas`, and
     malformed result objects before transaction decoding begins.
+  - Progress: added transaction fixture vector-shape validation. Vectors now
+    reject ambiguous `txbytes` / `raw` usage, empty encoded transaction bytes,
+    malformed transaction hashes, and malformed sender addresses before the
+    runner attempts to decode or recover the transaction.
 
 ## P0: Module Boundaries
 

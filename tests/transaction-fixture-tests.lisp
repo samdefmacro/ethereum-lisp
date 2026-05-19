@@ -61,11 +61,35 @@
                field value previous (fixture-object-field vector "name"))))
     (setf (gethash value seen) (fixture-object-field vector "name"))))
 
-(defun validate-transaction-fixture-unique-txbytes (seen vector)
-  (let ((value (or (fixture-object-field vector "txbytes")
-                   (fixture-object-field vector "raw"))))
-    (when (blank-string-p value)
+(defun transaction-fixture-txbytes-value (vector)
+  (let ((has-txbytes (fixture-field-present-p vector "txbytes"))
+        (has-raw (fixture-field-present-p vector "raw")))
+    (unless (or has-txbytes has-raw)
       (error "Transaction fixture txbytes must be present"))
+    (when (and has-txbytes has-raw)
+      (error "Transaction fixture must not include both txbytes and raw"))
+    (let ((value (if has-txbytes
+                     (fixture-object-field vector "txbytes")
+                     (fixture-object-field vector "raw"))))
+      (when (blank-string-p value)
+        (error "Transaction fixture txbytes must be present"))
+      (when (zerop (length (hex-to-bytes value)))
+        (error "Transaction fixture txbytes must encode at least one byte"))
+      value)))
+
+(defun validate-transaction-fixture-hash-field (vector)
+  (hash32-from-hex (fixture-required-field vector "hash")))
+
+(defun validate-transaction-fixture-address-field (vector)
+  (address-from-hex (fixture-required-field vector "sender")))
+
+(defun validate-transaction-fixture-vector-shape (vector)
+  (transaction-fixture-txbytes-value vector)
+  (validate-transaction-fixture-hash-field vector)
+  (validate-transaction-fixture-address-field vector))
+
+(defun validate-transaction-fixture-unique-txbytes (seen vector)
+  (let ((value (transaction-fixture-txbytes-value vector)))
     (let ((previous (gethash value seen)))
       (when previous
         (error "Transaction fixture duplicate txbytes ~A in ~A and ~A"
@@ -117,6 +141,7 @@
     (dolist (vector vectors)
       (unless (listp vector)
         (error "Transaction fixture vector must be a JSON object"))
+      (validate-transaction-fixture-vector-shape vector)
       (validate-transaction-fixture-unique-field seen-names vector "name")
       (validate-transaction-fixture-unique-txbytes seen-txbytes vector)
       (validate-transaction-fixture-unique-field seen-hashes vector "hash")
@@ -143,9 +168,7 @@
     vectors))
 
 (defun transaction-fixture-txbytes (vector)
-  (or (fixture-object-field vector "txbytes")
-      (fixture-object-field vector "raw")
-      (error "Transaction fixture vector is missing txbytes")))
+  (transaction-fixture-txbytes-value vector))
 
 (defun transaction-fixture-fork-config (fork)
   (cond
@@ -230,6 +253,43 @@
     (validate-transaction-fixture-result-entry
      vector "London" (list (cons "exception"
                                  "TransactionException.TYPE_2_TX_PRE_FORK")))))
+
+(deftest transaction-fixture-vector-shape-validation
+  (let ((valid-vector
+          (list (cons "name" "shape-test")
+                (cons "txbytes" "0x01")
+                (cons "hash"
+                      "0x0000000000000000000000000000000000000000000000000000000000000001")
+                (cons "sender" "0x0000000000000000000000000000000000000001"))))
+    (validate-transaction-fixture-vector-shape valid-vector))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "both-raw-and-txbytes")
+           (cons "txbytes" "0x01")
+           (cons "raw" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001"))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "empty-txbytes")
+           (cons "txbytes" "0x")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001"))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "bad-hash")
+           (cons "txbytes" "0x01")
+           (cons "hash" "0x01")
+           (cons "sender" "0x0000000000000000000000000000000000000001"))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "bad-sender")
+           (cons "txbytes" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x01")))))
 
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
