@@ -55,8 +55,8 @@ The end-to-end smoke scenario is:
 While Phase A is open, do not expand Engine/RPC/txpool surface beyond fixing
 Phase A blockers (see `PHASE-A-SURFACE-FREEZE`). Module splits should usually
 happen as part of a vertical slice above; avoid broad behavior-preserving
-refactors while the chain import path still lacks storage, atomic commit,
-execution wiring, and fixture validation.
+refactors while trie compatibility, pinned fixture validation, and cross-client
+state-transition coverage are still incomplete.
 
 ## Immediate Queue
 
@@ -66,7 +66,6 @@ ones.
 
 - `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
-- `STATE-ATOMIC-COMMIT`
 
 ## P0: Phase A Discipline
 
@@ -613,7 +612,7 @@ splits can land after the Phase A smoke path closes.
     retained state snapshots.
   - Validation: dedicated proof tests and `sbcl --script tests/run-tests.lisp`.
 
-- [~] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
+- [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
   - Milestone: 3 / 5 / 6
   - Dependencies: `STORE-CHAIN-INTERFACE`.
@@ -678,6 +677,14 @@ splits can land after the Phase A smoke path closes.
     cache entries. Atomic rollback now copies cached invalid block wrappers and
     their headers, and coverage asserts that failed imports cannot leak either
     mutations to an existing invalid marker or newly inserted invalid markers.
+  - Result: Phase A atomic import acceptance is complete for the in-memory
+    chain-store path. `engine_newPayloadV2` executable imports now run through
+    the atomic state/store boundary, validate state root, receipts root, logs
+    bloom, and gas used before commit, persist receipts and retained account
+    projections only after success, and roll back state DB plus block,
+    receipt, transaction, account, pending/filter, blob sidecar, prepared
+    payload, forkchoice checkpoint, and invalid-payload cache indexes on
+    injected failures.
 
 - [x] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.

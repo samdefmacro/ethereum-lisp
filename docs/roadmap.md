@@ -77,10 +77,13 @@ fixes in those areas are allowed; expansion is not.
   canonical-head switch path, including transaction, receipt, block-receipt,
   state, and log visibility across branch switches. Signed block import,
   Engine payload import, transaction admission, and mined transaction RPC
-  objects require real sender recovery rather than zero-address fallbacks.
-- **Partial:** trie/state compatibility, EVM fixture coverage, Engine payload
-  import, retained state snapshots, txpool admission, and concrete HTTP/socket
-  serving.
+  objects require real sender recovery rather than zero-address fallbacks. The
+  in-memory Engine import path is atomic for state DB plus block, receipt,
+  transaction, account, pending/filter, blob sidecar, prepared payload,
+  forkchoice checkpoint, and invalid-payload cache indexes.
+- **Partial:** trie/state compatibility, EVM fixture coverage, txpool
+  admission, concrete HTTP/socket serving, and cross-client fixture breadth for
+  the Engine import path.
 - **Missing for Phase A:** fixture-grade MPT (Section 3) capable of matching
   broad reference state roots, wider execution-spec fixture ingestion, and
   broader cross-client state-transition coverage beyond the current pinned
