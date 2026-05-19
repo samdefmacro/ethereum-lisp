@@ -283,6 +283,11 @@ ones.
     shared fixture validator. All pinned EEST-backed fixtures now reject
     unknown or duplicate release/tag/archive/status metadata fields before
     wrapper-specific validation proceeds.
+  - Progress: moved transaction fixture intrinsic-gas consistency into the
+    decoded-vector loader. Valid per-fork `intrinsicGas` entries now must match
+    the value derived from decoded `txbytes`, so transcribed EEST vectors fail
+    during fixture loading if their expected gas drifts from the encoded
+    transaction.
 
 ## P0: Module Boundaries
 

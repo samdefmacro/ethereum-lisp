@@ -372,6 +372,21 @@
              expected-chain-id
              actual-chain-id))))
 
+(defun validate-transaction-fixture-derived-results (vector transaction)
+  (let ((expected-gas (quantity-to-hex
+                       (transaction-intrinsic-gas transaction))))
+    (dolist (check (fixture-object-field vector "result"))
+      (let ((fork (car check))
+            (result (cdr check)))
+        (when (transaction-fixture-result-valid-p result)
+          (unless (string= expected-gas
+                           (fixture-required-field result "intrinsicGas"))
+            (error "Transaction fixture ~A result for fork ~A has intrinsicGas ~A but decoded transaction needs ~A"
+                   (fixture-object-field vector "name")
+                   fork
+                   (fixture-object-field result "intrinsicGas")
+                   expected-gas)))))))
+
 (defun validate-transaction-fixture-decoded-vector (vector)
   (let* ((raw (transaction-fixture-txbytes-value vector))
          (chain-id (fixture-required-field vector "chainId"))
@@ -389,6 +404,7 @@
                      (address-to-hex sender))
       (error "Transaction fixture ~A sender does not match decoded transaction"
              (fixture-object-field vector "name")))
+    (validate-transaction-fixture-derived-results vector transaction)
     transaction))
 
 (deftest transaction-fixture-result-shape-validation
@@ -679,7 +695,16 @@
       (signals error
         (validate-transaction-fixture-decoded-vector
          (replace-field "sender"
-                        "0x0000000000000000000000000000000000000000"))))))
+                        "0x0000000000000000000000000000000000000000")))
+      (signals error
+        (validate-transaction-fixture-decoded-vector
+         (replace-field
+          "result"
+          (list (cons "Frontier" (list (cons "intrinsicGas" "0x5209")))
+                (cons "Berlin" (list (cons "intrinsicGas" "0x5208")))
+                (cons "London" (list (cons "intrinsicGas" "0x5208")))
+                (cons "Cancun" (list (cons "intrinsicGas" "0x5208")))
+                (cons "Prague" (list (cons "intrinsicGas" "0x5208"))))))))))
 
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
