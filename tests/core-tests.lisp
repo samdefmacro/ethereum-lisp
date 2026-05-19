@@ -5708,6 +5708,31 @@
                  "\"params\":[\"" pending-filter-id "\"]}")
                 store
                 config))
+             (duplicate-pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":89,"
+                  "\"method\":\"eth_sendRawTransaction\","
+                  "\"params\":[\"" raw-transaction "\"]}")
+                 store
+                 config)))
+             (duplicate-pending-filter-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":90,"
+                 "\"method\":\"eth_getFilterChanges\","
+                 "\"params\":[\"" pending-filter-id "\"]}")
+                store
+                config))
+             (duplicate-pending-status-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"txpool_status\",\"params\":[]}"
+                 store
+                 config)))
              (raw-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -5838,6 +5863,12 @@
         (is (= 1 (length pending-filter-changes)))
         (is (string= transaction-hash (first pending-filter-changes)))
         (is (search "\"result\":[]" empty-pending-filter-json))
+        (is (string= transaction-hash
+                     (field duplicate-pending-response "result")))
+        (is (search "\"result\":[]" duplicate-pending-filter-json))
+        (is (string= (quantity-to-hex 1)
+                     (field (field duplicate-pending-status-response "result")
+                            "pending")))
         (is (string= raw-transaction (field raw-response "result")))
         (let ((pending-transaction (field transaction-response "result")))
           (is (string= transaction-hash

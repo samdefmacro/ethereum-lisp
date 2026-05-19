@@ -3136,18 +3136,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       blob-transaction
                       set-code-transaction))
     (block-validation-fail "Pending transaction must be a transaction"))
-  (setf (gethash
-         (engine-payload-store-key (transaction-hash transaction))
-         (engine-payload-memory-store-pending-transactions store))
-        transaction)
-  (loop for filter
-          being the hash-values of
-            (engine-payload-memory-store-log-filters store)
-        when (typep filter 'engine-pending-transaction-filter)
-          do (setf (engine-pending-transaction-filter-hashes filter)
-                   (append
-                    (engine-pending-transaction-filter-hashes filter)
-                    (list (transaction-hash transaction)))))
+  (let ((key (engine-payload-store-key (transaction-hash transaction))))
+    (unless (gethash key
+                     (engine-payload-memory-store-pending-transactions store))
+      (setf (gethash key
+                     (engine-payload-memory-store-pending-transactions store))
+            transaction)
+      (loop for filter
+              being the hash-values of
+                (engine-payload-memory-store-log-filters store)
+            when (typep filter 'engine-pending-transaction-filter)
+              do (setf (engine-pending-transaction-filter-hashes filter)
+                       (append
+                        (engine-pending-transaction-filter-hashes filter)
+                        (list (transaction-hash transaction)))))))
   transaction)
 
 (defun engine-payload-store-pending-transaction (store hash)
