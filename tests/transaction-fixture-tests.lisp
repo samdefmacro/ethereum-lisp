@@ -975,6 +975,11 @@
     (load-eest-transaction-test-root-cases
      "tests/fixtures/geth-spec-tests-root/spec-tests/fixtures/transaction_tests/")))
 
+(deftest optional-eest-transaction-test-root-vectors
+  (with-execution-spec-tests-transaction-test-root (root)
+    (let ((vectors (load-eest-transaction-test-root-vectors root)))
+      (is (< 0 (length vectors))))))
+
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
                    +transaction-envelope-fixture-path+))

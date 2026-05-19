@@ -313,6 +313,11 @@ ones.
     `transaction_tests` root, loads all cases in deterministic path order, and
     converts the discovered cases into local transaction vectors through the
     same validation path used by the sample adapter.
+  - Progress: wired the EEST transaction-test root loader into the optional
+    external fixture test path. Runs without
+    `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` now skip cleanly, while a
+    configured root containing `transaction_tests` must load and convert at
+    least one transaction vector.
 
 ## P0: Module Boundaries
 

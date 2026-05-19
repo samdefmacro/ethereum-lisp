@@ -12,7 +12,8 @@
    #:skip-test
    #:execution-spec-tests-fixture-root
    #:execution-spec-tests-transaction-test-root
-   #:with-execution-spec-tests-fixture-root))
+   #:with-execution-spec-tests-fixture-root
+   #:with-execution-spec-tests-transaction-test-root))
 
 (in-package #:ethereum-lisp.test)
 
@@ -137,6 +138,15 @@
        (skip-test
         (format nil
                 "Set ~A to an execution-spec-tests fixture root to run this test"
+                +execution-spec-tests-fixture-root-env+)))
+     ,@body))
+
+(defmacro with-execution-spec-tests-transaction-test-root ((root) &body body)
+  `(let ((,root (execution-spec-tests-transaction-test-root)))
+     (unless ,root
+       (skip-test
+        (format nil
+                "Set ~A to an execution-spec-tests fixture root containing transaction_tests to run this test"
                 +execution-spec-tests-fixture-root-env+)))
      ,@body))
 
