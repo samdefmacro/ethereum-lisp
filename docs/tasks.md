@@ -624,6 +624,14 @@ splits can land after the Phase A smoke path closes.
     used matching the final receipt cumulative gas. Remaining work:
     external-style typed receipt vectors, CREATE2 coverage where applicable,
     and explicit pre-Byzantium exclusion.
+  - Progress: added an Engine-imported EIP-1559 typed receipt smoke. A real
+    signed dynamic-fee transaction now imports through `engine_newPayloadV2`;
+    the test reads the stored receipts and RPC receipt, verifies `type` is
+    `0x2`, effective gas price follows the block base fee, and the imported
+    block's receipts root matches `transaction-receipt-list-root` while
+    differing from the legacy-only `receipt-list-root`. Remaining work:
+    external-style typed receipt vectors for legacy, EIP-2930, and EIP-4844,
+    CREATE2 coverage where applicable, and explicit pre-Byzantium exclusion.
 
 ## P0: EVM Correctness Gaps
 
