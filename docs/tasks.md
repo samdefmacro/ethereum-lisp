@@ -377,6 +377,16 @@ splits can land after the Phase A smoke path closes.
     the production service constructor choose the execution importer by
     default once package layering is settled, and replace the empty payload
     smoke with the one-transaction `newPayloadV2` fixture.
+  - Progress: added the first one-transaction `engine_newPayloadV2` JSON-RPC
+    smoke through the configured execution importer. The test builds a
+    Shanghai-shaped payload from a known parent state, includes a real EIP-155
+    legacy transfer plus withdrawals, imports it through
+    `engine-rpc-handle-request`, and asserts the executed child block, sender
+    nonce/balance, recipient balance, withdrawal balance, state availability,
+    and transaction lookup index are committed. Remaining work: make the
+    production service constructor choose the execution importer by default
+    once package layering is settled, and lift this smoke to a pinned fixture
+    runner case that also drives forkchoice/canonical/public-RPC checks.
 
 - [ ] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

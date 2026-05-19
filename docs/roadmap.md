@@ -87,11 +87,11 @@ fixes in those areas are allowed; expansion is not.
   encoding, cumulative-gas monotonicity, bloom, log order, post-Byzantium
   status), and connecting Engine forkchoice updates to the canonical rewrite
   path.
-- **Next checkpoint:** a one-transaction post-Merge Shanghai payload can be
-  imported from a known genesis/parent state through `engine_newPayloadV2`,
-  executed atomically, commitment-validated against a pinned fixture, made
-  canonical via `engine_forkchoiceUpdated`, queried through public RPC, and
-  re-checked under a two-branch reorg.
+- **Next checkpoint:** promote the new one-transaction Shanghai
+  `engine_newPayloadV2` smoke into a pinned fixture path: imported from a
+  known genesis/parent state, executed atomically, commitment-validated against
+  fixture roots, made canonical via `engine_forkchoiceUpdated`, queried
+  through public RPC, and re-checked under a two-branch reorg.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing
