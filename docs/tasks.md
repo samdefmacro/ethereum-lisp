@@ -288,6 +288,11 @@ ones.
     the value derived from decoded `txbytes`, so transcribed EEST vectors fail
     during fixture loading if their expected gas drifts from the encoded
     transaction.
+  - Progress: added explicit Shanghai coverage to the transaction fixture fork
+    matrix and made Cancun/Prague fixture configs include Shanghai activation.
+    The Phase A target fork is now checked directly for every transaction
+    envelope vector, while blob and set-code vectors still assert their
+    Cancun/Prague activation boundaries.
 
 ## P0: Module Boundaries
 

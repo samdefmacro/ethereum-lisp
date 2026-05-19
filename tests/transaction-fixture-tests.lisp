@@ -7,7 +7,7 @@
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
 (defparameter +transaction-fixture-forks+
-  '("Frontier" "Berlin" "London" "Cancun" "Prague"))
+  '("Frontier" "Berlin" "London" "Shanghai" "Cancun" "Prague"))
 
 (defparameter +transaction-fixture-required-types+
   '(:legacy :access-list :dynamic-fee :blob :set-code))
@@ -147,9 +147,10 @@
 (defun transaction-fixture-type-valid-on-fork-p (type fork)
   (ecase type
     (:legacy t)
-    (:access-list (member fork '("Berlin" "London" "Cancun" "Prague")
+    (:access-list (member fork '("Berlin" "London" "Shanghai" "Cancun"
+                                 "Prague")
                           :test #'string=))
-    (:dynamic-fee (member fork '("London" "Cancun" "Prague")
+    (:dynamic-fee (member fork '("London" "Shanghai" "Cancun" "Prague")
                           :test #'string=))
     (:blob (member fork '("Cancun" "Prague") :test #'string=))
     (:set-code (string= fork "Prague"))))
@@ -298,13 +299,19 @@
     ((string= fork "London")
      (make-chain-config :berlin-block 0
                         :london-block 0))
+    ((string= fork "Shanghai")
+     (make-chain-config :berlin-block 0
+                        :london-block 0
+                        :shanghai-time 0))
     ((string= fork "Cancun")
      (make-chain-config :berlin-block 0
                         :london-block 0
+                        :shanghai-time 0
                         :cancun-time 0))
     ((string= fork "Prague")
      (make-chain-config :berlin-block 0
                         :london-block 0
+                        :shanghai-time 0
                         :cancun-time 0
                         :prague-time 0))
     (t (error "Unknown transaction fixture fork: ~A" fork))))
@@ -703,6 +710,7 @@
           (list (cons "Frontier" (list (cons "intrinsicGas" "0x5209")))
                 (cons "Berlin" (list (cons "intrinsicGas" "0x5208")))
                 (cons "London" (list (cons "intrinsicGas" "0x5208")))
+                (cons "Shanghai" (list (cons "intrinsicGas" "0x5208")))
                 (cons "Cancun" (list (cons "intrinsicGas" "0x5208")))
                 (cons "Prague" (list (cons "intrinsicGas" "0x5208"))))))))))
 

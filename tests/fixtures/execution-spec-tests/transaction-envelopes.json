@@ -24,6 +24,7 @@
         "Frontier": { "intrinsicGas": "0x5208" },
         "Berlin": { "intrinsicGas": "0x5208" },
         "London": { "intrinsicGas": "0x5208" },
+        "Shanghai": { "intrinsicGas": "0x5208" },
         "Cancun": { "intrinsicGas": "0x5208" },
         "Prague": { "intrinsicGas": "0x5208" }
       }
@@ -39,6 +40,7 @@
         "Frontier": { "exception": "TransactionException.TYPE_1_TX_PRE_FORK" },
         "Berlin": { "intrinsicGas": "0x5228" },
         "London": { "intrinsicGas": "0x5228" },
+        "Shanghai": { "intrinsicGas": "0x5228" },
         "Cancun": { "intrinsicGas": "0x5228" },
         "Prague": { "intrinsicGas": "0x5228" }
       }
@@ -54,6 +56,7 @@
         "Frontier": { "exception": "TransactionException.TYPE_2_TX_PRE_FORK" },
         "Berlin": { "exception": "TransactionException.TYPE_2_TX_PRE_FORK" },
         "London": { "intrinsicGas": "0x5208" },
+        "Shanghai": { "intrinsicGas": "0x5208" },
         "Cancun": { "intrinsicGas": "0x5208" },
         "Prague": { "intrinsicGas": "0x5208" }
       }
@@ -69,6 +72,7 @@
         "Frontier": { "exception": "TransactionException.TYPE_3_TX_PRE_FORK" },
         "Berlin": { "exception": "TransactionException.TYPE_3_TX_PRE_FORK" },
         "London": { "exception": "TransactionException.TYPE_3_TX_PRE_FORK" },
+        "Shanghai": { "exception": "TransactionException.TYPE_3_TX_PRE_FORK" },
         "Cancun": { "intrinsicGas": "0x5208" },
         "Prague": { "intrinsicGas": "0x5208" }
       }
@@ -84,6 +88,7 @@
         "Frontier": { "exception": "TransactionException.TYPE_4_TX_PRE_FORK" },
         "Berlin": { "exception": "TransactionException.TYPE_4_TX_PRE_FORK" },
         "London": { "exception": "TransactionException.TYPE_4_TX_PRE_FORK" },
+        "Shanghai": { "exception": "TransactionException.TYPE_4_TX_PRE_FORK" },
         "Cancun": { "exception": "TransactionException.TYPE_4_TX_PRE_FORK" },
         "Prague": { "intrinsicGas": "0x11558" }
       }
