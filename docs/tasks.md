@@ -265,6 +265,11 @@ ones.
   - Progress: removed the legacy `raw` fallback from transaction envelope
     fixtures. The runner now requires `txbytes` exactly, matching geth's
     transaction-test utility shape and preventing mixed fixture dialects.
+  - Progress: added field-whitelist validation to transaction fixture
+    wrappers, `referenceClients`, and individual vectors. Unknown top-level,
+    reference-client, or vector fields now fail before decoding, preventing
+    misspelled imported EEST transaction assertions from being silently
+    ignored.
 
 ## P0: Module Boundaries
 

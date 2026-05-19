@@ -18,7 +18,28 @@
     "TransactionException.TYPE_3_TX_PRE_FORK"
     "TransactionException.TYPE_4_TX_PRE_FORK"))
 
+(defparameter +transaction-fixture-top-level-fields+
+  '("format" "source" "executionSpecTests" "referenceClients" "vectors"))
+
+(defparameter +transaction-fixture-reference-client-fields+
+  '("geth" "nethermind" "reth"))
+
+(defparameter +transaction-fixture-vector-fields+
+  '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
+
+(defun validate-transaction-fixture-object-fields
+    (object allowed-fields label)
+  (unless (listp object)
+    (error "~A must be a JSON object" label))
+  (dolist (field object)
+    (unless (member (car field) allowed-fields :test #'string=)
+      (error "~A has unknown field ~A" label (car field)))))
+
 (defun validate-transaction-envelope-fixture-metadata (fixture)
+  (validate-transaction-fixture-object-fields
+   fixture
+   +transaction-fixture-top-level-fields+
+   "Transaction fixture")
   (validate-fixture-format fixture +transaction-envelope-fixture-format+)
   (when (blank-string-p
          (fixture-required-field fixture "source"))
@@ -26,9 +47,11 @@
   (validate-fixture-pinned-eest-source fixture)
   (let ((references
           (fixture-required-field fixture "referenceClients")))
-    (unless (listp references)
-      (error "Transaction fixture referenceClients must be a JSON object"))
-    (dolist (client '("geth" "nethermind" "reth"))
+    (validate-transaction-fixture-object-fields
+     references
+     +transaction-fixture-reference-client-fields+
+     "Transaction fixture referenceClients")
+    (dolist (client +transaction-fixture-reference-client-fields+)
       (unless (fixture-field-present-p references client)
         (error "Transaction fixture referenceClients is missing ~A"
                client)))
@@ -82,6 +105,10 @@
   (address-from-hex (fixture-required-field vector "sender")))
 
 (defun validate-transaction-fixture-vector-shape (vector)
+  (validate-transaction-fixture-object-fields
+   vector
+   +transaction-fixture-vector-fields+
+   "Transaction fixture vector")
   (transaction-fixture-txbytes-value vector)
   (validate-transaction-fixture-hash-field vector)
   (validate-transaction-fixture-address-field vector))
@@ -429,6 +456,38 @@
      vector :dynamic-fee "Berlin" (list (cons "exception"
                                  "TransactionException.TYPE_2_TX_PRE_FORK")))))
 
+(defun transaction-fixture-metadata-shape-test-fixture
+    (&key top-extra reference-extra)
+  (append
+   (list
+    (cons "format" +transaction-envelope-fixture-format+)
+    (cons "source" "test fixture")
+    (cons "executionSpecTests"
+          (list (cons "release" +phase-a-eest-release+)
+                (cons "tagTarget" +phase-a-eest-tag-target+)
+                (cons "archive" +phase-a-eest-archive+)
+                (cons "status" "test")))
+    (cons "referenceClients"
+          (append
+           (list (cons "geth" "test-geth")
+                 (cons "nethermind" "test-nethermind")
+                 (cons "reth" nil))
+           reference-extra))
+    (cons "vectors" nil))
+   top-extra))
+
+(deftest transaction-fixture-metadata-shape-validation
+  (validate-transaction-envelope-fixture-metadata
+   (transaction-fixture-metadata-shape-test-fixture))
+  (signals error
+    (validate-transaction-envelope-fixture-metadata
+     (transaction-fixture-metadata-shape-test-fixture
+      :top-extra (list (cons "unexpectedTopField" t)))))
+  (signals error
+    (validate-transaction-envelope-fixture-metadata
+     (transaction-fixture-metadata-shape-test-fixture
+      :reference-extra (list (cons "besu" "test-besu"))))))
+
 (deftest transaction-fixture-vector-shape-validation
   (let ((valid-vector
           (list (cons "name" "shape-test")
@@ -471,7 +530,15 @@
            (cons "txbytes" "0x01")
            (cons "hash"
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
-           (cons "sender" "0x01")))))
+           (cons "sender" "0x01"))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "unknown-vector-field")
+           (cons "txbytes" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "unexpectedVectorField" t)))))
 
 (deftest transaction-fixture-decoded-envelope-validation
   (let ((vector (list (cons "name" "decoded-shape-test")
