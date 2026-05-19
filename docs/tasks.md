@@ -165,7 +165,7 @@ ones.
     reported through the existing test runner without changing consensus logic.
   - Validation: `sbcl --script tests/run-tests.lisp`.
 
-- [ ] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
+- [~] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
   - Milestone: 2 / 8
   - Dependencies: `PHASE-A-SCOPE-GATE` (for fork-set selection); no code
@@ -178,6 +178,13 @@ ones.
     drawn from the pinned release. Sender recovery is exercised on every
     typed transaction case so the result feeds `SENDER-RECOVERY-ENFORCEMENT`.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Progress: added an in-repo external-style transaction envelope vector
+    runner covering legacy EIP-155, EIP-2930, EIP-1559, EIP-4844, and
+    EIP-7702 raw encodings, transaction hashes, sender recovery, and
+    wrong-chain sender rejection. Reference source availability: geth
+    `8a0223e`, Nethermind `1c72a72`; local Reth clone absent. Remaining work:
+    draw or transcribe the same vector shape from the pinned
+    `execution-spec-tests` release.
 
 ## P0: Module Boundaries
 

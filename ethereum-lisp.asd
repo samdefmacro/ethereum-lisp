@@ -38,6 +38,7 @@
      (:file "trie-encoding-tests")
      (:file "trie-tests")
      (:file "fixture-tests")
+     (:file "transaction-fixture-tests")
      (:file "core-tests")
      (:file "state-tests")
      (:file "evm-tests")
