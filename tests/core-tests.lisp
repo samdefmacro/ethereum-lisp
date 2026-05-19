@@ -3586,7 +3586,30 @@
              (list (cons "jsonrpc" "2.0")
                    (cons "id" id)
                    (cons "method" "eth_getTransactionReceipt")
-                   (cons "params" (list (hash32-to-hex hash))))))
+                   (cons "params" (list (hash32-to-hex hash)))))
+           (block-receipts-request (id)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getBlockReceipts")
+                   (cons "params" (list "latest"))))
+           (transaction-count-request (id address)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getTransactionCount")
+                   (cons "params" (list (address-to-hex address) "latest"))))
+           (code-request (id address)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getCode")
+                   (cons "params" (list (address-to-hex address) "latest"))))
+           (storage-request (id address)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getStorageAt")
+                   (cons "params"
+                         (list (address-to-hex address)
+                               (quantity-to-hex 0)
+                               "latest")))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1
                                       :london-block 0
@@ -3700,27 +3723,67 @@
                     (receipt-request 41 transaction-hash)
                     store config)
                    "result"))
+        (is (= 1
+               (length
+                (field (engine-rpc-handle-request
+                        (block-receipts-request 42)
+                        store config)
+                       "result"))))
         (is (string= (quantity-to-hex 1000000000000000000)
                      (field (engine-rpc-handle-request
-                             (balance-request 42 recipient)
+                             (balance-request 43 recipient)
+                             store config)
+                            "result")))
+        (is (string= (quantity-to-hex 10)
+                     (field (engine-rpc-handle-request
+                             (transaction-count-request 44 sender)
+                             store config)
+                            "result")))
+        (is (string= "0x"
+                     (field (engine-rpc-handle-request
+                             (code-request 45 sender)
+                             store config)
+                            "result")))
+        (is (string= "0x0000000000000000000000000000000000000000000000000000000000000000"
+                     (field (engine-rpc-handle-request
+                             (storage-request 46 sender)
                              store config)
                             "result")))
         (engine-rpc-handle-request
-         (forkchoice-request 43 (block-hash branch-b-block))
+         (forkchoice-request 47 (block-hash branch-b-block))
          store config)
         (is (string= (hash32-to-hex (block-hash branch-b-block))
                      (hash32-to-hex (chain-store-canonical-hash store 42))))
         (is (not (field (engine-rpc-handle-request
-                         (transaction-request 44 transaction-hash)
+                         (transaction-request 48 transaction-hash)
                          store config)
                         "result")))
         (is (not (field (engine-rpc-handle-request
-                         (receipt-request 45 transaction-hash)
+                         (receipt-request 49 transaction-hash)
+                         store config)
+                        "result")))
+        (is (not (field (engine-rpc-handle-request
+                         (block-receipts-request 50)
                          store config)
                         "result")))
         (is (string= (quantity-to-hex 0)
                      (field (engine-rpc-handle-request
-                             (balance-request 46 recipient)
+                             (balance-request 51 recipient)
+                             store config)
+                            "result")))
+        (is (string= (quantity-to-hex 9)
+                     (field (engine-rpc-handle-request
+                             (transaction-count-request 52 sender)
+                             store config)
+                            "result")))
+        (is (string= "0x"
+                     (field (engine-rpc-handle-request
+                             (code-request 53 sender)
+                             store config)
+                            "result")))
+        (is (string= "0x0000000000000000000000000000000000000000000000000000000000000000"
+                     (field (engine-rpc-handle-request
+                             (storage-request 54 sender)
                              store config)
                             "result")))))))
 

@@ -398,7 +398,7 @@ splits can land after the Phase A smoke path closes.
   - Validation: add invalid payload status tests and run
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] `ENGINE-PERSIST-EXECUTED-BLOCK`: Persist block receipts and state
+- [~] `ENGINE-PERSIST-EXECUTED-BLOCK`: Persist block receipts and state
   snapshots from executed Engine payloads.
   - Milestone: 5 / 6 / 7
   - Dependencies: `ENGINE-EXECUTE-NEWPAYLOAD`.
@@ -408,6 +408,15 @@ splits can land after the Phase A smoke path closes.
     `engine_newPayload`.
   - Validation: add Engine-imported block RPC tests and run
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: extended the executed Engine forkchoice fixture to cover the
+    public RPC persistence surface for canonical imported blocks. After
+    `engine_newPayloadV2` and forkchoice select the transaction branch, public
+    RPC can answer `eth_getTransactionReceipt`, `eth_getBlockReceipts`,
+    `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, and
+    `eth_getStorageAt` at `latest`; after forkchoice switches to the empty
+    sibling, receipts/transaction lookup and state reads follow the selected
+    sibling. Remaining work: add a non-empty code/storage Engine fixture so
+    code and storage persistence are tested with non-default values.
 
 - [~] `ENGINE-FORKCHOICE-CANONICAL`: Make `engine_forkchoiceUpdated` update
   canonical chain state, not only block tags.
