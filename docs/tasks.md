@@ -279,6 +279,10 @@ ones.
     transaction fixture loader. Wrapper objects, `referenceClients`, vectors,
     result entries, and per-fork result maps now fail on duplicate keys before
     `assoc` can silently select one value and hide the other.
+  - Progress: moved pinned `executionSpecTests` source-shape checks into the
+    shared fixture validator. All pinned EEST-backed fixtures now reject
+    unknown or duplicate release/tag/archive/status metadata fields before
+    wrapper-specific validation proceeds.
 
 ## P0: Module Boundaries
 

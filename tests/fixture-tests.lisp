@@ -30,3 +30,29 @@
       (with-execution-spec-tests-fixture-root (root)
         (error "Fixture body should not run when the root is absent: ~S"
                root)))))
+
+(deftest pinned-execution-spec-tests-source-validation
+  (flet ((fixture (source)
+           (list (cons "executionSpecTests" source))))
+    (validate-fixture-pinned-eest-source
+     (fixture
+      (list (cons "release" +phase-a-eest-release+)
+            (cons "tagTarget" +phase-a-eest-tag-target+)
+            (cons "archive" +phase-a-eest-archive+)
+            (cons "status" "seed"))))
+    (signals error
+      (validate-fixture-pinned-eest-source
+       (fixture
+        (list (cons "release" +phase-a-eest-release+)
+              (cons "tagTarget" +phase-a-eest-tag-target+)
+              (cons "archive" +phase-a-eest-archive+)
+              (cons "status" "seed")
+              (cons "unexpected" t)))))
+    (signals error
+      (validate-fixture-pinned-eest-source
+       (fixture
+        (list (cons "release" +phase-a-eest-release+)
+              (cons "release" "duplicate release")
+              (cons "tagTarget" +phase-a-eest-tag-target+)
+              (cons "archive" +phase-a-eest-archive+)
+              (cons "status" "seed")))))))

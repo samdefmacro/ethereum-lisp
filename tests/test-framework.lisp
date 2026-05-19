@@ -24,6 +24,9 @@
 (defconstant +phase-a-eest-tag-target+ "88e9fb8")
 (defconstant +phase-a-eest-archive+ "fixtures_stable.tar.gz")
 
+(defparameter +phase-a-eest-source-fields+
+  '("release" "tagTarget" "archive" "status"))
+
 (defun default-environment-reader (name)
   #+sbcl (sb-ext:posix-getenv name)
   #-sbcl (declare (ignore name))
@@ -57,6 +60,18 @@
     (error "Fixture is missing field ~A" name))
   (fixture-object-field object name))
 
+(defun validate-fixture-object-fields (object allowed-fields label)
+  (unless (listp object)
+    (error "~A must be a JSON object" label))
+  (let ((seen-fields (make-hash-table :test 'equal)))
+    (dolist (field object)
+      (let ((name (car field)))
+        (when (gethash name seen-fields)
+          (error "~A has duplicate field ~A" label name))
+        (setf (gethash name seen-fields) t)
+        (unless (member name allowed-fields :test #'string=)
+          (error "~A has unknown field ~A" label name))))))
+
 (defun fixture-file-string (path)
   (with-open-file (stream path :direction :input)
     (with-output-to-string (out)
@@ -75,6 +90,10 @@
   (let ((source (fixture-required-field fixture "executionSpecTests")))
     (unless (listp source)
       (error "Fixture executionSpecTests must be a JSON object"))
+    (validate-fixture-object-fields
+     source
+     +phase-a-eest-source-fields+
+     "Fixture executionSpecTests")
     (unless (string= +phase-a-eest-release+
                      (fixture-required-field source "release"))
       (error "Fixture executionSpecTests.release must be ~A"
