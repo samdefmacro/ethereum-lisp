@@ -667,6 +667,9 @@ splits can land after the Phase A smoke path closes.
     expected lookup entries, and expected-missing entries now reject unknown
     fields before replay, preventing misspelled imported fixture assertions
     from being silently ignored.
+    Added trie fixture wrapper metadata validation. The runner now checks the
+    top-level fixture field set, format string, non-empty source note, and
+    pinned EEST release/archive metadata before consuming trie cases.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

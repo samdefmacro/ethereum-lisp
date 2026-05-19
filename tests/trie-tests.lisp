@@ -3,6 +3,12 @@
 (defparameter +trie-vector-fixture-path+
   "tests/fixtures/execution-spec-tests/trie-vectors.json")
 
+(defparameter +trie-vector-fixture-format+
+  "ethereum-lisp/trie-vectors-v1")
+
+(defparameter +trie-fixture-top-level-fields+
+  '("format" "source" "executionSpecTests" "cases"))
+
 (defparameter +trie-fixture-known-tags+
   '("leaf-root"
     "branch-root"
@@ -68,6 +74,16 @@
   (dolist (field object)
     (unless (member (car field) allowed-fields :test #'string=)
       (error "~A has unknown field ~A" label (car field)))))
+
+(defun validate-trie-fixture-metadata (fixture)
+  (validate-trie-fixture-object-fields
+   fixture
+   +trie-fixture-top-level-fields+
+   "Trie fixture")
+  (validate-fixture-format fixture +trie-vector-fixture-format+)
+  (when (blank-string-p (fixture-required-field fixture "source"))
+    (error "Trie fixture source must be present"))
+  (validate-fixture-pinned-eest-source fixture))
 
 (defun validate-trie-fixture-case-name (case seen-names)
   (let ((name (fixture-object-field case "name")))
@@ -478,6 +494,27 @@
                  (list (list (cons "keyAscii" "dog")
                              (cons "valueAscii" "puppy"))))))))
 
+(deftest trie-fixture-metadata-validation-rejects-wrapper-drift
+  (signals error
+    (validate-trie-fixture-metadata
+     (list (cons "format" +trie-vector-fixture-format+)
+           (cons "source" "seed")
+           (cons "unexpected" t)
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-trie-fixture-metadata
+     (list (cons "format" +trie-vector-fixture-format+)
+           (cons "source" "")
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed")))))))
+
 (deftest trie-fixture-shape-validation-rejects-malformed-expected-fields
   (signals error
     (validate-trie-fixture-case-shape
@@ -582,8 +619,7 @@
   (let* ((fixture (parse-json
                    (fixture-file-string +trie-vector-fixture-path+)))
          (cases (fixture-object-field fixture "cases")))
-    (validate-fixture-format fixture "ethereum-lisp/trie-vectors-v1")
-    (validate-fixture-pinned-eest-source fixture)
+    (validate-trie-fixture-metadata fixture)
     (validate-trie-fixture-cases cases)
     (dolist (case cases)
       (let ((trie (run-trie-fixture-case case)))
