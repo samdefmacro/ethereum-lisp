@@ -323,6 +323,11 @@ ones.
     `name`, `txbytes`, and hash checks plus decoded vector validation as the
     in-repo transaction fixture, while leaving the seed fixture's stricter
     "all envelope families required" gate scoped to the seed wrapper.
+  - Progress: preserved source-style names when loading EEST transaction-test
+    roots. Root imports now sort case keys deterministically and name singleton
+    files by their relative JSON path, while multi-case files use
+    `relative/path.json/case-name`, matching the geth harness convention and
+    preventing same-key cases in different files from colliding.
 
 ## P0: Module Boundaries
 

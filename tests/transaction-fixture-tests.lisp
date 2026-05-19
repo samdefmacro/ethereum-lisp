@@ -229,7 +229,7 @@
     (mapcar
      (lambda (entry)
        (normalize-eest-transaction-test-case (car entry) (cdr entry)))
-     cases)))
+     (sort (copy-list cases) #'string< :key #'car))))
 
 (defun eest-transaction-test-json-paths (root)
   (let* ((root-path (pathname root))
@@ -242,12 +242,31 @@
             :defaults root-path)))
     (sort (directory pattern) #'string< :key #'namestring)))
 
+(defun eest-transaction-root-case-name (root path key singleton-p)
+  (let ((relative (enough-namestring (truename path) (truename root))))
+    (if singleton-p
+        relative
+        (format nil "~A/~A" relative key))))
+
+(defun load-eest-transaction-test-root-file-cases (root path)
+  (let ((cases (load-handwritten-fixture-file path)))
+    (unless (listp cases)
+      (error "EEST transaction test file must be a JSON object"))
+    (let* ((entries (sort (copy-list cases) #'string< :key #'car))
+           (singleton-p (= 1 (length entries))))
+      (mapcar
+       (lambda (entry)
+         (normalize-eest-transaction-test-case
+          (eest-transaction-root-case-name root path (car entry) singleton-p)
+          (cdr entry)))
+       entries))))
+
 (defun load-eest-transaction-test-root-cases (root)
   (let ((paths (eest-transaction-test-json-paths root)))
     (unless paths
       (error "EEST transaction test root ~A has no JSON files" root))
     (loop for path in paths
-          append (load-eest-transaction-test-file path))))
+          append (load-eest-transaction-test-root-file-cases root path))))
 
 (defun eest-transaction-case-success-result (case)
   (let ((result (fixture-object-field case "result")))
@@ -971,14 +990,23 @@
   (let* ((root (execution-spec-tests-transaction-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
          (paths (eest-transaction-test-json-paths root))
+         (cases (load-eest-transaction-test-root-cases root))
          (vectors (load-eest-transaction-test-root-vectors root))
          (vector (first vectors)))
     (is (= 1 (length paths)))
+    (is (= 1 (length cases)))
     (is (= 1 (length vectors)))
-    (is (string= "legacy-eip155-sample"
+    (is (string= "phase-a-sample.json"
+                 (fixture-object-field (first cases) "name")))
+    (is (string= "phase-a-sample.json"
                  (fixture-object-field vector "name")))
     (is (string= "legacy"
                  (fixture-object-field vector "type")))
+    (is (string= "phase-a-sample.json/alpha"
+                 (eest-transaction-root-case-name root
+                                                  (first paths)
+                                                  "alpha"
+                                                  nil)))
     (signals error
       (validate-transaction-fixture-vector-set
        (append vectors (list vector)))))
