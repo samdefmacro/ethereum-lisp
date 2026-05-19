@@ -197,11 +197,10 @@ ones.
     execution-spec-tests transaction tests by using `txbytes` plus a
     per-fork `result` object. Valid fork entries now assert intrinsic gas,
     while invalid entries carry EEST-style exception tokens for pre-fork typed
-    transaction rejection. The runner still accepts the older `raw` key as a
-    compatibility fallback, but the checked fixture now follows the
-    `txbytes` / `result` layout used by reference transaction-test harnesses.
-    Remaining work: replace the in-repo seed vectors with vectors drawn from
-    the pinned `execution-spec-tests` release.
+    transaction rejection. The checked fixture now follows the `txbytes` /
+    `result` layout used by reference transaction-test harnesses. Remaining
+    work: replace the in-repo seed vectors with vectors drawn from the pinned
+    `execution-spec-tests` release.
   - Progress: tightened invalid per-fork transaction fixture checks so
     EEST-style exception tokens are mapped to the local block validation error
     messages. The runner now verifies that pre-fork typed transaction cases
@@ -263,6 +262,9 @@ ones.
     transaction fixture loading. Fixture vectors now fail during shape
     validation if `txbytes` decodes to a transaction whose hash or recovered
     sender disagrees with the fixture wrapper.
+  - Progress: removed the legacy `raw` fallback from transaction envelope
+    fixtures. The runner now requires `txbytes` exactly, matching geth's
+    transaction-test utility shape and preventing mixed fixture dialects.
 
 ## P0: Module Boundaries
 

@@ -64,13 +64,11 @@
 (defun transaction-fixture-txbytes-value (vector)
   (let ((has-txbytes (fixture-field-present-p vector "txbytes"))
         (has-raw (fixture-field-present-p vector "raw")))
-    (unless (or has-txbytes has-raw)
+    (unless has-txbytes
       (error "Transaction fixture txbytes must be present"))
-    (when (and has-txbytes has-raw)
-      (error "Transaction fixture must not include both txbytes and raw"))
-    (let ((value (if has-txbytes
-                     (fixture-object-field vector "txbytes")
-                     (fixture-object-field vector "raw"))))
+    (when has-raw
+      (error "Transaction fixture must use txbytes, not raw"))
+    (let ((value (fixture-object-field vector "txbytes")))
       (when (blank-string-p value)
         (error "Transaction fixture txbytes must be present"))
       (when (zerop (length (hex-to-bytes value)))
@@ -443,6 +441,13 @@
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "both-raw-and-txbytes")
            (cons "txbytes" "0x01")
+           (cons "raw" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001"))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "raw-only")
            (cons "raw" "0x01")
            (cons "hash"
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
