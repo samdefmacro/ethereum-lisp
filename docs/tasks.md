@@ -145,7 +145,7 @@ ones.
     a task should report the Reth commit/version it inspected when available.
   - Validation: docs-only diff.
 
-- [ ] `HARNESS-FIXTURE-ROOT`: Add an execution-spec-tests fixture root
+- [x] `HARNESS-FIXTURE-ROOT`: Add an execution-spec-tests fixture root
   configuration.
   - Milestone: 8
   - References: geth `tests`, Nethermind `src/tests`, Ethereum
@@ -153,6 +153,10 @@ ones.
   - Acceptance: tests can discover an optional local fixture root from an
     environment variable and skip cleanly when it is absent.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: tests now discover an optional fixture root through
+    `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`; absent, blank, or missing roots
+    produce an explicit skip condition for external fixture tests instead of a
+    failure.
 
 - [ ] `HARNESS-FIXTURE-RUNNER`: Add a small fixture runner skeleton for
   blockchain/state tests.

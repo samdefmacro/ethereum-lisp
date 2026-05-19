@@ -18,6 +18,7 @@
 (load "tests/crypto-tests.lisp")
 (load "tests/trie-encoding-tests.lisp")
 (load "tests/trie-tests.lisp")
+(load "tests/fixture-tests.lisp")
 (load "tests/core-tests.lisp")
 (load "tests/state-tests.lisp")
 (load "tests/evm-tests.lisp")
