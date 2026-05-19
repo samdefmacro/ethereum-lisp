@@ -607,6 +607,10 @@ splits can land after the Phase A smoke path closes.
     logs bloom, and gas used, asserting that the child block, state
     availability marker, transaction lookup, and child account projection are
     absent while the parent account projection remains intact.
+  - Progress: tightened the memory-store snapshot boundary for mutable filter
+    objects. Atomic rollback now deep-copies log, block, and pending
+    transaction filters, and coverage asserts that a failed atomic import
+    rolls back both the pending transaction pool and pending-filter hash list.
 
 - [x] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.

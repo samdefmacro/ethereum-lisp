@@ -3338,6 +3338,31 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              table)
     copy))
 
+(defun engine-payload-store-copy-filter (filter)
+  (cond
+    ((typep filter 'engine-log-filter)
+     (make-engine-log-filter
+      :criteria (copy-tree (engine-log-filter-criteria filter))
+      :last-block-number (engine-log-filter-last-block-number filter)
+      :block-hash-consumed-p
+      (engine-log-filter-block-hash-consumed-p filter)))
+    ((typep filter 'engine-block-filter)
+     (make-engine-block-filter
+      :last-block-number (engine-block-filter-last-block-number filter)))
+    ((typep filter 'engine-pending-transaction-filter)
+     (make-engine-pending-transaction-filter
+      :hashes (copy-list
+               (engine-pending-transaction-filter-hashes filter))))
+    (t filter)))
+
+(defun engine-payload-store-copy-filter-table (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash (lambda (key value)
+               (setf (gethash key copy)
+                     (engine-payload-store-copy-filter value)))
+             table)
+    copy))
+
 (defun engine-payload-store-snapshot (store)
   (make-engine-payload-memory-store
    :blocks
@@ -3384,7 +3409,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-copy-table
     (engine-payload-memory-store-pending-transactions store))
    :log-filters
-   (engine-payload-store-copy-table
+   (engine-payload-store-copy-filter-table
     (engine-payload-memory-store-log-filters store))
    :next-log-filter-id
    (engine-payload-memory-store-next-log-filter-id store)

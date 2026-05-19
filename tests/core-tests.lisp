@@ -3045,7 +3045,10 @@
             :transactions (list transaction)
             :receipts (list receipt)))
          (block-hash (block-hash block))
-         (transaction-hash (transaction-hash transaction)))
+         (transaction-hash (transaction-hash transaction))
+         (pending-filter-id
+           (ethereum-lisp.core::engine-payload-store-put-pending-transaction-filter
+            store)))
     (state-db-set-account state address (make-state-account :balance 10))
     (signals error
       (execute-atomic-block-commit
@@ -3053,6 +3056,8 @@
        (lambda ()
          (chain-store-put-block store block :state-available-p t)
          (chain-store-put-account-balance store block-hash address 99)
+         (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+          store transaction)
          (state-db-set-account state address
                                (make-state-account :balance 99))
          (error "Injected atomic commit failure"))))
@@ -3061,6 +3066,15 @@
     (is (null (chain-store-transaction-location store transaction-hash)))
     (is (not (chain-store-state-available-p store block-hash)))
     (is (= 0 (chain-store-account-balance store block-hash address)))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (null (ethereum-lisp.core::engine-payload-store-pending-transaction
+               store transaction-hash)))
+    (is (null
+         (ethereum-lisp.core::engine-pending-transaction-filter-hashes
+          (ethereum-lisp.core::engine-payload-store-log-filter
+           store pending-filter-id))))
     (is (= 10
            (state-account-balance
             (state-db-get-account state address))))))
