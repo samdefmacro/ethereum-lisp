@@ -336,7 +336,7 @@ splits can land after the Phase A smoke path closes.
 
 ## P0: Engine Payload Import
 
-- [~] `ENGINE-EXECUTE-NEWPAYLOAD`: Route `engine_newPayload` through block
+- [x] `ENGINE-EXECUTE-NEWPAYLOAD`: Route `engine_newPayload` through block
   execution when parent state is available.
   - Milestone: 6 / 7
   - Dependencies: `STORE-CHAIN-INTERFACE`, `STATE-ATOMIC-COMMIT`,
@@ -391,9 +391,15 @@ splits can land after the Phase A smoke path closes.
     the executable payload importer when the execution package is loaded,
     while retaining an explicit `:import-function nil` compatibility escape
     hatch. The service configuration test now asserts the default importer is
-    present. Remaining work: lift the one-transaction smoke to a pinned
-    fixture runner case that also drives forkchoice/canonical/public-RPC
-    checks.
+    present.
+  - Progress: lifted the one-transaction Shanghai `engine_newPayloadV2`
+    smoke into a pinned `engine-newpayload-v2` fixture. The fixture-driven
+    test executes a real EIP-155 legacy transfer plus withdrawal from a
+    known parent state, imports the executable payload through Engine RPC,
+    validates committed account balances, receipt roots, state availability,
+    and known-block storage, then applies `engine_forkchoiceUpdatedV1` and
+    verifies canonical `eth_getTransactionReceipt` and `eth_getBalance`
+    responses at `latest`.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

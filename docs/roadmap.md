@@ -81,18 +81,14 @@ fixes in those areas are allowed; expansion is not.
 - **Partial:** trie/state compatibility, EVM fixture coverage, Engine payload
   import, retained state snapshots, txpool admission, and concrete HTTP/socket
   serving.
-- **Missing for Phase A:** execution-spec fixture harness, executable
-  `engine_newPayload` import with parent state, atomic state/receipt/index
-  commit (all-or-nothing on validation failure), persisted receipts/state
-  snapshots from imported payloads, fixture-grade MPT (Section 3) capable of
-  matching reference state roots, receipt-derivation invariants (typed
-  encoding, cumulative-gas monotonicity, bloom, log order, post-Byzantium
-  status), and a pinned fixture-grade smoke path that combines these pieces.
-- **Next checkpoint:** promote the new one-transaction Shanghai
-  `engine_newPayloadV2` smoke into a pinned fixture path: imported from a
-  known genesis/parent state, executed atomically, commitment-validated against
-  fixture roots, made canonical via `engine_forkchoiceUpdated`, queried
-  through public RPC, and re-checked under a two-branch reorg.
+- **Missing for Phase A:** fixture-grade MPT (Section 3) capable of matching
+  broad reference state roots, wider execution-spec fixture ingestion, and
+  broader cross-client state-transition coverage beyond the current pinned
+  Shanghai Engine smoke.
+- **Next checkpoint:** expand from the pinned one-transaction Shanghai
+  `engine_newPayloadV2` fixture to a small multi-case fixture set covering a
+  typed transaction, a contract-creation receipt, and a two-branch canonical
+  switch driven from fixture data.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing
