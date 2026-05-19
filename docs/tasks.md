@@ -647,6 +647,13 @@ splits can land after the Phase A smoke path closes.
     `type` `0x0` with post-Byzantium `status`. Remaining work:
     external-style typed receipt vectors, EIP-4844 import-path coverage,
     CREATE2 coverage where applicable, and explicit pre-Byzantium exclusion.
+  - Progress: added a config-aware receipt fork-semantics gate to
+    `validate-block-execution-roots`. When a chain config is supplied, block
+    execution receipt validation now rejects blocks before Byzantium as
+    outside Phase A scope; tests cover a pre-Byzantium post-state receipt
+    rejection and the same receipt shape passing once Byzantium is active.
+    Remaining work: external-style typed receipt vectors, EIP-4844
+    import-path coverage, and CREATE2 coverage where applicable.
 
 ## P0: EVM Correctness Gaps
 

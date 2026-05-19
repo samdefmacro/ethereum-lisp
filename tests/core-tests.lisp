@@ -10316,6 +10316,25 @@ Content-Length: 4
               :logs (list (make-log-entry :data "not bytes"))))
        state-root))))
 
+(deftest block-execution-rejects-pre-byzantium-receipts-by-config
+  (let* ((post-state (make-byte-vector 32 :initial-element #x11))
+         (receipt (make-receipt :post-state post-state
+                                :cumulative-gas-used 21000))
+         (state-root (hash32-from-hex
+                      "0x1111111111111111111111111111111111111111111111111111111111111111"))
+         (block (make-block :receipts (list receipt)))
+         (header (block-header block))
+         (pre-byzantium-config (make-chain-config :byzantium-block 100))
+         (byzantium-config (make-chain-config :byzantium-block 0)))
+    (setf (block-header-number header) 42
+          (block-header-gas-used header) 21000
+          (block-header-state-root header) state-root)
+    (signals block-validation-error
+      (validate-block-execution-roots block (list receipt) state-root
+                                      :chain-config pre-byzantium-config))
+    (is (validate-block-execution-roots block (list receipt) state-root
+                                        :chain-config byzantium-config))))
+
 (deftest block-execution-validates-receipt-cumulative-gas-order
   (let* ((first-receipt (make-receipt :status 1
                                       :cumulative-gas-used 30000))

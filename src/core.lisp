@@ -9164,10 +9164,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            "Receipt cumulative gas used must increase"))
         (setf previous-gas-used gas-used)))))
 
+(defun validate-block-execution-receipt-fork-semantics
+    (header chain-config)
+  (when chain-config
+    (unless (chain-config-byzantium-p chain-config
+                                      (block-header-number header))
+      (block-validation-fail
+       "Pre-Byzantium receipt roots are outside Phase A scope"))))
+
 (defun validate-block-execution-roots
-    (block receipts state-root &key (transactions nil transactions-supplied-p))
+    (block receipts state-root &key
+       (transactions nil transactions-supplied-p)
+       chain-config)
   (let ((header (block-header block)))
     (validate-block-execution-commitment-fields header state-root)
+    (validate-block-execution-receipt-fork-semantics header chain-config)
     (validate-receipt-list-fields receipts)
     (when transactions-supplied-p
       (validate-block-transaction-list-fields transactions))
