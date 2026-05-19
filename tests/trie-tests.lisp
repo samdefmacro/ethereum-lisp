@@ -34,9 +34,20 @@
           ((and (vectorp reference) (= 32 (length reference))) "hashed")
           (t "unknown"))))))
 
+(defun trie-fixture-root-children (trie)
+  (let ((root (mpt-root-node trie)))
+    (when (typep root 'ethereum-lisp.trie::branch-node)
+      (loop for index below 16
+            when (aref (ethereum-lisp.trie::branch-node-children root)
+                       index)
+              collect index))))
+
 (defun apply-trie-fixture-operation (trie operation)
   (let ((op (trie-fixture-object-field operation "op"))
-        (key (ascii-to-bytes (trie-fixture-object-field operation "keyAscii"))))
+        (key (or (let ((hex (trie-fixture-object-field operation "keyHex")))
+                   (when hex (hex-to-bytes hex)))
+                 (ascii-to-bytes
+                  (trie-fixture-object-field operation "keyAscii")))))
     (cond
       ((string= op "put")
        (mpt-put trie key
@@ -98,4 +109,9 @@
           (when reference-kind
             (is (string= reference-kind
                          (trie-fixture-extension-child-reference-kind
-                          trie)))))))))
+                          trie)))))
+        (let ((children
+                (trie-fixture-object-field case "expectedRootChildren")))
+          (when children
+            (is (equal children
+                       (trie-fixture-root-children trie)))))))))

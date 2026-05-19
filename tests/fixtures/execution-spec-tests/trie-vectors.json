@@ -62,6 +62,16 @@
       ],
       "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
       "expectedShape": "empty"
+    },
+    {
+      "name": "root-branch-sparse-children",
+      "operations": [
+        { "op": "put", "keyHex": "0x00", "valueAscii": "left" },
+        { "op": "put", "keyHex": "0xf0", "valueAscii": "right" }
+      ],
+      "expectedRoot": "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5",
+      "expectedShape": "branch",
+      "expectedRootChildren": [0, 15]
     }
   ]
 }

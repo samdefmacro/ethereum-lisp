@@ -511,6 +511,8 @@ splits can land after the Phase A smoke path closes.
     checks, and contract storage-root checks. Added trie fixture coverage for
     the RLP child-reference threshold: compact extension children remain
     embedded, while larger children are referenced by their 32-byte Keccak hash.
+    Added hex-key trie fixture operations and a sparse root-branch vector that
+    asserts only the expected child slots are populated.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
