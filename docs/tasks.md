@@ -463,6 +463,13 @@ splits can land after the Phase A smoke path closes.
     errors. Remaining work: use the entry point from Engine `newPayload`,
     add signed-transaction sender recovery on that path, and persist executed
     state into the RPC account read indexes.
+  - Progress: executed blocks now persist a read-only projection of the
+    post-state into the chain-store account indexes. `state-db-for-each-account`
+    exposes account/code/storage iteration without leaking the state DB hash
+    tables, and `commit-state-db-to-chain-store` writes balances, nonces, code,
+    and storage for the imported block hash. Remaining work: wire
+    `execute-and-commit-block` into Engine `newPayload` and enforce signed
+    sender recovery on that path.
 
 - [ ] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.

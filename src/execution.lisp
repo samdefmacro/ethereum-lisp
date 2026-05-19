@@ -1350,6 +1350,20 @@
            (state-db-restore state state-snapshot)
            (error condition)))))))
 
+(defun commit-state-db-to-chain-store (store block-hash state)
+  (state-db-for-each-account
+   state
+   (lambda (address account code storage-entries)
+     (chain-store-put-account-balance
+      store block-hash address (state-account-balance account))
+     (chain-store-put-account-nonce
+      store block-hash address (state-account-nonce account))
+     (chain-store-put-account-code store block-hash address code)
+     (dolist (entry storage-entries)
+       (chain-store-put-account-storage
+        store block-hash address (car entry) (cdr entry)))))
+  store)
+
 (defun execute-and-commit-block
     (store state executor &key (state-available-p t))
   (execute-atomic-block-commit
@@ -1360,6 +1374,8 @@
          (funcall executor)
        (chain-store-put-block store block
                               :state-available-p state-available-p)
+       (when state-available-p
+         (commit-state-db-to-chain-store store (block-hash block) state))
        (values block receipts)))))
 
 (defun execute-signed-block (state transactions

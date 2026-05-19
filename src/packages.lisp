@@ -758,6 +758,7 @@
    #:state-db-set-storage
    #:state-db-get-storage
    #:state-db-get-storage-root
+   #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
    #:apply-genesis-account
@@ -860,6 +861,7 @@
    #:execute-signed-messages
    #:execute-legacy-block
    #:execute-atomic-block-commit
+   #:commit-state-db-to-chain-store
    #:execute-and-commit-block
    #:execute-signed-block))
 
@@ -1621,6 +1623,7 @@
    #:state-db-set-storage
    #:state-db-get-storage
    #:state-db-get-storage-root
+   #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
    #:apply-genesis-account
@@ -1663,6 +1666,7 @@
    #:execute-signed-messages
    #:execute-legacy-block
    #:execute-atomic-block-commit
+   #:commit-state-db-to-chain-store
    #:execute-and-commit-block
    #:execute-signed-block)
   (:export
@@ -2412,6 +2416,7 @@
    #:state-db-set-storage
    #:state-db-get-storage
    #:state-db-get-storage-root
+   #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
    #:apply-genesis-account
@@ -2453,5 +2458,6 @@
    #:execute-signed-messages
    #:execute-legacy-block
    #:execute-atomic-block-commit
+   #:commit-state-db-to-chain-store
    #:execute-and-commit-block
    #:execute-signed-block))

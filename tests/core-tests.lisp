@@ -2777,6 +2777,11 @@
            (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient
            (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (contract
+           (address-from-hex "0x0000000000000000000000000000000000000003"))
+         (storage-slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000004"))
          (transaction
            (make-legacy-transaction :nonce 0
                                     :gas-price 1
@@ -2788,6 +2793,10 @@
                                     :gas-limit 50000)))
     (state-db-set-account state sender
                           (make-state-account :balance 100000))
+    (state-db-set-account state contract
+                          (make-state-account :balance 7))
+    (state-db-set-code state contract #(1 2 3))
+    (state-db-set-storage state contract storage-slot 5)
     (multiple-value-bind (block receipts)
         (execute-and-commit-block
          store state
@@ -2804,7 +2813,21 @@
                  'engine-transaction-location))
       (is (= 10
              (state-account-balance
-              (state-db-get-account state recipient)))))))
+              (state-db-get-account state recipient))))
+      (is (= 78990
+             (chain-store-account-balance store (block-hash block) sender)))
+      (is (= 1
+             (chain-store-account-nonce store (block-hash block) sender)))
+      (is (= 10
+             (chain-store-account-balance store (block-hash block) recipient)))
+      (is (= 7
+             (chain-store-account-balance store (block-hash block) contract)))
+      (is (bytes= #(1 2 3)
+                  (chain-store-account-code store (block-hash block)
+                                            contract)))
+      (is (= 5
+             (chain-store-account-storage store (block-hash block)
+                                          contract storage-slot))))))
 
 (deftest execute-and-commit-block-rolls-back-bad-execution-commitments
   (let ((sender

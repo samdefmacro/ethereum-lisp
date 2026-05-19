@@ -194,6 +194,21 @@
 (defun state-db-root-hex (state)
   (hash32-to-hex (state-db-root state)))
 
+(defun state-db-for-each-account (state function)
+  (maphash
+   (lambda (address-key object)
+     (let ((address (address-from-hex address-key))
+           (account (account-with-storage-root object))
+           (code (copy-seq (state-object-code object)))
+           (storage-entries '()))
+       (maphash (lambda (slot value)
+                  (push (cons (hash32-from-hex slot) value)
+                        storage-entries))
+                (state-object-storage object))
+       (funcall function address account code (nreverse storage-entries))))
+   (state-db-objects state))
+  state)
+
 (defun apply-genesis-account (state account)
   (let ((address (genesis-account-address account)))
     (state-db-set-account
