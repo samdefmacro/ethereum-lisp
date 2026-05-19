@@ -3746,11 +3746,14 @@
             (is (string= (quantity-to-hex 1)
                          (field receipt "status")))))))))
 
-(deftest engine-rpc-new-payload-v2-rolls-back-state-projection-on-bad-gas-used
+(deftest engine-rpc-new-payload-v2-rolls-back-state-projection-on-bad-commitment
   (labels ((field (object name)
-             (cdr (assoc name object :test #'string=))))
-    (let* ((store (make-engine-payload-memory-store))
-           (config (make-chain-config :chain-id 1
+             (cdr (assoc name object :test #'string=)))
+           (bad-logs-bloom ()
+             (let ((bloom (make-byte-vector 256)))
+               (setf (aref bloom 0) 1)
+               bloom)))
+    (let* ((config (make-chain-config :chain-id 1
                                       :byzantium-block 0
                                       :constantinople-block 0
                                       :petersburg-block 0
@@ -3797,69 +3800,92 @@
                 :timestamp 98
                 :base-fee-per-gas 100
                 :withdrawals-root (withdrawal-list-root '())))
-             (parent-block (make-block :header parent-header))
-             (execution-state (state-db-copy parent-state))
-             (child-header
-               (make-block-header
-                :parent-hash (block-hash parent-block)
-                :beneficiary fee-recipient
-                :mix-hash (zero-hash32)
-                :number 42
-                :gas-limit 50000
-                :gas-used 0
-                :timestamp 99
-                :base-fee-per-gas 100))
-             (child-block
-               (execute-signed-block
-                execution-state
-                (list transaction)
-                :expected-chain-id 1
-                :header child-header
-                :chain-config config
-                :withdrawals (list withdrawal))))
-        (setf (block-header-gas-used (block-header child-block)) 1)
-        (let* ((bad-block-hash (block-hash child-block))
-               (payload
-                 (execution-payload-envelope-execution-payload
-                  (block-to-executable-data child-block)))
-               (request
-                 (list (cons "jsonrpc" "2.0")
-                       (cons "id" 29)
-                       (cons "method" "engine_newPayloadV2")
-                       (cons "params"
-                             (list (engine-rpc-executable-data-object
-                                    payload))))))
-          (engine-payload-store-put-block
-           store parent-block :state-available-p t)
-          (commit-state-db-to-chain-store
-           store (block-hash parent-block) parent-state)
-          (let* ((response
-                   (engine-rpc-handle-request
-                    request store config
-                    :import-function #'execute-and-commit-engine-payload))
-                 (result (field response "result")))
-            (is (string= +payload-status-invalid+ (field result "status")))
-            (is (string= "Gas used mismatch"
-                         (field result "validationError")))
-            (is (not (chain-store-known-block store bad-block-hash)))
-            (is (not (chain-store-state-available-p store bad-block-hash)))
-            (is (not (chain-store-transaction-location
-                      store
-                      (transaction-hash transaction))))
-            (is (= 0
-                   (chain-store-account-nonce store bad-block-hash sender)))
-            (is (= 0
-                   (chain-store-account-balance
-                    store bad-block-hash recipient)))
-            (is (= 0
-                   (chain-store-account-balance
-                    store bad-block-hash withdrawal-recipient)))
-            (is (= 9
-                   (chain-store-account-nonce
-                    store (block-hash parent-block) sender)))
-            (is (= 2000000000000000000
-                   (chain-store-account-balance
-                    store (block-hash parent-block) sender)))))))))
+             (parent-block (make-block :header parent-header)))
+        (labels ((child-block ()
+                   (execute-signed-block
+                    (state-db-copy parent-state)
+                    (list transaction)
+                    :expected-chain-id 1
+                    :header (make-block-header
+                             :parent-hash (block-hash parent-block)
+                             :beneficiary fee-recipient
+                             :mix-hash (zero-hash32)
+                             :number 42
+                             :gas-limit 50000
+                             :gas-used 0
+                             :timestamp 99
+                             :base-fee-per-gas 100)
+                    :chain-config config
+                    :withdrawals (list withdrawal)))
+                 (check-case (mutate-header expected-error)
+                   (let* ((store (make-engine-payload-memory-store))
+                          (bad-block (child-block)))
+                     (funcall mutate-header (block-header bad-block))
+                     (let* ((bad-block-hash (block-hash bad-block))
+                            (payload
+                              (execution-payload-envelope-execution-payload
+                               (block-to-executable-data bad-block)))
+                            (request
+                              (list
+                               (cons "jsonrpc" "2.0")
+                               (cons "id" 29)
+                               (cons "method" "engine_newPayloadV2")
+                               (cons
+                                "params"
+                                (list (engine-rpc-executable-data-object
+                                       payload))))))
+                       (engine-payload-store-put-block
+                        store parent-block :state-available-p t)
+                       (commit-state-db-to-chain-store
+                        store (block-hash parent-block) parent-state)
+                       (let* ((response
+                                (engine-rpc-handle-request
+                                 request store config
+                                 :import-function
+                                 #'execute-and-commit-engine-payload))
+                              (result (field response "result")))
+                         (is (string= +payload-status-invalid+
+                                      (field result "status")))
+                         (is (string= expected-error
+                                      (field result "validationError")))
+                         (is (not (chain-store-known-block
+                                   store bad-block-hash)))
+                         (is (not (chain-store-state-available-p
+                                   store bad-block-hash)))
+                         (is (not (chain-store-transaction-location
+                                   store
+                                   (transaction-hash transaction))))
+                         (is (= 0
+                                (chain-store-account-nonce
+                                 store bad-block-hash sender)))
+                         (is (= 0
+                                (chain-store-account-balance
+                                 store bad-block-hash recipient)))
+                         (is (= 0
+                                (chain-store-account-balance
+                                 store bad-block-hash withdrawal-recipient)))
+                         (is (= 9
+                                (chain-store-account-nonce
+                                 store (block-hash parent-block) sender)))
+                         (is (= 2000000000000000000
+                                (chain-store-account-balance
+                                 store (block-hash parent-block) sender))))))))
+          (check-case
+           (lambda (header)
+             (setf (block-header-state-root header) (zero-hash32)))
+           "State root mismatch")
+          (check-case
+           (lambda (header)
+             (setf (block-header-receipts-root header) (zero-hash32)))
+           "Receipts root mismatch")
+          (check-case
+           (lambda (header)
+             (setf (block-header-logs-bloom header) (bad-logs-bloom)))
+           "Logs bloom mismatch")
+          (check-case
+           (lambda (header)
+             (setf (block-header-gas-used header) 1))
+           "Gas used mismatch"))))))
 
 (deftest engine-rpc-new-payload-v2-rejects-wrong-chain-sender
   (labels ((field (object name)

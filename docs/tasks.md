@@ -573,9 +573,10 @@ splits can land after the Phase A smoke path closes.
     and storage for the imported block hash. Remaining work: wire
     `execute-and-commit-block` into Engine `newPayload` and enforce signed
     sender recovery on that path.
-  - Progress: added an Engine `newPayloadV2` atomic rollback check for a
-    post-execution gas-used mismatch after a real signed transfer plus
-    withdrawal. The invalid import now asserts that the child block, state
+  - Progress: added an Engine `newPayloadV2` atomic rollback check for
+    post-execution commitment mismatches after a real signed transfer plus
+    withdrawal. The invalid-import cases now cover state root, receipts root,
+    logs bloom, and gas used, asserting that the child block, state
     availability marker, transaction lookup, and child account projection are
     absent while the parent account projection remains intact.
 
