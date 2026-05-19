@@ -30,13 +30,21 @@
 (defparameter +transaction-fixture-required-vector-fields+
   '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
 
+(defparameter +transaction-fixture-result-entry-fields+
+  '("exception" "intrinsicGas"))
+
 (defun validate-transaction-fixture-object-fields
     (object allowed-fields label)
   (unless (listp object)
     (error "~A must be a JSON object" label))
-  (dolist (field object)
-    (unless (member (car field) allowed-fields :test #'string=)
-      (error "~A has unknown field ~A" label (car field)))))
+  (let ((seen-fields (make-hash-table :test 'equal)))
+    (dolist (field object)
+      (let ((name (car field)))
+        (when (gethash name seen-fields)
+          (error "~A has duplicate field ~A" label name))
+        (setf (gethash name seen-fields) t)
+        (unless (member name allowed-fields :test #'string=)
+          (error "~A has unknown field ~A" label name))))))
 
 (defun validate-transaction-envelope-fixture-metadata (fixture)
   (validate-transaction-fixture-object-fields
@@ -171,16 +179,12 @@
 
 (defun validate-transaction-fixture-result-entry
     (vector type fork result)
-  (unless (listp result)
-    (error "Transaction fixture ~A result for fork ~A must be a JSON object"
+  (validate-transaction-fixture-object-fields
+   result
+   +transaction-fixture-result-entry-fields+
+   (format nil "Transaction fixture ~A result for fork ~A"
            (fixture-object-field vector "name")
            fork))
-  (dolist (field result)
-    (unless (member (car field) '("exception" "intrinsicGas") :test #'string=)
-      (error "Transaction fixture ~A result for fork ~A has unknown field ~A"
-             (fixture-object-field vector "name")
-             fork
-             (car field))))
   (let ((exception-present-p (fixture-field-present-p result "exception"))
         (exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
@@ -223,11 +227,18 @@
       (error "Transaction fixture ~A is missing result for fork ~A"
              (fixture-object-field vector "name")
              fork)))
-  (dolist (check result)
-    (unless (member (car check) +transaction-fixture-forks+ :test #'string=)
-      (error "Transaction fixture ~A has unknown result fork ~A"
-             (fixture-object-field vector "name")
-             (car check)))))
+  (let ((seen-forks (make-hash-table :test 'equal)))
+    (dolist (check result)
+      (let ((fork (car check)))
+        (when (gethash fork seen-forks)
+          (error "Transaction fixture ~A has duplicate result fork ~A"
+                 (fixture-object-field vector "name")
+                 fork))
+        (setf (gethash fork seen-forks) t)
+        (unless (member fork +transaction-fixture-forks+ :test #'string=)
+          (error "Transaction fixture ~A has unknown result fork ~A"
+                 (fixture-object-field vector "name")
+                 fork))))))
 
 (defun validate-transaction-fixture-result-shape (vector)
   (let ((type (transaction-fixture-type-keyword
@@ -408,6 +419,22 @@
                     (list (cons "Osaka"
                                 (list (cons "intrinsicGas" "0x5208")))))))))
     (signals error
+      (validate-transaction-fixture-result-shape
+       (list (cons "name" "duplicate-fork")
+             (cons "type" "dynamic-fee")
+             (cons "result"
+                   (append
+                    (mapcar
+                     (lambda (fork)
+                       (cons fork
+                             (if (string= fork "London")
+                                 (list (cons "intrinsicGas" "0x5208"))
+                                 (list (cons "exception"
+                                             "TransactionException.TYPE_2_TX_PRE_FORK")))))
+                     +transaction-fixture-forks+)
+                    (list (cons "London"
+                                (list (cons "intrinsicGas" "0x5208")))))))))
+    (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" nil))
     (signals error
@@ -427,6 +454,13 @@
        "London"
        (list (cons "intrinsicGas" "0x5208")
              (cons "gas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
+       (list (cons "intrinsicGas" "0x5208")
+             (cons "intrinsicGas" "0x5209"))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" (list (cons "intrinsicGas" "5208"))))
@@ -492,6 +526,10 @@
     (validate-transaction-envelope-fixture-metadata
      (transaction-fixture-metadata-shape-test-fixture
       :top-extra (list (cons "unexpectedTopField" t)))))
+  (signals error
+    (validate-transaction-envelope-fixture-metadata
+     (transaction-fixture-metadata-shape-test-fixture
+      :top-extra (list (cons "source" "duplicate source")))))
   (signals error
     (validate-transaction-envelope-fixture-metadata
      (transaction-fixture-metadata-shape-test-fixture
@@ -597,7 +635,18 @@
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
            (cons "sender" "0x0000000000000000000000000000000000000001")
            (cons "result" nil)
-           (cons "unexpectedVectorField" t)))))
+           (cons "unexpectedVectorField" t))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
+     (list (cons "name" "duplicate-vector-field")
+           (cons "name" "duplicate-vector-field-shadow")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
+           (cons "txbytes" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "result" nil)))))
 
 (deftest transaction-fixture-decoded-envelope-validation
   (let ((vector (list (cons "name" "decoded-shape-test")

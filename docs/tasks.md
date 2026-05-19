@@ -275,6 +275,10 @@ ones.
     `txbytes`, `hash`, `sender`, or `result`, unknown transaction types,
     negative/non-integer chain ids, and malformed result objects before
     uniqueness, decoding, or fork-result validation runs.
+  - Progress: added duplicate-field and duplicate-fork rejection to the
+    transaction fixture loader. Wrapper objects, `referenceClients`, vectors,
+    result entries, and per-fork result maps now fail on duplicate keys before
+    `assoc` can silently select one value and hide the other.
 
 ## P0: Module Boundaries
 
