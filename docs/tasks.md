@@ -640,6 +640,13 @@ splits can land after the Phase A smoke path closes.
     legacy-only receipt list root. Remaining work: external-style typed
     receipt vectors for legacy and EIP-4844, CREATE2 coverage where
     applicable, and explicit pre-Byzantium exclusion.
+  - Progress: tightened the existing Engine-imported legacy one-transaction
+    smoke with explicit receipt-root checks. The imported block now asserts
+    that legacy receipts match both `receipt-list-root` and
+    `transaction-receipt-list-root`, and that the RPC receipt reports
+    `type` `0x0` with post-Byzantium `status`. Remaining work:
+    external-style typed receipt vectors, EIP-4844 import-path coverage,
+    CREATE2 coverage where applicable, and explicit pre-Byzantium exclusion.
 
 ## P0: EVM Correctness Gaps
 

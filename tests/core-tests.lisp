@@ -3513,7 +3513,12 @@
 
 (deftest engine-rpc-new-payload-v2-imports-one-transaction
   (labels ((field (object name)
-             (cdr (assoc name object :test #'string=))))
+             (cdr (assoc name object :test #'string=)))
+           (receipt-request (id hash)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getTransactionReceipt")
+                   (cons "params" (list (hash32-to-hex hash))))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1
                                       :london-block 0
@@ -3621,7 +3626,27 @@
           (is (typep (chain-store-transaction-location
                       store
                       (transaction-hash transaction))
-                     'engine-transaction-location)))))))
+                     'engine-transaction-location))
+          (let* ((receipts
+                   (chain-store-block-receipts store (block-hash child-block)))
+                 (receipt-response
+                   (engine-rpc-handle-request
+                    (receipt-request 28 (transaction-hash transaction))
+                    store config))
+                 (receipt (field receipt-response "result"))
+                 (receipts-root
+                   (block-header-receipts-root (block-header child-block))))
+            (is (= 1 (length receipts)))
+            (is (string= (hash32-to-hex (receipt-list-root receipts))
+                         (hash32-to-hex receipts-root)))
+            (is (string= (hash32-to-hex
+                          (transaction-receipt-list-root
+                           (list transaction)
+                           receipts))
+                         (hash32-to-hex receipts-root)))
+            (is (string= (quantity-to-hex 0) (field receipt "type")))
+            (is (string= (quantity-to-hex 1)
+                         (field receipt "status")))))))))
 
 (deftest engine-rpc-new-payload-v2-rejects-wrong-chain-sender
   (labels ((field (object name)
