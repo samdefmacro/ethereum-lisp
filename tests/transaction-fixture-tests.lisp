@@ -279,6 +279,38 @@
     (set-code-transaction :set-code)
     (otherwise :unknown)))
 
+(defun transaction-vector-chain-id (transaction)
+  (etypecase transaction
+    (legacy-transaction
+     (legacy-transaction-chain-id transaction))
+    (access-list-transaction
+     (access-list-transaction-chain-id transaction))
+    (dynamic-fee-transaction
+     (dynamic-fee-transaction-chain-id transaction))
+    (blob-transaction
+     (blob-transaction-chain-id transaction))
+    (set-code-transaction
+     (set-code-transaction-chain-id transaction))))
+
+(defun validate-transaction-fixture-decoded-envelope (vector transaction)
+  (let ((expected-type
+          (transaction-fixture-type-keyword
+           (fixture-required-field vector "type")))
+        (actual-type (transaction-vector-type transaction))
+        (expected-chain-id (fixture-required-field vector "chainId"))
+        (actual-chain-id (transaction-vector-chain-id transaction)))
+    (unless (eq expected-type actual-type)
+      (error "Transaction fixture ~A declared type ~A but decoded type ~A"
+             (fixture-object-field vector "name")
+             expected-type
+             actual-type))
+    (unless (and (integerp actual-chain-id)
+                 (= expected-chain-id actual-chain-id))
+      (error "Transaction fixture ~A declared chainId ~A but decoded chainId ~A"
+             (fixture-object-field vector "name")
+             expected-chain-id
+             actual-chain-id))))
+
 (deftest transaction-fixture-result-shape-validation
   (let ((vector (list (cons "name" "shape-test")
                       (cons "type" "dynamic-fee"))))
@@ -363,6 +395,22 @@
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
            (cons "sender" "0x01")))))
 
+(deftest transaction-fixture-decoded-envelope-validation
+  (let ((vector (list (cons "name" "decoded-shape-test")
+                      (cons "type" "dynamic-fee")
+                      (cons "chainId" 1))))
+    (validate-transaction-fixture-decoded-envelope
+     vector
+     (make-dynamic-fee-transaction :chain-id 1))
+    (signals error
+      (validate-transaction-fixture-decoded-envelope
+       vector
+       (make-access-list-transaction :chain-id 1)))
+    (signals error
+      (validate-transaction-fixture-decoded-envelope
+       vector
+       (make-dynamic-fee-transaction :chain-id 2)))))
+
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors
                    +transaction-envelope-fixture-path+))
@@ -370,6 +418,7 @@
            (chain-id (fixture-object-field vector "chainId"))
            (transaction (transaction-from-encoding (hex-to-bytes raw)))
            (sender (transaction-sender transaction :expected-chain-id chain-id)))
+      (validate-transaction-fixture-decoded-envelope vector transaction)
       (is (eq (transaction-fixture-type-keyword
                (fixture-object-field vector "type"))
               (transaction-vector-type transaction)))
