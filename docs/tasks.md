@@ -611,6 +611,10 @@ splits can land after the Phase A smoke path closes.
     objects. Atomic rollback now deep-copies log, block, and pending
     transaction filters, and coverage asserts that a failed atomic import
     rolls back both the pending transaction pool and pending-filter hash list.
+  - Progress: extended memory-store snapshot isolation to prepared payload
+    objects. Atomic rollback now copies prepared payload wrappers and blob
+    bundles, and coverage asserts that a failed atomic import cannot leak
+    mutations to an existing prepared payload entry.
 
 - [x] `SENDER-RECOVERY-ENFORCEMENT`: Require real sender recovery on every
   signed import, admission, and mined-tx RPC path.

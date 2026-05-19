@@ -3363,6 +3363,27 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              table)
     copy))
 
+(defun engine-payload-store-copy-prepared-payload (prepared-payload)
+  (cond
+    ((typep prepared-payload 'engine-prepared-payload)
+     (make-engine-prepared-payload
+      :payload-id (maybe-copy-bytes
+                   (engine-prepared-payload-payload-id prepared-payload))
+      :version (engine-prepared-payload-version prepared-payload)
+      :block (engine-prepared-payload-block prepared-payload)
+      :blobs-bundle
+      (maybe-copy-blob-sidecar
+       (engine-prepared-payload-blobs-bundle prepared-payload))))
+    (t prepared-payload)))
+
+(defun engine-payload-store-copy-prepared-payload-table (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash (lambda (key value)
+               (setf (gethash key copy)
+                     (engine-payload-store-copy-prepared-payload value)))
+             table)
+    copy))
+
 (defun engine-payload-store-snapshot (store)
   (make-engine-payload-memory-store
    :blocks
@@ -3400,7 +3421,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-copy-table
     (engine-payload-memory-store-invalid-tipsets store))
    :prepared-payloads
-   (engine-payload-store-copy-table
+   (engine-payload-store-copy-prepared-payload-table
     (engine-payload-memory-store-prepared-payloads store))
    :blob-sidecars
    (engine-payload-store-copy-table
