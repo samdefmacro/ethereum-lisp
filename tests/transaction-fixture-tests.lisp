@@ -6,6 +6,10 @@
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
+(defparameter +transaction-fixture-eest-release+ "v5.4.0")
+(defparameter +transaction-fixture-eest-tag-target+ "88e9fb8")
+(defparameter +transaction-fixture-eest-archive+ "fixtures_stable.tar.gz")
+
 (defparameter +transaction-fixture-forks+
   '("Frontier" "Berlin" "London" "Cancun" "Prague"))
 
@@ -17,6 +21,28 @@
     (error "Transaction fixture is missing top-level field ~A" name))
   (fixture-object-field object name))
 
+(defun validate-transaction-fixture-pinned-source (fixture)
+  (let ((source (transaction-fixture-required-field
+                 fixture
+                 "executionSpecTests")))
+    (unless (listp source)
+      (error "Transaction fixture executionSpecTests must be a JSON object"))
+    (unless (string= +transaction-fixture-eest-release+
+                     (transaction-fixture-required-field source "release"))
+      (error "Transaction fixture executionSpecTests.release must be ~A"
+             +transaction-fixture-eest-release+))
+    (unless (string= +transaction-fixture-eest-tag-target+
+                     (transaction-fixture-required-field source "tagTarget"))
+      (error "Transaction fixture executionSpecTests.tagTarget must be ~A"
+             +transaction-fixture-eest-tag-target+))
+    (unless (string= +transaction-fixture-eest-archive+
+                     (transaction-fixture-required-field source "archive"))
+      (error "Transaction fixture executionSpecTests.archive must be ~A"
+             +transaction-fixture-eest-archive+))
+    (when (blank-string-p
+           (transaction-fixture-required-field source "status"))
+      (error "Transaction fixture executionSpecTests.status must be present"))))
+
 (defun validate-transaction-envelope-fixture-metadata (fixture)
   (unless (string= +transaction-envelope-fixture-format+
                    (transaction-fixture-required-field fixture "format"))
@@ -25,6 +51,7 @@
   (when (blank-string-p
          (transaction-fixture-required-field fixture "source"))
     (error "Transaction fixture source must be present"))
+  (validate-transaction-fixture-pinned-source fixture)
   (let ((references
           (transaction-fixture-required-field fixture "referenceClients")))
     (unless (listp references)

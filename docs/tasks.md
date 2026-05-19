@@ -221,6 +221,12 @@ ones.
     pinned EEST fixture imports fail early if the wrapper shape drifts.
     Remaining work: replace the in-repo seed vectors with vectors drawn from
     the pinned `execution-spec-tests` release.
+  - Progress: added machine-checked pinned EEST source metadata to the
+    transaction envelope fixture wrapper. The runner now requires the Phase A
+    release `v5.4.0`, tag target `88e9fb8`, and `fixtures_stable.tar.gz`
+    archive metadata before consuming seed vectors, making fixture-only
+    transaction coverage explicit until the pinned transaction cases are
+    transcribed.
 
 ## P0: Module Boundaries
 

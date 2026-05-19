@@ -1,6 +1,12 @@
 {
   "format": "ethereum-lisp/transaction-envelope-fixtures-v1",
   "source": "in-repo vectors shaped for ethereum/execution-spec-tests v5.4.0 ingestion",
+  "executionSpecTests": {
+    "release": "v5.4.0",
+    "tagTarget": "88e9fb8",
+    "archive": "fixtures_stable.tar.gz",
+    "status": "seed vectors shaped for pinned fixture ingestion; replace with transcribed pinned transaction tests"
+  },
   "referenceClients": {
     "geth": "8a0223e",
     "nethermind": "1c72a72",
