@@ -465,6 +465,9 @@ ones.
   - Progress: tightened EEST transaction selector source-style validation so
     empty JSON file stems such as `.json/case` and `dir/.json/case` are
     rejected before Phase A pinned selector lists are accepted.
+  - Progress: tightened EEST transaction selector source-style validation so
+    the optional case suffix after `.json/` must be a single path segment,
+    preventing malformed top-level case names from looking like nested files.
 
 ## P0: Module Boundaries
 

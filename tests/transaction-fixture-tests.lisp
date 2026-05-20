@@ -428,16 +428,18 @@
        (not (char= (char name 0) #\/))
        (null (search ".." name))
        (null (search "//" name))
-       (let ((json-position (search ".json" name :test #'char-equal)))
+       (let* ((json-position (search ".json" name :test #'char-equal))
+              (after-json (and json-position (+ json-position 5))))
          (and json-position
               (plusp json-position)
               (not (char= (char name (1- json-position)) #\/))
-              (let ((after-json (+ json-position 5)))
-                (or (= after-json (length name))
-                    (and (< after-json (length name))
-                         (char= (char name after-json) #\/)
-                         (< (1+ after-json) (length name))
-                         (not (char= (char name (1+ after-json)) #\/)))))))))
+              (or (= after-json (length name))
+                  (and (< after-json (length name))
+                       (char= (char name after-json) #\/)
+                       (< (1+ after-json) (length name))
+                       (not (char= (char name (1+ after-json)) #\/))
+                       (null (position #\/ name
+                                       :start (1+ after-json)))))))))
 
 (defun load-eest-transaction-test-root-cases (root &key names)
   (when names
@@ -1802,6 +1804,8 @@
       (validate-eest-transaction-selector-list '("case.json/")))
     (signals error
       (validate-eest-transaction-selector-list '("case.json//name")))
+    (signals error
+      (validate-eest-transaction-selector-list '("case.json/name/extra")))
     (signals error
       (validate-eest-transaction-selector-list
        '("phase-a-sample.json" "phase-a-sample.json"))))
