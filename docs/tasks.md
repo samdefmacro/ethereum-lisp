@@ -1593,6 +1593,9 @@ splits can land after the Phase A smoke path closes.
   - Slice: added a fixture-backed London `CALL` gas-forwarding case. The parent
     forwards an explicit stack gas value to a child that returns `GAS`, then
     persists both the call success flag and returned child gas in storage.
+  - Slice: added a fixture-backed London value-transfer stipend case. The parent
+    supplies zero stack gas with non-zero call value, asserts the stipend lets
+    the child return `GAS`, and checks both value movement and persisted gas.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4

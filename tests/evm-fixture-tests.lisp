@@ -50,7 +50,8 @@
     "nested-call-value-transfer-london"
     "call-resolves-delegated-code-london"
     "access-list-call-prewarms-callee-london"
-    "call-forwards-stack-gas-london"))
+    "call-forwards-stack-gas-london"
+    "call-value-stipend-gas-london"))
 
 (defun validate-evm-state-fixture-metadata (fixture)
   (validate-fixture-object-fields
