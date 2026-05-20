@@ -280,6 +280,18 @@
         (nreverse selected))
       cases))
 
+(defun validate-eest-transaction-selector-list (names)
+  (unless names
+    (error "EEST transaction selector list must not be empty"))
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (name names)
+      (when (blank-string-p name)
+        (error "EEST transaction selector name must be present"))
+      (when (gethash name seen)
+        (error "EEST transaction selector list has duplicate name ~A"
+               name))
+      (setf (gethash name seen) t))))
+
 (defun load-eest-transaction-test-root-cases (root &key names)
   (let ((paths (eest-transaction-test-json-paths root)))
     (unless paths
@@ -345,6 +357,8 @@
     vectors))
 
 (defun load-phase-a-eest-transaction-test-root-vectors (root)
+  (validate-eest-transaction-selector-list
+   +phase-a-eest-transaction-test-case-names+)
   (load-eest-transaction-test-root-vectors
    root
    :names +phase-a-eest-transaction-test-case-names+))
@@ -1047,7 +1061,16 @@
     (signals error
       (load-eest-transaction-test-root-cases
        root
-       :names '("missing.json"))))
+       :names '("missing.json")))
+    (validate-eest-transaction-selector-list
+     +phase-a-eest-transaction-test-case-names+)
+    (signals error
+      (validate-eest-transaction-selector-list nil))
+    (signals error
+      (validate-eest-transaction-selector-list '("")))
+    (signals error
+      (validate-eest-transaction-selector-list
+       '("phase-a-sample.json" "phase-a-sample.json"))))
   (signals error
     (load-eest-transaction-test-root-cases
      "tests/fixtures/geth-spec-tests-root/spec-tests/fixtures/transaction_tests/")))

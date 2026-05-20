@@ -337,6 +337,10 @@ ones.
     names the in-repo `phase-a-sample.json` case; replacing it with real
     `v5.4.0` source-style names will make local and optional external runs use
     the same bounded pinned subset.
+  - Progress: added validation for the Phase A EEST transaction selector list.
+    The dedicated Phase A loader now rejects an empty list, blank selector
+    names, and duplicate source-style names before attempting external fixture
+    discovery.
 
 ## P0: Module Boundaries
 
