@@ -640,16 +640,28 @@
         (final (eest-trie-test-final-entry-map case)))
     (maphash
      (lambda (key-id expected)
-       (let ((actual (mpt-get trie (hex-to-bytes key-id))))
+       (let* ((key (hex-to-bytes key-id))
+              (actual (mpt-get trie key)))
          (if expected
-             (unless (bytes= expected actual)
-               (error "EEST trie test case ~A lookup mismatch for key ~A"
-                      name
-                      key-id))
-             (when actual
-               (error "EEST trie test case ~A expected missing key ~A"
-                      name
-                      key-id)))))
+             (progn
+               (unless (bytes= expected actual)
+                 (error "EEST trie test case ~A lookup mismatch for key ~A"
+                        name
+                        key-id))
+               (assert-eest-trie-test-case-proof-present
+                case
+                trie
+                key
+                expected))
+             (progn
+               (when actual
+                 (error "EEST trie test case ~A expected missing key ~A"
+                        name
+                        key-id))
+               (assert-eest-trie-test-case-proof-missing
+                case
+                trie
+                key)))))
      final)))
 
 (defun assert-eest-trie-test-case-root (case)
@@ -664,6 +676,35 @@
              actual-root))
     (assert-eest-trie-test-case-lookups case trie)
     trie))
+
+(defun assert-eest-trie-test-case-proof-present
+    (case trie key expected-value)
+  (multiple-value-bind (value present-p)
+      (mpt-verify-proof (mpt-root-hash trie)
+                        key
+                        (mpt-get-proof trie key))
+    (unless present-p
+      (error "EEST trie test case ~A proof did not prove present key ~A"
+             (fixture-required-field case "name")
+             (bytes-to-hex key)))
+    (unless (bytes= expected-value value)
+      (error "EEST trie test case ~A proof value mismatch for key ~A"
+             (fixture-required-field case "name")
+             (bytes-to-hex key)))))
+
+(defun assert-eest-trie-test-case-proof-missing (case trie key)
+  (multiple-value-bind (value present-p)
+      (mpt-verify-proof (mpt-root-hash trie)
+                        key
+                        (mpt-get-proof trie key))
+    (when present-p
+      (error "EEST trie test case ~A proof unexpectedly proved key ~A"
+             (fixture-required-field case "name")
+             (bytes-to-hex key)))
+    (when value
+      (error "EEST trie test case ~A missing-key proof returned value for key ~A"
+             (fixture-required-field case "name")
+             (bytes-to-hex key)))))
 
 (defun validate-eest-trie-test-file-case-names (cases source)
   (unless cases

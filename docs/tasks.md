@@ -1209,6 +1209,10 @@ splits can land after the Phase A smoke path closes.
     present and missing proofs across the seed fixture's plain, secure,
     shared-prefix, deletion, and child-reference cases. This also fixed branch
     value proof verification by reading the 17th RLP branch item portably.
+    Added the same present/missing proof verification to EEST-style trie-test
+    replay, so selected plain and secure external-style cases now check
+    `mpt-get-proof` / `mpt-verify-proof` against every final touched key in
+    addition to root and lookup assertions.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
