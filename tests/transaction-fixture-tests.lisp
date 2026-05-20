@@ -178,13 +178,16 @@
         (error "Transaction fixture txbytes must be a string"))
       (when (blank-string-p value)
         (error "Transaction fixture txbytes must be present"))
-      (let ((bytes (handler-case
-                       (hex-to-bytes value)
-                     (error (condition)
-                       (error "Transaction fixture txbytes must be hex bytes: ~A"
-                              condition)))))
-        (when (zerop (length bytes))
-          (error "Transaction fixture txbytes must encode at least one byte")))
+      (let ((canonical
+              (handler-case
+                  (transaction-fixture-canonical-bytes
+                   value
+                   "Transaction fixture txbytes")
+                (error (condition)
+                  (error "Transaction fixture txbytes must be hex bytes: ~A"
+                         condition)))))
+        (unless (string= value canonical)
+          (error "Transaction fixture txbytes must be canonical lowercase 0x-prefixed hex bytes")))
       value)))
 
 (defun validate-transaction-fixture-hash-field (vector)
@@ -1790,6 +1793,36 @@
             nil)
         (error (condition)
           (search "txbytes must be hex bytes" (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "prefixless-txbytes")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "txbytes must be canonical"
+                  (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "uppercase-txbytes")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0XAB")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "txbytes must be canonical"
+                  (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "bad-hash")

@@ -338,6 +338,11 @@ ones.
     `txbytes`, `hash`, `sender`, or `result`, unknown transaction types,
     negative/non-integer chain ids, and malformed result objects before
     uniqueness, decoding, or fork-result validation runs.
+  - Progress: tightened local transaction envelope fixture `txbytes`
+    validation to require canonical lowercase `0x`-prefixed hex bytes. This
+    aligns the seed wrapper with the EEST transaction-test importer and keeps
+    prefixless or uppercase raw encodings from bypassing duplicate detection
+    before pinned vectors replace the in-repo samples.
   - Progress: added duplicate-field and duplicate-fork rejection to the
     transaction fixture loader. Wrapper objects, `referenceClients`, vectors,
     result entries, and per-fork result maps now fail on duplicate keys before
