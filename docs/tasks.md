@@ -255,6 +255,9 @@ ones.
   - Progress: tightened EEST transaction-test conversion so the selected
     successful result's hash and sender must match the decoded `txbytes`
     before the local vector is built.
+  - Progress: tightened EEST transaction-test conversion so every successful
+    fork entry's `intrinsicGas` must match the decoded transaction before the
+    local vector is built.
   - Progress: added canonical quantity validation for valid per-fork
     `intrinsicGas` expectations. Fixture results now reject missing, prefixless,
     or leading-zero gas quantities before comparing against locally derived

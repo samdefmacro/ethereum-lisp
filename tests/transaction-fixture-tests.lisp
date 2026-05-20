@@ -363,6 +363,9 @@
 (defun validate-eest-transaction-success-result-derived
     (case transaction success)
   (let ((case-name (fixture-object-field case "name"))
+        (result (fixture-object-field case "result"))
+        (expected-gas (quantity-to-hex
+                       (transaction-intrinsic-gas transaction)))
         (chain-id (transaction-vector-chain-id transaction)))
     (unless (string= (fixture-required-field success "hash")
                      (hash32-to-hex (transaction-hash transaction)))
@@ -375,7 +378,15 @@
       (unless (string= (fixture-required-field success "sender")
                        (address-to-hex sender))
         (error "EEST transaction case ~A success sender does not match txbytes"
-               case-name)))))
+               case-name)))
+    (dolist (fork +transaction-fixture-forks+)
+      (let ((entry (fixture-object-field result fork)))
+        (when (and entry (fixture-field-present-p entry "hash"))
+          (unless (string= expected-gas
+                           (fixture-required-field entry "intrinsicGas"))
+            (error "EEST transaction case ~A success intrinsicGas on fork ~A does not match txbytes"
+                   case-name
+                   fork)))))))
 
 (defun eest-transaction-result-to-fixture-result (case)
   (let ((result (fixture-object-field case "result")))
@@ -1166,6 +1177,19 @@
                   frontier
                   "sender"
                   "0x0000000000000000000000000000000000000001"))
+               (bad-case
+                 (replace-field
+                  case
+                  "result"
+                  (replace-fork-entry "Frontier" bad-frontier))))
+          (convert-eest-transaction-case-to-vector bad-case)))
+      (signals error
+        (let* ((frontier (fixture-required-field result "Frontier"))
+               (bad-frontier
+                 (replace-field
+                  frontier
+                  "intrinsicGas"
+                  "0x5209"))
                (bad-case
                  (replace-field
                   case
