@@ -1003,6 +1003,9 @@ splits can land after the Phase A smoke path closes.
     Tightened secure branch-root summaries the same way: secure branch
     child-reference kinds are now tracked separately and must include hashed
     child references.
+    Added a selected secureTrie delete-branch-child case whose final root
+    remains non-empty, and tightened the Phase A subset summary/gate to require
+    secure delete replay that preserves a non-empty final root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

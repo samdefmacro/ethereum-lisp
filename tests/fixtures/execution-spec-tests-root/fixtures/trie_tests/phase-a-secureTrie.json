@@ -20,6 +20,14 @@
     ],
     "root": "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
   },
+  "phase-a-secure-delete-branch-child": {
+    "in": [
+      ["dog", "left"],
+      ["beam", "right"],
+      ["beam", null]
+    ],
+    "root": "c8fb1ca12e912e15bb7db6d06ae4967dd3b59a5903f0306dd797dcaab6afcb3b"
+  },
   "phase-a-secure-insert": {
     "in": [
       ["dog", "puppy"]
