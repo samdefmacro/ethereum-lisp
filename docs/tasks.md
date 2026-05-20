@@ -1216,6 +1216,10 @@ splits can land after the Phase A smoke path closes.
     Added secure single-leaf and secure delete-to-empty cases to the seed
     trie-vector fixture, and tightened seed coverage guards so secure leaf,
     branch, extension, and delete-to-empty root shapes all remain present.
+    Tightened EEST trie selector validation to reject non-list selector sets,
+    non-string selector names, doubled path separators, and nested case suffix
+    paths, matching the stricter transaction selector boundary before pinned
+    trie subset selection.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

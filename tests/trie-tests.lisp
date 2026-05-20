@@ -794,10 +794,14 @@
       cases))
 
 (defun validate-eest-trie-selector-list (names)
+  (unless (listp names)
+    (error "EEST trie selector list must be a list"))
   (unless names
     (error "EEST trie selector list must not be empty"))
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (name names)
+      (unless (stringp name)
+        (error "EEST trie selector name must be a string"))
       (when (blank-string-p name)
         (error "EEST trie selector name must be present"))
       (unless (eest-trie-selector-source-style-p name)
@@ -813,6 +817,7 @@
        (not (blank-string-p name))
        (not (char= (char name 0) #\/))
        (null (search ".." name))
+       (null (search "//" name))
        (let ((json-position (search ".json" name :test #'char-equal)))
          (and json-position
               (let ((after-json (+ json-position 5)))
@@ -820,7 +825,9 @@
                     (and (< after-json (length name))
                          (char= (char name after-json) #\/)
                          (< (1+ after-json) (length name))
-                         (not (char= (char name (1+ after-json)) #\/)))))))))
+                         (not (char= (char name (1+ after-json)) #\/))
+                         (null (position #\/ name
+                                         :start (1+ after-json))))))))))
 
 (defun validate-eest-trie-test-root-case-names (cases)
   (let ((seen (make-hash-table :test 'equal)))
@@ -2091,6 +2098,10 @@
     (signals error
       (validate-eest-trie-selector-list nil))
     (signals error
+      (validate-eest-trie-selector-list "phase-a-trie-sample.json"))
+    (signals error
+      (validate-eest-trie-selector-list '(42)))
+    (signals error
       (validate-eest-trie-selector-list '("")))
     (signals error
       (validate-eest-trie-selector-list '("bare-case-name")))
@@ -2099,11 +2110,15 @@
     (signals error
       (validate-eest-trie-selector-list '("/absolute.json")))
     (signals error
+      (validate-eest-trie-selector-list '("dir//case.json")))
+    (signals error
       (validate-eest-trie-selector-list '("case.jsonx/name")))
     (signals error
       (validate-eest-trie-selector-list '("case.json/")))
     (signals error
       (validate-eest-trie-selector-list '("case.json//name")))
+    (signals error
+      (validate-eest-trie-selector-list '("case.json/name/extra")))
     (signals error
       (validate-eest-trie-selector-list
        '("phase-a-trie-sample.json" "phase-a-trie-sample.json")))
