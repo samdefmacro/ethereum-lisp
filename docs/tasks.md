@@ -432,6 +432,9 @@ ones.
   - Progress: tightened EEST transaction-test case normalization so empty
     `result` objects are rejected before conversion, keeping malformed pinned
     cases from degrading into a later "no successful tracked fork" error.
+  - Progress: tightened EEST transaction-test result fork validation so
+    non-object result entries fail with an adapter-specific error before fork
+    labels are read.
 
 ## P0: Module Boundaries
 

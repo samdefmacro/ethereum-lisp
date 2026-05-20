@@ -261,6 +261,9 @@
            case-name))
   (let ((seen-forks (make-hash-table :test 'equal)))
     (dolist (entry result)
+      (unless (consp entry)
+        (error "EEST transaction case ~A result entries must be JSON object fields"
+               case-name))
       (let ((fork (car entry)))
         (when (gethash fork seen-forks)
           (error "EEST transaction case ~A has duplicate result fork ~A"
@@ -1427,6 +1430,11 @@
                         (list
                          (cons "exception"
                                "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "malformed-result-entry"
+     (list (cons "txbytes" "0x01")
+           (cons "result" '("not-a-fork-entry")))))
   (signals error
     (normalize-eest-transaction-test-case
      "unknown-exception"
