@@ -71,15 +71,30 @@
         (unless (member name allowed-fields :test #'string=)
           (error "~A has unknown field ~A" label name))))))
 
+(defun validate-transaction-fixture-required-string-field
+    (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A must be a string" label))
+    (when (blank-string-p value)
+      (error "~A must be present" label))))
+
+(defun validate-transaction-fixture-optional-string-field
+    (object field label)
+  (let ((value (fixture-object-field object field)))
+    (unless (or (null value) (stringp value))
+      (error "~A must be null or a string" label))
+    (when (and (stringp value) (blank-string-p value))
+      (error "~A must be null or present" label))))
+
 (defun validate-transaction-envelope-fixture-metadata (fixture)
   (validate-transaction-fixture-object-fields
    fixture
    +transaction-fixture-top-level-fields+
    "Transaction fixture")
   (validate-fixture-format fixture +transaction-envelope-fixture-format+)
-  (when (blank-string-p
-         (fixture-required-field fixture "source"))
-    (error "Transaction fixture source must be present"))
+  (validate-transaction-fixture-required-string-field
+   fixture "source" "Transaction fixture source")
   (validate-fixture-pinned-eest-source fixture)
   (let ((references
           (fixture-required-field fixture "referenceClients")))
@@ -92,9 +107,14 @@
         (error "Transaction fixture referenceClients is missing ~A"
                client)))
     (dolist (client '("geth" "nethermind"))
-      (when (blank-string-p (fixture-object-field references client))
-        (error "Transaction fixture referenceClients.~A must be present"
-               client)))))
+      (validate-transaction-fixture-required-string-field
+       references
+       client
+       (format nil "Transaction fixture referenceClients.~A" client)))
+    (validate-transaction-fixture-optional-string-field
+     references
+     "reth"
+     "Transaction fixture referenceClients.reth")))
 
 (defun transaction-fixture-type-keyword (type)
   (unless (stringp type)
@@ -116,11 +136,10 @@
     (:set-code "set-code")))
 
 (defun validate-transaction-fixture-string-field (vector field)
-  (let ((value (fixture-required-field vector field)))
-    (unless (stringp value)
-      (error "Transaction fixture ~A must be a string" field))
-    (when (blank-string-p value)
-      (error "Transaction fixture ~A must be present" field))))
+  (validate-transaction-fixture-required-string-field
+   vector
+   field
+   (format nil "Transaction fixture ~A" field)))
 
 (defun validate-transaction-fixture-unique-field
     (seen vector field)
@@ -1193,11 +1212,17 @@
                                  "TransactionException.TYPE_2_TX_PRE_FORK")))))
 
 (defun transaction-fixture-metadata-shape-test-fixture
-    (&key top-extra reference-extra)
+    (&key
+       top-extra
+       reference-extra
+       (source "test fixture")
+       (geth "test-geth")
+       (nethermind "test-nethermind")
+       (reth nil))
   (append
    (list
     (cons "format" +transaction-envelope-fixture-format+)
-    (cons "source" "test fixture")
+    (cons "source" source)
     (cons "executionSpecTests"
           (list (cons "release" +phase-a-eest-release+)
                 (cons "tagTarget" +phase-a-eest-tag-target+)
@@ -1205,9 +1230,9 @@
                 (cons "status" "test")))
     (cons "referenceClients"
           (append
-           (list (cons "geth" "test-geth")
-                 (cons "nethermind" "test-nethermind")
-                 (cons "reth" nil))
+           (list (cons "geth" geth)
+                 (cons "nethermind" nethermind)
+                 (cons "reth" reth))
            reference-extra))
     (cons "vectors" nil))
    top-extra))
@@ -1227,6 +1252,47 @@
     (validate-transaction-envelope-fixture-metadata
      (transaction-fixture-metadata-shape-test-fixture
       :top-extra (list (cons "source" "duplicate source")))))
+  (is (handler-case
+          (progn
+            (validate-transaction-envelope-fixture-metadata
+             (transaction-fixture-metadata-shape-test-fixture :source 42))
+            nil)
+        (error (condition)
+          (search "source must be a string" (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-envelope-fixture-metadata
+             (transaction-fixture-metadata-shape-test-fixture :geth 42))
+            nil)
+        (error (condition)
+          (search "referenceClients.geth must be a string"
+                  (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-envelope-fixture-metadata
+             (transaction-fixture-metadata-shape-test-fixture :nethermind 42))
+            nil)
+        (error (condition)
+          (search "referenceClients.nethermind must be a string"
+                  (princ-to-string condition)))))
+  (validate-transaction-envelope-fixture-metadata
+   (transaction-fixture-metadata-shape-test-fixture :reth "test-reth"))
+  (is (handler-case
+          (progn
+            (validate-transaction-envelope-fixture-metadata
+             (transaction-fixture-metadata-shape-test-fixture :reth 42))
+            nil)
+        (error (condition)
+          (search "referenceClients.reth must be null or a string"
+                  (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-envelope-fixture-metadata
+             (transaction-fixture-metadata-shape-test-fixture :reth ""))
+            nil)
+        (error (condition)
+          (search "referenceClients.reth must be null or present"
+                  (princ-to-string condition)))))
   (signals error
     (validate-transaction-envelope-fixture-metadata
      (transaction-fixture-metadata-shape-test-fixture
@@ -1371,6 +1437,20 @@
   (is (handler-case
           (progn
             (validate-transaction-fixture-vector-shape
+             (list (cons "name" "bad-hash-message")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash" "0x01")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "hash must be a 32-byte hex string"
+                  (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
              (list (cons "name" "non-string-hash")
                    (cons "type" "legacy")
                    (cons "chainId" 1)
@@ -1391,6 +1471,21 @@
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
            (cons "sender" "0x01")
            (cons "result" nil))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "bad-sender-message")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x01")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "sender must be an address hex string"
+                  (princ-to-string condition)))))
   (is (handler-case
           (progn
             (validate-transaction-fixture-vector-shape

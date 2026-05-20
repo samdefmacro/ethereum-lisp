@@ -494,6 +494,13 @@ ones.
   - Progress: tightened transaction fixture scalar hex-field validation so
     non-string or malformed `txbytes`, `hash`, and `sender` values fail with
     harness-level shape errors before lower-level hex/type parsers surface.
+  - Progress: tightened transaction fixture metadata scalar validation so
+    non-string wrapper `source`, `referenceClients.geth`, and
+    `referenceClients.nethermind` values fail with harness-level shape errors,
+    and locked malformed hash/sender wrapper errors with message checks.
+  - Progress: tightened optional transaction fixture `referenceClients.reth`
+    validation so the absent local Reth reference remains `null`, but provided
+    values must be non-empty strings.
 
 ## P0: Module Boundaries
 
