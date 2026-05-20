@@ -1237,6 +1237,10 @@ splits can land after the Phase A smoke path closes.
     Aligned trie source-style selector validation with transaction-test
     selector rules by rejecting `.json` names without a real file stem,
     including nested `dir/.json/case` selectors.
+    Added account projection assertions to the funded-account storage-delete
+    state-root vector, locking that zeroing the last storage slot restores the
+    account storage root to the empty trie without pruning the non-empty
+    account itself.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
