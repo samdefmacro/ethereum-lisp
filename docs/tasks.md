@@ -474,6 +474,9 @@ ones.
   - Progress: tightened the transaction vector summary helper so direct calls
     reject non-list vector sets and non-object vector entries before counting
     names or envelope types.
+  - Progress: tightened the transaction vector-set validator so direct callers
+    reject non-list vector inputs before uniqueness, decoding, or per-fork
+    checks run.
 
 ## P0: Module Boundaries
 

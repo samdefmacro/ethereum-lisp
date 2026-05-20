@@ -812,6 +812,8 @@
 
 (defun validate-transaction-fixture-vector-set
     (vectors &key require-required-types)
+  (unless (listp vectors)
+    (error "Transaction fixture vectors must be a list"))
   (let ((seen-names (make-hash-table :test 'equal))
         (seen-txbytes (make-hash-table :test 'equal))
         (seen-hashes (make-hash-table :test 'equal))
@@ -1761,6 +1763,8 @@
     (signals error
       (validate-transaction-fixture-vector-set
        (append vectors (list vector))))
+    (signals error
+      (validate-transaction-fixture-vector-set "phase-a-vectors"))
     (signals error
       (load-eest-transaction-test-root-cases
        root
