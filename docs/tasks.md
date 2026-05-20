@@ -381,6 +381,9 @@ ones.
     EIP-2930 access-list, and EIP-1559 dynamic-fee. Selector changes that drop
     one of those families now fail before the optional external fixture path
     can report a misleading green summary.
+  - Progress: tightened the same Phase A summary gate to reject Cancun/Prague
+    only transaction families (`blob` and `set-code`) so the Shanghai fixture
+    subset cannot silently widen past the Phase A scope gate.
 
 ## P0: Module Boundaries
 

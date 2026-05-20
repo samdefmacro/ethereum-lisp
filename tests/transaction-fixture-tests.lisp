@@ -23,6 +23,9 @@
 (defparameter +phase-a-eest-transaction-required-types+
   '(:legacy :access-list :dynamic-fee))
 
+(defparameter +phase-a-eest-transaction-forbidden-types+
+  '(:blob :set-code))
+
 (defparameter +transaction-fixture-known-exceptions+
   '("TransactionException.TYPE_1_TX_PRE_FORK"
     "TransactionException.TYPE_2_TX_PRE_FORK"
@@ -478,6 +481,19 @@
                 (member value left :test #'string=))
               right)))
 
+(defun validate-phase-a-eest-transaction-summary-types (types)
+  (unless types
+    (error "Phase A EEST transaction summary must include at least one transaction type"))
+  (dolist (type +phase-a-eest-transaction-required-types+)
+    (unless (assoc type types)
+      (error "Phase A EEST transaction summary is missing required type ~A"
+             type)))
+  (dolist (type +phase-a-eest-transaction-forbidden-types+)
+    (when (assoc type types)
+      (error "Phase A EEST transaction summary includes out-of-scope type ~A"
+             type)))
+  types)
+
 (defun validate-phase-a-eest-transaction-vector-summary (vectors)
   (validate-eest-transaction-selector-list
    +phase-a-eest-transaction-test-case-names+)
@@ -495,12 +511,7 @@
       (error "Phase A EEST transaction summary names ~S do not match selectors ~S"
              names
              +phase-a-eest-transaction-test-case-names+))
-    (unless types
-      (error "Phase A EEST transaction summary must include at least one transaction type"))
-    (dolist (type +phase-a-eest-transaction-required-types+)
-      (unless (assoc type types)
-        (error "Phase A EEST transaction summary is missing required type ~A"
-               type)))
+    (validate-phase-a-eest-transaction-summary-types types)
     summary))
 
 (defun validate-transaction-fixture-vector-shape (vector)
@@ -1374,6 +1385,18 @@
     (signals error
       (validate-phase-a-eest-transaction-vector-summary
        (remove dynamic-fee-vector selected-vectors)))
+    (signals error
+      (validate-phase-a-eest-transaction-summary-types
+       '((:legacy . 1)
+         (:access-list . 1)
+         (:dynamic-fee . 1)
+         (:blob . 1))))
+    (signals error
+      (validate-phase-a-eest-transaction-summary-types
+       '((:legacy . 1)
+         (:access-list . 1)
+         (:dynamic-fee . 1)
+         (:set-code . 1))))
     (is (string= "phase-a-sample.json/alpha"
                  (eest-transaction-root-case-name root
                                                   (first paths)
