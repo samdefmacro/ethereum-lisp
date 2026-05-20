@@ -49,6 +49,14 @@
     ],
     "root": "ae9b7371f5ef144daa2780a50feb85d5918708e10357eb25c275cc2562f219d4"
   },
+  "delete-missing-branch-child": {
+    "in": [
+      ["0x00", "left"],
+      ["0xf0", "right"],
+      ["0x80", null]
+    ],
+    "root": "83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5"
+  },
   "delete-collapse": {
     "in": [
       ["do", "verb"],

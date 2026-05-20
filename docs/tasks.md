@@ -1303,6 +1303,9 @@ splits can land after the Phase A smoke path closes.
     Phase A subset summary/gate to require both embedded and hashed extension
     child references after replay, covering the MPT child-reference threshold
     explicitly in the selected external-style trie set.
+    Added a selected EEST-style branch-root missing-delete case and a summary
+    gate that requires deletion replay ending at a branch root, so sparse
+    branch no-op deletes remain represented in the Phase A trie subset.
     Added normalized duplicate-key rejection for EEST trie object-form `in`
     entries, so ASCII/hex aliases such as `dog` and `0x646f67` cannot replay
     as ambiguous duplicate keys.
