@@ -1109,8 +1109,11 @@ splits can land after the Phase A smoke path closes.
     verify those fields. Tightened missing-storage proof validation for
     non-empty storage tries as well: zero-valued storage proof entries now
     require proof nodes whenever the enclosing `storageHash` is non-empty, so
-    missing-slot proofs cannot be confused with empty-trie absence. Remaining
-    work: replace the seed proof vectors with
+    missing-slot proofs cannot be confused with empty-trie absence. Added a
+    direct verifier regression that rejects tampered account nonce, balance,
+    storage root, and code hash fields when they no longer match the account
+    proof RLP node, locking the `eth_getProof` account-result consistency
+    check explicitly. Remaining work: replace the seed proof vectors with
     transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.

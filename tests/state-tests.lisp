@@ -290,6 +290,34 @@
       (signals error
         (state-db-verify-proof (state-db-root state) proof)))))
 
+(deftest state-proof-result-rejects-tampered-account-fields
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000017"))
+        (slot (hash32-from-hex
+               "0x0000000000000000000000000000000000000000000000000000000000000023")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 5 :balance 3000))
+    (state-db-set-code state address #(96 42 96 0 85))
+    (state-db-set-storage state address slot 99)
+    (let ((proof (state-db-get-proof state address (list slot))))
+      (is (state-db-verify-proof (state-db-root state) proof))
+      (setf (state-proof-result-nonce proof) 6)
+      (signals error
+        (state-db-verify-proof (state-db-root state) proof))
+      (setf (state-proof-result-nonce proof) 5
+            (state-proof-result-balance proof) 3001)
+      (signals error
+        (state-db-verify-proof (state-db-root state) proof))
+      (setf (state-proof-result-balance proof) 3000
+            (state-proof-result-storage-root proof) +empty-trie-hash+)
+      (signals error
+        (state-db-verify-proof (state-db-root state) proof))
+      (setf (state-proof-result-storage-root proof)
+            (state-db-get-storage-root state address)
+            (state-proof-result-code-hash proof) +empty-code-hash+)
+      (signals error
+        (state-db-verify-proof (state-db-root state) proof)))))
+
 (deftest state-proof-result-verifies-missing-account
   (let* ((state (make-state-db))
          (address (address-from-hex "0x0000000000000000000000000000000000000014"))
