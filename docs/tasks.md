@@ -252,6 +252,9 @@ ones.
   - Progress: tightened EEST transaction-test result fork validation so unknown
     or duplicate fork labels are rejected before conversion to the local vector
     shape, preventing typoed fork results from being silently dropped.
+  - Progress: tightened EEST transaction-test conversion so the selected
+    successful result's hash and sender must match the decoded `txbytes`
+    before the local vector is built.
   - Progress: added canonical quantity validation for valid per-fork
     `intrinsicGas` expectations. Fixture results now reject missing, prefixless,
     or leading-zero gas quantities before comparing against locally derived

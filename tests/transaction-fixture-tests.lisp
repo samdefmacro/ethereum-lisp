@@ -360,6 +360,23 @@
                    (fixture-object-field case "name")
                    fork)))))))
 
+(defun validate-eest-transaction-success-result-derived
+    (case transaction success)
+  (let ((case-name (fixture-object-field case "name"))
+        (chain-id (transaction-vector-chain-id transaction)))
+    (unless (string= (fixture-required-field success "hash")
+                     (hash32-to-hex (transaction-hash transaction)))
+      (error "EEST transaction case ~A success hash does not match txbytes"
+             case-name))
+    (let ((sender (transaction-sender transaction :expected-chain-id chain-id)))
+      (unless sender
+        (error "EEST transaction case ~A sender recovery failed"
+               case-name))
+      (unless (string= (fixture-required-field success "sender")
+                       (address-to-hex sender))
+        (error "EEST transaction case ~A success sender does not match txbytes"
+               case-name)))))
+
 (defun eest-transaction-result-to-fixture-result (case)
   (let ((result (fixture-object-field case "result")))
     (mapcar
@@ -386,6 +403,8 @@
       (error "EEST transaction case ~A has no successful tracked fork result"
              name))
     (validate-eest-transaction-success-results-consistent case success)
+    (validate-eest-transaction-success-result-derived
+     case transaction success)
     (let ((vector
             (list
              (cons "name" name)
@@ -1114,6 +1133,44 @@
                   case
                   "result"
                   (replace-fork-entry "London" bad-london))))
+          (convert-eest-transaction-case-to-vector bad-case))))))
+
+(deftest eest-transaction-success-result-derived-validation
+  (let* ((case (first (load-eest-transaction-test-file
+                       +eest-transaction-test-sample-path+)))
+         (result (fixture-required-field case "result")))
+    (labels ((replace-field (object field value)
+               (cons (cons field value)
+                     (remove field object :key #'car :test #'string=)))
+             (replace-fork-entry (fork entry)
+               (cons (cons fork entry)
+                     (remove fork result :key #'car :test #'string=))))
+      (convert-eest-transaction-case-to-vector case)
+      (signals error
+        (let* ((frontier (fixture-required-field result "Frontier"))
+               (bad-frontier
+                 (replace-field
+                  frontier
+                  "hash"
+                  "0x0000000000000000000000000000000000000000000000000000000000000001"))
+               (bad-case
+                 (replace-field
+                  case
+                  "result"
+                  (replace-fork-entry "Frontier" bad-frontier))))
+          (convert-eest-transaction-case-to-vector bad-case)))
+      (signals error
+        (let* ((frontier (fixture-required-field result "Frontier"))
+               (bad-frontier
+                 (replace-field
+                  frontier
+                  "sender"
+                  "0x0000000000000000000000000000000000000001"))
+               (bad-case
+                 (replace-field
+                  case
+                  "result"
+                  (replace-fork-entry "Frontier" bad-frontier))))
           (convert-eest-transaction-case-to-vector bad-case))))))
 
 (deftest eest-transaction-test-file-shape-validation
