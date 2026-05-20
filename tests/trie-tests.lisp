@@ -930,6 +930,15 @@
               (setf (gethash key-id last-operations) :write))))))
   nil)
 
+(defun eest-trie-test-entry-hex-key-p (entry)
+  (eest-trie-test-prefixed-hex-string-p
+   (fixture-required-field entry "key")))
+
+(defun eest-trie-test-entry-hex-value-p (entry)
+  (let ((value (fixture-object-field entry "value")))
+    (and value
+         (eest-trie-test-prefixed-hex-string-p value))))
+
 (defun eest-trie-test-case-missing-delete-p (case)
   (let ((present-keys (make-hash-table :test 'equal)))
     (dolist (entry (fixture-required-field case "entries"))
@@ -1087,6 +1096,16 @@
                  for shape in root-shapes
                  count (and (string= "leaf" shape)
                             (eest-trie-test-case-missing-delete-p case))))
+         (hex-byte-string-entry-count
+           (loop for entries in entries-by-case
+                 sum (count-if
+                      (lambda (entry)
+                        (or (eest-trie-test-entry-hex-key-p entry)
+                            (eest-trie-test-entry-hex-value-p entry)))
+                      entries)))
+         (hex-value-entry-count
+           (loop for entries in entries-by-case
+                 sum (count-if #'eest-trie-test-entry-hex-value-p entries)))
          (non-empty-delete-root-count
            (loop for delete-count in delete-counts
                  for non-empty-p in non-empty-root-flags
@@ -1134,6 +1153,8 @@
      (cons "branchDeleteRootCount" branch-delete-root-count)
      (cons "overwrittenKeyCaseCount" overwritten-key-case-count)
      (cons "leafMissingDeleteRootCount" leaf-missing-delete-root-count)
+     (cons "hexByteStringEntryCount" hex-byte-string-entry-count)
+     (cons "hexValueEntryCount" hex-value-entry-count)
      (cons "extensionRootCount" (count "extension" root-shapes :test #'string=))
      (cons "extensionChildReferenceKinds" extension-child-reference-kinds)
      (cons "secureExtensionChildReferenceKinds"
@@ -1215,6 +1236,10 @@
       (error "Phase A EEST trie subset must include a duplicate-key overwrite case"))
     (when (zerop (fixture-object-field summary "leafMissingDeleteRootCount"))
       (error "Phase A EEST trie subset must include a leaf-root missing-delete case"))
+    (when (zerop (fixture-object-field summary "hexByteStringEntryCount"))
+      (error "Phase A EEST trie subset must include hex byte-string keys or values"))
+    (when (zerop (fixture-object-field summary "hexValueEntryCount"))
+      (error "Phase A EEST trie subset must include a hex byte-string value"))
     (when (zerop (fixture-object-field summary "extensionRootCount"))
       (error "Phase A EEST trie subset must include a replayed extension root"))
     (when (zerop (fixture-object-field summary "embeddedExtensionChildReferenceCount"))
@@ -2183,6 +2208,8 @@
     (is (= 1 (fixture-object-field summary "branchDeleteRootCount")))
     (is (= 1 (fixture-object-field summary "overwrittenKeyCaseCount")))
     (is (= 1 (fixture-object-field summary "leafMissingDeleteRootCount")))
+    (is (= 19 (fixture-object-field summary "hexByteStringEntryCount")))
+    (is (= 1 (fixture-object-field summary "hexValueEntryCount")))
     (is (= 7 (fixture-object-field summary "extensionRootCount")))
     (is (equal '("hashed" "embedded" "hashed" "embedded" "embedded" "embedded" "hashed")
                (fixture-object-field summary "extensionChildReferenceKinds")))
@@ -2211,6 +2238,9 @@
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (remove (nth 14 selected-cases) selected-cases)))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (remove (nth 21 selected-cases) selected-cases)))
     (is (equal '(2 2 3 2 1 1 2 2 2 3 3 4 3 4 2 4 4 2 2 4 2 4)
                (fixture-object-field summary "entryCounts")))
     (is (= 58 (fixture-object-field summary "totalEntryCount")))

@@ -1324,6 +1324,9 @@ splits can land after the Phase A smoke path closes.
     Added a selected EEST-style leaf-root missing-delete case and a summary
     gate that requires a missing delete to preserve a leaf root, extending
     no-op deletion coverage across leaf, branch, and extension shapes.
+    Added EEST trie-test summary gates for `0x` byte-string keys/values,
+    including a dedicated hex-value requirement so ASCII-only replacements
+    cannot silently drop byte-string normalization coverage.
     Added normalized duplicate-key rejection for EEST trie object-form `in`
     entries, so ASCII/hex aliases such as `dog` and `0x646f67` cannot replay
     as ambiguous duplicate keys.
