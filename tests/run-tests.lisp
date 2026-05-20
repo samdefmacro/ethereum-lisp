@@ -11,6 +11,7 @@
 (load "src/core.lisp")
 (load "src/block-validation.lisp")
 (load "src/engine-rpc.lisp")
+(load "src/public-rpc.lisp")
 (load "src/state.lisp")
 (load "src/evm.lisp")
 (load "src/execution.lisp")

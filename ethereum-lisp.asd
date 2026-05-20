@@ -21,6 +21,7 @@
      (:file "core")
      (:file "block-validation")
      (:file "engine-rpc")
+     (:file "public-rpc")
      (:file "state")
      (:file "evm")
      (:file "execution")))))
