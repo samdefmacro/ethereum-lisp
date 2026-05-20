@@ -63,6 +63,8 @@
   (let ((seen-fields (make-hash-table :test 'equal)))
     (dolist (field object)
       (let ((name (car field)))
+        (unless (stringp name)
+          (error "~A field name must be a string" label))
         (when (gethash name seen-fields)
           (error "~A has duplicate field ~A" label name))
         (setf (gethash name seen-fields) t)
@@ -1092,6 +1094,10 @@
   (signals error
     (validate-transaction-envelope-fixture-metadata
      (transaction-fixture-metadata-shape-test-fixture
+      :top-extra (list (cons 42 t)))))
+  (signals error
+    (validate-transaction-envelope-fixture-metadata
+     (transaction-fixture-metadata-shape-test-fixture
       :top-extra (list (cons "source" "duplicate source")))))
   (signals error
     (validate-transaction-envelope-fixture-metadata
@@ -1438,6 +1444,12 @@
      (list (cons "txbytes" "0x01")
            (cons "result" nil)
            (cons "unexpected" t))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "non-string-case-field"
+     (list (cons "txbytes" "0x01")
+           (cons "result" nil)
+           (cons 42 t))))
   (signals error
     (normalize-eest-transaction-test-case
      "unknown-result-fork"

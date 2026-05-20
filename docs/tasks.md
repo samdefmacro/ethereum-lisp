@@ -441,6 +441,9 @@ ones.
   - Progress: tightened EEST transaction-test result fork labels so direct
     adapter calls reject blank or non-string fork names before duplicate or
     known-fork validation runs.
+  - Progress: tightened transaction fixture object-field validation so wrapper,
+    vector, EEST case, and EEST result objects reject non-string field names
+    before allowed-field checks run.
 
 ## P0: Module Boundaries
 
