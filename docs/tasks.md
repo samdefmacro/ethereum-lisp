@@ -838,6 +838,9 @@ splits can land after the Phase A smoke path closes.
     Canonicalized EEST trie-test expected roots after hash32 validation so
     mixed-case or `0X`-prefixed fixture hashes compare against replayed MPT
     roots using the local stable lowercase `0x` representation.
+    Canonicalized EEST trie-test `in` entry byte strings as well: prefixed
+    hex keys and values now normalize to lowercase `0x` strings before replay,
+    while unprefixed ASCII fixture strings remain unchanged.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

@@ -407,6 +407,12 @@
              label
              condition))))
 
+(defun eest-trie-test-normalized-byte-string (value label)
+  (let ((bytes (eest-trie-test-byte-string value label)))
+    (if (eest-trie-test-prefixed-hex-string-p value)
+        (bytes-to-hex bytes)
+        value)))
+
 (defun normalize-eest-trie-test-case (name case)
   (when (blank-string-p name)
     (error "EEST trie test case name must be present"))
@@ -436,27 +442,31 @@
     (unless (stringp key)
       (error "EEST trie test case ~A in entry key must be a string"
              case-name))
-    (eest-trie-test-byte-string
-     key
-     (format nil "EEST trie test case ~A in entry key" case-name))
-    (cond
-      ((null value)
-       (list (cons "key" key)
-             (cons "delete" t)))
-      ((not (stringp value))
-       (error "EEST trie test case ~A in entry value must be a string or null"
-              case-name))
-      (t
-       (let ((bytes
-               (eest-trie-test-byte-string
-                value
-                (format nil "EEST trie test case ~A in entry value"
-                        case-name))))
-         (if (zerop (length bytes))
-             (list (cons "key" key)
-                   (cons "delete" t))
-             (list (cons "key" key)
-                   (cons "value" value))))))))
+    (let ((normalized-key
+            (eest-trie-test-normalized-byte-string
+             key
+             (format nil "EEST trie test case ~A in entry key" case-name))))
+      (cond
+        ((null value)
+         (list (cons "key" normalized-key)
+               (cons "delete" t)))
+        ((not (stringp value))
+         (error "EEST trie test case ~A in entry value must be a string or null"
+                case-name))
+        (t
+         (let* ((label
+                  (format nil "EEST trie test case ~A in entry value"
+                          case-name))
+                (bytes (eest-trie-test-byte-string value label))
+                (normalized-value
+                  (if (eest-trie-test-prefixed-hex-string-p value)
+                      (bytes-to-hex bytes)
+                      value)))
+           (if (zerop (length bytes))
+               (list (cons "key" normalized-key)
+                     (cons "delete" t))
+               (list (cons "key" normalized-key)
+                     (cons "value" normalized-value)))))))))
 
 (defun normalize-eest-trie-test-entries (case-name entries)
   (unless (listp entries)
@@ -1069,6 +1079,25 @@
                        (cons "root"
                              "0X56E81F171BCC55A6FF8345E692C0F86E5B48E01B996CADC001622FB5E363B421")))
                 "root")))
+  (let* ((case (normalize-eest-trie-test-case
+                "uppercase-entry-bytes"
+                (list (cons "in" (list (list "0X646F67" "0X7075707079")
+                                       (list "0X646F67" "0X")))
+                      (cons "root"
+                            "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+         (entries (fixture-required-field case "entries"))
+         (put-entry (first entries))
+         (delete-entry (second entries))
+         (trie (assert-eest-trie-test-case-root case)))
+    (is (string= "0x646f67"
+                 (fixture-object-field put-entry "key")))
+    (is (string= "0x7075707079"
+                 (fixture-object-field put-entry "value")))
+    (is (string= "0x646f67"
+                 (fixture-object-field delete-entry "key")))
+    (is (fixture-object-field delete-entry "delete"))
+    (is (string= (fixture-object-field case "root")
+                 (mpt-root-hex trie))))
   (signals error
     (normalize-eest-trie-test-case
      "missing-root"
