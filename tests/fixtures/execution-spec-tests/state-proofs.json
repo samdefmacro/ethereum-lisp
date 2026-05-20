@@ -1,0 +1,116 @@
+{
+  "format": "ethereum-lisp/state-proof-fixture-v1",
+  "source": "in-repo state proof vectors shaped after geth eth_getProof AccountResult output for ethereum/execution-spec-tests v5.4.0 ingestion",
+  "executionSpecTests": {
+    "release": "v5.4.0",
+    "tagTarget": "88e9fb8",
+    "archive": "fixtures_stable.tar.gz",
+    "status": "seed state-proof vectors shaped for pinned fixture ingestion; replace with transcribed geth proof workload output"
+  },
+  "cases": [
+    {
+      "name": "present-account-with-present-and-missing-storage",
+      "tags": ["present-account", "storage-present", "storage-missing", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000301",
+          "nonce": 1,
+          "balance": 2
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000301",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 7
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000301",
+          "code": "0x6001600201"
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000301",
+        "storageKeys": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000000000000000000000000000002"
+        ]
+      },
+      "expectedRoot": "0xe79b4529550189d864be7780b438d48c2314e5e452a48b4559fd1b71912b9ec8",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000301",
+        "accountProof": [
+          "0xf86aa120603ebdf0689d4bbad8317af2bec9f6bfeed5211fba89d9bab31d2ac0e93a12fdb846f8440102a02e7827dc2c61c322f13f77e6f25dd18844ccc48426dde70301d2d57d138fced8a0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d"
+        ],
+        "balance": "0x2",
+        "codeHash": "0xdecae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d",
+        "nonce": "0x1",
+        "storageHash": "0x2e7827dc2c61c322f13f77e6f25dd18844ccc48426dde70301d2d57d138fced8",
+        "storageProof": [
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "value": "0x7",
+            "proof": [
+              "0xe3a120b10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf607"
+            ]
+          },
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000002",
+            "value": "0x0",
+            "proof": [
+              "0xe3a120b10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf607"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing-account-proof",
+      "tags": ["missing-account", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000301",
+          "nonce": 1,
+          "balance": 2
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000301",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 7
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000301",
+          "code": "0x6001600201"
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000302",
+        "storageKeys": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001"
+        ]
+      },
+      "expectedRoot": "0xe79b4529550189d864be7780b438d48c2314e5e452a48b4559fd1b71912b9ec8",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000302",
+        "accountProof": [
+          "0xf86aa120603ebdf0689d4bbad8317af2bec9f6bfeed5211fba89d9bab31d2ac0e93a12fdb846f8440102a02e7827dc2c61c322f13f77e6f25dd18844ccc48426dde70301d2d57d138fced8a0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d"
+        ],
+        "balance": "0x0",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": [
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "value": "0x0",
+            "proof": null
+          }
+        ]
+      }
+    }
+  ]
+}

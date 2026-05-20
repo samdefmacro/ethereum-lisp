@@ -913,7 +913,12 @@ splits can land after the Phase A smoke path closes.
     geth's reference behavior: requests are capped at 1024 keys, short keys are
     returned as quantities, 32-byte keys are returned as fixed DATA, and
     no-prefix hex input is accepted before secure storage proof lookup.
-    Remaining work: external reference vectors.
+    Added an external-style state proof fixture wrapper with pinned EEST source
+    metadata, geth-shaped `AccountResult` / `StorageResult` expected objects,
+    shape validation, coverage tags, and exact proof-vector replay for present
+    accounts, missing accounts, present storage, and missing storage. Remaining
+    work: replace the seed proof vectors with transcribed geth proof workload
+    output or pinned execution-spec-tests proof fixtures once available.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

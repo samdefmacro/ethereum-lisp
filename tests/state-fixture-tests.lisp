@@ -3,10 +3,19 @@
 (defparameter +state-root-fixture-path+
   "tests/fixtures/execution-spec-tests/state-roots.json")
 
+(defparameter +state-proof-fixture-path+
+  "tests/fixtures/execution-spec-tests/state-proofs.json")
+
 (defparameter +state-root-fixture-format+
   "ethereum-lisp/state-root-fixture-v1")
 
+(defparameter +state-proof-fixture-format+
+  "ethereum-lisp/state-proof-fixture-v1")
+
 (defparameter +state-root-fixture-top-level-fields+
+  '("format" "source" "executionSpecTests" "cases"))
+
+(defparameter +state-proof-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "cases"))
 
 (defparameter +state-root-fixture-case-fields+
@@ -16,6 +25,29 @@
     "expectedRoot"
     "expectedStorageRoots"
     "expectedAccounts"))
+
+(defparameter +state-proof-fixture-case-fields+
+  '("name"
+    "tags"
+    "operations"
+    "request"
+    "expectedRoot"
+    "expectedProof"))
+
+(defparameter +state-proof-fixture-request-fields+
+  '("address" "storageKeys"))
+
+(defparameter +state-proof-fixture-proof-fields+
+  '("address"
+    "accountProof"
+    "balance"
+    "codeHash"
+    "nonce"
+    "storageHash"
+    "storageProof"))
+
+(defparameter +state-proof-fixture-storage-proof-fields+
+  '("key" "value" "proof"))
 
 (defparameter +state-root-fixture-operation-fields+
   '("op" "address" "nonce" "balance" "slot" "value" "code"))
@@ -51,6 +83,20 @@
     "code-prune"
     "multi-account"
     "account-projection"))
+
+(defparameter +state-proof-fixture-known-tags+
+  '("present-account"
+    "missing-account"
+    "storage-present"
+    "storage-missing"
+    "geth-shaped-result"))
+
+(defparameter +state-proof-fixture-required-tags+
+  '("present-account"
+    "missing-account"
+    "storage-present"
+    "storage-missing"
+    "geth-shaped-result"))
 
 (defun validate-state-root-fixture-object-fields
     (object allowed-fields label)
@@ -407,6 +453,133 @@
           (is (string= rlp
                        (bytes-to-hex (state-account-rlp account)))))))))
 
+(defun validate-state-proof-fixture-metadata (fixture)
+  (validate-fixture-object-fields
+   fixture
+   +state-proof-fixture-top-level-fields+
+   "State proof fixture")
+  (validate-fixture-format fixture +state-proof-fixture-format+)
+  (when (blank-string-p (fixture-required-field fixture "source"))
+    (error "State proof fixture source must be present"))
+  (validate-fixture-pinned-eest-source fixture))
+
+(defun validate-state-proof-fixture-case-name (case seen-names)
+  (let ((name (fixture-object-field case "name")))
+    (when (blank-string-p name)
+      (error "State proof fixture case name must be present"))
+    (when (gethash name seen-names)
+      (error "Duplicate state proof fixture case name: ~A" name))
+    (setf (gethash name seen-names) t)))
+
+(defun validate-state-proof-fixture-case-tags (case seen-tags)
+  (let ((name (fixture-object-field case "name"))
+        (tags (fixture-object-field case "tags")))
+    (unless (and (listp tags) tags)
+      (error "State proof fixture case ~A must include non-empty tags" name))
+    (let ((case-tags (make-hash-table :test 'equal)))
+      (dolist (tag tags)
+        (when (gethash tag case-tags)
+          (error "State proof fixture case ~A has duplicate tag ~A" name tag))
+        (setf (gethash tag case-tags) t)
+        (unless (and (stringp tag)
+                     (member tag +state-proof-fixture-known-tags+
+                             :test #'string=))
+          (error "State proof fixture case ~A has unknown tag ~A" name tag))
+        (setf (gethash tag seen-tags) t)))))
+
+(defun validate-state-proof-fixture-hex-list (values label)
+  (unless (listp values)
+    (error "~A must be a JSON array" label))
+  (dolist (value values)
+    (unless (stringp value)
+      (error "~A entries must be hex strings" label))
+    (hex-to-bytes value)))
+
+(defun validate-state-proof-fixture-request-shape (request)
+  (validate-fixture-object-fields
+   request
+   +state-proof-fixture-request-fields+
+   "State proof fixture request")
+  (address-from-hex (fixture-required-field request "address"))
+  (let ((storage-keys (fixture-required-field request "storageKeys")))
+    (validate-state-proof-fixture-hex-list
+     storage-keys
+     "State proof fixture request storageKeys")
+    (dolist (key storage-keys)
+      (hash32-from-hex key))))
+
+(defun validate-state-proof-fixture-storage-proof-shape (proof)
+  (validate-fixture-object-fields
+   proof
+   +state-proof-fixture-storage-proof-fields+
+   "State proof fixture storageProof entry")
+  (hash32-from-hex (fixture-required-field proof "key"))
+  (hex-to-quantity (fixture-required-field proof "value"))
+  (let ((nodes (fixture-required-field proof "proof")))
+    (when nodes
+      (validate-state-proof-fixture-hex-list
+       nodes
+       "State proof fixture storage proof"))))
+
+(defun validate-state-proof-fixture-proof-shape (proof)
+  (validate-fixture-object-fields
+   proof
+   +state-proof-fixture-proof-fields+
+   "State proof fixture expectedProof")
+  (address-from-hex (fixture-required-field proof "address"))
+  (validate-state-proof-fixture-hex-list
+   (fixture-required-field proof "accountProof")
+   "State proof fixture accountProof")
+  (hex-to-quantity (fixture-required-field proof "balance"))
+  (hash32-from-hex (fixture-required-field proof "codeHash"))
+  (hex-to-quantity (fixture-required-field proof "nonce"))
+  (hash32-from-hex (fixture-required-field proof "storageHash"))
+  (let ((storage-proof (fixture-required-field proof "storageProof")))
+    (unless (listp storage-proof)
+      (error "State proof fixture storageProof must be a JSON array"))
+    (dolist (entry storage-proof)
+      (validate-state-proof-fixture-storage-proof-shape entry))))
+
+(defun validate-state-proof-fixture-case-shape (case)
+  (validate-fixture-object-fields
+   case
+   +state-proof-fixture-case-fields+
+   "State proof fixture case")
+  (when (blank-string-p (fixture-required-field case "name"))
+    (error "State proof fixture case name must be present"))
+  (validate-state-proof-fixture-case-tags case (make-hash-table :test 'equal))
+  (let ((operations (fixture-required-field case "operations")))
+    (unless (listp operations)
+      (error "State proof fixture case operations must be a JSON array"))
+    (dolist (operation operations)
+      (validate-state-root-fixture-operation-shape operation)))
+  (validate-state-proof-fixture-request-shape
+   (fixture-required-field case "request"))
+  (hash32-from-hex (fixture-required-field case "expectedRoot"))
+  (validate-state-proof-fixture-proof-shape
+   (fixture-required-field case "expectedProof")))
+
+(defun validate-state-proof-fixture-cases (cases)
+  (unless (listp cases)
+    (error "State proof fixture cases must be a JSON array"))
+  (let ((seen-names (make-hash-table :test 'equal))
+        (seen-tags (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (validate-state-proof-fixture-case-name case seen-names)
+      (validate-state-proof-fixture-case-tags case seen-tags)
+      (validate-state-proof-fixture-case-shape case))
+    (dolist (tag +state-proof-fixture-required-tags+)
+      (unless (gethash tag seen-tags)
+        (error "State proof fixture is missing required coverage tag ~A"
+               tag)))))
+
+(defun run-state-proof-fixture-request (state request)
+  (let ((address (address-from-hex (fixture-object-field request "address")))
+        (storage-keys
+          (mapcar #'hash32-from-hex
+                  (fixture-object-field request "storageKeys"))))
+    (state-db-get-proof state address storage-keys)))
+
 (deftest state-root-fixture-shape-validation
   (let ((valid-case
           (list
@@ -653,3 +826,89 @@
         (assert-state-root-fixture-final-operation-state state case)
         (assert-state-root-fixture-storage-roots state case)
         (assert-state-root-fixture-accounts state case)))))
+
+(deftest state-proof-fixture-shape-validation
+  (let ((valid-case
+          (list
+           (cons "name" "valid-proof-shape")
+           (cons "tags" +state-proof-fixture-required-tags+)
+           (cons "operations"
+                 (list
+                  (list (cons "op" "setAccount")
+                        (cons "address"
+                              "0x0000000000000000000000000000000000000001")
+                        (cons "balance" 1))))
+           (cons "request"
+                 (list
+                  (cons "address"
+                        "0x0000000000000000000000000000000000000001")
+                  (cons "storageKeys"
+                        (list
+                         "0x0000000000000000000000000000000000000000000000000000000000000001"))))
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedProof"
+                 (list
+                  (cons "address"
+                        "0x0000000000000000000000000000000000000001")
+                  (cons "accountProof" nil)
+                  (cons "balance" "0x1")
+                  (cons "codeHash"
+                        "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+                  (cons "nonce" "0x0")
+                  (cons "storageHash"
+                        "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+                  (cons "storageProof" nil))))))
+    (validate-state-proof-fixture-case-shape valid-case))
+  (signals error
+    (validate-state-proof-fixture-metadata
+     (list (cons "format" +state-proof-fixture-format+)
+           (cons "source" "seed")
+           (cons "source" "duplicate seed")
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-state-proof-fixture-case-shape
+     (list (cons "name" "unknown-proof-field")
+           (cons "tags" (list "geth-shaped-result"))
+           (cons "operations" nil)
+           (cons "request"
+                 (list
+                  (cons "address"
+                        "0x0000000000000000000000000000000000000001")
+                  (cons "storageKeys" nil)))
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedProof"
+                 (list
+                  (cons "address"
+                        "0x0000000000000000000000000000000000000001")
+                  (cons "accountProof" nil)
+                  (cons "balance" "0x0")
+                  (cons "codeHash"
+                        "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+                  (cons "nonce" "0x0")
+                  (cons "storageHash"
+                        "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+                  (cons "storageProof" nil)
+                  (cons "unexpected" t)))))))
+
+(deftest state-proof-fixture-vectors
+  (let* ((fixture (load-handwritten-fixture-file +state-proof-fixture-path+))
+         (cases (fixture-object-field fixture "cases")))
+    (validate-state-proof-fixture-metadata fixture)
+    (validate-state-proof-fixture-cases cases)
+    (dolist (case cases)
+      (let* ((state (run-state-root-fixture-case case))
+             (proof
+               (run-state-proof-fixture-request
+                state
+                (fixture-object-field case "request"))))
+        (is (string= (fixture-object-field case "expectedRoot")
+                     (state-db-root-hex state)))
+        (is (state-db-verify-proof (state-db-root state) proof))
+        (is (equal (fixture-object-field case "expectedProof")
+                   (state-proof-result-rpc-object proof)))))))
