@@ -907,6 +907,9 @@ splits can land after the Phase A smoke path closes.
     delete counters, and made coverage validation require secure trie writes
     plus plain trie deletes explicitly instead of only aggregate write/delete
     activity.
+    Expanded the in-repo secureTrie EEST sample from a singleton insert case
+    into source-style insert and delete cases, and tightened Phase A coverage
+    to require secure trie deletes explicitly.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

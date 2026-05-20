@@ -13,7 +13,8 @@
   "tests/fixtures/execution-spec-tests-root/fixtures/trie_tests/phase-a-secureTrie.json")
 
 (defparameter +phase-a-eest-trie-test-case-names+
-  '("phase-a-secureTrie.json"
+  '("phase-a-secureTrie.json/phase-a-secure-delete"
+    "phase-a-secureTrie.json/phase-a-secure-insert"
     "phase-a-trie-sample.json"))
 
 (defparameter +trie-fixture-top-level-fields+
@@ -810,6 +811,8 @@
       (error "Phase A EEST trie subset must include delete entries"))
     (when (zerop (fixture-object-field summary "secureWriteEntryCount"))
       (error "Phase A EEST trie subset must include secure trie write entries"))
+    (when (zerop (fixture-object-field summary "secureDeleteEntryCount"))
+      (error "Phase A EEST trie subset must include secure trie delete entries"))
     (when (zerop (fixture-object-field summary "plainDeleteEntryCount"))
       (error "Phase A EEST trie subset must include plain trie delete entries"))))
 
@@ -1314,15 +1317,20 @@
                  (mpt-root-hex trie))))
   (let* ((cases (load-eest-trie-test-file +eest-trie-test-secure-sample-path+))
          (case (first cases))
+         (insert-case (second cases))
          (trie (assert-eest-trie-test-case-root case)))
-    (is (= 1 (length cases)))
-    (is (string= "phase-a-secure"
+    (is (= 2 (length cases)))
+    (is (string= "phase-a-secure-delete"
                  (fixture-object-field case "name")))
     (is (fixture-object-field case "secure"))
-    (is (string= "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+    (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (fixture-object-field case "root")))
     (is (string= (fixture-object-field case "root")
-                 (mpt-root-hex trie))))
+                 (mpt-root-hex trie)))
+    (is (string= "phase-a-secure-insert"
+                 (fixture-object-field insert-case "name")))
+    (is (string= "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+                 (fixture-object-field insert-case "root"))))
   (let* ((case (normalize-eest-trie-test-case
                 "empty-value-delete"
                 (list (cons "in" (list (list "dog" "")))
@@ -1525,9 +1533,10 @@
          (selected-cases
            (load-phase-a-eest-trie-test-root-cases root))
          (summary (eest-trie-test-case-summary selected-cases)))
-    (is (= 4 (length cases)))
-    (is (= 2 (length selected-cases)))
-    (is (equal '("phase-a-secureTrie.json"
+    (is (= 5 (length cases)))
+    (is (= 3 (length selected-cases)))
+    (is (equal '("phase-a-secureTrie.json/phase-a-secure-delete"
+                 "phase-a-secureTrie.json/phase-a-secure-insert"
                  "phase-a-trie-multi.json/alpha"
                  "phase-a-trie-multi.json/beta"
                  "phase-a-trie-sample.json")
@@ -1535,37 +1544,41 @@
                          (fixture-object-field case "name"))
                        cases)))
     (is (fixture-object-field (first cases) "secure"))
-    (is (string= "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+    (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (fixture-object-field (first cases) "root")))
     (is (string= "phase-a-trie-sample.json"
-                 (fixture-object-field (fourth cases) "name")))
-    (is (string= "phase-a-secureTrie.json"
+                 (fixture-object-field (fifth cases) "name")))
+    (is (string= "phase-a-secureTrie.json/phase-a-secure-delete"
                  (fixture-object-field (first selected-cases) "name")))
     (is (fixture-object-field (first selected-cases) "secure"))
-    (is (string= "phase-a-trie-sample.json"
+    (is (string= "phase-a-secureTrie.json/phase-a-secure-insert"
                  (fixture-object-field (second selected-cases) "name")))
-    (is (= 2 (fixture-object-field summary "count")))
-    (is (equal '("phase-a-secureTrie.json"
+    (is (string= "phase-a-trie-sample.json"
+                 (fixture-object-field (third selected-cases) "name")))
+    (is (= 3 (fixture-object-field summary "count")))
+    (is (equal '("phase-a-secureTrie.json/phase-a-secure-delete"
+                 "phase-a-secureTrie.json/phase-a-secure-insert"
                  "phase-a-trie-sample.json")
                (fixture-object-field summary "names")))
-    (is (equal '(t nil)
+    (is (equal '(t t nil)
                (fixture-object-field summary "secureFlags")))
-    (is (= 1 (fixture-object-field summary "secureCaseCount")))
+    (is (= 2 (fixture-object-field summary "secureCaseCount")))
     (is (= 1 (fixture-object-field summary "plainCaseCount")))
-    (is (equal '(1 4)
+    (is (equal '(2 1 4)
                (fixture-object-field summary "entryCounts")))
-    (is (= 5 (fixture-object-field summary "totalEntryCount")))
-    (is (equal '(1 2)
+    (is (= 7 (fixture-object-field summary "totalEntryCount")))
+    (is (equal '(1 1 2)
                (fixture-object-field summary "writeEntryCounts")))
-    (is (= 3 (fixture-object-field summary "totalWriteEntryCount")))
-    (is (= 1 (fixture-object-field summary "secureWriteEntryCount")))
+    (is (= 4 (fixture-object-field summary "totalWriteEntryCount")))
+    (is (= 2 (fixture-object-field summary "secureWriteEntryCount")))
     (is (= 2 (fixture-object-field summary "plainWriteEntryCount")))
-    (is (equal '(0 2)
+    (is (equal '(1 0 2)
                (fixture-object-field summary "deleteEntryCounts")))
-    (is (= 2 (fixture-object-field summary "totalDeleteEntryCount")))
-    (is (= 0 (fixture-object-field summary "secureDeleteEntryCount")))
+    (is (= 3 (fixture-object-field summary "totalDeleteEntryCount")))
+    (is (= 1 (fixture-object-field summary "secureDeleteEntryCount")))
     (is (= 2 (fixture-object-field summary "plainDeleteEntryCount")))
-    (is (equal '("0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+    (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+                 "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-multi.json/alpha"
@@ -1601,7 +1614,7 @@
        (append cases (list (first cases)))))
     (signals error
       (validate-phase-a-eest-trie-test-coverage
-       (list (fourth cases))))
+       (list (fifth cases))))
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (list (first cases))))
@@ -1614,7 +1627,7 @@
                (cons "secure" t)
                (cons "root"
                      "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")))
-        (fourth cases))))
+        (fifth cases))))
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (list
