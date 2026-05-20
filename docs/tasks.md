@@ -589,6 +589,10 @@ splits can land after the Phase A smoke path closes.
     base-fee/blob-gas helpers, fork field gates, and merge header checks into
     `src/block-validation.lisp`. Body and post-execution validation remain in
     `src/core.lisp` for follow-up slices.
+  - Progress: moved body/config validation, block body root checks,
+    withdrawal list validation, and aggregate blob-gas accounting into
+    `src/block-validation.lisp`. Transaction field validators and
+    post-execution receipt/state-root validation remain in `src/core.lisp`.
 
 - [ ] `MOD-ENGINE-RPC`: Split Engine API payload/RPC handlers out of
   `src/core.lisp`.
