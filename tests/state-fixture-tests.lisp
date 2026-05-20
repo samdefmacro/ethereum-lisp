@@ -118,6 +118,12 @@
     "multi-storage-present"
     "geth-shaped-result"))
 
+(defparameter +state-proof-fixture-required-case-names+
+  '("present-account-with-present-and-missing-storage"
+    "missing-account-proof"
+    "present-account-deleted-storage-proof"
+    "present-account-with-multiple-present-storage-proofs"))
+
 (defparameter +state-proof-fixture-required-tags+
   '("present-account"
     "missing-account"
@@ -711,6 +717,21 @@
         (error "State proof fixture is missing required coverage tag ~A"
                tag)))))
 
+(defun validate-state-proof-fixture-required-case-names (cases)
+  (let ((case-by-name (make-hash-table :test 'equal))
+        (seen-required-names (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name +state-proof-fixture-required-case-names+)
+      (when (gethash name seen-required-names)
+        (error "State proof fixture required case list has duplicate name ~A"
+               name))
+      (setf (gethash name seen-required-names) t)
+      (unless (gethash name case-by-name)
+        (error "State proof fixture is missing required seed case ~A"
+               name)))))
+
 (defun run-state-proof-fixture-request (state request)
   (let ((address (address-from-hex (fixture-object-field request "address")))
         (storage-keys
@@ -1125,12 +1146,23 @@
                         "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                   (cons "storageProof" nil)
                   (cons "unexpected" t)))))))
+  (let ((+state-proof-fixture-required-case-names+
+          '("present" "missing")))
+    (signals error
+      (validate-state-proof-fixture-required-case-names
+       (list (list (cons "name" "present"))))))
+  (let ((+state-proof-fixture-required-case-names+
+          '("present" "present")))
+    (signals error
+      (validate-state-proof-fixture-required-case-names
+       (list (list (cons "name" "present"))))))
 
 (deftest state-proof-fixture-vectors
   (let* ((fixture (load-handwritten-fixture-file +state-proof-fixture-path+))
          (cases (fixture-object-field fixture "cases")))
     (validate-state-proof-fixture-metadata fixture)
     (validate-state-proof-fixture-cases cases)
+    (validate-state-proof-fixture-required-case-names cases)
     (dolist (case cases)
       (let* ((state (run-state-root-fixture-case case))
              (proof

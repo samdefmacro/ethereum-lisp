@@ -1323,7 +1323,11 @@ splits can land after the Phase A smoke path closes.
     into the returned proof object instead of sharing caller-owned mutable byte
     vectors. Added a direct snapshot regression proving that a generated proof
     remains valid against its original state root after later state mutation,
-    while failing against the mutated root. Remaining work: replace the seed
+    while failing against the mutated root. Added a named seed-case coverage
+    gate for the state-proof fixture set, locking the present-account,
+    missing-account, deleted-storage, and multi-storage proof vectors before
+    they are replaced with transcribed reference output. Remaining work:
+    replace the seed
     proof vectors with
     transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
