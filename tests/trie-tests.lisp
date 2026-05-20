@@ -620,6 +620,8 @@
         (setf (gethash name seen) t)))))
 
 (defun load-eest-trie-test-root-cases (root &key names)
+  (when names
+    (validate-eest-trie-selector-list names))
   (let ((cases (loop for path in (eest-trie-test-root-json-paths root)
                      append (load-eest-trie-test-root-file-cases root path))))
     (validate-eest-trie-test-root-case-names cases)
@@ -1269,6 +1271,14 @@
       (load-eest-trie-test-root-cases
        root
        :names '("missing-trie.json")))
+    (signals error
+      (load-eest-trie-test-root-cases
+       root
+       :names '("phase-a-trie-sample.json" "phase-a-trie-sample.json")))
+    (signals error
+      (load-eest-trie-test-root-cases
+       root
+       :names '("")))
     (validate-eest-trie-selector-list
      +phase-a-eest-trie-test-case-names+)
     (signals error
