@@ -47,6 +47,24 @@
              (ethereum-lisp.telemetry:telemetry-event-value
               (second events)))))))
 
+(deftest stream-telemetry-sink-writes-readable-events
+  (let* ((output (make-string-output-stream))
+         (sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                :stream output)))
+    (is (typep
+         (ethereum-lisp.telemetry:telemetry-metric
+          "service.connections"
+          2
+          :sink sink
+          :fields '(("endpoint" . "localhost:8551")))
+         'ethereum-lisp.telemetry:telemetry-event))
+    (let ((record (read-from-string (get-output-stream-string output))))
+      (is (eq :metric (getf record :kind)))
+      (is (string= "service.connections" (getf record :name)))
+      (is (= 2 (getf record :value)))
+      (is (equal '(("endpoint" . "localhost:8551"))
+                 (getf record :fields))))))
+
 (deftest telemetry-dynamic-sink-provides-default-backend
   (let ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink)))
     (let ((ethereum-lisp.telemetry:*telemetry-sink* sink))
@@ -67,3 +85,8 @@
      :info
      "bad.fields"
      :fields "not-a-field-list")))
+
+(deftest stream-telemetry-sink-requires-output-stream
+  (signals error
+    (ethereum-lisp.telemetry:make-stream-telemetry-sink
+     :stream (make-string-input-stream ""))))

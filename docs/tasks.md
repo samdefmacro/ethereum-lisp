@@ -2150,7 +2150,7 @@ splits can land after the Phase A smoke path closes.
 
 ## P2: Production Depth
 
-- [~] Add metrics/logging abstraction.
+- [x] Add metrics/logging abstraction.
   - Milestone: future operations
   - Acceptance: tests and services can emit structured logs/metrics without
     hardcoding a backend.
@@ -2158,11 +2158,10 @@ splits can land after the Phase A smoke path closes.
   - Progress: added a minimal `ethereum-lisp.telemetry` package with a
     disabled default sink, in-memory sink, structured log events, structured
     metric events, dynamic default sink binding, and unit tests for disabled,
-    memory-backed, and malformed-field behavior. Engine RPC HTTP services can
-    now carry an injectable telemetry sink and emit stream start/finish,
-    per-stream count, listener start/finish, and listener connection-count
-    events without hardcoding a backend. Remaining work: decide the first
-    production backend shape.
+    memory-backed, malformed-field, stream-output, and invalid-stream behavior.
+    Engine RPC HTTP services can carry an injectable telemetry sink and emit
+    stream start/finish, per-stream count, listener start/finish, and listener
+    connection-count events without hardcoding a backend.
 
 - [ ] Add CLI entry point for local devnet experiments.
   - Milestone: future node shell

@@ -16,6 +16,16 @@
                 (&key (events nil))))
   events)
 
+(defstruct (stream-telemetry-sink
+            (:constructor %make-stream-telemetry-sink
+                (&key stream)))
+  stream)
+
+(defun make-stream-telemetry-sink (&key (stream *standard-output*))
+  (unless (output-stream-p stream)
+    (error "Telemetry stream sink requires an output stream"))
+  (%make-stream-telemetry-sink :stream stream))
+
 (defgeneric telemetry-emit (sink event))
 
 (defmethod telemetry-emit ((sink null) event)
@@ -25,6 +35,20 @@
 (defmethod telemetry-emit
     ((sink memory-telemetry-sink) (event telemetry-event))
   (push event (memory-telemetry-sink-events sink))
+  event)
+
+(defmethod telemetry-emit
+    ((sink stream-telemetry-sink) (event telemetry-event))
+  (let ((stream (stream-telemetry-sink-stream sink)))
+    (write
+     (list :kind (telemetry-event-kind event)
+           :name (telemetry-event-name event)
+           :value (telemetry-event-value event)
+           :fields (telemetry-event-fields event))
+     :stream stream
+     :pretty nil)
+    (terpri stream)
+    (finish-output stream))
   event)
 
 (defun telemetry-events (sink)

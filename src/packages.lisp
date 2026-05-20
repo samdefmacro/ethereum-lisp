@@ -50,6 +50,9 @@
    #:telemetry-event-fields
    #:memory-telemetry-sink
    #:make-memory-telemetry-sink
+   #:stream-telemetry-sink
+   #:make-stream-telemetry-sink
+   #:stream-telemetry-sink-stream
    #:telemetry-events
    #:telemetry-emit
    #:telemetry-log
