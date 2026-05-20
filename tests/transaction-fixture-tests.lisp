@@ -785,7 +785,16 @@
              fork)))
   (let ((seen-forks (make-hash-table :test 'equal)))
     (dolist (check result)
+      (unless (consp check)
+        (error "Transaction fixture ~A result entries must be JSON object fields"
+               (fixture-object-field vector "name")))
       (let ((fork (car check)))
+        (unless (stringp fork)
+          (error "Transaction fixture ~A result fork must be a string"
+                 (fixture-object-field vector "name")))
+        (when (blank-string-p fork)
+          (error "Transaction fixture ~A result fork must be present"
+                 (fixture-object-field vector "name")))
         (when (gethash fork seen-forks)
           (error "Transaction fixture ~A has duplicate result fork ~A"
                  (fixture-object-field vector "name")
@@ -1018,6 +1027,53 @@
                                              "TransactionException.TYPE_2_TX_PRE_FORK")))))
                      +transaction-fixture-forks+)
                     (list (cons "London"
+                                (list (cons "intrinsicGas" "0x5208")))))))))
+    (signals error
+      (validate-transaction-fixture-result-shape
+       (list (cons "name" "malformed-fork-entry")
+             (cons "type" "dynamic-fee")
+             (cons "result"
+                   (append
+                    (mapcar
+                     (lambda (fork)
+                       (cons fork
+                             (if (string= fork "London")
+                                 (list (cons "intrinsicGas" "0x5208"))
+                                 (list (cons "exception"
+                                             "TransactionException.TYPE_2_TX_PRE_FORK")))))
+                     +transaction-fixture-forks+)
+                    (list "bad-entry"))))))
+    (signals error
+      (validate-transaction-fixture-result-shape
+       (list (cons "name" "non-string-fork")
+             (cons "type" "dynamic-fee")
+             (cons "result"
+                   (append
+                    (mapcar
+                     (lambda (fork)
+                       (cons fork
+                             (if (string= fork "London")
+                                 (list (cons "intrinsicGas" "0x5208"))
+                                 (list (cons "exception"
+                                             "TransactionException.TYPE_2_TX_PRE_FORK")))))
+                     +transaction-fixture-forks+)
+                    (list (cons 42
+                                (list (cons "intrinsicGas" "0x5208")))))))))
+    (signals error
+      (validate-transaction-fixture-result-shape
+       (list (cons "name" "blank-fork")
+             (cons "type" "dynamic-fee")
+             (cons "result"
+                   (append
+                    (mapcar
+                     (lambda (fork)
+                       (cons fork
+                             (if (string= fork "London")
+                                 (list (cons "intrinsicGas" "0x5208"))
+                                 (list (cons "exception"
+                                             "TransactionException.TYPE_2_TX_PRE_FORK")))))
+                     +transaction-fixture-forks+)
+                    (list (cons ""
                                 (list (cons "intrinsicGas" "0x5208")))))))))
     (signals error
       (validate-transaction-fixture-result-entry

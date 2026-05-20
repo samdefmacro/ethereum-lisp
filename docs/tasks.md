@@ -477,6 +477,9 @@ ones.
   - Progress: tightened the transaction vector-set validator so direct callers
     reject non-list vector inputs before uniqueness, decoding, or per-fork
     checks run.
+  - Progress: tightened transaction fixture result fork validation so malformed
+    result entries, non-string fork labels, and blank fork labels fail before
+    duplicate or known-fork checks run.
 
 ## P0: Module Boundaries
 
