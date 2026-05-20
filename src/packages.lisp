@@ -651,6 +651,7 @@
    #:engine-rpc-http-service-jwt-secret
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-import-function
+   #:engine-rpc-http-service-telemetry-sink
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection
    #:make-engine-rpc-http-connection
@@ -1532,6 +1533,7 @@
    #:engine-rpc-http-service-jwt-secret
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-import-function
+   #:engine-rpc-http-service-telemetry-sink
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection
    #:make-engine-rpc-http-connection
@@ -2373,6 +2375,7 @@
    #:engine-rpc-http-service-jwt-secret
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-import-function
+   #:engine-rpc-http-service-telemetry-sink
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection
    #:make-engine-rpc-http-connection

@@ -3701,14 +3701,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defstruct (engine-rpc-http-service
             (:constructor %make-engine-rpc-http-service
                 (&key host port store config jwt-secret now-provider
-                      import-function)))
+                      import-function telemetry-sink)))
   host
   port
   store
   config
   jwt-secret
   now-provider
-  import-function)
+  import-function
+  telemetry-sink)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -3740,7 +3741,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (config (make-chain-config))
        jwt-secret
        (now-provider (lambda () 0))
-       (import-function (engine-rpc-default-import-function)))
+       (import-function (engine-rpc-default-import-function))
+       (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
   (unless (and (integerp port) (<= 0 port 65535))
@@ -3766,7 +3768,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :config config
    :jwt-secret jwt-secret
    :now-provider now-provider
-   :import-function import-function))
+   :import-function import-function
+   :telemetry-sink telemetry-sink))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -4254,14 +4257,34 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (unless (typep service 'engine-rpc-http-service)
     (block-validation-fail
      "Engine RPC HTTP service must be engine-rpc-http-service"))
-  (engine-rpc-handle-http-stream
-   input-stream
-   output-stream
-   (engine-rpc-http-service-store service)
-   (engine-rpc-http-service-config service)
-   :jwt-secret (engine-rpc-http-service-jwt-secret service)
-   :now (funcall (engine-rpc-http-service-now-provider service))
-   :import-function (engine-rpc-http-service-import-function service)))
+  (let ((sink (engine-rpc-http-service-telemetry-sink service))
+        (fields `(("endpoint" . ,(engine-rpc-http-service-endpoint service))
+                  ("host" . ,(engine-rpc-http-service-host service))
+                  ("port" . ,(engine-rpc-http-service-port service)))))
+    (ethereum-lisp.telemetry:telemetry-log
+     :debug
+     "engine.rpc.http.stream.start"
+     :sink sink
+     :fields fields)
+    (unwind-protect
+         (engine-rpc-handle-http-stream
+          input-stream
+          output-stream
+          (engine-rpc-http-service-store service)
+          (engine-rpc-http-service-config service)
+          :jwt-secret (engine-rpc-http-service-jwt-secret service)
+          :now (funcall (engine-rpc-http-service-now-provider service))
+          :import-function (engine-rpc-http-service-import-function service))
+      (ethereum-lisp.telemetry:telemetry-metric
+       "engine.rpc.http.streams"
+       1
+       :sink sink
+       :fields fields)
+      (ethereum-lisp.telemetry:telemetry-log
+       :debug
+       "engine.rpc.http.stream.finish"
+       :sink sink
+       :fields fields))))
 
 (defun engine-rpc-http-service-serve-listener
     (service listener &key max-connections stop-p)

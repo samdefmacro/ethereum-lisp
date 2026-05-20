@@ -10647,6 +10647,7 @@ Content-Length: 4
                (parse-integer status-line :start 9 :end 12))))
     (let* ((default-service (make-engine-rpc-http-service))
            (secret (make-byte-vector 32 :initial-element #x55))
+           (sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
            (now 3000)
            (service
              (make-engine-rpc-http-service
@@ -10654,11 +10655,14 @@ Content-Length: 4
               :port 8551
               :jwt-secret secret
               :now-provider (lambda () now)
-              :import-function #'execute-and-commit-engine-payload)))
+              :import-function #'execute-and-commit-engine-payload
+              :telemetry-sink sink)))
       (is (string= "localhost:8551"
                    (engine-rpc-http-service-endpoint default-service)))
       (is (string= "127.0.0.1:8551"
                    (engine-rpc-http-service-endpoint service)))
+      (is (null (engine-rpc-http-service-telemetry-sink default-service)))
+      (is (eq sink (engine-rpc-http-service-telemetry-sink service)))
       (is (functionp
            (engine-rpc-http-service-import-function default-service)))
       (is (eq #'execute-and-commit-engine-payload
@@ -10692,6 +10696,25 @@ Content-Length: 4
         (is (string= response (get-output-stream-string output)))
         (is (= 20 (field rpc-response "id")))
         (is (string= "ethereum-lisp" (field local "name"))))
+      (let ((events (ethereum-lisp.telemetry:telemetry-events sink)))
+        (is (= 3 (length events)))
+        (is (string= "engine.rpc.http.stream.start"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (first events))))
+        (is (string= "engine.rpc.http.streams"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (second events))))
+        (is (= 1
+               (ethereum-lisp.telemetry:telemetry-event-value
+                (second events))))
+        (is (string= "engine.rpc.http.stream.finish"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (third events))))
+        (is (string= "127.0.0.1:8551"
+                     (cdr (assoc "endpoint"
+                                 (ethereum-lisp.telemetry:telemetry-event-fields
+                                  (first events))
+                                 :test #'string=)))))
       (signals block-validation-error
         (make-engine-rpc-http-service :port 70000))
       (signals block-validation-error
