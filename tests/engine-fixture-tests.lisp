@@ -114,6 +114,19 @@
     (validate-engine-fixture-quantity-field account "nonce" label)
     (validate-engine-fixture-quantity-field account "balance" label)))
 
+(defun validate-engine-fixture-parent-account-uniqueness
+    (accounts case-name)
+  (let ((seen-addresses (make-hash-table :test 'equal)))
+    (dolist (account accounts)
+      (let* ((address (address-from-hex
+                       (fixture-required-field account "address")))
+             (key (bytes-to-hex (address-bytes address) :prefix nil)))
+        (when (gethash key seen-addresses)
+          (error "Engine newPayloadV2 fixture case ~A has duplicate parent account ~A"
+                 case-name
+                 (address-to-hex address)))
+        (setf (gethash key seen-addresses) t)))))
+
 (defun validate-engine-fixture-parent-shape (parent case-name)
   (let ((label (format nil
                        "Engine newPayloadV2 fixture case ~A parent"
@@ -129,7 +142,10 @@
       (unless (listp accounts)
         (error "~A accounts must be a JSON array" label))
       (dolist (account accounts)
-        (validate-engine-fixture-parent-account-shape account case-name)))))
+        (validate-engine-fixture-parent-account-shape account case-name))
+      (validate-engine-fixture-parent-account-uniqueness
+       accounts
+       case-name))))
 
 (defun validate-engine-fixture-withdrawal-shape (withdrawal case-name)
   (let ((label
@@ -143,6 +159,18 @@
     (dolist (field '("index" "validatorIndex" "amount"))
       (validate-engine-fixture-quantity-field withdrawal field label))
     (validate-engine-fixture-address-field withdrawal "address" label)))
+
+(defun validate-engine-fixture-withdrawal-index-uniqueness
+    (withdrawals case-name)
+  (let ((seen-indexes (make-hash-table :test 'eql)))
+    (dolist (withdrawal withdrawals)
+      (let ((index (hex-to-quantity
+                    (fixture-required-field withdrawal "index"))))
+        (when (gethash index seen-indexes)
+          (error "Engine newPayloadV2 fixture case ~A has duplicate withdrawal index ~A"
+                 case-name
+                 (quantity-to-hex index)))
+        (setf (gethash index seen-indexes) t)))))
 
 (defun validate-engine-fixture-payload-shape (payload case-name)
   (let ((label (format nil
@@ -165,7 +193,10 @@
       (unless (listp withdrawals)
         (error "~A withdrawals must be a JSON array" label))
       (dolist (withdrawal withdrawals)
-        (validate-engine-fixture-withdrawal-shape withdrawal case-name)))))
+        (validate-engine-fixture-withdrawal-shape withdrawal case-name))
+      (validate-engine-fixture-withdrawal-index-uniqueness
+       withdrawals
+       case-name))))
 
 (defun validate-engine-fixture-expect-shape (expect case-name)
   (let ((label (format nil
@@ -448,6 +479,16 @@
                  "feeRecipient"
                  "0x1234")))))
       (signals error
+        (let* ((parent (fixture-required-field case "parent"))
+               (accounts (fixture-required-field parent "accounts"))
+               (duplicate-accounts
+                 (append accounts (list (first accounts)))))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "parent"
+                  (replace-field parent "accounts" duplicate-accounts))))))
+      (signals error
         (validate-engine-newpayload-v2-fixture-cases
          (list (replace-field
                 case
@@ -456,6 +497,19 @@
                  (fixture-required-field case "payload")
                  "transactions"
                  nil)))))
+      (signals error
+        (let* ((payload (fixture-required-field case "payload"))
+               (withdrawals (fixture-required-field payload "withdrawals"))
+               (duplicate-withdrawals
+                 (append withdrawals (list (first withdrawals)))))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "payload"
+                  (replace-field
+                   payload
+                   "withdrawals"
+                   duplicate-withdrawals))))))
       (signals error
         (validate-engine-newpayload-v2-fixture-cases
          (list (replace-field

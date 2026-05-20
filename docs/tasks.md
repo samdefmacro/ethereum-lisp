@@ -644,6 +644,10 @@ splits can land after the Phase A smoke path closes.
     objects now reject unknown fields and malformed quantities, addresses,
     transaction bytes, withdrawal arrays, or non-`VALID` expected statuses
     before the smoke path constructs local blocks from fixture data.
+  - Progress: tightened Engine fixture body validation against silent
+    overwrites. Parent account lists now reject duplicate normalized addresses,
+    and withdrawal lists reject duplicate withdrawal indexes before fixture
+    replay can collapse conflicting entries into one local state transition.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
