@@ -20,6 +20,22 @@
    #:quantity-to-hex
    #:hex-to-quantity))
 
+(defpackage #:ethereum-lisp.database
+  (:use #:cl #:ethereum-lisp.bytes #:ethereum-lisp.hex)
+  (:export
+   #:key-value-database
+   #:memory-key-value-database
+   #:make-memory-key-value-database
+   #:kv-get
+   #:kv-put
+   #:kv-delete
+   #:kv-write-batch
+   #:make-kv-write-batch
+   #:kv-batch-put
+   #:kv-batch-delete
+   #:kv-apply-batch
+   #:kv-iterator))
+
 (defpackage #:ethereum-lisp.rlp
   (:use #:cl #:ethereum-lisp.bytes)
   (:export
@@ -914,6 +930,19 @@
    #:hex-to-bytes
    #:quantity-to-hex
    #:hex-to-quantity)
+  (:import-from #:ethereum-lisp.database
+   #:key-value-database
+   #:memory-key-value-database
+   #:make-memory-key-value-database
+   #:kv-get
+   #:kv-put
+   #:kv-delete
+   #:kv-write-batch
+   #:make-kv-write-batch
+   #:kv-batch-put
+   #:kv-batch-delete
+   #:kv-apply-batch
+   #:kv-iterator)
   (:import-from #:ethereum-lisp.rlp
    #:rlp-error
    #:rlp-list
@@ -1746,6 +1775,18 @@
    #:hex-to-bytes
    #:quantity-to-hex
    #:hex-to-quantity
+   #:key-value-database
+   #:memory-key-value-database
+   #:make-memory-key-value-database
+   #:kv-get
+   #:kv-put
+   #:kv-delete
+   #:kv-write-batch
+   #:make-kv-write-batch
+   #:kv-batch-put
+   #:kv-batch-delete
+   #:kv-apply-batch
+   #:kv-iterator
    #:rlp-error
    #:rlp-list
    #:rlp-list-p

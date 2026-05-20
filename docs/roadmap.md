@@ -633,7 +633,9 @@ code/hash itself rather than the resolved target code.
 
 ## 6. Persistence and Sync-Facing Interfaces
 
-- pluggable key-value database
+- pluggable key-value database: first-pass protocol and in-memory backend are
+  present, covering byte-vector put/get/delete, ordered write batches, and
+  sorted range iteration
 - freezer/history abstractions
 - canonical chain indexes
 - snapshot/trie node access APIs

@@ -1868,13 +1868,17 @@ splits can land after the Phase A smoke path closes.
 
 ## P1: Persistence
 
-- [ ] Define a minimal key-value database protocol.
+- [x] Define a minimal key-value database protocol.
   - Milestone: 6
   - References: geth `ethdb`, Nethermind DB abstractions, Reth database/provider.
   - Acceptance: put/get/delete/batch/iterator semantics are described and
     backed by an in-memory implementation.
   - Validation: database protocol tests plus
     `sbcl --script tests/run-tests.lisp`.
+  - Completed: added `src/database.lisp` with a pluggable
+    `key-value-database` protocol, byte-vector copying `kv-get`/`kv-put`/
+    `kv-delete`, ordered write batches, and sorted inclusive-start /
+    exclusive-end range iterators backed by an in-memory database.
 
 - [ ] Add a file-backed development database backend.
   - Milestone: 6
