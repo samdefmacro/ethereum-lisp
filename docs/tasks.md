@@ -1746,7 +1746,7 @@ splits can land after the Phase A smoke path closes.
 
 ## P1: Txpool Beyond Placeholder
 
-- [ ] Extract txpool state from the Engine payload memory store.
+- [~] Extract txpool state from the Engine payload memory store.
   - Milestone: 7
   - Dependencies: module split or chain-store boundary.
   - References: geth `core/txpool`, Reth transaction pool subpools.
@@ -1754,6 +1754,10 @@ splits can land after the Phase A smoke path closes.
     txpool object rather than direct payload-store hash tables.
   - Validation: existing txpool/RPC tests plus
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: introduced an `engine-pending-txpool` object and moved pending
+    transaction hash storage plus the sender/nonce index behind txpool
+    accessors. Pending filters still live on the memory store, but insertion
+    now notifies them from txpool-backed pending transaction updates.
 
 - [~] Add sender/nonce keyed txpool indexing.
   - Milestone: 7

@@ -3191,6 +3191,9 @@
                                :state-root +empty-trie-hash+
                                :gas-used 0)
             :transactions (list transaction))))
+    (is (typep
+         (ethereum-lisp.core::engine-payload-memory-store-txpool store)
+         'ethereum-lisp.core::engine-pending-txpool))
     (ethereum-lisp.core::engine-payload-store-put-pending-transaction
      store transaction)
     (ethereum-lisp.core::engine-payload-store-put-pending-transaction
