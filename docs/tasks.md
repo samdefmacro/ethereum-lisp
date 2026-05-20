@@ -949,6 +949,9 @@ splits can land after the Phase A smoke path closes.
     Added a selected mixed branch-child-reference EEST-style trie case and
     tightened the Phase A subset summary/gate to require both embedded and
     hashed branch child references after replay.
+    Added a selected branch-value EEST-style trie case and tightened the Phase
+    A subset summary/gate to require a replayed branch root value slot, covering
+    the empty-key branch value shape in the external-style subset.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
