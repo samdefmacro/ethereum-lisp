@@ -886,13 +886,18 @@ splits can land after the Phase A smoke path closes.
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
 
-- [ ] `STATE-PROOFS`: Add account/storage proof generation and verification.
+- [~] `STATE-PROOFS`: Add account/storage proof generation and verification.
   - Milestone: 3 / 7
   - Dependencies: `TRIE-FIXTURE-GRADE`.
   - References: geth `eth_getProof`, trie proof APIs; Nethermind proof APIs.
   - Acceptance: local state can produce and verify account/storage proofs for
     retained state snapshots.
   - Validation: dedicated proof tests and `sbcl --script tests/run-tests.lisp`.
+  - Progress: added the first MPT proof primitive: `mpt-get-proof` emits the
+    RLP node proof for a key path and `mpt-verify-proof` verifies present and
+    missing keys against a root hash, including empty-root absence, bad-root,
+    and unconsumed-node checks. Remaining work: lift this into account/storage
+    proof objects and state-level verification.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

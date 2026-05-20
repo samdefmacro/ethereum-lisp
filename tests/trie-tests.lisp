@@ -922,6 +922,46 @@
     (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (mpt-root-hex trie)))))
 
+(deftest trie-proof-verifies-present-and-missing-keys
+  (let ((trie (make-mpt)))
+    (mpt-put trie (ascii-to-bytes "do") (ascii-to-bytes "verb"))
+    (mpt-put trie (ascii-to-bytes "dog") (ascii-to-bytes "puppy"))
+    (mpt-put trie (ascii-to-bytes "horse") (ascii-to-bytes "stallion"))
+    (multiple-value-bind (value present-p)
+        (mpt-verify-proof
+         (make-hash32 (mpt-root-hash trie))
+         (ascii-to-bytes "dog")
+         (mpt-get-proof trie (ascii-to-bytes "dog")))
+      (is present-p)
+      (is (bytes= (ascii-to-bytes "puppy") value)))
+    (multiple-value-bind (value present-p)
+        (mpt-verify-proof
+         (mpt-root-hash trie)
+         (ascii-to-bytes "cat")
+         (mpt-get-proof trie (ascii-to-bytes "cat")))
+      (is (null present-p))
+      (is (null value)))
+    (signals error
+      (mpt-verify-proof
+       (hash32-bytes (zero-hash32))
+       (ascii-to-bytes "dog")
+       (mpt-get-proof trie (ascii-to-bytes "dog"))))
+    (signals error
+      (mpt-verify-proof
+       (mpt-root-hash trie)
+       (ascii-to-bytes "dog")
+       (append (mpt-get-proof trie (ascii-to-bytes "dog"))
+               (mpt-get-proof trie (ascii-to-bytes "horse")))))))
+
+(deftest trie-proof-verifies-empty-root-absence
+  (multiple-value-bind (value present-p)
+      (mpt-verify-proof
+       (hash32-bytes +empty-trie-hash+)
+       (ascii-to-bytes "dog")
+       (mpt-get-proof (make-mpt) (ascii-to-bytes "dog")))
+    (is (null present-p))
+    (is (null value))))
+
 (deftest trie-fixture-shape-validation-rejects-ambiguous-operations
   (signals error
     (validate-trie-fixture-case-shape

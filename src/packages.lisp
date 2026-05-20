@@ -97,6 +97,8 @@
    #:mpt-put
    #:mpt-delete
    #:mpt-get
+   #:mpt-get-proof
+   #:mpt-verify-proof
    #:mpt-root-hash
    #:mpt-root-hex
    #:mpt-root-node))
@@ -946,6 +948,8 @@
    #:mpt-put
    #:mpt-delete
    #:mpt-get
+   #:mpt-get-proof
+   #:mpt-verify-proof
    #:mpt-root-hash
    #:mpt-root-hex
    #:mpt-root-node)
@@ -1748,6 +1752,8 @@
    #:mpt-put
    #:mpt-delete
    #:mpt-get
+   #:mpt-get-proof
+   #:mpt-verify-proof
    #:mpt-root-hash
    #:mpt-root-hex
    #:mpt-root-node
