@@ -392,6 +392,22 @@
     (hash32-from-hex normalized)
     normalized))
 
+(defun eest-trie-test-prefixed-hex-string-p (value)
+  (and (stringp value)
+       (<= 2 (length value))
+       (char= #\0 (char value 0))
+       (char= #\x (char-downcase (char value 1)))))
+
+(defun eest-trie-test-byte-string (value label)
+  (handler-case
+      (if (eest-trie-test-prefixed-hex-string-p value)
+          (hex-to-bytes value)
+          (ascii-to-bytes value))
+    (error (condition)
+      (error "~A must be an ASCII string or 0x-prefixed hex byte string: ~A"
+             label
+             condition))))
+
 (defun normalize-eest-trie-test-case (name case)
   (when (blank-string-p name)
     (error "EEST trie test case name must be present"))
@@ -421,6 +437,9 @@
     (unless (stringp key)
       (error "EEST trie test case ~A in entry key must be a string"
              case-name))
+    (eest-trie-test-byte-string
+     key
+     (format nil "EEST trie test case ~A in entry key" case-name))
     (cond
       ((null value)
        (list (cons "key" key)
@@ -432,6 +451,9 @@
        (error "EEST trie test case ~A in entry value must be present"
               case-name))
       (t
+       (eest-trie-test-byte-string
+        value
+        (format nil "EEST trie test case ~A in entry value" case-name))
        (list (cons "key" key)
              (cons "value" value))))))
 
@@ -445,13 +467,18 @@
 (defun run-eest-trie-test-case (case)
   (let ((trie (make-mpt)))
     (dolist (entry (fixture-required-field case "entries"))
-      (let ((key (ascii-to-bytes (fixture-required-field entry "key"))))
+      (let ((key (eest-trie-test-byte-string
+                  (fixture-required-field entry "key")
+                  (format nil "EEST trie test case ~A in entry key"
+                          (fixture-required-field case "name")))))
         (if (fixture-field-present-p entry "delete")
             (mpt-delete trie key)
             (mpt-put trie
                      key
-                     (ascii-to-bytes
-                      (fixture-required-field entry "value"))))))
+                     (eest-trie-test-byte-string
+                      (fixture-required-field entry "value")
+                      (format nil "EEST trie test case ~A in entry value"
+                              (fixture-required-field case "name")))))))
     trie))
 
 (defun load-eest-trie-test-file (path)
@@ -966,11 +993,13 @@
          (entries (fixture-required-field case "entries"))
          (entry (first entries))
          (delete-entry (second entries))
+         (hex-entry (third entries))
+         (hex-delete-entry (fourth entries))
          (trie (run-eest-trie-test-case case)))
     (is (= 1 (length cases)))
     (is (string= "phase-a-trie-sample"
                  (fixture-object-field case "name")))
-    (is (= 2 (length entries)))
+    (is (= 4 (length entries)))
     (is (string= "dog"
                  (fixture-object-field entry "key")))
     (is (string= "puppy"
@@ -978,6 +1007,19 @@
     (is (string= "dog"
                  (fixture-object-field delete-entry "key")))
     (is (fixture-object-field delete-entry "delete"))
+    (is (string= "0x646f67"
+                 (fixture-object-field hex-entry "key")))
+    (is (string= "0x7075707079"
+                 (fixture-object-field hex-entry "value")))
+    (is (bytes= (ascii-to-bytes "dog")
+                (eest-trie-test-byte-string
+                 (fixture-object-field hex-entry "key")
+                 "hex sample key")))
+    (is (bytes= (ascii-to-bytes "puppy")
+                (eest-trie-test-byte-string
+                 (fixture-object-field hex-entry "value")
+                 "hex sample value")))
+    (is (fixture-object-field hex-delete-entry "delete"))
     (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (fixture-object-field case "root")))
     (is (string= (fixture-object-field case "root")
@@ -1001,6 +1043,18 @@
     (normalize-eest-trie-test-case
      "bad-entry-value"
      (list (cons "in" (list (list "dog" 1)))
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "bad-entry-key-hex"
+     (list (cons "in" (list (list "0x0" "puppy")))
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "bad-entry-value-hex"
+     (list (cons "in" (list (list "dog" "0x0")))
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error

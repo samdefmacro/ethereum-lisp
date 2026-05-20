@@ -816,6 +816,10 @@ splits can land after the Phase A smoke path closes.
     values in `in` entries now normalize to delete operations and replay
     through `mpt-delete`, with the sample vector covering `dog` -> `puppy`
     followed by delete back to the empty trie root.
+    Added byte-string decoding for EEST trie-test `in` entries. `0x`-prefixed
+    keys and values now decode as hex bytes while unprefixed strings continue
+    to replay as ASCII, and malformed hex is rejected during fixture
+    normalization.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

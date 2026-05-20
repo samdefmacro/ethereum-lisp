@@ -2,7 +2,9 @@
   "phase-a-trie-sample": {
     "in": [
       ["dog", "puppy"],
-      ["dog", null]
+      ["dog", null],
+      ["0x646f67", "0x7075707079"],
+      ["0x646f67", null]
     ],
     "root": "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
   }
