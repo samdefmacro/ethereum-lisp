@@ -1600,6 +1600,9 @@ splits can land after the Phase A smoke path closes.
     The parent expands argument/output memory before the child gas calculation,
     then persists the success flag and final `MSIZE` so the ordering is checked
     through post-state, not only a direct interpreter test.
+  - Slice: added a fixture-backed London `CALL` error case. The callee writes
+    storage then hits `INVALID`; the fixture asserts child storage rolls back
+    while the parent observes call failure and cleared returndata size.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4
