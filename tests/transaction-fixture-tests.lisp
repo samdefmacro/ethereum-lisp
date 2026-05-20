@@ -141,17 +141,38 @@
     (when has-raw
       (error "Transaction fixture must use txbytes, not raw"))
     (let ((value (fixture-object-field vector "txbytes")))
+      (unless (stringp value)
+        (error "Transaction fixture txbytes must be a string"))
       (when (blank-string-p value)
         (error "Transaction fixture txbytes must be present"))
-      (when (zerop (length (hex-to-bytes value)))
-        (error "Transaction fixture txbytes must encode at least one byte"))
+      (let ((bytes (handler-case
+                       (hex-to-bytes value)
+                     (error (condition)
+                       (error "Transaction fixture txbytes must be hex bytes: ~A"
+                              condition)))))
+        (when (zerop (length bytes))
+          (error "Transaction fixture txbytes must encode at least one byte")))
       value)))
 
 (defun validate-transaction-fixture-hash-field (vector)
-  (hash32-from-hex (fixture-required-field vector "hash")))
+  (let ((value (fixture-required-field vector "hash")))
+    (unless (stringp value)
+      (error "Transaction fixture hash must be a string"))
+    (handler-case
+        (hash32-from-hex value)
+      (error (condition)
+        (error "Transaction fixture hash must be a 32-byte hex string: ~A"
+               condition)))))
 
 (defun validate-transaction-fixture-address-field (vector)
-  (address-from-hex (fixture-required-field vector "sender")))
+  (let ((value (fixture-required-field vector "sender")))
+    (unless (stringp value)
+      (error "Transaction fixture sender must be a string"))
+    (handler-case
+        (address-from-hex value)
+      (error (condition)
+        (error "Transaction fixture sender must be an address hex string: ~A"
+               condition)))))
 
 (defun transaction-fixture-hex-prefixed-p (value)
   (and (stringp value)
@@ -1310,6 +1331,34 @@
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
            (cons "sender" "0x0000000000000000000000000000000000000001")
            (cons "result" nil))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "non-string-txbytes")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" 42)
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "txbytes must be a string" (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "bad-txbytes-hex")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x0")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "txbytes must be hex bytes" (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "bad-hash")
@@ -1319,6 +1368,19 @@
            (cons "hash" "0x01")
            (cons "sender" "0x0000000000000000000000000000000000000001")
            (cons "result" nil))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "non-string-hash")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash" 42)
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "hash must be a string" (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "bad-sender")
@@ -1329,6 +1391,20 @@
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
            (cons "sender" "0x01")
            (cons "result" nil))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "non-string-sender")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" 42)
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "sender must be a string" (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "unknown-vector-field")

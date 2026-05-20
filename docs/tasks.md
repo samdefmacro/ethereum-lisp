@@ -491,6 +491,9 @@ ones.
   - Progress: tightened transaction fixture required string-field validation so
     non-string vector names fail with a harness-level shape error before blank
     string checks call into `length`.
+  - Progress: tightened transaction fixture scalar hex-field validation so
+    non-string or malformed `txbytes`, `hash`, and `sender` values fail with
+    harness-level shape errors before lower-level hex/type parsers surface.
 
 ## P0: Module Boundaries
 
