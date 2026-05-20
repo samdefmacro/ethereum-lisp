@@ -10046,6 +10046,8 @@ Content-Length: 4
                    (engine-rpc-http-service-endpoint service)))
       (is (functionp
            (engine-rpc-http-service-import-function default-service)))
+      (is (eq #'execute-and-commit-engine-payload
+              (engine-rpc-http-service-import-function default-service)))
       (is (typep (engine-rpc-http-service-store service)
                  'engine-payload-memory-store))
       (is (typep (engine-rpc-http-service-config service) 'chain-config))
