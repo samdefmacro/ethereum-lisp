@@ -962,9 +962,12 @@ splits can land after the Phase A smoke path closes.
     Added an external-style state proof fixture wrapper with pinned EEST source
     metadata, geth-shaped `AccountResult` / `StorageResult` expected objects,
     shape validation, coverage tags, and exact proof-vector replay for present
-    accounts, missing accounts, present storage, and missing storage. Remaining
-    work: replace the seed proof vectors with transcribed geth proof workload
-    output or pinned execution-spec-tests proof fixtures once available.
+    accounts, missing accounts, present storage, and missing storage. Added a
+    multi-storage fixture case that proves two present storage slots and one
+    missing slot for the same account, and tightened the required fixture tags
+    so multi-present-storage proof replay cannot silently drop. Remaining work:
+    replace the seed proof vectors with transcribed geth proof workload output
+    or pinned execution-spec-tests proof fixtures once available.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

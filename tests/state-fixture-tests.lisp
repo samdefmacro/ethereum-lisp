@@ -89,6 +89,7 @@
     "missing-account"
     "storage-present"
     "storage-missing"
+    "multi-storage-present"
     "geth-shaped-result"))
 
 (defparameter +state-proof-fixture-required-tags+
@@ -96,6 +97,7 @@
     "missing-account"
     "storage-present"
     "storage-missing"
+    "multi-storage-present"
     "geth-shaped-result"))
 
 (defun validate-state-root-fixture-object-fields
