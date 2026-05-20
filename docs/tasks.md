@@ -249,6 +249,9 @@ ones.
   - Progress: tightened EEST transaction-test result normalization so success
     and exception fields cannot be mixed in the same fork entry, and exception
     entries cannot carry orphan sender or intrinsic-gas fields.
+  - Progress: tightened EEST transaction-test result normalization so explicit
+    blank exception fields are rejected instead of being ignored on otherwise
+    successful fork entries.
   - Progress: tightened EEST transaction-test result fork validation so unknown
     or duplicate fork labels are rejected before conversion to the local vector
     shape, preventing typoed fork results from being silently dropped.

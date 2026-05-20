@@ -181,8 +181,13 @@
   (let ((hash-present-p (fixture-field-present-p result "hash"))
         (sender-present-p (fixture-field-present-p result "sender"))
         (intrinsic-gas-present-p (fixture-field-present-p result "intrinsicGas"))
+        (exception-present-p (fixture-field-present-p result "exception"))
         (exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
+    (when (and exception-present-p (blank-string-p exception))
+      (error "EEST transaction case ~A result for fork ~A has a blank exception"
+             case-name
+             fork))
     (when (and hash-present-p (not (blank-string-p exception)))
       (error "EEST transaction case ~A result for fork ~A cannot have both hash and exception"
              case-name
@@ -1370,6 +1375,20 @@
                          (cons "intrinsicGas" "0x5208")
                          (cons "exception"
                                "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "success-with-blank-exception"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "hash"
+                               "0x0000000000000000000000000000000000000000000000000000000000000001")
+                         (cons "sender"
+                               "0x0000000000000000000000000000000000000001")
+                         (cons "intrinsicGas" "0x5208")
+                         (cons "exception" nil))))))))
   (signals error
     (normalize-eest-transaction-test-case
      "success-prefixless-gas"
