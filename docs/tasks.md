@@ -902,8 +902,10 @@ splits can land after the Phase A smoke path closes.
     against a state root. Added a state storage proof primitive:
     `state-db-get-storage-proof` emits secure storage trie proofs and
     `state-db-verify-storage-proof` verifies present and missing slots against
-    a storage root. Remaining work: decoded account/storage proof objects and
-    a combined `eth_getProof`-style response.
+    a storage root. Added `state-db-get-proof` / `state-db-verify-proof`
+    proof-result structs that bundle decoded account fields, storage slot
+    values, account proofs, and storage proofs in an `eth_getProof`-style
+    shape. Remaining work: RPC exposure and external reference vectors.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

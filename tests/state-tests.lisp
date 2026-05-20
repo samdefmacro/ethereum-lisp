@@ -232,6 +232,48 @@
        slot
        (state-db-get-storage-proof state address slot)))))
 
+(deftest state-proof-result-builds-and-verifies-account-and-storage-proofs
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000013"))
+        (slot (hash32-from-hex
+               "0x000000000000000000000000000000000000000000000000000000000000000e"))
+        (missing-slot (hash32-from-hex
+                       "0x000000000000000000000000000000000000000000000000000000000000000f")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 2 :balance 1000))
+    (state-db-set-storage state address slot 42)
+    (let* ((proof (state-db-get-proof state address (list slot missing-slot)))
+           (storage-proofs (state-proof-result-storage-proofs proof)))
+      (is (typep proof 'state-proof-result))
+      (is (= 2 (state-proof-result-nonce proof)))
+      (is (= 1000 (state-proof-result-balance proof)))
+      (is (bytes= (hash32-bytes (state-db-get-storage-root state address))
+                  (hash32-bytes (state-proof-result-storage-root proof))))
+      (is (plusp (length (state-proof-result-account-proof proof))))
+      (is (= 2 (length storage-proofs)))
+      (is (= 42 (state-storage-proof-value (first storage-proofs))))
+      (is (= 0 (state-storage-proof-value (second storage-proofs))))
+      (is (state-db-verify-proof (state-db-root state) proof))
+      (signals error
+        (state-db-verify-proof (zero-hash32) proof))
+      (setf (state-storage-proof-value (first storage-proofs)) 43)
+      (signals error
+        (state-db-verify-proof (state-db-root state) proof)))))
+
+(deftest state-proof-result-verifies-missing-account
+  (let* ((state (make-state-db))
+         (address (address-from-hex "0x0000000000000000000000000000000000000014"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000010"))
+         (proof (state-db-get-proof state address (list slot))))
+    (is (= 0 (state-proof-result-nonce proof)))
+    (is (= 0 (state-proof-result-balance proof)))
+    (is (bytes= (hash32-bytes +empty-trie-hash+)
+                (hash32-bytes (state-proof-result-storage-root proof))))
+    (is (= 0 (state-storage-proof-value
+              (first (state-proof-result-storage-proofs proof)))))
+    (is (state-db-verify-proof (state-db-root state) proof))))
+
 (deftest state-zero-storage-write-does-not-create-empty-account
   (let* ((state (make-state-db))
          (address (address-from-hex "0x0000000000000000000000000000000000000003"))

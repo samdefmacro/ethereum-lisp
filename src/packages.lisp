@@ -753,6 +753,20 @@
   (:export
    #:state-db
    #:make-state-db
+   #:state-storage-proof
+   #:make-state-storage-proof
+   #:state-storage-proof-slot
+   #:state-storage-proof-value
+   #:state-storage-proof-proof
+   #:state-proof-result
+   #:make-state-proof-result
+   #:state-proof-result-address
+   #:state-proof-result-balance
+   #:state-proof-result-nonce
+   #:state-proof-result-code-hash
+   #:state-proof-result-storage-root
+   #:state-proof-result-account-proof
+   #:state-proof-result-storage-proofs
    #:state-db-get-account
    #:state-db-set-account
    #:state-db-set-code
@@ -767,6 +781,8 @@
    #:state-db-verify-storage-proof
    #:state-db-get-account-proof
    #:state-db-verify-account-proof
+   #:state-db-get-proof
+   #:state-db-verify-proof
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
@@ -1630,6 +1646,20 @@
   (:import-from #:ethereum-lisp.state
    #:state-db
    #:make-state-db
+   #:state-storage-proof
+   #:make-state-storage-proof
+   #:state-storage-proof-slot
+   #:state-storage-proof-value
+   #:state-storage-proof-proof
+   #:state-proof-result
+   #:make-state-proof-result
+   #:state-proof-result-address
+   #:state-proof-result-balance
+   #:state-proof-result-nonce
+   #:state-proof-result-code-hash
+   #:state-proof-result-storage-root
+   #:state-proof-result-account-proof
+   #:state-proof-result-storage-proofs
    #:state-db-get-account
    #:state-db-set-account
    #:state-db-set-code
@@ -1644,6 +1674,8 @@
    #:state-db-verify-storage-proof
    #:state-db-get-account-proof
    #:state-db-verify-account-proof
+   #:state-db-get-proof
+   #:state-db-verify-proof
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
@@ -2435,6 +2467,20 @@
    #:execute-bytecode
    #:state-db
    #:make-state-db
+   #:state-storage-proof
+   #:make-state-storage-proof
+   #:state-storage-proof-slot
+   #:state-storage-proof-value
+   #:state-storage-proof-proof
+   #:state-proof-result
+   #:make-state-proof-result
+   #:state-proof-result-address
+   #:state-proof-result-balance
+   #:state-proof-result-nonce
+   #:state-proof-result-code-hash
+   #:state-proof-result-storage-root
+   #:state-proof-result-account-proof
+   #:state-proof-result-storage-proofs
    #:state-db-get-account
    #:state-db-set-account
    #:state-db-set-code
@@ -2449,6 +2495,8 @@
    #:state-db-verify-storage-proof
    #:state-db-get-account-proof
    #:state-db-verify-account-proof
+   #:state-db-get-proof
+   #:state-db-verify-proof
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex

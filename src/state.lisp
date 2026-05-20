@@ -13,6 +13,25 @@
 (defstruct (state-db (:constructor make-state-db ()))
   (objects (make-hash-table :test #'equal)))
 
+(defstruct (state-storage-proof
+            (:constructor make-state-storage-proof
+                (&key slot value proof)))
+  slot
+  value
+  proof)
+
+(defstruct (state-proof-result
+            (:constructor make-state-proof-result
+                (&key address balance nonce code-hash storage-root
+                 account-proof storage-proofs)))
+  address
+  balance
+  nonce
+  code-hash
+  storage-root
+  account-proof
+  (storage-proofs '() :type list))
+
 (defun address-key (address)
   (bytes-to-hex (address-bytes address) :prefix nil))
 
@@ -185,6 +204,103 @@
 
 (defun state-db-verify-storage-proof (storage-root slot proof)
   (mpt-verify-proof storage-root (state-db-storage-proof-key slot) proof))
+
+(defun rlp-uint256-value (value label)
+  (unless (typep value 'byte-vector)
+    (error "~A must be an RLP byte string" label))
+  (let ((integer (bytes-to-integer value)))
+    (ensure-state-uint256 integer label)))
+
+(defun decode-state-account-rlp (bytes)
+  (let ((decoded (rlp-decode-one bytes)))
+    (unless (typep decoded 'rlp-list)
+      (error "State account proof value must decode to an RLP list"))
+    (let ((items (rlp-list-items decoded)))
+      (unless (= 4 (length items))
+        (error "State account proof value must contain four fields, got ~D"
+               (length items)))
+      (destructuring-bind (nonce balance storage-root code-hash) items
+        (make-state-account
+         :nonce (rlp-uint256-value nonce "Account nonce")
+         :balance (rlp-uint256-value balance "Account balance")
+         :storage-root (make-hash32 storage-root)
+         :code-hash (make-hash32 code-hash))))))
+
+(defun decode-storage-value-rlp (bytes)
+  (rlp-uint256-value (rlp-decode-one bytes) "Storage proof value"))
+
+(defun copy-state-proof-nodes (proof)
+  (mapcar (lambda (node)
+            (copy-seq (ensure-byte-vector node)))
+          proof))
+
+(defun account-proof-result-account (result)
+  (make-state-account
+   :nonce (state-proof-result-nonce result)
+   :balance (state-proof-result-balance result)
+   :storage-root (state-proof-result-storage-root result)
+   :code-hash (state-proof-result-code-hash result)))
+
+(defun state-storage-proof-for-slot (state address slot)
+  (make-state-storage-proof
+   :slot slot
+   :value (state-db-get-storage state address slot)
+   :proof (copy-state-proof-nodes
+           (state-db-get-storage-proof state address slot))))
+
+(defun state-db-get-proof (state address slots)
+  (let ((account (or (state-db-get-account state address)
+                     (make-state-account))))
+    (make-state-proof-result
+     :address address
+     :nonce (state-account-nonce account)
+     :balance (state-account-balance account)
+     :storage-root (state-account-storage-root account)
+     :code-hash (state-account-code-hash account)
+     :account-proof (copy-state-proof-nodes
+                     (state-db-get-account-proof state address))
+     :storage-proofs
+     (mapcar (lambda (slot)
+               (state-storage-proof-for-slot state address slot))
+             slots))))
+
+(defun ensure-state-account-equal (expected actual)
+  (unless (and (= (state-account-nonce expected) (state-account-nonce actual))
+               (= (state-account-balance expected) (state-account-balance actual))
+               (bytes= (hash32-bytes (state-account-storage-root expected))
+                       (hash32-bytes (state-account-storage-root actual)))
+               (bytes= (hash32-bytes (state-account-code-hash expected))
+                       (hash32-bytes (state-account-code-hash actual))))
+    (error "State proof account fields do not match account proof value"))
+  t)
+
+(defun state-db-verify-proof (state-root proof)
+  (unless (typep proof 'state-proof-result)
+    (error "State proof must be a state-proof-result"))
+  (multiple-value-bind (account-rlp present-p)
+      (state-db-verify-account-proof
+       state-root
+       (state-proof-result-address proof)
+       (state-proof-result-account-proof proof))
+    (let ((expected-account (account-proof-result-account proof)))
+      (if present-p
+          (ensure-state-account-equal expected-account
+                                      (decode-state-account-rlp account-rlp))
+          (ensure-state-account-equal expected-account
+                                      (make-state-account)))))
+  (dolist (storage-proof (state-proof-result-storage-proofs proof) t)
+    (unless (typep storage-proof 'state-storage-proof)
+      (error "Storage proof entry must be a state-storage-proof"))
+    (multiple-value-bind (value-rlp present-p)
+        (state-db-verify-storage-proof
+         (state-proof-result-storage-root proof)
+         (state-storage-proof-slot storage-proof)
+         (state-storage-proof-proof storage-proof))
+      (let ((expected-value (state-storage-proof-value storage-proof)))
+        (unless (if present-p
+                    (= expected-value (decode-storage-value-rlp value-rlp))
+                    (zerop expected-value))
+          (error "State proof storage value does not match storage proof"))))))
 
 (defun account-with-storage-root (object)
   (let ((account (or (state-object-account object) (make-state-account))))
