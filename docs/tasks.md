@@ -879,6 +879,9 @@ splits can land after the Phase A smoke path closes.
     Phase A reports show whether secure-key replay coverage is present.
     Added Phase A EEST trie subset coverage validation: the selected set must
     include secure and plain trie cases plus write and delete entries.
+    Added null-valued object-form `in` support to the EEST trie-test adapter,
+    so JSON object entries can express deletes just like array-form
+    `[key, null]` pairs.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

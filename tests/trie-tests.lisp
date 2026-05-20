@@ -469,7 +469,8 @@
 (defun eest-trie-test-object-entry-p (entry)
   (and (consp entry)
        (stringp (car entry))
-       (stringp (cdr entry))))
+       (or (stringp (cdr entry))
+           (null (cdr entry)))))
 
 (defun eest-trie-test-object-entries-p (entries)
   (and entries
@@ -1270,6 +1271,25 @@
                  (fixture-object-field entry "key")))
     (is (string= "puppy"
                  (fixture-object-field entry "value")))
+    (is (string= (fixture-object-field case "root")
+                 (mpt-root-hex trie))))
+  (let* ((case (normalize-eest-trie-test-case
+                "object-form-null-delete"
+                (list (cons "in" (list (cons "cat" nil)
+                                       (cons "dog" "puppy")))
+                      (cons "root"
+                            "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+         (entries (fixture-required-field case "entries"))
+         (delete-entry (first entries))
+         (put-entry (second entries))
+         (trie (assert-eest-trie-test-case-root case)))
+    (is (string= "cat"
+                 (fixture-object-field delete-entry "key")))
+    (is (fixture-object-field delete-entry "delete"))
+    (is (string= "dog"
+                 (fixture-object-field put-entry "key")))
+    (is (string= "puppy"
+                 (fixture-object-field put-entry "value")))
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
   (let* ((case (normalize-eest-trie-test-case
