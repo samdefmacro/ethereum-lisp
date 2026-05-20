@@ -97,6 +97,8 @@
                client)))))
 
 (defun transaction-fixture-type-keyword (type)
+  (unless (stringp type)
+    (error "Transaction fixture type must be a string"))
   (cond
     ((string= type "legacy") :legacy)
     ((string= type "access-list") :access-list)
@@ -1236,6 +1238,20 @@
                  "0x0000000000000000000000000000000000000000000000000000000000000001")
            (cons "sender" "0x0000000000000000000000000000000000000001")
            (cons "result" nil))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "non-string-type")
+                   (cons "type" 42)
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "type must be a string" (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "bad-chain-id")

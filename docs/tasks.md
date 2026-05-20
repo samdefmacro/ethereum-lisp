@@ -485,6 +485,9 @@ ones.
   - Progress: reordered transaction fixture result fork validation so malformed
     fork entries are rejected before required-fork coverage checks scan the
     result map.
+  - Progress: tightened transaction fixture type validation so non-string
+    vector `type` values fail with a harness-level shape error before
+    transaction type matching calls into `string=`.
 
 ## P0: Module Boundaries
 
