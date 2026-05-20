@@ -531,6 +531,11 @@
       (error "~A entries must be hex strings" label))
     (hex-to-bytes value)))
 
+(defun validate-state-proof-fixture-proof-node-list (values label)
+  (validate-state-proof-fixture-hex-list values label)
+  (dolist (value values)
+    (rlp-decode-one (hex-to-bytes value))))
+
 (defun validate-state-proof-fixture-storage-key-uniqueness (storage-keys)
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (key storage-keys)
@@ -565,7 +570,7 @@
   (hex-to-quantity (fixture-required-field proof "value"))
   (let ((nodes (fixture-required-field proof "proof")))
     (when nodes
-      (validate-state-proof-fixture-hex-list
+      (validate-state-proof-fixture-proof-node-list
        nodes
        "State proof fixture storage proof"))))
 
@@ -575,7 +580,7 @@
    +state-proof-fixture-proof-fields+
    "State proof fixture expectedProof")
   (address-from-hex (fixture-required-field proof "address"))
-  (validate-state-proof-fixture-hex-list
+  (validate-state-proof-fixture-proof-node-list
    (fixture-required-field proof "accountProof")
    "State proof fixture accountProof")
   (hex-to-quantity (fixture-required-field proof "balance"))
@@ -960,6 +965,11 @@
           (validate-state-proof-fixture-case-shape
            (replace-field valid-case "expectedProof" bad-proof))))
       (signals error
+        (let* ((proof (fixture-required-field valid-case "expectedProof"))
+               (bad-proof (replace-field proof "accountProof" (list "0x8101"))))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "expectedProof" bad-proof))))
+      (signals error
         (let* ((request (fixture-required-field valid-case "request"))
                (bad-request
                  (replace-field
@@ -983,6 +993,12 @@
                  (replace-field proof "storageProof" bad-storage-proof)))
           (validate-state-proof-fixture-case-shape
            (replace-field valid-case "expectedProof" bad-proof))))))
+  (signals error
+    (validate-state-proof-fixture-storage-proof-shape
+     (list (cons "key"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "value" "0x0")
+           (cons "proof" (list "0x8101")))))
   (signals error
     (validate-state-proof-fixture-metadata
      (list (cons "format" +state-proof-fixture-format+)

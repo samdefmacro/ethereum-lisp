@@ -1055,7 +1055,9 @@ splits can land after the Phase A smoke path closes.
     whose storage trie returns to the empty root, and made that missing-after-
     delete proof coverage a required state-proof fixture tag. Added normalized
     duplicate storage-key rejection for state-proof fixture requests, preventing
-    exact proof vectors from inflating coverage with repeated keys. Remaining
+    exact proof vectors from inflating coverage with repeated keys. Tightened
+    state-proof fixture proof-node validation so account and storage proof
+    entries must be valid RLP nodes, not merely hex byte strings. Remaining
     work: replace the seed proof vectors with transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.
