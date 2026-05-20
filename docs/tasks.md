@@ -480,6 +480,8 @@ ones.
   - Progress: tightened transaction fixture result fork validation so malformed
     result entries, non-string fork labels, and blank fork labels fail before
     duplicate or known-fork checks run.
+  - Progress: tightened transaction fixture result-shape validation so direct
+    calls reject non-object vectors before required type/result field lookups.
 
 ## P0: Module Boundaries
 

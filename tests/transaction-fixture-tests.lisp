@@ -806,6 +806,8 @@
                  fork))))))
 
 (defun validate-transaction-fixture-result-shape (vector)
+  (unless (listp vector)
+    (error "Transaction fixture result vector must be a JSON object"))
   (let ((type (transaction-fixture-type-keyword
                (fixture-required-field vector "type")))
         (result (fixture-object-field vector "result")))
@@ -988,6 +990,8 @@
 (deftest transaction-fixture-result-shape-validation
   (let ((vector (list (cons "name" "shape-test")
                       (cons "type" "dynamic-fee"))))
+    (signals error
+      (validate-transaction-fixture-result-shape "shape-test"))
     (signals error
       (validate-transaction-fixture-result-shape
        (list (cons "name" "missing-fork")
