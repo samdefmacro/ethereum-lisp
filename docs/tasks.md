@@ -225,6 +225,12 @@ ones.
     before seed vectors are replaced by pinned EEST transaction tests.
     Remaining work: replace the in-repo seed vectors with vectors drawn from
     the pinned `execution-spec-tests` release.
+  - Progress: promoted the transaction fork-result summary into a validation
+    gate. Phase A and full typed-set subsets now recompute the expected
+    success/exception distribution from transaction type activation rules and
+    reject summaries whose per-fork counts drift from the decoded vector set.
+    Remaining work: replace the in-repo seed vectors with vectors drawn from
+    the pinned `execution-spec-tests` release.
   - Progress: added machine-checked pinned EEST source metadata to the
     transaction envelope fixture wrapper. The runner now requires the Phase A
     release `v5.4.0`, tag target `88e9fb8`, and `fixtures_stable.tar.gz`

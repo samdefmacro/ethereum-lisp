@@ -684,6 +684,46 @@
      (cons "exceptionForkCounts"
            (transaction-fixture-fork-counts-alist exception-fork-counts)))))
 
+(defun transaction-fixture-expected-result-count-summary (vectors)
+  (let ((valid-count 0)
+        (exception-count 0)
+        (valid-fork-counts (make-hash-table :test 'equal))
+        (exception-fork-counts (make-hash-table :test 'equal)))
+    (dolist (vector vectors)
+      (let ((type (transaction-fixture-type-keyword
+                   (fixture-required-field vector "type"))))
+        (dolist (fork +transaction-fixture-forks+)
+          (if (transaction-fixture-type-valid-on-fork-p type fork)
+              (progn
+                (incf valid-count)
+                (incf (gethash fork valid-fork-counts 0)))
+              (progn
+                (incf exception-count)
+                (incf (gethash fork exception-fork-counts 0)))))))
+    (list
+     (cons "validResultCount" valid-count)
+     (cons "exceptionResultCount" exception-count)
+     (cons "validForkCounts"
+           (transaction-fixture-fork-counts-alist valid-fork-counts))
+     (cons "exceptionForkCounts"
+           (transaction-fixture-fork-counts-alist exception-fork-counts)))))
+
+(defun validate-transaction-fixture-result-count-summary
+    (vectors summary label)
+  (let ((expected (transaction-fixture-expected-result-count-summary vectors)))
+    (dolist (field '("validResultCount"
+                     "exceptionResultCount"
+                     "validForkCounts"
+                     "exceptionForkCounts"))
+      (unless (equal (fixture-required-field expected field)
+                     (fixture-required-field summary field))
+        (error "~A summary field ~A is ~S but expected ~S"
+               label
+               field
+               (fixture-object-field summary field)
+               (fixture-object-field expected field)))))
+  summary)
+
 (defun transaction-fixture-vector-summary (vectors)
   (unless (listp vectors)
     (error "Transaction fixture summary vectors must be a list"))
@@ -772,6 +812,10 @@
              +phase-a-eest-transaction-test-case-names+))
     (validate-phase-a-eest-transaction-target-fork-results vectors)
     (validate-phase-a-eest-transaction-summary-types types)
+    (validate-transaction-fixture-result-count-summary
+     vectors
+     summary
+     "Phase A EEST transaction")
     summary))
 
 (defun validate-full-eest-transaction-vector-summary (vectors)
@@ -796,6 +840,10 @@
       (unless (assoc type types)
         (error "Full EEST transaction summary is missing required type ~A"
                type)))
+    (validate-transaction-fixture-result-count-summary
+     vectors
+     summary
+     "Full EEST transaction")
     summary))
 
 (defun phase-a-eest-transaction-vectors-by-type (vectors label)
@@ -2383,6 +2431,21 @@
     (is (equal full-summary
                (validate-full-eest-transaction-vector-summary
                 full-vectors)))
+    (signals error
+      (validate-transaction-fixture-result-count-summary
+       selected-vectors
+       (cons (cons "validResultCount" 0)
+             (remove "validResultCount" summary :key #'car :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-result-count-summary
+       full-vectors
+       (cons (cons "exceptionForkCounts" nil)
+             (remove "exceptionForkCounts"
+                     full-summary
+                     :key #'car
+                     :test #'string=))
+       "Full EEST transaction"))
     (is (equal vectors
                (validate-eest-transaction-seed-alignment
                 vectors
