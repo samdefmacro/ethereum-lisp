@@ -1420,6 +1420,11 @@ splits can land after the Phase A smoke path closes.
     gate. The selected subset now fails if all trie-test `in` inputs are
     array-of-pairs form, keeping Nethermind/geth-style object-form trie tests
     represented before pinned vectors replace the in-repo samples.
+    Added an object-form missing-delete case to the selected EEST-style trie
+    subset and split object-form summary gates so both pure object-form writes
+    and object-form `null` delete entries must stay represented. This keeps
+    the adapter's object-valued delete semantics covered by Phase A selection,
+    not only by inline parser tests.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

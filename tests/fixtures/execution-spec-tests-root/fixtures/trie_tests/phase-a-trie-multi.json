@@ -26,6 +26,14 @@
     },
     "root": "83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5"
   },
+  "object-form-missing-delete": {
+    "in": {
+      "0x00": "left",
+      "0x80": null,
+      "0xf0": "right"
+    },
+    "root": "83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5"
+  },
   "branch-value": {
     "in": [
       ["0x", "root"],
