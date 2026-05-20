@@ -778,11 +778,6 @@
                    fork))))))
 
 (defun validate-transaction-fixture-result-forks (vector result)
-  (dolist (fork +transaction-fixture-forks+)
-    (unless (assoc fork result :test #'string=)
-      (error "Transaction fixture ~A is missing result for fork ~A"
-             (fixture-object-field vector "name")
-             fork)))
   (let ((seen-forks (make-hash-table :test 'equal)))
     (dolist (check result)
       (unless (consp check)
@@ -803,7 +798,12 @@
         (unless (member fork +transaction-fixture-forks+ :test #'string=)
           (error "Transaction fixture ~A has unknown result fork ~A"
                  (fixture-object-field vector "name")
-                 fork))))))
+                 fork))))
+    (dolist (fork +transaction-fixture-forks+)
+      (unless (gethash fork seen-forks)
+        (error "Transaction fixture ~A is missing result for fork ~A"
+               (fixture-object-field vector "name")
+               fork)))))
 
 (defun validate-transaction-fixture-result-shape (vector)
   (unless (listp vector)
@@ -1063,6 +1063,21 @@
                      +transaction-fixture-forks+)
                     (list (cons 42
                                 (list (cons "intrinsicGas" "0x5208")))))))))
+    (signals error
+      (validate-transaction-fixture-result-shape
+       (list (cons "name" "non-string-fork-first")
+             (cons "type" "dynamic-fee")
+             (cons "result"
+                   (cons
+                    (cons 42 (list (cons "intrinsicGas" "0x5208")))
+                    (mapcar
+                     (lambda (fork)
+                       (cons fork
+                             (if (string= fork "London")
+                                 (list (cons "intrinsicGas" "0x5208"))
+                                 (list (cons "exception"
+                                             "TransactionException.TYPE_2_TX_PRE_FORK")))))
+                     +transaction-fixture-forks+))))))
     (signals error
       (validate-transaction-fixture-result-shape
        (list (cons "name" "blank-fork")

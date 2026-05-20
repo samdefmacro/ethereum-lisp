@@ -482,6 +482,9 @@ ones.
     duplicate or known-fork checks run.
   - Progress: tightened transaction fixture result-shape validation so direct
     calls reject non-object vectors before required type/result field lookups.
+  - Progress: reordered transaction fixture result fork validation so malformed
+    fork entries are rejected before required-fork coverage checks scan the
+    result map.
 
 ## P0: Module Boundaries
 
