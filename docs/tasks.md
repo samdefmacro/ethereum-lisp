@@ -1080,7 +1080,11 @@ splits can land after the Phase A smoke path closes.
     expected non-empty account fields now require account proof nodes, so
     transcribed `eth_getProof` fixtures cannot claim nonce, balance,
     storage-root, or code-hash state without carrying the proof nodes that
-    verify those fields. Remaining work: replace the seed proof vectors with
+    verify those fields. Tightened missing-storage proof validation for
+    non-empty storage tries as well: zero-valued storage proof entries now
+    require proof nodes whenever the enclosing `storageHash` is non-empty, so
+    missing-slot proofs cannot be confused with empty-trie absence. Remaining
+    work: replace the seed proof vectors with
     transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.

@@ -561,7 +561,12 @@
       (hash32-from-hex key))
     (validate-state-proof-fixture-storage-key-uniqueness storage-keys)))
 
-(defun validate-state-proof-fixture-storage-proof-shape (proof)
+(defun state-proof-fixture-empty-storage-root-p (storage-hash)
+  (bytes= (hash32-bytes storage-hash)
+          (hash32-bytes +empty-trie-hash+)))
+
+(defun validate-state-proof-fixture-storage-proof-shape
+    (proof &optional storage-hash)
   (validate-fixture-object-fields
    proof
    +state-proof-fixture-storage-proof-fields+
@@ -572,6 +577,10 @@
     (when (and (plusp value)
                (not nodes))
       (error "State proof fixture storageProof entry with non-zero value must include proof nodes"))
+    (when (and storage-hash
+               (not (state-proof-fixture-empty-storage-root-p storage-hash))
+               (not nodes))
+      (error "State proof fixture storageProof entry against a non-empty storageHash must include proof nodes"))
     (when nodes
       (validate-state-proof-fixture-proof-node-list
        nodes
@@ -607,12 +616,12 @@
                      storage-hash
                      code-hash))
                (not account-proof))
-      (error "State proof fixture expectedProof with non-empty account fields must include accountProof nodes")))
-  (let ((storage-proof (fixture-required-field proof "storageProof")))
-    (unless (listp storage-proof)
-      (error "State proof fixture storageProof must be a JSON array"))
-    (dolist (entry storage-proof)
-      (validate-state-proof-fixture-storage-proof-shape entry))))
+      (error "State proof fixture expectedProof with non-empty account fields must include accountProof nodes"))
+    (let ((storage-proof (fixture-required-field proof "storageProof")))
+      (unless (listp storage-proof)
+        (error "State proof fixture storageProof must be a JSON array"))
+      (dolist (entry storage-proof)
+        (validate-state-proof-fixture-storage-proof-shape entry storage-hash)))))
 
 (defun validate-state-proof-fixture-request-proof-alignment (request proof)
   (unless (bytes= (address-bytes
@@ -993,6 +1002,15 @@
       (signals error
         (let* ((proof (fixture-required-field valid-case "expectedProof"))
                (bad-proof (replace-field proof "balance" "0x1")))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "expectedProof" bad-proof))))
+      (signals error
+        (let* ((proof (fixture-required-field valid-case "expectedProof"))
+               (bad-proof
+                 (replace-field
+                  proof
+                  "storageHash"
+                  "0x2e7827dc2c61c322f13f77e6f25dd18844ccc48426dde70301d2d57d138fced8")))
           (validate-state-proof-fixture-case-shape
            (replace-field valid-case "expectedProof" bad-proof))))
       (signals error
