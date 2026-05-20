@@ -931,9 +931,35 @@
                 :header child-header
                 :chain-config config
                 :withdrawals withdrawals))
+             (side-state (state-db-copy parent-state))
+             (side-header
+               (make-block-header
+                :parent-hash (block-hash parent-block)
+                :beneficiary fee-recipient
+                :mix-hash
+                (hash32-from-hex
+                 "0x0100000000000000000000000000000000000000000000000000000000000000")
+                :number (fixture-quantity-field payload-case "number")
+                :gas-limit (fixture-quantity-field payload-case "gasLimit")
+                :gas-used 0
+                :timestamp
+                (1+ (fixture-quantity-field payload-case "timestamp"))
+                :base-fee-per-gas
+                (fixture-quantity-field payload-case "baseFeePerGas")))
+             (side-block
+               (execute-signed-block
+                side-state
+                '()
+                :expected-chain-id (chain-config-chain-id config)
+                :header side-header
+                :chain-config config
+                :withdrawals withdrawals))
              (payload
                (execution-payload-envelope-execution-payload
                 (block-to-executable-data child-block)))
+             (side-payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data side-block)))
              (transaction-hash (transaction-hash (first transactions))))
         (engine-payload-store-put-block
          store parent-block :state-available-p t)
@@ -969,6 +995,20 @@
                  (chain-store-account-balance
                   store (block-hash child-block)
                   withdrawal-recipient))))
+        (let* ((side-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-payload-request 116 side-payload)
+                  store config
+                  :import-function #'execute-and-commit-engine-payload))
+               (side-result (field side-response "result")))
+          (is (string= (fixture-object-field expect "status")
+                       (field side-result "status")))
+          (is (string= (hash32-to-hex (block-hash side-block))
+                       (field side-result "latestValidHash")))
+          (is (engine-payload-store-known-block
+               store (block-hash side-block)))
+          (is (chain-store-state-available-p
+               store (block-hash side-block))))
         (let* ((forkchoice-response
                  (engine-rpc-handle-request
                   (engine-fixture-forkchoice-request
@@ -1021,6 +1061,13 @@
                   store config))
                (block-by-hash
                  (field block-by-hash-response "result"))
+               (side-block-by-hash-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-block-by-hash-request
+                   117 (block-hash side-block) nil)
+                  store config))
+               (side-block-by-hash
+                 (field side-block-by-hash-response "result"))
                (transaction-count-by-number-response
                  (engine-rpc-handle-request
                   (engine-fixture-transaction-count-by-number-request
@@ -1030,6 +1077,11 @@
                  (engine-rpc-handle-request
                   (engine-fixture-transaction-count-by-hash-request
                    112 (block-hash child-block))
+                  store config))
+               (side-transaction-count-by-hash-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-transaction-count-by-hash-request
+                   118 (block-hash side-block))
                   store config))
                (raw-transaction-response
                  (engine-rpc-handle-request
@@ -1096,6 +1148,13 @@
                      (field block-by-number "transactions")))
           (is (string= (field block-by-number "hash")
                        (field block-by-hash "hash")))
+          (is (string= (hash32-to-hex (block-hash side-block))
+                       (field side-block-by-hash "hash")))
+          (is (string= (quantity-to-hex
+                        (block-header-number (block-header side-block)))
+                       (field side-block-by-hash "number")))
+          (is (not (string= (field block-by-number "hash")
+                            (field side-block-by-hash "hash"))))
           (is (string= (hash32-to-hex transaction-hash)
                        (field full-block-transaction "hash")))
           (is (string= (field block-by-number "hash")
@@ -1112,6 +1171,8 @@
                        (field transaction-count-by-number-response "result")))
           (is (string= (quantity-to-hex 1)
                        (field transaction-count-by-hash-response "result")))
+          (is (string= (quantity-to-hex 0)
+                       (field side-transaction-count-by-hash-response "result")))
           (is (string= (bytes-to-hex
                         (transaction-encoding (first transactions)))
                        (field raw-transaction-response "result")))

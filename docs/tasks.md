@@ -769,6 +769,11 @@ splits can land after the Phase A smoke path closes.
     `eth_getStorageAt` at `latest` after executable import and forkchoice. The
     Phase A smoke now verifies retained state snapshots expose balance, nonce,
     code, and storage through public RPC reads.
+  - Progress: extended the fixture-driven Engine smoke with an imported
+    sibling payload sharing the same parent. After forkchoice selects the
+    transaction-bearing child, the side-chain block remains retrievable by
+    hash and reports its own transaction count, while canonical `latest`
+    block and transaction reads continue to resolve to the selected child.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
