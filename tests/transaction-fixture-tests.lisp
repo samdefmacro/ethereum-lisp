@@ -2290,6 +2290,18 @@
                 "Homestead")))
         (is (string= "TransactionException.TYPE_1_TX_PRE_FORK"
                      (fixture-required-field homestead "exception")))
+        (validate-transaction-fixture-result-shape access-list-vector))
+      (let* ((sparse-access-list
+               (without-fork-result access-list-case "Berlin"))
+             (access-list-vector
+               (convert-eest-transaction-case-to-vector sparse-access-list))
+             (access-list-result
+               (fixture-required-field access-list-vector "result"))
+             (berlin
+               (fixture-required-field access-list-result "Berlin"))
+             (london
+               (fixture-required-field access-list-result "London")))
+        (is (equal london berlin))
         (validate-transaction-fixture-result-shape access-list-vector))))
 
   (signals error

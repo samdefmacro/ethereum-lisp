@@ -576,7 +576,9 @@ ones.
     imported fork entries are synthesized from the decoded transaction and the
     tracked fork activation rules, yielding derived hash/sender/intrinsic-gas
     success entries for active forks and expected typed-transaction pre-fork
-    exceptions for inactive forks.
+    exceptions for inactive forks. Coverage now locks all three sparse-result
+    paths used by pinned transaction-test imports: legacy active forks, typed
+    active forks, and typed pre-fork exceptions.
 
 ## P0: Module Boundaries
 
