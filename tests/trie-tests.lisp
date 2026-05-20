@@ -71,6 +71,7 @@
     "root-branch-mixed-child-references"
     "delete-missing-branch-child-keeps-root-branch"
     "root-branch-value-for-prefix-key"
+    "root-branch-value-with-zero-child"
     "delete-root-branch-value-collapses-to-leaf"
     "delete-root-branch-child-collapses-to-root-value-leaf"))
 

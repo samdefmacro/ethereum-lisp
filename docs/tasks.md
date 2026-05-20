@@ -1337,6 +1337,10 @@ splits can land after the Phase A smoke path closes.
     child-reference, deletion, branch-value, duplicate-overwrite, and secure
     replay seed cases before they are replaced or extended with pinned EEST
     vectors.
+    Added a zero-child branch-value seed trie case, locking the empty-key branch
+    value slot together with child index `0`, embedded child-reference
+    assertion, and final lookup/proof checks for both the empty key and child
+    key.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
