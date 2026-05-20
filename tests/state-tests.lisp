@@ -415,6 +415,27 @@
     (is (string= "0x" (bytes-to-hex (state-db-get-code state address))))
     (is (= 1 (state-account-balance (state-db-get-account state address))))))
 
+(deftest state-clear-account-removes-code-storage-and-is-missing-noop
+  (let* ((state (make-state-db))
+         (address (address-from-hex "0x000000000000000000000000000000000000000a"))
+         (missing (address-from-hex "0x000000000000000000000000000000000000000b"))
+         (slot (hash32-from-hex
+                "0x000000000000000000000000000000000000000000000000000000000000000c"))
+         (empty-root (state-db-root-hex state)))
+    (state-db-clear-account state missing)
+    (is (string= empty-root (state-db-root-hex state)))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (state-db-set-storage state address slot 12)
+    (state-db-set-code state address (hex-to-bytes "0x60016000"))
+    (is (state-db-get-account state address))
+    (is (= 12 (state-db-get-storage state address slot)))
+    (is (string= "0x60016000" (bytes-to-hex (state-db-get-code state address))))
+    (state-db-clear-account state address)
+    (is (null (state-db-get-account state address)))
+    (is (zerop (state-db-get-storage state address slot)))
+    (is (string= "0x" (bytes-to-hex (state-db-get-code state address))))
+    (is (string= empty-root (state-db-root-hex state)))))
+
 (deftest state-db-from-genesis-json-applies-alloc
   (let* ((json (concatenate
                 'string
