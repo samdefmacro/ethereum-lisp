@@ -2784,6 +2784,88 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-pending-nonce-key (transaction)
   (write-to-string (transaction-nonce transaction) :base 10))
 
+(defun engine-pending-txpool-pending-conflict (txpool transaction)
+  (let* ((sender (engine-payload-store-pending-sender-key transaction))
+         (nonce (engine-payload-store-pending-nonce-key transaction))
+         (sender-transactions
+           (gethash sender
+                    (engine-pending-txpool-transactions-by-sender
+                     txpool))))
+    (and sender-transactions
+         (gethash nonce sender-transactions))))
+
+(defun engine-pending-txpool-index-pending-transaction
+    (txpool transaction)
+  (let* ((sender (engine-payload-store-pending-sender-key transaction))
+         (nonce (engine-payload-store-pending-nonce-key transaction))
+         (sender-transactions
+           (or (gethash
+                sender
+                (engine-pending-txpool-transactions-by-sender txpool))
+               (setf
+                (gethash
+                 sender
+                 (engine-pending-txpool-transactions-by-sender txpool))
+                (make-hash-table :test 'equal)))))
+    (setf (gethash nonce sender-transactions) transaction)))
+
+(defun engine-pending-txpool-unindex-pending-transaction
+    (txpool transaction)
+  (when transaction
+    (let* ((sender (engine-payload-store-pending-sender-key transaction))
+           (nonce (engine-payload-store-pending-nonce-key transaction))
+           (sender-index
+             (engine-pending-txpool-transactions-by-sender txpool))
+           (sender-transactions (gethash sender sender-index))
+           (indexed-transaction
+             (and sender-transactions
+                  (gethash nonce sender-transactions))))
+      (when (and indexed-transaction
+                 (hash32= (transaction-hash indexed-transaction)
+                          (transaction-hash transaction)))
+        (remhash nonce sender-transactions)
+        (when (zerop (hash-table-count sender-transactions))
+          (remhash sender sender-index))))))
+
+(defun engine-pending-txpool-remove-pending-transaction (txpool hash)
+  (let* ((key (engine-payload-store-key hash))
+         (transaction
+           (gethash key (engine-pending-txpool-transactions txpool))))
+    (when transaction
+      (engine-pending-txpool-unindex-pending-transaction
+       txpool
+       transaction)
+      (remhash key (engine-pending-txpool-transactions txpool)))
+    transaction))
+
+(defun engine-pending-txpool-put-pending-transaction
+    (txpool transaction)
+  (let ((key (engine-payload-store-key (transaction-hash transaction)))
+        (transactions (engine-pending-txpool-transactions txpool)))
+    (if (gethash key transactions)
+        (values transaction nil)
+        (progn
+          (let ((conflict
+                  (engine-pending-txpool-pending-conflict
+                   txpool
+                   transaction)))
+            (when conflict
+              (unless (engine-payload-store-replacement-transaction-p
+                       conflict transaction)
+                (block-validation-fail
+                 "Pending transaction replacement underpriced"))
+              (engine-pending-txpool-unindex-pending-transaction
+               txpool
+               conflict)
+              (remhash
+               (engine-payload-store-key (transaction-hash conflict))
+               transactions)))
+          (setf (gethash key transactions) transaction)
+          (engine-pending-txpool-index-pending-transaction
+           txpool
+           transaction)
+          (values transaction t)))))
+
 (defun engine-payload-store-txpool (store)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
@@ -2814,13 +2896,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-txpool store)))
 
 (defun engine-payload-store-pending-conflict (store transaction)
-  (let* ((sender (engine-payload-store-pending-sender-key transaction))
-         (nonce (engine-payload-store-pending-nonce-key transaction))
-         (sender-transactions
-           (gethash sender
-                    (engine-payload-store-pending-sender-index store))))
-    (and sender-transactions
-         (gethash nonce sender-transactions))))
+  (engine-pending-txpool-pending-conflict
+   (engine-payload-store-txpool store)
+   transaction))
 
 (defun engine-payload-store-replacement-price-bumped-p
     (old-transaction new-transaction price-function)
@@ -2843,45 +2921,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     #'transaction-max-priority-fee-per-gas)))
 
 (defun engine-payload-store-index-pending-transaction (store transaction)
-  (let* ((sender (engine-payload-store-pending-sender-key transaction))
-         (nonce (engine-payload-store-pending-nonce-key transaction))
-         (sender-transactions
-           (or (gethash
-                sender
-                (engine-payload-store-pending-sender-index store))
-               (setf
-                (gethash
-                 sender
-                 (engine-payload-store-pending-sender-index store))
-                (make-hash-table :test 'equal)))))
-    (setf (gethash nonce sender-transactions) transaction)))
+  (engine-pending-txpool-index-pending-transaction
+   (engine-payload-store-txpool store)
+   transaction))
 
 (defun engine-payload-store-unindex-pending-transaction (store transaction)
-  (when transaction
-    (let* ((sender (engine-payload-store-pending-sender-key transaction))
-           (nonce (engine-payload-store-pending-nonce-key transaction))
-           (sender-index
-             (engine-payload-store-pending-sender-index store))
-           (sender-transactions (gethash sender sender-index))
-           (indexed-transaction
-             (and sender-transactions
-                  (gethash nonce sender-transactions))))
-      (when (and indexed-transaction
-                 (hash32= (transaction-hash indexed-transaction)
-                          (transaction-hash transaction)))
-        (remhash nonce sender-transactions)
-        (when (zerop (hash-table-count sender-transactions))
-          (remhash sender sender-index))))))
+  (engine-pending-txpool-unindex-pending-transaction
+   (engine-payload-store-txpool store)
+   transaction))
 
 (defun engine-payload-store-remove-pending-transaction (store hash)
-  (let* ((key (engine-payload-store-key hash))
-         (transaction
-           (gethash key
-                    (engine-payload-store-pending-transaction-table store))))
-    (when transaction
-      (engine-payload-store-unindex-pending-transaction store transaction)
-      (remhash key (engine-payload-store-pending-transaction-table store)))
-    transaction))
+  (engine-pending-txpool-remove-pending-transaction
+   (engine-payload-store-txpool store)
+   hash))
 
 (defun engine-payload-store-put-pending-transaction (store transaction)
   (unless (typep store 'engine-payload-memory-store)
@@ -2893,23 +2945,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       blob-transaction
                       set-code-transaction))
     (block-validation-fail "Pending transaction must be a transaction"))
-  (let ((key (engine-payload-store-key (transaction-hash transaction)))
-        (transactions (engine-payload-store-pending-transaction-table store)))
-    (unless (gethash key
-                     transactions)
-      (let ((conflict
-              (engine-payload-store-pending-conflict store transaction)))
-        (when conflict
-          (unless (engine-payload-store-replacement-transaction-p
-                   conflict transaction)
-            (block-validation-fail
-             "Pending transaction replacement underpriced"))
-          (engine-payload-store-unindex-pending-transaction store conflict)
-          (remhash
-           (engine-payload-store-key (transaction-hash conflict))
-           transactions)))
-      (setf (gethash key transactions) transaction)
-      (engine-payload-store-index-pending-transaction store transaction)
+  (multiple-value-bind (transaction inserted-p)
+      (engine-pending-txpool-put-pending-transaction
+       (engine-payload-store-txpool store)
+       transaction)
+    (when inserted-p
       (loop for filter
               being the hash-values of
                 (engine-payload-memory-store-log-filters store)
@@ -2917,8 +2957,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               do (setf (engine-pending-transaction-filter-hashes filter)
                        (append
                         (engine-pending-transaction-filter-hashes filter)
-                        (list (transaction-hash transaction)))))))
-  transaction)
+                        (list (transaction-hash transaction))))))
+    transaction))
 
 (defun engine-payload-store-pending-transaction (store hash)
   (gethash (engine-payload-store-key hash)

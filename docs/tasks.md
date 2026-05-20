@@ -1919,6 +1919,12 @@ splits can land after the Phase A smoke path closes.
     transaction hash storage plus the sender/nonce index behind txpool
     accessors. Pending filters still live on the memory store, but insertion
     now notifies them from txpool-backed pending transaction updates.
+  - Progress: moved pending transaction insert, duplicate detection,
+    same-sender/nonce replacement, and sender/nonce index maintenance behind
+    direct `engine-pending-txpool` helpers. The memory store now acts as the
+    RPC/filter notification wrapper around txpool mutation, giving the txpool
+    state an independently tested mutation boundary before a later file-level
+    module split.
 
 - [~] Add sender/nonce keyed txpool indexing.
   - Milestone: 7

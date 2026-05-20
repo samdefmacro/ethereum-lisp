@@ -3302,6 +3302,83 @@
       (is (eq replacement-transaction
               (gethash nonce-key sender-transactions))))))
 
+(deftest engine-pending-txpool-replaces-same-sender-nonce-directly
+  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (private-key 1)
+         (base-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 6
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (underpriced-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 6
+             :gas-price 109
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (replacement-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 6
+             :gas-price 110
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (sender-key
+           (address-to-hex
+            (or (transaction-sender base-transaction)
+                (zero-address))))
+         (nonce-key (write-to-string
+                     (transaction-nonce base-transaction)
+                     :base 10)))
+    (multiple-value-bind (stored inserted-p)
+        (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+         txpool
+         base-transaction)
+      (is (eq base-transaction stored))
+      (is inserted-p))
+    (multiple-value-bind (stored inserted-p)
+        (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+         txpool
+         base-transaction)
+      (is (eq base-transaction stored))
+      (is (null inserted-p)))
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+       txpool
+       underpriced-transaction))
+    (multiple-value-bind (stored inserted-p)
+        (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+         txpool
+         replacement-transaction)
+      (is (eq replacement-transaction stored))
+      (is inserted-p))
+    (let* ((sender-index
+             (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
+              txpool))
+           (sender-transactions (gethash sender-key sender-index)))
+      (is (= 1
+             (hash-table-count
+              (ethereum-lisp.core::engine-pending-txpool-transactions
+               txpool))))
+      (is (null
+           (gethash
+            (ethereum-lisp.core::engine-payload-store-key
+             (transaction-hash base-transaction))
+            (ethereum-lisp.core::engine-pending-txpool-transactions txpool))))
+      (is (eq replacement-transaction
+              (gethash nonce-key sender-transactions))))))
+
 (deftest execute-and-commit-block-stores-only-after-execution-success
   (let* ((store (make-engine-payload-memory-store))
          (state (make-state-db))
