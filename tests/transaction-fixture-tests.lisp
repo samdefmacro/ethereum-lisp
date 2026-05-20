@@ -298,10 +298,27 @@
                      (cdr entry))))
             result)))))
 
+(defun validate-eest-transaction-test-file-entries (entries path-label)
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (entry entries)
+      (let ((name (car entry)))
+        (unless (stringp name)
+          (error "EEST transaction test file ~A case name must be a string"
+                 path-label))
+        (when (blank-string-p name)
+          (error "EEST transaction test file ~A case name must be present"
+                 path-label))
+        (when (gethash name seen)
+          (error "EEST transaction test file ~A has duplicate case name ~A"
+                 path-label
+                 name))
+        (setf (gethash name seen) t)))))
+
 (defun load-eest-transaction-test-file (path)
   (let ((cases (load-handwritten-fixture-file path)))
     (unless (listp cases)
       (error "EEST transaction test file must be a JSON object"))
+    (validate-eest-transaction-test-file-entries cases path)
     (mapcar
      (lambda (entry)
        (normalize-eest-transaction-test-case (car entry) (cdr entry)))
@@ -328,6 +345,9 @@
   (let ((cases (load-handwritten-fixture-file path)))
     (unless (listp cases)
       (error "EEST transaction test file must be a JSON object"))
+    (validate-eest-transaction-test-file-entries
+     cases
+     (enough-namestring (truename path) (truename root)))
     (let* ((entries (sort (copy-list cases) #'string< :key #'car))
            (singleton-p (= 1 (length entries))))
       (mapcar
@@ -1324,6 +1344,22 @@
     (normalize-eest-transaction-test-case
      "missing-result"
      (list (cons "txbytes" "0x01"))))
+  (validate-eest-transaction-test-file-entries
+   (list (cons "valid-case" nil))
+   "sample.json")
+  (signals error
+    (validate-eest-transaction-test-file-entries
+     (list (cons "" nil))
+     "sample.json"))
+  (signals error
+    (validate-eest-transaction-test-file-entries
+     (list (cons nil nil))
+     "sample.json"))
+  (signals error
+    (validate-eest-transaction-test-file-entries
+     (list (cons "duplicate" nil)
+           (cons "duplicate" nil))
+     "sample.json"))
   (let ((case
           (normalize-eest-transaction-test-case
            "uppercase-success-fields"

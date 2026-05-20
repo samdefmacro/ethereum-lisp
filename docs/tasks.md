@@ -410,6 +410,10 @@ ones.
   - Progress: moved EEST transaction selector validation into the generic root
     loader so direct `:names` usage rejects blank or duplicate selectors before
     fixture discovery and filtering.
+  - Progress: added EEST transaction-test file case-name validation. Imported
+    transaction JSON files now reject blank, non-string, or duplicate top-level
+    case names before normalization, so source-style selectors cannot be
+    polluted by malformed fixture keys.
 
 ## P0: Module Boundaries
 
