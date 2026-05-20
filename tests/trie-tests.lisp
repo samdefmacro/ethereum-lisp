@@ -477,6 +477,16 @@
    root
    :names +phase-a-eest-trie-test-case-names+))
 
+(defun eest-trie-test-case-summary (cases)
+  (list
+   (cons "count" (length cases))
+   (cons "names" (mapcar (lambda (case)
+                           (fixture-required-field case "name"))
+                         cases))
+   (cons "roots" (mapcar (lambda (case)
+                           (fixture-required-field case "root"))
+                         cases))))
+
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
     (cond
@@ -923,13 +933,19 @@
                 "tests/fixtures/execution-spec-tests-root/"))
          (cases (load-eest-trie-test-root-cases root))
          (selected-cases
-           (load-phase-a-eest-trie-test-root-cases root)))
+           (load-phase-a-eest-trie-test-root-cases root))
+         (summary (eest-trie-test-case-summary selected-cases)))
     (is (= 1 (length cases)))
     (is (= 1 (length selected-cases)))
     (is (string= "phase-a-trie-sample.json"
                  (fixture-object-field (first cases) "name")))
     (is (string= "phase-a-trie-sample.json"
                  (fixture-object-field (first selected-cases) "name")))
+    (is (= 1 (fixture-object-field summary "count")))
+    (is (equal '("phase-a-trie-sample.json")
+               (fixture-object-field summary "names")))
+    (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+               (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-sample.json/alpha"
                  (eest-trie-root-case-name root
                                            (first

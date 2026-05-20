@@ -801,6 +801,10 @@ splits can land after the Phase A smoke path closes.
     has a centralized trie selector list and a dedicated loader that rejects
     empty, blank, duplicate, or missing source-style case names before a pinned
     trie subset can be consumed silently.
+    Added a trie-test case summary helper for selected EEST subsets. The
+    harness can now report selected case count, source-style names, and
+    expected roots, giving external trie fixture runs a stable coverage summary
+    before the adapter grows beyond root-only cases.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
