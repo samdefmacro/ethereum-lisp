@@ -6,6 +6,13 @@
     ],
     "root": "8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268"
   },
+  "phase-a-secure-extension": {
+    "in": [
+      ["dog", "left"],
+      ["beam", "right"]
+    ],
+    "root": "2c6f6489a6626f2f887d76882467e53e711032408473799352c0c2d192db7f80"
+  },
   "phase-a-secure-delete": {
     "in": [
       ["dog", "puppy"],

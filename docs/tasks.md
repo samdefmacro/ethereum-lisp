@@ -995,6 +995,9 @@ splits can land after the Phase A smoke path closes.
     Added a selected secureTrie branch-root case and tightened the Phase A
     subset summary/gate to require secure-key replay that forms a branch root,
     broadening secure coverage beyond singleton leaf and delete-to-empty roots.
+    Added a selected secureTrie extension-root case and tightened the Phase A
+    subset summary/gate to require secure-key replay that forms an extension
+    root, covering secure path compression beyond branch roots.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
