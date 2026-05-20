@@ -167,6 +167,14 @@
       (error "~A must be a canonical quantity" label))
     canonical))
 
+(defun transaction-fixture-canonical-hash32 (value label)
+  (declare (ignore label))
+  (hash32-to-hex (hash32-from-hex value)))
+
+(defun transaction-fixture-canonical-address (value label)
+  (declare (ignore label))
+  (address-to-hex (address-from-hex value)))
+
 (defun normalize-eest-transaction-result-entry (case-name fork result)
   (unless (listp result)
     (error "EEST transaction case ~A result for fork ~A must be a JSON object"
@@ -220,14 +228,16 @@
              fork))
     (let ((normalized nil))
       (when hash-present-p
-        (let ((hash (transaction-fixture-normalized-hex
-                     (fixture-required-field result "hash")
+        (let ((hash (transaction-fixture-canonical-hash32
+                     (transaction-fixture-normalized-hex
+                      (fixture-required-field result "hash")
+                      "EEST transaction hash")
                      "EEST transaction hash"))
-              (sender (transaction-fixture-normalized-hex
-                       (fixture-required-field result "sender")
+              (sender (transaction-fixture-canonical-address
+                       (transaction-fixture-normalized-hex
+                        (fixture-required-field result "sender")
+                        "EEST transaction sender")
                        "EEST transaction sender")))
-          (hash32-from-hex hash)
-          (address-from-hex sender)
           (push (cons "hash" hash) normalized)
           (push (cons "sender" sender) normalized)
           (push (cons "intrinsicGas"
@@ -1309,6 +1319,29 @@
     (normalize-eest-transaction-test-case
      "missing-result"
      (list (cons "txbytes" "0x01"))))
+  (let ((case
+          (normalize-eest-transaction-test-case
+           "uppercase-success-fields"
+           (list
+            (cons "txbytes" "0x01")
+            (cons "result"
+                  (list
+                   (cons "Shanghai"
+                         (list
+                          (cons "hash"
+                                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                          (cons "sender"
+                                "ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD")
+                          (cons "intrinsicGas" "0x1")))))))))
+    (let ((shanghai (fixture-object-field
+                     (fixture-object-field case "result")
+                     "Shanghai")))
+      (is (string=
+           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+           (fixture-object-field shanghai "hash")))
+      (is (string=
+           "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+           (fixture-object-field shanghai "sender")))))
   (signals error
     (normalize-eest-transaction-test-case
      "unknown-case-field"
