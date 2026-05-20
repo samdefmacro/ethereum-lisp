@@ -974,6 +974,14 @@
         (progn
           (validate-transaction-fixture-quantity-field
            vector fork result "intrinsicGas")
+          (unless hash-present-p
+            (error "Transaction fixture ~A valid result for fork ~A needs hash"
+                   (fixture-object-field vector "name")
+                   fork))
+          (unless sender-present-p
+            (error "Transaction fixture ~A valid result for fork ~A needs sender"
+                   (fixture-object-field vector "name")
+                   fork))
           (when hash-present-p
             (validate-transaction-fixture-hash-result-field
              vector fork result)
@@ -1472,8 +1480,9 @@
        :dynamic-fee
        "Berlin"
        (list (cons "exception" "TransactionException.TYPE_1_TX_PRE_FORK"))))
-    (validate-transaction-fixture-result-entry
-     vector :dynamic-fee "London" (list (cons "intrinsicGas" "0x5208")))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector :dynamic-fee "London" (list (cons "intrinsicGas" "0x5208"))))
     (validate-transaction-fixture-result-entry
      vector
      :dynamic-fee

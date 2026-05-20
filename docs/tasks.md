@@ -304,6 +304,11 @@ ones.
     explicit blank `exception` fields, and all entries reject unknown fields,
     leaving only the unambiguous `intrinsicGas` or non-empty `exception`
     forms.
+  - Progress: tightened successful per-fork transaction result entries so they
+    must carry `hash`, `sender`, and canonical `intrinsicGas` together. This
+    keeps the local envelope wrapper aligned with the EEST transaction-test
+    success shape and prevents fork-specific success metadata from being
+    silently reduced to gas-only assertions.
   - Progress: moved decoded raw-transaction hash and sender checks into
     transaction fixture loading. Fixture vectors now fail during shape
     validation if `txbytes` decodes to a transaction whose hash or recovered
