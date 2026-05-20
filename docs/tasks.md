@@ -958,6 +958,9 @@ splits can land after the Phase A smoke path closes.
     Added a selected branch-value deletion EEST-style trie case and tightened
     the Phase A subset summary/gate to require an empty-key delete whose final
     root remains non-empty, covering branch-value collapse after deletion.
+    Added a selected secureTrie branch-root case and tightened the Phase A
+    subset summary/gate to require secure-key replay that forms a branch root,
+    broadening secure coverage beyond singleton leaf and delete-to-empty roots.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
