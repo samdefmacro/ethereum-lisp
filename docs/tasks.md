@@ -650,6 +650,10 @@ splits can land after the Phase A smoke path closes.
     `src/core.lisp`.
   - Progress: moved `eth_feeHistory` and its block-window, reward percentile,
     base-fee/blob-fee helper logic into `src/public-rpc.lisp`.
+  - Progress: moved account/storage read and proof RPC helpers into
+    `src/public-rpc.lisp`, covering `eth_getBalance`,
+    `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, and
+    `eth_getProof`.
 
 ## P0: Chain Store And Canonical Indexes
 
