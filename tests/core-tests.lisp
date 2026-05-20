@@ -10745,7 +10745,8 @@ Content-Length: 4
                        "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
                        (length body)
                        body))))
-    (let* ((service (make-engine-rpc-http-service))
+    (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+           (service (make-engine-rpc-http-service :telemetry-sink sink))
            (output-a (make-string-output-stream))
            (output-b (make-string-output-stream))
            (closed-connections 0)
@@ -10783,6 +10784,26 @@ Content-Length: 4
         (is (= 200 (http-status response-b)))
         (is (= 21 (field rpc-a "id")))
         (is (= 22 (field rpc-b "id"))))
+      (let ((events (ethereum-lisp.telemetry:telemetry-events sink)))
+        (is (= 9 (length events)))
+        (is (string= "engine.rpc.http.listener.start"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (first events))))
+        (is (string= "engine.rpc.http.stream.start"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (second events))))
+        (is (string= "engine.rpc.http.stream.finish"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (fourth events))))
+        (is (string= "engine.rpc.http.listener.connections"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (eighth events))))
+        (is (= 2
+               (ethereum-lisp.telemetry:telemetry-event-value
+                (eighth events))))
+        (is (string= "engine.rpc.http.listener.finish"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (ninth events)))))
       (signals block-validation-error
         (engine-rpc-http-listener-accept
          (make-engine-rpc-http-listener

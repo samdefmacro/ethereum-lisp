@@ -4298,9 +4298,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (and (integerp max-connections) (<= 0 max-connections)))
     (block-validation-fail "Engine RPC HTTP max connections must be non-negative"))
   (let ((served 0)
-        (stop-p (or stop-p (lambda () nil))))
+        (stop-p (or stop-p (lambda () nil)))
+        (sink (engine-rpc-http-service-telemetry-sink service))
+        (fields `(("endpoint" . ,(engine-rpc-http-listener-endpoint listener))
+                  ("host" . ,(engine-rpc-http-service-host service))
+                  ("port" . ,(engine-rpc-http-service-port service)))))
     (unless (functionp stop-p)
       (block-validation-fail "Engine RPC HTTP stop predicate must be a function"))
+    (ethereum-lisp.telemetry:telemetry-log
+     :info
+     "engine.rpc.http.listener.start"
+     :sink sink
+     :fields fields)
     (unwind-protect
          (loop until (or (and max-connections (>= served max-connections))
                          (funcall stop-p))
@@ -4313,6 +4322,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                         (engine-rpc-http-connection-output-stream connection))
                     (engine-rpc-http-connection-close connection))
                   (incf served))
+      (ethereum-lisp.telemetry:telemetry-metric
+       "engine.rpc.http.listener.connections"
+       served
+       :sink sink
+       :fields fields)
+      (ethereum-lisp.telemetry:telemetry-log
+       :info
+       "engine.rpc.http.listener.finish"
+       :sink sink
+       :fields fields)
       (engine-rpc-http-listener-close listener))
     served))
 
