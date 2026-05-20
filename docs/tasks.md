@@ -577,7 +577,7 @@ splits can land after the Phase A smoke path closes.
     surface; those boundaries now live in `src/chain-config.lisp` and
     `src/genesis.lisp`.
 
-- [~] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
+- [x] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
   `src/core.lisp`.
   - Milestone: 5
   - References: geth `core/block_validator.go`, `consensus/misc`; Nethermind
@@ -593,6 +593,15 @@ splits can land after the Phase A smoke path closes.
     withdrawal list validation, and aggregate blob-gas accounting into
     `src/block-validation.lisp`. Transaction field validators and
     post-execution receipt/state-root validation remain in `src/core.lisp`.
+  - Progress: moved post-execution receipt/state-root validation, receipt list
+    field checks, log field checks, and receipt gas accounting into
+    `src/block-validation.lisp`. Transaction field validators remain in
+    `src/core.lisp`.
+  - Result: complete. Header validation, body validation, fork-aware
+    header/body gates, aggregate blob-gas checks, and post-execution
+    receipt/state-root validation now live behind `src/block-validation.lisp`;
+    shared transaction and block-access-list field validators remain with the
+    transaction/data structures in `src/core.lisp`.
 
 - [ ] `MOD-ENGINE-RPC`: Split Engine API payload/RPC handlers out of
   `src/core.lisp`.
