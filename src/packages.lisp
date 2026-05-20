@@ -881,6 +881,7 @@
         #:ethereum-lisp.state
         #:ethereum-lisp.evm)
   (:export
+   #:execute-message-call
    #:apply-legacy-message
    #:apply-signed-message
    #:apply-signed-message-list
@@ -1716,6 +1717,7 @@
    #:execution-result-receipts-root
    #:execute-legacy-transactions)
   (:import-from #:ethereum-lisp.execution
+   #:execute-message-call
    #:apply-legacy-message
    #:apply-signed-message
    #:apply-signed-message-list
@@ -2538,6 +2540,7 @@
    #:execution-result-transactions-root
    #:execution-result-receipts-root
    #:execute-legacy-transactions
+   #:execute-message-call
    #:apply-legacy-message
    #:apply-signed-message
    #:apply-signed-message-list

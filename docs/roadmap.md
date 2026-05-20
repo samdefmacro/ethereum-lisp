@@ -75,7 +75,9 @@ fixes in those areas are allowed; expansion is not.
   store with explicit canonical number-to-hash indexes and typed head/safe/
   finalized checkpoints. Engine forkchoice updates now drive the in-memory
   canonical-head switch path, including transaction, receipt, block-receipt,
-  state, and log visibility across branch switches. Signed block import,
+  state, and log visibility across branch switches. Public `eth_call` can now
+  execute simple retained-state calls against a copied state DB without
+  committing writes. Signed block import,
   Engine payload import, transaction admission, and mined transaction RPC
   objects require real sender recovery rather than zero-address fallbacks. The
   in-memory Engine import path is atomic for state DB plus block, receipt,
@@ -779,7 +781,9 @@ account nonce snapshots and now folds local pending txpool transactions into
 the `"pending"` nonce result, `eth_getCode` returns retained account bytecode
 snapshots with empty code for missing accounts, `eth_getStorageAt` reads
 retained account storage slot snapshots as 32-byte words with zero words for
-missing accounts/slots, and
+missing accounts/slots, `eth_call` executes a first legacy-style call object
+against retained block state, returning EVM output/revert data while discarding
+state writes, and
 `eth_getHeaderByNumber`/`eth_getHeaderByHash` can return canonical memory-store
 headers for `latest`, `pending`, `safe`, `finalized`, `earliest`, hex block
 quantities, or block hashes, with `safe`/`finalized` following retained

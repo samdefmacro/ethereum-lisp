@@ -7711,6 +7711,54 @@
         (is (= -32602 (field invalid-params-error "code")))
         (is (= -32602 (field too-many-storage-keys-error "code")))))))
 
+(deftest eth-rpc-call-executes-retained-state-without-commit
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           (slot
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000001"))
+           ;; SSTORE slot 1 := 42; MSTORE 0 := 7; RETURN mem[0:32].
+           (code #(96 42 96 1 85 96 7 96 0 82 96 32 96 0 243))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 30
+                       :timestamp 300
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state))))
+           (expected (let ((bytes (make-byte-vector 32)))
+                       (setf (aref bytes 31) 7)
+                       (bytes-to-hex bytes))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 104)
+                      (cons "method" "eth_call")
+                      (cons "params"
+                            (list
+                             (list (cons "to" (address-to-hex contract))
+                                   (cons "gas" (quantity-to-hex 100000))
+                                   (cons "data" "0x"))
+                             "latest")))
+                store
+                config))
+             (result (field response "result")))
+        (is (string= expected result))
+        (is (= 0
+               (chain-store-account-storage
+                store (block-hash block) contract slot)))))))
+
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

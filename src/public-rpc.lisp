@@ -590,6 +590,104 @@
                 store (block-hash block)))
       (eth-rpc-build-proof-object store (block-hash block) address slots))))
 
+(defun eth-rpc-call-object-optional-address (object name method)
+  (when (genesis-object-field-present-p object name)
+    (eth-rpc-address-param (genesis-object-field object name) method name)))
+
+(defun eth-rpc-call-object-quantity-field (object name method &key default)
+  (if (genesis-object-field-present-p object name)
+      (parse-genesis-quantity
+       (genesis-object-field object name)
+       name
+       :required-p t)
+      default))
+
+(defun eth-rpc-call-object-data (object method)
+  (let* ((data-present-p (genesis-object-field-present-p object "data"))
+         (input-present-p (genesis-object-field-present-p object "input"))
+         (data (when data-present-p
+                 (engine-rpc-bytes (genesis-object-field object "data")
+                                   "eth_call data")))
+         (input (when input-present-p
+                  (engine-rpc-bytes (genesis-object-field object "input")
+                                    "eth_call input"))))
+    (when (and data input (not (bytes= data input)))
+      (block-validation-fail "~A data and input fields must match" method))
+    (or data input (make-byte-vector 0))))
+
+(defun eth-rpc-call-object-transaction (object header method)
+  (unless (json-object-p object)
+    (block-validation-fail "~A call object must be a JSON object" method))
+  (let* ((sender (or (eth-rpc-call-object-optional-address object "from" method)
+                     (zero-address)))
+         (recipient
+           (eth-rpc-call-object-optional-address object "to" method))
+         (gas-limit
+           (eth-rpc-call-object-quantity-field
+            object "gas" method
+            :default (or (and header (block-header-gas-limit header))
+                         +genesis-gas-limit+)))
+         (gas-price
+           (or (eth-rpc-call-object-quantity-field
+                object "gasPrice" method)
+               (eth-rpc-call-object-quantity-field
+                object "maxFeePerGas" method)
+               0))
+         (value
+           (eth-rpc-call-object-quantity-field
+            object "value" method :default 0))
+         (data (eth-rpc-call-object-data object method)))
+    (unless recipient
+      (block-validation-fail
+       "~A contract creation calls are not supported yet" method))
+    (values
+     sender
+     (make-legacy-transaction :gas-price gas-price
+                              :gas-limit gas-limit
+                              :to recipient
+                              :value value
+                              :data data))))
+
+(defun engine-rpc-handle-eth-call (params store config)
+  (unless (or (= 1 (length params)) (= 2 (length params)))
+    (block-validation-fail
+     "eth_call params must contain call object and optional block id"))
+  (let* ((block (eth-rpc-block-param
+                 (list (if (= 2 (length params)) (second params) "latest"))
+                 store
+                 "eth_call")))
+    (when (and block
+               (chain-store-state-available-p store (block-hash block)))
+      (multiple-value-bind (sender tx)
+          (eth-rpc-call-object-transaction
+           (first params) (block-header block) "eth_call")
+        (handler-case
+            (multiple-value-bind (status return-data gas-used)
+                (ethereum-lisp.execution:execute-message-call
+                 (ethereum-lisp.execution:chain-store-state-db
+                  store (block-hash block))
+                 sender
+                 tx
+                 :base-fee (or (block-header-base-fee-per-gas
+                                (block-header block))
+                               0)
+                 :chain-id (if config (chain-config-chain-id config) 0)
+                 :chain-config config
+                 :coinbase (or (block-header-beneficiary (block-header block))
+                               (zero-address))
+                 :timestamp (block-header-timestamp (block-header block))
+                 :block-number (block-header-number (block-header block))
+                 :prev-randao (or (block-header-mix-hash (block-header block))
+                                  (zero-hash32))
+                 :difficulty (block-header-difficulty (block-header block))
+                 :random-p t
+                 :context-gas-limit (block-header-gas-limit (block-header block)))
+              (declare (ignore status gas-used))
+              (bytes-to-hex return-data))
+          (ethereum-lisp.state:transaction-validation-error ()
+            (block-validation-fail
+             "eth_call transaction is invalid")))))))
+
 (defun eth-rpc-header-object (header)
   (unless (block-header-p header)
     (block-validation-fail "eth header result must be a block header"))
@@ -1888,6 +1986,9 @@
     ((string= method "eth_getProof")
      (engine-rpc-response
       id :result (engine-rpc-handle-eth-get-proof params store)))
+    ((string= method "eth_call")
+     (engine-rpc-response
+      id :result (engine-rpc-handle-eth-call params store config)))
     ((string= method "eth_getHeaderByNumber")
      (engine-rpc-response
       id :result (engine-rpc-handle-eth-get-header-by-number params store)))

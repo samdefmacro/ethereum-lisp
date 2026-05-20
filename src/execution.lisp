@@ -556,6 +556,68 @@
                                            :coinbase coinbase
                                            :chain-rules effective-chain-rules))))
 
+(defun execute-message-call
+    (state sender tx
+     &key (base-fee 0)
+          (blob-base-fee 0)
+          (chain-id 0)
+          chain-rules
+          chain-config
+          (coinbase (zero-address))
+          (timestamp 0)
+          (block-number 0)
+          (prev-randao (zero-hash32))
+          (difficulty 0)
+          (random-p t)
+          (context-gas-limit 0))
+  "Execute a call-style transaction against a copied state DB.
+
+Returns status, return data, and gas used as multiple values. The caller's
+state object is never mutated."
+  (let* ((effective-chain-rules
+           (execution-chain-rules chain-rules chain-config block-number timestamp))
+         (recipient (transaction-to tx)))
+    (validate-execution-transaction-fields tx effective-chain-rules blob-base-fee)
+    (unless recipient
+      (error 'transaction-validation-error
+             :message "eth_call contract creation is not supported yet"))
+    (let* ((call-state (state-db-copy state))
+           (gas-limit (transaction-gas-limit tx))
+           (gas-price (transaction-effective-gas-price tx :base-fee base-fee))
+           (intrinsic-gas (execution-transaction-intrinsic-gas
+                           tx effective-chain-rules))
+           (code (execution-resolved-code call-state recipient)))
+      (if (zerop (length code))
+          (values :successful (make-byte-vector 0) intrinsic-gas)
+          (handler-case
+              (let* ((context
+                       (make-message-evm-context
+                        call-state sender tx recipient (transaction-data tx)
+                        gas-price
+                        :base-fee base-fee
+                        :blob-base-fee blob-base-fee
+                        :chain-id chain-id
+                        :chain-rules effective-chain-rules
+                        :chain-config chain-config
+                        :coinbase coinbase
+                        :timestamp timestamp
+                        :block-number block-number
+                        :prev-randao prev-randao
+                        :difficulty difficulty
+                        :random-p random-p
+                        :context-gas-limit context-gas-limit))
+                     (result
+                       (execute-bytecode
+                        code
+                        :context context
+                        :gas-limit (- gas-limit intrinsic-gas))))
+                (values (evm-result-status result)
+                        (copy-seq (evm-result-return-data result))
+                        (transaction-evm-gas-used
+                         tx result effective-chain-rules)))
+            (evm-error ()
+              (values :failed (make-byte-vector 0) gas-limit)))))))
+
 (defun apply-contract-creation (state sender tx
                                 &key (base-fee 0)
                                      (blob-base-fee 0)
