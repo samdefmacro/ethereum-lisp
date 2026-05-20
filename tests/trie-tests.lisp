@@ -393,7 +393,12 @@
                       (char= #\x (char-downcase (char value 1))))
                  value
                  (concatenate 'string "0x" value))))
-       (hash32-to-hex (hash32-from-hex normalized))))))
+       (handler-case
+           (hash32-to-hex (hash32-from-hex normalized))
+         (error (condition)
+           (error "EEST trie test case ~A root must be a 32-byte hex hash: ~A"
+                  case-name
+                  condition)))))))
 
 (defun eest-trie-test-prefixed-hex-string-p (value)
   (and (stringp value)
@@ -1145,6 +1150,17 @@
      "bad-root"
      (list (cons "in" nil)
            (cons "root" "0x1234"))))
+  (is (handler-case
+          (progn
+            (normalize-eest-trie-test-case
+             "bad-root-message"
+             (list (cons "in" nil)
+                   (cons "root" "0x1234")))
+            nil)
+        (error (condition)
+          (not (null
+                (search "EEST trie test case bad-root-message root must be a 32-byte hex hash"
+                        (princ-to-string condition)))))))
   (signals error
     (normalize-eest-trie-test-case
      "unknown-field"

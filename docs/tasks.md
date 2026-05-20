@@ -843,6 +843,9 @@ splits can land after the Phase A smoke path closes.
     while unprefixed ASCII fixture strings remain unchanged.
     Hardened EEST trie-test root validation so null, blank, non-string, and
     malformed roots fail through adapter-specific errors before hash decoding.
+    Wrapped malformed EEST trie-test root hash decoding with the source case
+    name, so bad pinned vectors report the failing trie case instead of only a
+    lower-level hex/hash error.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
