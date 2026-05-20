@@ -998,6 +998,8 @@ splits can land after the Phase A smoke path closes.
     Added a selected secureTrie extension-root case and tightened the Phase A
     subset summary/gate to require secure-key replay that forms an extension
     root, covering secure path compression beyond branch roots.
+    Tightened the same summary/gate to track secure extension child-reference
+    kinds separately and require a secure hashed extension child reference.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

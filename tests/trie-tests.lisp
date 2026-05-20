@@ -838,6 +838,13 @@
                  for trie in tries
                  when (string= "extension" shape)
                    collect (trie-fixture-extension-child-reference-kind trie)))
+         (secure-extension-child-reference-kinds
+           (loop for secure-p in secure-flags
+                 for shape in root-shapes
+                 for trie in tries
+                 when (and secure-p
+                           (string= "extension" shape))
+                   collect (trie-fixture-extension-child-reference-kind trie)))
          (branch-child-reference-kinds
            (loop for shape in root-shapes
                  for trie in tries
@@ -902,10 +909,16 @@
            branch-child-delete-value-leaf-count)
      (cons "extensionRootCount" (count "extension" root-shapes :test #'string=))
      (cons "extensionChildReferenceKinds" extension-child-reference-kinds)
+     (cons "secureExtensionChildReferenceKinds"
+           secure-extension-child-reference-kinds)
      (cons "embeddedExtensionChildReferenceCount"
            (count "embedded" extension-child-reference-kinds :test #'string=))
      (cons "hashedExtensionChildReferenceCount"
            (count "hashed" extension-child-reference-kinds :test #'string=))
+     (cons "secureHashedExtensionChildReferenceCount"
+           (count "hashed"
+                  secure-extension-child-reference-kinds
+                  :test #'string=))
      (cons "nonEmptyDeleteRootCount" non-empty-delete-root-count)
      (cons "entryCounts" entry-counts)
      (cons "totalEntryCount" (reduce #'+ entry-counts :initial-value 0))
@@ -969,6 +982,8 @@
       (error "Phase A EEST trie subset must include an embedded extension child reference"))
     (when (zerop (fixture-object-field summary "hashedExtensionChildReferenceCount"))
       (error "Phase A EEST trie subset must include a hashed extension child reference"))
+    (when (zerop (fixture-object-field summary "secureHashedExtensionChildReferenceCount"))
+      (error "Phase A EEST trie subset must include a secure hashed extension child reference"))
     (when (zerop (fixture-object-field summary "nonEmptyDeleteRootCount"))
       (error "Phase A EEST trie subset must include a delete case with a non-empty final root"))))
 
@@ -1802,9 +1817,15 @@
     (is (= 4 (fixture-object-field summary "extensionRootCount")))
     (is (equal '("hashed" "embedded" "embedded" "hashed")
                (fixture-object-field summary "extensionChildReferenceKinds")))
+    (is (equal '("hashed")
+               (fixture-object-field summary "secureExtensionChildReferenceKinds")))
     (is (= 2 (fixture-object-field summary "embeddedExtensionChildReferenceCount")))
     (is (= 2 (fixture-object-field summary "hashedExtensionChildReferenceCount")))
+    (is (= 1 (fixture-object-field summary "secureHashedExtensionChildReferenceCount")))
     (is (= 3 (fixture-object-field summary "nonEmptyDeleteRootCount")))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (remove (third selected-cases) selected-cases)))
     (is (equal '(2 2 2 1 1 2 2 3 3 4 2 4 2 4)
                (fixture-object-field summary "entryCounts")))
     (is (= 34 (fixture-object-field summary "totalEntryCount")))
