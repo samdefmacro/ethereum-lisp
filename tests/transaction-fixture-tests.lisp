@@ -430,6 +430,8 @@
        (null (search "//" name))
        (let ((json-position (search ".json" name :test #'char-equal)))
          (and json-position
+              (plusp json-position)
+              (not (char= (char name (1- json-position)) #\/))
               (let ((after-json (+ json-position 5)))
                 (or (= after-json (length name))
                     (and (< after-json (length name))
@@ -1790,6 +1792,10 @@
       (validate-eest-transaction-selector-list '("/absolute.json")))
     (signals error
       (validate-eest-transaction-selector-list '("dir//case.json")))
+    (signals error
+      (validate-eest-transaction-selector-list '(".json/case")))
+    (signals error
+      (validate-eest-transaction-selector-list '("dir/.json/case")))
     (signals error
       (validate-eest-transaction-selector-list '("case.jsonx/name")))
     (signals error

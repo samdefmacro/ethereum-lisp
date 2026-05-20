@@ -462,6 +462,9 @@ ones.
   - Progress: tightened EEST transaction root-file loading so generated
     source names must pass the same source-style selector validation before
     case normalization, catching mismatched root/path calls early.
+  - Progress: tightened EEST transaction selector source-style validation so
+    empty JSON file stems such as `.json/case` and `dir/.json/case` are
+    rejected before Phase A pinned selector lists are accepted.
 
 ## P0: Module Boundaries
 
