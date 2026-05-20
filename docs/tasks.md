@@ -1835,6 +1835,11 @@ splits can land after the Phase A smoke path closes.
     then added a regression for `e(P,Q) * e(P,-Q) = 1`. This keeps the
     stopgap precompile behavior aligned with the geth/Nethermind point
     encoding while the full optimal Ate implementation remains outstanding.
+  - Progress: added mixed zero/non-zero pairing regressions matching the
+    reference-client rule that G1/G2 zero-element pairs are skipped before the
+    pairing product is checked. The tests now lock both `zero + non-cancelled`
+    false output and `zero + cancelled` true output for the current stopgap
+    pairing model.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5

@@ -1586,6 +1586,16 @@
              (execute-bytecode
               (pairing-code-sized (concat-bytes g g2))
               :context context))
+           (mixed-zero-noncancel-result
+             (execute-bytecode
+              (pairing-code-sized
+               (concat-bytes g (make-byte-vector 128) g g2))
+              :context context))
+           (mixed-zero-cancel-result
+             (execute-bytecode
+              (pairing-code-sized
+               (concat-bytes g (make-byte-vector 128) g g2 negative-g g2))
+              :context context))
            (malformed-result (execute-bytecode malformed-code :context context)))
       (is (= 1 (first (evm-result-stack empty-result))))
       (is (= 1 (aref (evm-result-return-data empty-result) 31)))
@@ -1602,6 +1612,12 @@
       (is (= 1 (first (evm-result-stack nonempty-false-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data nonempty-false-result)))
+      (is (= 1 (first (evm-result-stack mixed-zero-noncancel-result))))
+      (is (bytes= (make-byte-vector 32)
+                  (evm-result-return-data mixed-zero-noncancel-result)))
+      (is (= 1 (first (evm-result-stack mixed-zero-cancel-result))))
+      (is (= 1 (aref (evm-result-return-data mixed-zero-cancel-result)
+                     31)))
       (is (= 0 (first (evm-result-stack invalid-g2-coordinate-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data invalid-g2-coordinate-result)))
