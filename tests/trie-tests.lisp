@@ -735,6 +735,10 @@
            (mapcar (lambda (case)
                      (fixture-required-field case "entries"))
                    cases))
+         (secure-flags
+           (mapcar (lambda (case)
+                     (not (null (fixture-object-field case "secure"))))
+                   cases))
          (entry-counts
            (mapcar #'length entries-by-case))
          (delete-counts
@@ -750,6 +754,9 @@
      (cons "names" (mapcar (lambda (case)
                              (fixture-required-field case "name"))
                            cases))
+     (cons "secureFlags" secure-flags)
+     (cons "secureCaseCount" (count t secure-flags))
+     (cons "plainCaseCount" (count nil secure-flags))
      (cons "entryCounts" entry-counts)
      (cons "totalEntryCount" (reduce #'+ entry-counts :initial-value 0))
      (cons "writeEntryCounts" write-counts)
@@ -1436,6 +1443,10 @@
     (is (equal '("phase-a-secureTrie.json"
                  "phase-a-trie-sample.json")
                (fixture-object-field summary "names")))
+    (is (equal '(t nil)
+               (fixture-object-field summary "secureFlags")))
+    (is (= 1 (fixture-object-field summary "secureCaseCount")))
+    (is (= 1 (fixture-object-field summary "plainCaseCount")))
     (is (equal '(1 4)
                (fixture-object-field summary "entryCounts")))
     (is (= 5 (fixture-object-field summary "totalEntryCount")))
