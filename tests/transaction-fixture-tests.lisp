@@ -399,7 +399,9 @@
               (let ((after-json (+ json-position 5)))
                 (or (= after-json (length name))
                     (and (< after-json (length name))
-                         (char= (char name after-json) #\/))))))))
+                         (char= (char name after-json) #\/)
+                         (< (1+ after-json) (length name))
+                         (not (char= (char name (1+ after-json)) #\/)))))))))
 
 (defun load-eest-transaction-test-root-cases (root &key names)
   (when names
@@ -1677,6 +1679,10 @@
       (validate-eest-transaction-selector-list '("/absolute.json")))
     (signals error
       (validate-eest-transaction-selector-list '("case.jsonx/name")))
+    (signals error
+      (validate-eest-transaction-selector-list '("case.json/")))
+    (signals error
+      (validate-eest-transaction-selector-list '("case.json//name")))
     (signals error
       (validate-eest-transaction-selector-list
        '("phase-a-sample.json" "phase-a-sample.json"))))

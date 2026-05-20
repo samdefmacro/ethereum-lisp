@@ -421,6 +421,8 @@ ones.
   - Progress: tightened EEST transaction selector validation to require
     source-style JSON case names (`file.json` or `file.json/case`) and reject
     bare names, absolute paths, and parent-directory escapes before loading.
+  - Progress: tightened the same selector shape to reject empty or doubled
+    case separators such as `file.json/` and `file.json//case`.
 
 ## P0: Module Boundaries
 
