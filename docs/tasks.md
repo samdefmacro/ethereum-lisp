@@ -1415,6 +1415,11 @@ splits can land after the Phase A smoke path closes.
     with child index `0`. This keeps the external-style trie selector aligned
     with the local seed fixture before real pinned trie vectors replace the
     in-repo samples.
+    Added an object-form branch-root case to the selected EEST-style trie
+    subset and promoted normalized `inputForm` tracking into a Phase A coverage
+    gate. The selected subset now fails if all trie-test `in` inputs are
+    array-of-pairs form, keeping Nethermind/geth-style object-form trie tests
+    represented before pinned vectors replace the in-repo samples.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
