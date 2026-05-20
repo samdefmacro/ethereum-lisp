@@ -389,8 +389,7 @@
                    (char= #\x (char-downcase (char value 1))))
               value
               (concatenate 'string "0x" value))))
-    (hash32-from-hex normalized)
-    normalized))
+    (hash32-to-hex (hash32-from-hex normalized))))
 
 (defun eest-trie-test-prefixed-hex-string-p (value)
   (and (stringp value)
@@ -1062,6 +1061,14 @@
     (is (string= "dog"
                  (fixture-object-field entry "key")))
     (is (fixture-object-field entry "delete")))
+  (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+               (fixture-object-field
+                (normalize-eest-trie-test-case
+                 "uppercase-root"
+                 (list (cons "in" nil)
+                       (cons "root"
+                             "0X56E81F171BCC55A6FF8345E692C0F86E5B48E01B996CADC001622FB5E363B421")))
+                "root")))
   (signals error
     (normalize-eest-trie-test-case
      "missing-root"

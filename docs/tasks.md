@@ -835,6 +835,9 @@ splits can land after the Phase A smoke path closes.
     case while preserving singleton file names for selected Phase A vectors.
     Added empty EEST trie-test file rejection so direct file and root imports
     fail loudly when a discovered JSON file contains no cases.
+    Canonicalized EEST trie-test expected roots after hash32 validation so
+    mixed-case or `0X`-prefixed fixture hashes compare against replayed MPT
+    roots using the local stable lowercase `0x` representation.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
