@@ -381,10 +381,25 @@
     (dolist (name names)
       (when (blank-string-p name)
         (error "EEST transaction selector name must be present"))
+      (unless (eest-transaction-selector-source-style-p name)
+        (error "EEST transaction selector ~A must be a source-style JSON case name"
+               name))
       (when (gethash name seen)
         (error "EEST transaction selector list has duplicate name ~A"
                name))
       (setf (gethash name seen) t))))
+
+(defun eest-transaction-selector-source-style-p (name)
+  (and (stringp name)
+       (not (blank-string-p name))
+       (not (char= (char name 0) #\/))
+       (null (search ".." name))
+       (let ((json-position (search ".json" name :test #'char-equal)))
+         (and json-position
+              (let ((after-json (+ json-position 5)))
+                (or (= after-json (length name))
+                    (and (< after-json (length name))
+                         (char= (char name after-json) #\/))))))))
 
 (defun load-eest-transaction-test-root-cases (root &key names)
   (when names
@@ -1654,6 +1669,14 @@
       (validate-eest-transaction-selector-list nil))
     (signals error
       (validate-eest-transaction-selector-list '("")))
+    (signals error
+      (validate-eest-transaction-selector-list '("bare-case-name")))
+    (signals error
+      (validate-eest-transaction-selector-list '("../escape.json")))
+    (signals error
+      (validate-eest-transaction-selector-list '("/absolute.json")))
+    (signals error
+      (validate-eest-transaction-selector-list '("case.jsonx/name")))
     (signals error
       (validate-eest-transaction-selector-list
        '("phase-a-sample.json" "phase-a-sample.json"))))

@@ -418,6 +418,9 @@ ones.
     order and reject duplicate loaded source-style case names, so Phase A
     subset summaries now fail if selected vector names do not exactly match
     the pinned selector list order.
+  - Progress: tightened EEST transaction selector validation to require
+    source-style JSON case names (`file.json` or `file.json/case`) and reject
+    bare names, absolute paths, and parent-directory escapes before loading.
 
 ## P0: Module Boundaries
 
