@@ -861,6 +861,9 @@ splits can land after the Phase A smoke path closes.
     Added write/delete entry counts to the same summaries, making it visible
     whether selected trie-test roots exercise deletion paths instead of only
     insert/update replay.
+    Added string-valued object-form `in` support to the EEST trie-test adapter,
+    matching the Nethermind classic TrieTest JSON path alongside the existing
+    array-of-pairs path, with duplicate object-key rejection before replay.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

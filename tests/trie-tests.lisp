@@ -442,6 +442,20 @@
           (fixture-required-field case "root")
           name))))
 
+(defun eest-trie-test-entry-pair-p (entry)
+  (and (consp entry)
+       (consp (cdr entry))
+       (null (cddr entry))))
+
+(defun eest-trie-test-object-entry-p (entry)
+  (and (consp entry)
+       (stringp (car entry))
+       (stringp (cdr entry))))
+
+(defun eest-trie-test-object-entries-p (entries)
+  (and entries
+       (every #'eest-trie-test-object-entry-p entries)))
+
 (defun eest-trie-test-entry-label (case-name index field)
   (if index
       (format nil "EEST trie test case ~A in entry ~D ~A"
@@ -453,8 +467,7 @@
               field)))
 
 (defun normalize-eest-trie-test-entry (case-name entry &optional index)
-  (unless (and (listp entry)
-               (= 2 (length entry)))
+  (unless (eest-trie-test-entry-pair-p entry)
     (if index
         (error "EEST trie test case ~A in entry ~D must be a key/value pair"
                case-name
@@ -497,12 +510,30 @@
                (list (cons "key" normalized-key)
                      (cons "value" normalized-value)))))))))
 
+(defun normalize-eest-trie-test-object-entries (case-name entries)
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (entry entries)
+      (let ((key (car entry)))
+        (when (gethash key seen)
+          (error "EEST trie test case ~A in object has duplicate key ~A"
+                 case-name
+                 key))
+        (setf (gethash key seen) t))))
+  (loop for entry in (sort (copy-list entries) #'string< :key #'car)
+        for index from 0
+        collect (normalize-eest-trie-test-entry
+                 case-name
+                 (list (car entry) (cdr entry))
+                 index)))
+
 (defun normalize-eest-trie-test-entries (case-name entries)
   (unless (listp entries)
     (error "EEST trie test case ~A in must be a JSON array" case-name))
-  (loop for entry in entries
-        for index from 0
-        collect (normalize-eest-trie-test-entry case-name entry index)))
+  (if (eest-trie-test-object-entries-p entries)
+      (normalize-eest-trie-test-object-entries case-name entries)
+      (loop for entry in entries
+            for index from 0
+            collect (normalize-eest-trie-test-entry case-name entry index))))
 
 (defun run-eest-trie-test-case (case)
   (let ((trie (make-mpt)))
@@ -1128,6 +1159,19 @@
     (is (string= "dog"
                  (fixture-object-field entry "key")))
     (is (fixture-object-field entry "delete")))
+  (let* ((case (normalize-eest-trie-test-case
+                "object-form-entry"
+                (list (cons "in" (list (cons "dog" "puppy")))
+                      (cons "root"
+                            "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+         (entry (first (fixture-required-field case "entries")))
+         (trie (assert-eest-trie-test-case-root case)))
+    (is (string= "dog"
+                 (fixture-object-field entry "key")))
+    (is (string= "puppy"
+                 (fixture-object-field entry "value")))
+    (is (string= (fixture-object-field case "root")
+                 (mpt-root-hex trie))))
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                (fixture-object-field
                 (normalize-eest-trie-test-case
@@ -1187,6 +1231,13 @@
     (normalize-eest-trie-test-case
      "bad-entry-value"
      (list (cons "in" (list (list "dog" 1)))
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "duplicate-object-entry"
+     (list (cons "in" (list (cons "dog" "puppy")
+                            (cons "dog" "hound")))
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
