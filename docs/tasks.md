@@ -361,6 +361,11 @@ ones.
     legacy EIP-155 plus the two typed transaction families active at the
     Shanghai Phase A target, while still asserting pre-fork rejection on
     Frontier/Berlin where appropriate.
+  - Progress: tightened the Phase A EEST transaction subset summary gate to
+    require the Shanghai-active transaction families explicitly: legacy,
+    EIP-2930 access-list, and EIP-1559 dynamic-fee. Selector changes that drop
+    one of those families now fail before the optional external fixture path
+    can report a misleading green summary.
 
 ## P0: Module Boundaries
 

@@ -20,6 +20,9 @@
 (defparameter +transaction-fixture-required-types+
   '(:legacy :access-list :dynamic-fee :blob :set-code))
 
+(defparameter +phase-a-eest-transaction-required-types+
+  '(:legacy :access-list :dynamic-fee))
+
 (defparameter +transaction-fixture-known-exceptions+
   '("TransactionException.TYPE_1_TX_PRE_FORK"
     "TransactionException.TYPE_2_TX_PRE_FORK"
@@ -416,6 +419,10 @@
              +phase-a-eest-transaction-test-case-names+))
     (unless types
       (error "Phase A EEST transaction summary must include at least one transaction type"))
+    (dolist (type +phase-a-eest-transaction-required-types+)
+      (unless (assoc type types)
+        (error "Phase A EEST transaction summary is missing required type ~A"
+               type)))
     summary))
 
 (defun validate-transaction-fixture-vector-shape (vector)
@@ -1134,6 +1141,9 @@
     (is (equal summary
                (validate-phase-a-eest-transaction-vector-summary
                 selected-vectors)))
+    (signals error
+      (validate-phase-a-eest-transaction-vector-summary
+       (remove dynamic-fee-vector selected-vectors)))
     (is (string= "phase-a-sample.json/alpha"
                  (eest-transaction-root-case-name root
                                                   (first paths)
