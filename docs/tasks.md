@@ -1053,8 +1053,10 @@ splits can land after the Phase A smoke path closes.
     storage proof count, and storage proof key order must match the original
     request. Added a deleted-storage proof fixture case for a present account
     whose storage trie returns to the empty root, and made that missing-after-
-    delete proof coverage a required state-proof fixture tag. Remaining work:
-    replace the seed proof vectors with transcribed
+    delete proof coverage a required state-proof fixture tag. Added normalized
+    duplicate storage-key rejection for state-proof fixture requests, preventing
+    exact proof vectors from inflating coverage with repeated keys. Remaining
+    work: replace the seed proof vectors with transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.
 

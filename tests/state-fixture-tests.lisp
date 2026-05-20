@@ -531,6 +531,17 @@
       (error "~A entries must be hex strings" label))
     (hex-to-bytes value)))
 
+(defun validate-state-proof-fixture-storage-key-uniqueness (storage-keys)
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (key storage-keys)
+      (let ((normalized (bytes-to-hex
+                         (hash32-bytes (hash32-from-hex key))
+                         :prefix nil)))
+        (when (gethash normalized seen)
+          (error "State proof fixture request has duplicate storage key ~A"
+                 key))
+        (setf (gethash normalized seen) t)))))
+
 (defun validate-state-proof-fixture-request-shape (request)
   (validate-fixture-object-fields
    request
@@ -542,7 +553,8 @@
      storage-keys
      "State proof fixture request storageKeys")
     (dolist (key storage-keys)
-      (hash32-from-hex key))))
+      (hash32-from-hex key))
+    (validate-state-proof-fixture-storage-key-uniqueness storage-keys)))
 
 (defun validate-state-proof-fixture-storage-proof-shape (proof)
   (validate-fixture-object-fields
@@ -947,6 +959,17 @@
                (bad-proof (replace-field proof "storageProof" nil)))
           (validate-state-proof-fixture-case-shape
            (replace-field valid-case "expectedProof" bad-proof))))
+      (signals error
+        (let* ((request (fixture-required-field valid-case "request"))
+               (bad-request
+                 (replace-field
+                  request
+                  "storageKeys"
+                  (list
+                   "0x0000000000000000000000000000000000000000000000000000000000000001"
+                   "0X0000000000000000000000000000000000000000000000000000000000000001"))))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "request" bad-request))))
       (signals error
         (let* ((proof (fixture-required-field valid-case "expectedProof"))
                (bad-storage-proof
