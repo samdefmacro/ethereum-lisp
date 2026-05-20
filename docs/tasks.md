@@ -1712,6 +1712,11 @@ splits can land after the Phase A smoke path closes.
     relations such as `e(P,Q) * e(-P,Q) = 1` and non-cancelled non-zero
     inputs returning false instead of failing the precompile. Remaining work:
     full library-backed optimal Ate pairing and subgroup validation.
+  - Progress: fixed the local non-empty pairing cancellation model for G2
+    negation by treating an Fp2 element negation as both components negated,
+    then added a regression for `e(P,Q) * e(P,-Q) = 1`. This keeps the
+    stopgap precompile behavior aligned with the geth/Nethermind point
+    encoding while the full optimal Ate implementation remains outstanding.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5

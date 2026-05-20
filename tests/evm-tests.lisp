@@ -1507,7 +1507,18 @@
                         98 (aref gas-bytes 0) (aref gas-bytes 1)
                         (aref gas-bytes 2)
                         241 96 32 95 243)
-                input))))
+                input)))
+           (fixed32 (value)
+             (ethereum-lisp.evm::integer-to-fixed-bytes value 32))
+           (bn254-negate-field (bytes)
+             (mod (- ethereum-lisp.evm::+bn254-field-prime+
+                     (bytes-to-integer bytes))
+                  ethereum-lisp.evm::+bn254-field-prime+))
+           (negate-g2 (point)
+             (concat-bytes
+              (subseq point 0 64)
+              (fixed32 (bn254-negate-field (subseq point 64 96)))
+              (fixed32 (bn254-negate-field (subseq point 96 128))))))
     (let* ((state (make-state-db))
            (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))
            (context (make-evm-context :state state :address caller))
@@ -1526,6 +1537,7 @@
               "0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47"))
            (g2 (hex-to-bytes
                 "0x198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c21800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa"))
+           (negative-g2 (negate-g2 g2))
            (g2-coordinate-too-large
              (concat-bytes field-prime (subseq g2 32 128)))
            (g2-off-curve
@@ -1566,6 +1578,10 @@
              (execute-bytecode
               (pairing-code-sized (concat-bytes g g2 negative-g g2))
               :context context))
+           (nonempty-g2-negation-true-result
+             (execute-bytecode
+              (pairing-code-sized (concat-bytes g g2 g negative-g2))
+              :context context))
            (nonempty-false-result
              (execute-bytecode
               (pairing-code-sized (concat-bytes g g2))
@@ -1579,6 +1595,10 @@
       (is (= 1 (aref (evm-result-return-data zero-g1-result) 31)))
       (is (= 1 (first (evm-result-stack nonempty-true-result))))
       (is (= 1 (aref (evm-result-return-data nonempty-true-result) 31)))
+      (is (= 1 (first (evm-result-stack nonempty-g2-negation-true-result))))
+      (is (= 1 (aref (evm-result-return-data
+                      nonempty-g2-negation-true-result)
+                     31)))
       (is (= 1 (first (evm-result-stack nonempty-false-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data nonempty-false-result)))

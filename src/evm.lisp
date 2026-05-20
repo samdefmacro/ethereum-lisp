@@ -1065,7 +1065,8 @@
        (= (cdr left) (cdr right))))
 
 (defun bn254-fp2-negation-p (left right)
-  (and (= (car left) (car right))
+  (and (zerop (mod (+ (car left) (car right))
+                   +bn254-field-prime+))
        (zerop (mod (+ (cdr left) (cdr right))
                    +bn254-field-prime+))))
 
