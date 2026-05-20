@@ -70,7 +70,8 @@
     "code-prune"
     "multi-account"
     "account-projection"
-    "account-update"))
+    "account-update"
+    "storage-update"))
 
 (defparameter +state-root-fixture-required-tags+
   '("empty-state-root"
@@ -84,7 +85,8 @@
     "code-prune"
     "multi-account"
     "account-projection"
-    "account-update"))
+    "account-update"
+    "storage-update"))
 
 (defparameter +state-proof-fixture-known-tags+
   '("present-account"
