@@ -603,7 +603,7 @@ splits can land after the Phase A smoke path closes.
     shared transaction and block-access-list field validators remain with the
     transaction/data structures in `src/core.lisp`.
 
-- [ ] `MOD-ENGINE-RPC`: Split Engine API payload/RPC handlers out of
+- [~] `MOD-ENGINE-RPC`: Split Engine API payload/RPC handlers out of
   `src/core.lisp`.
   - Milestone: 7
   - References: geth `beacon/engine`, `eth/catalyst`; Nethermind Engine RPC;
@@ -611,6 +611,12 @@ splits can land after the Phase A smoke path closes.
   - Acceptance: `engine_*` parsing, dispatch, and response shaping are isolated
     from consensus types and block execution.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Progress: started `src/engine-rpc.lisp` by moving Engine RPC field
+    parsing, executable-payload/withdrawal/blob response shaping,
+    payload-attributes parsing, forkchoice response shaping, capabilities,
+    client-version, and transition-configuration helpers out of `src/core.lisp`.
+    Engine method handlers and HTTP serving remain in `src/core.lisp` for
+    follow-up slices.
 
 - [ ] `MOD-PUBLIC-RPC-TXPOOL`: Split public JSON-RPC and txpool placeholder
   handlers out of `src/core.lisp`.

@@ -20,6 +20,7 @@
      (:file "genesis")
      (:file "core")
      (:file "block-validation")
+     (:file "engine-rpc")
      (:file "state")
      (:file "evm")
      (:file "execution")))))
