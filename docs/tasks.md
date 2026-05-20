@@ -833,6 +833,8 @@ splits can land after the Phase A smoke path closes.
     Added multi-case EEST trie-test file coverage. Root imports now exercise
     source-style `file.json/case` naming for files containing more than one
     case while preserving singleton file names for selected Phase A vectors.
+    Added empty EEST trie-test file rejection so direct file and root imports
+    fail loudly when a discovered JSON file contains no cases.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

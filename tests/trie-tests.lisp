@@ -490,6 +490,9 @@
     trie))
 
 (defun validate-eest-trie-test-file-case-names (cases source)
+  (unless cases
+    (error "EEST trie test file ~A must include at least one case"
+           source))
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (entry cases)
       (let ((name (car entry)))
@@ -1104,6 +1107,8 @@
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
            (cons "unexpected" t))))
+  (signals error
+    (validate-eest-trie-test-file-case-names nil "inline-empty"))
   (signals error
     (validate-eest-trie-test-file-case-names
      (list (cons "duplicate-case"
