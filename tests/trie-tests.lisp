@@ -542,12 +542,19 @@
 (defun normalize-eest-trie-test-object-entries (case-name entries)
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (entry entries)
-      (let ((key (car entry)))
-        (when (gethash key seen)
-          (error "EEST trie test case ~A in object has duplicate key ~A"
+      (let* ((key (car entry))
+             (key-id (bytes-to-hex
+                      (eest-trie-test-byte-string
+                       key
+                       (format nil
+                               "EEST trie test case ~A in object key"
+                               case-name))
+                      :prefix nil)))
+        (when (gethash key-id seen)
+          (error "EEST trie test case ~A in object has duplicate normalized key ~A"
                  case-name
                  key))
-        (setf (gethash key seen) t))))
+        (setf (gethash key-id seen) t))))
   (loop for entry in (sort (copy-list entries) #'string< :key #'car)
         for index from 0
         collect (normalize-eest-trie-test-entry
@@ -1512,6 +1519,13 @@
      "duplicate-object-entry"
      (list (cons "in" (list (cons "dog" "puppy")
                             (cons "dog" "hound")))
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "duplicate-object-entry-normalized"
+     (list (cons "in" (list (cons "dog" "puppy")
+                            (cons "0x646f67" "hound")))
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
