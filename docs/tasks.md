@@ -423,6 +423,9 @@ ones.
     bare names, absolute paths, and parent-directory escapes before loading.
   - Progress: tightened the same selector shape to reject empty or doubled
     case separators such as `file.json/` and `file.json//case`.
+  - Progress: tightened EEST transaction-test file loading so empty JSON files
+    now fail loudly before normalization, preventing a discovered pinned source
+    file from silently contributing zero cases to the selected subset.
 
 ## P0: Module Boundaries
 

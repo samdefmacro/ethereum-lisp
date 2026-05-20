@@ -299,6 +299,9 @@
             result)))))
 
 (defun validate-eest-transaction-test-file-entries (entries path-label)
+  (unless entries
+    (error "EEST transaction test file ~A must include at least one case"
+           path-label))
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (entry entries)
       (let ((name (car entry)))
@@ -1354,6 +1357,8 @@
   (validate-eest-transaction-test-file-entries
    (list (cons "valid-case" nil))
    "sample.json")
+  (signals error
+    (validate-eest-transaction-test-file-entries nil "empty.json"))
   (signals error
     (validate-eest-transaction-test-file-entries
      (list (cons "" nil))
