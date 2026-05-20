@@ -946,6 +946,9 @@ splits can land after the Phase A smoke path closes.
     Added normalized duplicate-key rejection for EEST trie object-form `in`
     entries, so ASCII/hex aliases such as `dog` and `0x646f67` cannot replay
     as ambiguous duplicate keys.
+    Added a selected mixed branch-child-reference EEST-style trie case and
+    tightened the Phase A subset summary/gate to require both embedded and
+    hashed branch child references after replay.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
