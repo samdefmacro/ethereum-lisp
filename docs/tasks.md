@@ -615,8 +615,12 @@ splits can land after the Phase A smoke path closes.
     parsing, executable-payload/withdrawal/blob response shaping,
     payload-attributes parsing, forkchoice response shaping, capabilities,
     client-version, and transition-configuration helpers out of `src/core.lisp`.
-    Engine method handlers and HTTP serving remain in `src/core.lisp` for
-    follow-up slices.
+  - Progress: moved the Engine handshake/new-payload handler layer
+    (`engine_newPayloadV1` through `V5`, `engine_exchangeCapabilities`,
+    `engine_getClientVersionV1`, and
+    `engine_exchangeTransitionConfigurationV1`) into `src/engine-rpc.lisp`.
+    Payload lookup/blob/forkchoice handlers and HTTP serving remain in
+    `src/core.lisp` for follow-up slices.
 
 - [ ] `MOD-PUBLIC-RPC-TXPOOL`: Split public JSON-RPC and txpool placeholder
   handlers out of `src/core.lisp`.
