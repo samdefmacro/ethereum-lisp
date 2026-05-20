@@ -648,6 +648,8 @@ splits can land after the Phase A smoke path closes.
     `eth_mining`, `eth_hashrate`, `eth_gasPrice`,
     `eth_maxPriorityFeePerGas`, `eth_baseFee`, `eth_blobBaseFee`) out of
     `src/core.lisp`.
+  - Progress: moved `eth_feeHistory` and its block-window, reward percentile,
+    base-fee/blob-fee helper logic into `src/public-rpc.lisp`.
 
 ## P0: Chain Store And Canonical Indexes
 
