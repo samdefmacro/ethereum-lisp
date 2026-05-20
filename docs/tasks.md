@@ -1435,6 +1435,11 @@ splits can land after the Phase A smoke path closes.
     and object-form `null` delete entries must stay represented. This keeps
     the adapter's object-valued delete semantics covered by Phase A selection,
     not only by inline parser tests.
+    Added secureTrie object-form branch and missing-delete cases to the
+    selected EEST-style trie subset, plus secure object-form summary counters
+    and gates. Phase A now requires object-valued secure-key replay for both
+    pure writes and `null` deletes, keeping the secure path aligned with
+    plain trie object-form coverage.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
