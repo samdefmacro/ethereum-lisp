@@ -1836,13 +1836,17 @@ splits can land after the Phase A smoke path closes.
     binary-searches the lowest successful gas for simple transfers and contract
     calls.
 
-- [ ] Add `eth_createAccessList` first-pass support.
+- [x] Add `eth_createAccessList` first-pass support.
   - Milestone: 7
   - Dependencies: EVM access tracking extraction.
   - Acceptance: EVM execution can return touched accounts/storage keys for a
     call-style simulation.
   - Validation: access-list RPC tests plus
     `sbcl --script tests/run-tests.lisp`.
+  - Completed: call-style simulation now returns accessed address/storage
+    tables, and `eth_createAccessList` converts them into geth-shaped
+    `accessList`/`gasUsed` results while filtering implicit warm addresses and
+    preserving touched storage keys.
 
 - [ ] Add subscription-compatible filter lifecycle notes before implementing
   WebSocket subscriptions.

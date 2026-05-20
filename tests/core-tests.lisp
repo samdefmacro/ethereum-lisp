@@ -7834,6 +7834,65 @@
         (is (= -32602
                (field (field revert-response "error") "code")))))))
 
+(deftest eth-rpc-create-access-list-reports-touched-state
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (entry-for (access-list address)
+             (find (address-to-hex address)
+                   access-list
+                   :test #'string=
+                   :key (lambda (entry) (field entry "address")))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           (target
+             (address-from-hex "0x00000000000000000000000000000000000000bb"))
+           (slot
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000001"))
+           ;; SLOAD slot 1; BALANCE target; STOP.
+           (code (concat-bytes #(#x60 #x01 #x54 #x73)
+                               (address-bytes target)
+                               #(#x31 #x00)))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 32
+                       :timestamp 320
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state)))))
+      (state-db-set-code state contract code)
+      (state-db-set-storage state contract slot 7)
+      (state-db-set-account state target (make-state-account :balance 11))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 108)
+                      (cons "method" "eth_createAccessList")
+                      (cons "params"
+                            (list
+                             (list (cons "to" (address-to-hex contract))
+                                   (cons "gas" (quantity-to-hex 100000)))
+                             "latest")))
+                store
+                config))
+             (result (field response "result"))
+             (access-list (field result "accessList"))
+             (contract-entry (entry-for access-list contract))
+             (target-entry (entry-for access-list target)))
+        (is (stringp (field result "gasUsed")))
+        (is (= 2 (length access-list)))
+        (is (string= (hash32-to-hex slot)
+                     (first (field contract-entry "storageKeys"))))
+        (is (null (field target-entry "storageKeys")))))))
+
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

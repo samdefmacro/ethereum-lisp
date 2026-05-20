@@ -79,7 +79,8 @@ fixes in those areas are allowed; expansion is not.
   execute simple retained-state calls against a copied state DB without
   committing writes, and `eth_estimateGas` can binary-search retained-state
   call simulations for simple transfers and contract calls while detecting
-  reverts. Signed block import,
+  reverts. `eth_createAccessList` can turn retained-state call access tracking
+  into geth-shaped access-list and gas-used results. Signed block import,
   Engine payload import, transaction admission, and mined transaction RPC
   objects require real sender recovery rather than zero-address fallbacks. The
   in-memory Engine import path is atomic for state DB plus block, receipt,
@@ -787,7 +788,9 @@ missing accounts/slots, `eth_call` executes a first legacy-style call object
 against retained block state, returning EVM output/revert data while discarding
 state writes, `eth_estimateGas` reuses that retained-state simulation to cap
 estimates by the block/request gas limit, reject reverting calls, and
-binary-search a first simple transfer/contract-call gas result, and
+binary-search a first simple transfer/contract-call gas result,
+`eth_createAccessList` surfaces touched accounts/storage keys from the same
+simulation as a first geth-shaped `accessList`/`gasUsed` result, and
 `eth_getHeaderByNumber`/`eth_getHeaderByHash` can return canonical memory-store
 headers for `latest`, `pending`, `safe`, `finalized`, `earliest`, hex block
 quantities, or block hashes, with `safe`/`finalized` following retained
