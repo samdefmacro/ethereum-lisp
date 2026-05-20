@@ -379,17 +379,21 @@
           (eest-trie-test-root-json-paths root)))
 
 (defun eest-trie-test-normalized-root (value case-name)
-  (when (blank-string-p value)
-    (error "EEST trie test case ~A root must be present" case-name))
-  (unless (stringp value)
-    (error "EEST trie test case ~A root must be a string" case-name))
-  (let ((normalized
-          (if (and (<= 2 (length value))
-                   (char= #\0 (char value 0))
-                   (char= #\x (char-downcase (char value 1))))
-              value
-              (concatenate 'string "0x" value))))
-    (hash32-to-hex (hash32-from-hex normalized))))
+  (cond
+    ((null value)
+     (error "EEST trie test case ~A root must be present" case-name))
+    ((not (stringp value))
+     (error "EEST trie test case ~A root must be a string" case-name))
+    ((blank-string-p value)
+     (error "EEST trie test case ~A root must be present" case-name))
+    (t
+     (let ((normalized
+             (if (and (<= 2 (length value))
+                      (char= #\0 (char value 0))
+                      (char= #\x (char-downcase (char value 1))))
+                 value
+                 (concatenate 'string "0x" value))))
+       (hash32-to-hex (hash32-from-hex normalized))))))
 
 (defun eest-trie-test-prefixed-hex-string-p (value)
   (and (stringp value)
@@ -1131,6 +1135,11 @@
      (list (cons "in" (list (list "dog" "0x0")))
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "non-string-root"
+     (list (cons "in" nil)
+           (cons "root" 1))))
   (signals error
     (normalize-eest-trie-test-case
      "bad-root"

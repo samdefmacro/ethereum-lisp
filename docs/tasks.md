@@ -841,6 +841,8 @@ splits can land after the Phase A smoke path closes.
     Canonicalized EEST trie-test `in` entry byte strings as well: prefixed
     hex keys and values now normalize to lowercase `0x` strings before replay,
     while unprefixed ASCII fixture strings remain unchanged.
+    Hardened EEST trie-test root validation so null, blank, non-string, and
+    malformed roots fail through adapter-specific errors before hash decoding.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
