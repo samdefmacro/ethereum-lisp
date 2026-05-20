@@ -808,6 +808,10 @@ splits can land after the Phase A smoke path closes.
     Added duplicate source-name rejection for EEST trie-test root imports. Root
     loads now fail before selector filtering if two discovered cases normalize
     to the same source-style name.
+    Added minimal `in` entry support to the EEST trie-test adapter. Root-only
+    cases now carry key/value pairs that can be replayed into the local MPT and
+    checked against the expected root, starting with a `dog` -> `puppy` sample
+    vector.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

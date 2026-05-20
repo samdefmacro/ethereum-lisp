@@ -77,7 +77,7 @@
   '("keyHex" "keyAscii"))
 
 (defparameter +eest-trie-test-case-fields+
-  '("root"))
+  '("in" "root"))
 
 (defun validate-trie-fixture-object-fields (object allowed-fields label)
   (unless (listp object)
@@ -403,10 +403,47 @@
    (format nil "EEST trie test case ~A" name))
   (list
    (cons "name" name)
+   (cons "entries"
+         (normalize-eest-trie-test-entries
+          name
+          (fixture-required-field case "in")))
    (cons "root"
          (eest-trie-test-normalized-root
           (fixture-required-field case "root")
           name))))
+
+(defun normalize-eest-trie-test-entry (case-name entry)
+  (unless (and (listp entry)
+               (= 2 (length entry)))
+    (error "EEST trie test case ~A in entry must be a key/value pair"
+           case-name))
+  (destructuring-bind (key value) entry
+    (unless (stringp key)
+      (error "EEST trie test case ~A in entry key must be a string"
+             case-name))
+    (when (blank-string-p value)
+      (error "EEST trie test case ~A in entry value must be present"
+             case-name))
+    (unless (stringp value)
+      (error "EEST trie test case ~A in entry value must be a string"
+             case-name))
+    (list (cons "key" key)
+          (cons "value" value))))
+
+(defun normalize-eest-trie-test-entries (case-name entries)
+  (unless (listp entries)
+    (error "EEST trie test case ~A in must be a JSON array" case-name))
+  (mapcar (lambda (entry)
+            (normalize-eest-trie-test-entry case-name entry))
+          entries))
+
+(defun run-eest-trie-test-case (case)
+  (let ((trie (make-mpt)))
+    (dolist (entry (fixture-required-field case "entries"))
+      (mpt-put trie
+               (ascii-to-bytes (fixture-required-field entry "key"))
+               (ascii-to-bytes (fixture-required-field entry "value"))))
+    trie))
 
 (defun load-eest-trie-test-file (path)
   (let ((cases (load-handwritten-fixture-file path)))
@@ -916,25 +953,46 @@
 
 (deftest eest-trie-test-file-shape-validation
   (let* ((cases (load-eest-trie-test-file +eest-trie-test-sample-path+))
-         (case (first cases)))
+         (case (first cases))
+         (entry (first (fixture-required-field case "entries")))
+         (trie (run-eest-trie-test-case case)))
     (is (= 1 (length cases)))
     (is (string= "phase-a-trie-sample"
                  (fixture-object-field case "name")))
-    (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
-                 (fixture-object-field case "root"))))
+    (is (string= "dog"
+                 (fixture-object-field entry "key")))
+    (is (string= "puppy"
+                 (fixture-object-field entry "value")))
+    (is (string= "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
+                 (fixture-object-field case "root")))
+    (is (string= (fixture-object-field case "root")
+                 (mpt-root-hex trie))))
   (signals error
     (normalize-eest-trie-test-case
      "missing-root"
-     nil))
+     (list (cons "in" nil))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "missing-in"
+     (list (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "bad-entry"
+     (list (cons "in" (list (list "dog")))
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
     (normalize-eest-trie-test-case
      "bad-root"
-     (list (cons "root" "0x1234"))))
+     (list (cons "in" nil)
+           (cons "root" "0x1234"))))
   (signals error
     (normalize-eest-trie-test-case
      "unknown-field"
-     (list (cons "root"
-                 "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+     (list (cons "in" nil)
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
            (cons "unexpected" t)))))
 
 (deftest eest-trie-test-root-case-loading
@@ -953,7 +1011,7 @@
     (is (= 1 (fixture-object-field summary "count")))
     (is (equal '("phase-a-trie-sample.json")
                (fixture-object-field summary "names")))
-    (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+    (is (equal '("0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-sample.json/alpha"
                  (eest-trie-root-case-name root
