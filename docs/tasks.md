@@ -1860,6 +1860,10 @@ splits can land after the Phase A smoke path closes.
     pairing product is checked. The tests now lock both `zero + non-cancelled`
     false output and `zero + cancelled` true output for the current stopgap
     pairing model.
+  - Progress: added non-empty multi-pair regressions for the current pairing
+    model. The tests now lock non-adjacent double cancellation as true and an
+    unbalanced duplicate pairing product as false, covering product-level
+    behavior beyond single pair and adjacent two-pair inputs.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5
