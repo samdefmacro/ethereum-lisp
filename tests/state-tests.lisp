@@ -204,6 +204,34 @@
     (state-db-set-storage state address slot 0)
     (is (= 0 (state-db-get-storage state address slot)))))
 
+(deftest state-storage-proof-verifies-present-missing-and-bad-root
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000012"))
+        (slot (hash32-from-hex
+               "0x000000000000000000000000000000000000000000000000000000000000000c"))
+        (missing-slot (hash32-from-hex
+                       "0x000000000000000000000000000000000000000000000000000000000000000d")))
+    (state-db-set-storage state address slot 42)
+    (multiple-value-bind (value-rlp present-p)
+        (state-db-verify-storage-proof
+         (state-db-get-storage-root state address)
+         slot
+         (state-db-get-storage-proof state address slot))
+      (is present-p)
+      (is (bytes= (rlp-encode 42) value-rlp)))
+    (multiple-value-bind (value-rlp present-p)
+        (state-db-verify-storage-proof
+         (state-db-get-storage-root state address)
+         missing-slot
+         (state-db-get-storage-proof state address missing-slot))
+      (is (null present-p))
+      (is (null value-rlp)))
+    (signals error
+      (state-db-verify-storage-proof
+       (zero-hash32)
+       slot
+       (state-db-get-storage-proof state address slot)))))
+
 (deftest state-zero-storage-write-does-not-create-empty-account
   (let* ((state (make-state-db))
          (address (address-from-hex "0x0000000000000000000000000000000000000003"))

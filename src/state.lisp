@@ -160,19 +160,31 @@
     (replace out bytes :start1 (- 32 (length bytes)))
     (make-hash32 out)))
 
-(defun storage-root (object)
+(defun state-db-storage-proof-key (slot)
+  (keccak-256 (hash32-bytes slot)))
+
+(defun state-object-storage-trie (object)
   (let ((trie (make-mpt)))
-    (maphash (lambda (slot value)
-               (let ((slot-hash (keccak-256 (hash32-bytes (hash32-from-hex slot)))))
-                 (mpt-put trie slot-hash (rlp-encode value))))
-             (state-object-storage object))
-    (make-hash32 (mpt-root-hash trie))))
+    (when object
+      (maphash (lambda (slot value)
+                 (mpt-put trie
+                          (state-db-storage-proof-key (hash32-from-hex slot))
+                          (rlp-encode value)))
+               (state-object-storage object)))
+    trie))
+
+(defun storage-root (object)
+  (make-hash32 (mpt-root-hash (state-object-storage-trie object))))
 
 (defun state-db-get-storage-root (state address)
-  (let ((object (state-db-get-object state address)))
-    (if object
-        (storage-root object)
-        +empty-trie-hash+)))
+  (storage-root (state-db-get-object state address)))
+
+(defun state-db-get-storage-proof (state address slot)
+  (mpt-get-proof (state-object-storage-trie (state-db-get-object state address))
+                 (state-db-storage-proof-key slot)))
+
+(defun state-db-verify-storage-proof (storage-root slot proof)
+  (mpt-verify-proof storage-root (state-db-storage-proof-key slot) proof))
 
 (defun account-with-storage-root (object)
   (let ((account (or (state-object-account object) (make-state-account))))

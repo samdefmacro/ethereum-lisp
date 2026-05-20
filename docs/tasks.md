@@ -899,8 +899,11 @@ splits can land after the Phase A smoke path closes.
     and unconsumed-node checks. Added a state account proof primitive:
     `state-db-get-account-proof` emits account trie proofs and
     `state-db-verify-account-proof` verifies present and missing addresses
-    against a state root. Remaining work: storage proofs and decoded
-    account/storage proof objects.
+    against a state root. Added a state storage proof primitive:
+    `state-db-get-storage-proof` emits secure storage trie proofs and
+    `state-db-verify-storage-proof` verifies present and missing slots against
+    a storage root. Remaining work: decoded account/storage proof objects and
+    a combined `eth_getProof`-style response.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
