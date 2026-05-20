@@ -29,7 +29,9 @@
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
 (defparameter +transaction-fixture-forks+
-  '("Frontier" "Berlin" "London" "Paris" "Shanghai" "Cancun" "Prague"))
+  '("Frontier" "Homestead" "EIP150" "EIP158" "Byzantium"
+    "Constantinople" "Istanbul" "Berlin" "London" "Paris" "Shanghai"
+    "Cancun" "Prague"))
 
 (defparameter +transaction-fixture-required-types+
   '(:legacy :access-list :dynamic-fee :blob :set-code))
@@ -1223,25 +1225,98 @@
   (cond
     ((string= fork "Frontier")
      (make-chain-config))
+    ((string= fork "Homestead")
+     (make-chain-config :homestead-block 0))
+    ((string= fork "EIP150")
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0))
+    ((string= fork "EIP158")
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0))
+    ((string= fork "Byzantium")
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0))
+    ((string= fork "Constantinople")
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0
+                        :constantinople-block 0))
+    ((string= fork "Istanbul")
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0
+                        :constantinople-block 0
+                        :istanbul-block 0))
     ((string= fork "Berlin")
-     (make-chain-config :berlin-block 0))
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0
+                        :constantinople-block 0
+                        :istanbul-block 0
+                        :berlin-block 0))
     ((string= fork "London")
-     (make-chain-config :berlin-block 0
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0
+                        :constantinople-block 0
+                        :istanbul-block 0
+                        :berlin-block 0
                         :london-block 0))
     ((string= fork "Paris")
-     (make-chain-config :berlin-block 0
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0
+                        :constantinople-block 0
+                        :istanbul-block 0
+                        :berlin-block 0
                         :london-block 0))
     ((string= fork "Shanghai")
-     (make-chain-config :berlin-block 0
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0
+                        :constantinople-block 0
+                        :istanbul-block 0
+                        :berlin-block 0
                         :london-block 0
                         :shanghai-time 0))
     ((string= fork "Cancun")
-     (make-chain-config :berlin-block 0
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0
+                        :constantinople-block 0
+                        :istanbul-block 0
+                        :berlin-block 0
                         :london-block 0
                         :shanghai-time 0
                         :cancun-time 0))
     ((string= fork "Prague")
-     (make-chain-config :berlin-block 0
+     (make-chain-config :homestead-block 0
+                        :eip150-block 0
+                        :eip155-block 0
+                        :eip158-block 0
+                        :byzantium-block 0
+                        :constantinople-block 0
+                        :istanbul-block 0
+                        :berlin-block 0
                         :london-block 0
                         :shanghai-time 0
                         :cancun-time 0
@@ -2487,9 +2562,15 @@
                  (:blob . 1)
                  (:set-code . 1))
                (fixture-object-field all-summary "types")))
-    (is (= 21 (fixture-object-field all-summary "validResultCount")))
-    (is (= 14 (fixture-object-field all-summary "exceptionResultCount")))
+    (is (= 27 (fixture-object-field all-summary "validResultCount")))
+    (is (= 38 (fixture-object-field all-summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 1)
+                 ("Homestead" . 1)
+                 ("EIP150" . 1)
+                 ("EIP158" . 1)
+                 ("Byzantium" . 1)
+                 ("Constantinople" . 1)
+                 ("Istanbul" . 1)
                  ("Berlin" . 2)
                  ("London" . 3)
                  ("Paris" . 3)
@@ -2498,6 +2579,12 @@
                  ("Prague" . 5))
                (fixture-object-field all-summary "validForkCounts")))
     (is (equal '(("Frontier" . 4)
+                 ("Homestead" . 4)
+                 ("EIP150" . 4)
+                 ("EIP158" . 4)
+                 ("Byzantium" . 4)
+                 ("Constantinople" . 4)
+                 ("Istanbul" . 4)
                  ("Berlin" . 3)
                  ("London" . 2)
                  ("Paris" . 2)
@@ -2507,9 +2594,15 @@
     (is (= 3 (fixture-object-field summary "count")))
     (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
-    (is (= 18 (fixture-object-field summary "validResultCount")))
-    (is (= 3 (fixture-object-field summary "exceptionResultCount")))
+    (is (= 24 (fixture-object-field summary "validResultCount")))
+    (is (= 15 (fixture-object-field summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 1)
+                 ("Homestead" . 1)
+                 ("EIP150" . 1)
+                 ("EIP158" . 1)
+                 ("Byzantium" . 1)
+                 ("Constantinople" . 1)
+                 ("Istanbul" . 1)
                  ("Berlin" . 2)
                  ("London" . 3)
                  ("Paris" . 3)
@@ -2518,6 +2611,12 @@
                  ("Prague" . 3))
                (fixture-object-field summary "validForkCounts")))
     (is (equal '(("Frontier" . 2)
+                 ("Homestead" . 2)
+                 ("EIP150" . 2)
+                 ("EIP158" . 2)
+                 ("Byzantium" . 2)
+                 ("Constantinople" . 2)
+                 ("Istanbul" . 2)
                  ("Berlin" . 1))
                (fixture-object-field summary "exceptionForkCounts")))
     (is (equal '("phase-a-sample.json/legacy-eip155-sample"

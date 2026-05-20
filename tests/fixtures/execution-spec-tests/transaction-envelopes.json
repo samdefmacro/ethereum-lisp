@@ -26,6 +26,36 @@
           "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
           "intrinsicGas": "0x5208"
         },
+        "Homestead": {
+          "hash": "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
+          "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+          "intrinsicGas": "0x5208"
+        },
+        "EIP150": {
+          "hash": "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
+          "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+          "intrinsicGas": "0x5208"
+        },
+        "EIP158": {
+          "hash": "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
+          "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+          "intrinsicGas": "0x5208"
+        },
+        "Byzantium": {
+          "hash": "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
+          "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+          "intrinsicGas": "0x5208"
+        },
+        "Constantinople": {
+          "hash": "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
+          "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+          "intrinsicGas": "0x5208"
+        },
+        "Istanbul": {
+          "hash": "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
+          "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+          "intrinsicGas": "0x5208"
+        },
         "Berlin": {
           "hash": "0x33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
           "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
@@ -67,6 +97,24 @@
       "sender": "0x27cf7d8449c9da59189427619ba59f985cee9c0f",
       "result": {
         "Frontier": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Homestead": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "EIP150": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "EIP158": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Byzantium": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Constantinople": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Istanbul": {
           "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
         },
         "Berlin": {
@@ -112,6 +160,24 @@
         "Frontier": {
           "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
         },
+        "Homestead": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "EIP150": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "EIP158": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "Byzantium": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "Constantinople": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "Istanbul": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
         "Berlin": {
           "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
         },
@@ -153,6 +219,24 @@
         "Frontier": {
           "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
         },
+        "Homestead": {
+          "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+        },
+        "EIP150": {
+          "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+        },
+        "EIP158": {
+          "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+        },
+        "Byzantium": {
+          "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+        },
+        "Constantinople": {
+          "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+        },
+        "Istanbul": {
+          "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+        },
         "Berlin": {
           "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
         },
@@ -186,6 +270,24 @@
       "sender": "0x71562b71999873db5b286df957af199ec94617f7",
       "result": {
         "Frontier": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Homestead": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "EIP150": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "EIP158": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Byzantium": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Constantinople": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Istanbul": {
           "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
         },
         "Berlin": {

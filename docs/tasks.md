@@ -564,6 +564,13 @@ ones.
     EIP-1559, EIP-4844, and EIP-7702 seed vector names in addition to type
     coverage, so fixture edits cannot silently replace one placeholder while
     preserving the same envelope-family matrix.
+  - Progress: expanded the transaction-test fork matrix to match geth's
+    historical runner labels before Berlin: Homestead, EIP150, EIP158,
+    Byzantium, Constantinople, and Istanbul. The local seed wrapper and
+    EEST-shaped sample now carry per-fork success/exception results across
+    the wider matrix, and the harness builds matching chain-config snapshots
+    for each label before validating intrinsic gas, hash, sender, and typed
+    transaction activation boundaries.
 
 ## P0: Module Boundaries
 
