@@ -6,6 +6,9 @@
 (defparameter +trie-vector-fixture-format+
   "ethereum-lisp/trie-vectors-v1")
 
+(defparameter +eest-trie-test-sample-path+
+  "tests/fixtures/execution-spec-tests-root/fixtures/trie_tests/phase-a-trie-sample.json")
+
 (defparameter +trie-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "cases"))
 
@@ -346,6 +349,28 @@
   (validate-trie-fixture-case-coverage cases)
   (dolist (case cases)
     (validate-trie-fixture-case-shape case)))
+
+(defun eest-trie-test-json-paths (root)
+  (let* ((root-path (pathname root))
+         (pattern
+           (make-pathname
+            :directory (append (pathname-directory root-path)
+                               (list :wild-inferiors))
+            :name :wild
+            :type "json"
+            :defaults root-path)))
+    (sort (directory pattern) #'string< :key #'namestring)))
+
+(defun eest-trie-test-root-json-paths (root)
+  (let ((paths (eest-trie-test-json-paths root)))
+    (unless paths
+      (error "EEST trie test root ~A has no JSON files" root))
+    paths))
+
+(defun eest-trie-test-root-file-names (root)
+  (mapcar (lambda (path)
+            (enough-namestring (truename path) (truename root)))
+          (eest-trie-test-root-json-paths root)))
 
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
@@ -748,6 +773,22 @@
 (deftest optional-eest-trie-test-root-discovery
   (with-execution-spec-tests-trie-test-root (root)
     (is (probe-file root))))
+
+(deftest eest-trie-test-root-json-discovery
+  (let* ((root (execution-spec-tests-trie-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (paths (eest-trie-test-root-json-paths root)))
+    (is (= 1 (length paths)))
+    (is (equal '("phase-a-trie-sample.json")
+               (eest-trie-test-root-file-names root)))
+    (is (string= (namestring (truename +eest-trie-test-sample-path+))
+                 (namestring (truename (first paths)))))))
+
+(deftest eest-trie-test-root-json-discovery-rejects-empty-roots
+  (signals error
+    (eest-trie-test-root-json-paths
+     (execution-spec-tests-trie-test-root
+      "tests/fixtures/geth-spec-tests-root/"))))
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json

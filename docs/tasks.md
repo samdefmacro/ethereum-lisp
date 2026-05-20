@@ -788,6 +788,9 @@ splits can land after the Phase A smoke path closes.
     geth-style checked-out spec-test roots (`spec-tests/fixtures/trie_tests`),
     and optional external trie tests skip cleanly when no configured root is
     present.
+    Added recursive JSON discovery for EEST trie-test roots, including stable
+    source-style relative filenames and a loud error for empty roots. This
+    prepares the next adapter slice to consume pinned trie files deterministically.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
