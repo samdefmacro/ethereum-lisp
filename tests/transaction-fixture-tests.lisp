@@ -256,6 +256,9 @@
       (nreverse normalized))))
 
 (defun validate-eest-transaction-result-forks (case-name result)
+  (unless result
+    (error "EEST transaction case ~A result must include at least one fork"
+           case-name))
   (let ((seen-forks (make-hash-table :test 'equal)))
     (dolist (entry result)
       (let ((fork (car entry)))
@@ -1357,6 +1360,11 @@
     (normalize-eest-transaction-test-case
      "missing-result"
      (list (cons "txbytes" "0x01"))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "empty-result"
+     (list (cons "txbytes" "0x01")
+           (cons "result" nil))))
   (validate-eest-transaction-test-file-entries
    (list (cons "valid-case" nil))
    "sample.json")

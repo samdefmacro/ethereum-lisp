@@ -429,6 +429,9 @@ ones.
   - Progress: tightened EEST transaction-test file entry validation so
     non-object top-level entries fail with an adapter-specific error before
     malformed JSON arrays can reach case-name normalization.
+  - Progress: tightened EEST transaction-test case normalization so empty
+    `result` objects are rejected before conversion, keeping malformed pinned
+    cases from degrading into a later "no successful tracked fork" error.
 
 ## P0: Module Boundaries
 
