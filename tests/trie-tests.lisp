@@ -62,6 +62,7 @@
     "extension-embedded-child-reference"
     "extension-hashed-child-reference"
     "delete-collapses-path"
+    "delete-nested-branch-value-keeps-extension"
     "delete-last-entry-empty-root"
     "secure-branch-root"
     "secure-extension-root"

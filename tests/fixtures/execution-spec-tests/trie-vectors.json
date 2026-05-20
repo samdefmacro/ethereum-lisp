@@ -108,6 +108,26 @@
       ]
     },
     {
+      "name": "delete-nested-branch-value-keeps-extension",
+      "tags": ["extension-root", "branch-value", "delete-collapse", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "delete", "keyAscii": "dog" }
+      ],
+      "expectedRoot": "0xf803dfcb7e8f1afd45e88eedb4699a7138d6c07b71243d9ae9bff720c99925f9",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [6, 4, 6, 15],
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "doge", "valueAscii": "coin" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "dog" }
+      ]
+    },
+    {
       "name": "delete-last-entry-empty-root",
       "tags": ["delete-to-empty"],
       "operations": [

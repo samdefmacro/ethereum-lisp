@@ -1032,6 +1032,9 @@ splits can land after the Phase A smoke path closes.
     when deleting the only child from a root branch that still has a value slot,
     the branch collapses back to a terminator-only leaf with the root value
     preserved.
+    Added nested branch-value deletion coverage under an extension root:
+    deleting `dog` from `do` / `dog` / `doge` preserves `do` and `doge`,
+    removes the deleted branch value, and locks the compressed extension root.
     Added the same branch-child deletion shape to the selected Phase A EEST
     trie subset, with a summary gate that fails if the root-value-preserving
     branch child delete case is dropped.
