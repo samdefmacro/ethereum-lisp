@@ -184,7 +184,7 @@
     (case (length items)
       (17
        (if (zerop (length nibbles))
-           (let ((value (seventeenth items)))
+           (let ((value (nth 16 items)))
              (values value (plusp (length value)) proof))
            (multiple-value-bind (child next-proof present-p)
                (mpt-proof-consume-referenced-node

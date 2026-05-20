@@ -1168,12 +1168,32 @@
           (is (bytes= value (mpt-get trie key)))
           (is (null (mpt-get trie key)))))))
 
+(defun assert-trie-fixture-proof-present (trie key expected-value)
+  (multiple-value-bind (value present-p)
+      (mpt-verify-proof (mpt-root-hash trie)
+                        key
+                        (mpt-get-proof trie key))
+    (is present-p)
+    (is (bytes= expected-value value))))
+
+(defun assert-trie-fixture-proof-missing (trie key)
+  (multiple-value-bind (value present-p)
+      (mpt-verify-proof (mpt-root-hash trie)
+                        key
+                        (mpt-get-proof trie key))
+    (is (null present-p))
+    (is (null value))))
+
 (defun assert-trie-fixture-lookups (trie case)
   (dolist (expected (fixture-object-field case "expectedGets"))
-    (is (bytes= (ascii-to-bytes (fixture-object-field expected "valueAscii"))
-                (mpt-get trie (trie-fixture-trie-key case expected)))))
+    (let ((key (trie-fixture-trie-key case expected))
+          (value (ascii-to-bytes (fixture-object-field expected "valueAscii"))))
+      (is (bytes= value (mpt-get trie key)))
+      (assert-trie-fixture-proof-present trie key value)))
   (dolist (expected (fixture-object-field case "expectedMissing"))
-    (is (null (mpt-get trie (trie-fixture-trie-key case expected))))))
+    (let ((key (trie-fixture-trie-key case expected)))
+      (is (null (mpt-get trie key)))
+      (assert-trie-fixture-proof-missing trie key))))
 
 (deftest trie-empty-root
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"

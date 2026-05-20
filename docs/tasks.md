@@ -1159,6 +1159,12 @@ splits can land after the Phase A smoke path closes.
     fixture, with runner-side coverage guards requiring secure branch and
     secure extension roots so the local seed set stays aligned with the
     selected EEST-style secure trie subset.
+    Added fixture-driven MPT proof assertions to trie vector lookups: every
+    explicit `expectedGets` / `expectedMissing` entry now verifies the generated
+    proof against the final root in addition to checking `mpt-get`, covering
+    present and missing proofs across the seed fixture's plain, secure,
+    shared-prefix, deletion, and child-reference cases. This also fixed branch
+    value proof verification by reading the 17th RLP branch item portably.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
