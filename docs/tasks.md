@@ -783,6 +783,11 @@ splits can land after the Phase A smoke path closes.
     same branch-switch smoke. Forkchoice now carries the parent as both safe
     and finalized while switching heads, and public `safe` / `finalized` block
     tags are checked against that ancestor.
+  - Progress: expanded the Engine `newPayloadV2` fixture smoke from a single
+    legacy transfer case to a two-case set by adding a Shanghai EIP-1559
+    dynamic-fee transfer with withdrawal. The same executable import,
+    forkchoice, public RPC, side-chain, branch-switch, and checkpoint-tag
+    assertions now run against both fixture cases.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

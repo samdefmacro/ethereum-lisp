@@ -79,6 +79,73 @@
         "receiptType": "0x0",
         "receiptStatus": "0x1"
       }
+    },
+    {
+      "name": "shanghai-dynamic-fee-transfer-with-withdrawal",
+      "network": "Shanghai",
+      "chainId": "0x1",
+      "config": {
+        "londonBlock": "0x0",
+        "shanghaiTime": "0x0"
+      },
+      "parent": {
+        "number": "0x29",
+        "gasLimit": "0xc350",
+        "gasUsed": "0x61a8",
+        "timestamp": "0x62",
+        "baseFeePerGas": "0x64",
+        "feeRecipient": "0x0000000000000000000000000000000000000001",
+        "accounts": [
+          {
+            "address": "0xd02d72e067e77158444ef2020ff2d325f929b363",
+            "nonce": "0x1",
+            "balance": "0x3b9aca00"
+          },
+          {
+            "address": "0x0000000000000000000000000000000000001002",
+            "nonce": "0x0",
+            "balance": "0x5",
+            "code": "0x6001600055",
+            "storage": {
+              "0x0000000000000000000000000000000000000000000000000000000000000000": "0x2a"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "number": "0x2a",
+        "gasLimit": "0xc350",
+        "timestamp": "0x63",
+        "baseFeePerGas": "0x64",
+        "transactions": [
+          "0x02f864010180820fa08284d09411111111111111111111111111111111111111118080c001a0b7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0a06261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904"
+        ],
+        "withdrawals": [
+          {
+            "index": "0x0",
+            "validatorIndex": "0x1",
+            "address": "0x0000000000000000000000000000000000000002",
+            "amount": "0x1"
+          }
+        ]
+      },
+      "expect": {
+        "status": "VALID",
+        "sender": "0xd02d72e067e77158444ef2020ff2d325f929b363",
+        "senderNonce": "0x2",
+        "senderBalance": "0x3b7abee0",
+        "recipient": "0x1111111111111111111111111111111111111111",
+        "recipientBalance": "0x0",
+        "withdrawalRecipient": "0x0000000000000000000000000000000000000002",
+        "withdrawalBalance": "0x3b9aca00",
+        "codeAddress": "0x0000000000000000000000000000000000001002",
+        "code": "0x6001600055",
+        "storageAddress": "0x0000000000000000000000000000000000001002",
+        "storageKey": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "storageValue": "0x000000000000000000000000000000000000000000000000000000000000002a",
+        "receiptType": "0x2",
+        "receiptStatus": "0x1"
+      }
     }
   ]
 }

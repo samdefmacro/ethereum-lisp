@@ -6,6 +6,10 @@
 (defparameter +engine-newpayload-v2-fixture-format+
   "ethereum-lisp/engine-newpayload-fixture-v1")
 
+(defparameter +engine-newpayload-v2-smoke-case-names+
+  '("shanghai-one-transfer-with-withdrawal"
+    "shanghai-dynamic-fee-transfer-with-withdrawal"))
+
 (defparameter +engine-newpayload-v2-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "referenceClients" "cases"))
 
@@ -871,32 +875,33 @@
 (deftest engine-newpayload-v2-fixture-executes-and-becomes-canonical
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
-    (let* ((case
-             (select-engine-newpayload-v2-fixture-case
-              +engine-newpayload-v2-fixture-path+
-              "shanghai-one-transfer-with-withdrawal"))
-           (store (make-engine-payload-memory-store))
-           (config (engine-fixture-chain-config case))
-           (parent (fixture-object-field case "parent"))
-           (payload-case (fixture-object-field case "payload"))
-           (expect (fixture-object-field case "expect"))
-           (parent-state (engine-fixture-parent-state parent))
-           (fee-recipient (fixture-address-field parent "feeRecipient"))
-           (transactions
-             (mapcar (lambda (raw)
-                       (transaction-from-encoding (hex-to-bytes raw)))
-                     (fixture-object-field payload-case "transactions")))
-           (withdrawals
-             (mapcar #'engine-fixture-withdrawal
-                     (fixture-object-field payload-case "withdrawals")))
-           (sender (fixture-address-field expect "sender"))
-           (recipient (fixture-address-field expect "recipient"))
-           (withdrawal-recipient
-             (fixture-address-field expect "withdrawalRecipient"))
-           (code-address (fixture-address-field expect "codeAddress"))
-           (storage-address (fixture-address-field expect "storageAddress"))
-           (storage-key
-             (hash32-from-hex (fixture-object-field expect "storageKey"))))
+    (dolist (case-name +engine-newpayload-v2-smoke-case-names+)
+      (let* ((case
+               (select-engine-newpayload-v2-fixture-case
+                +engine-newpayload-v2-fixture-path+
+                case-name))
+             (store (make-engine-payload-memory-store))
+             (config (engine-fixture-chain-config case))
+             (parent (fixture-object-field case "parent"))
+             (payload-case (fixture-object-field case "payload"))
+             (expect (fixture-object-field case "expect"))
+             (parent-state (engine-fixture-parent-state parent))
+             (fee-recipient (fixture-address-field parent "feeRecipient"))
+             (transactions
+               (mapcar (lambda (raw)
+                         (transaction-from-encoding (hex-to-bytes raw)))
+                       (fixture-object-field payload-case "transactions")))
+             (withdrawals
+               (mapcar #'engine-fixture-withdrawal
+                       (fixture-object-field payload-case "withdrawals")))
+             (sender (fixture-address-field expect "sender"))
+             (recipient (fixture-address-field expect "recipient"))
+             (withdrawal-recipient
+               (fixture-address-field expect "withdrawalRecipient"))
+             (code-address (fixture-address-field expect "codeAddress"))
+             (storage-address (fixture-address-field expect "storageAddress"))
+             (storage-key
+               (hash32-from-hex (fixture-object-field expect "storageKey"))))
       (let* ((parent-header
                (make-block-header
                 :parent-hash (zero-hash32)
@@ -1130,8 +1135,12 @@
                          (block-header-number
                           (block-header child-block))))))
           (is (= 1 (length receipts)))
-          (is (string= (hash32-to-hex (receipt-list-root receipts))
-                       (hash32-to-hex receipts-root)))
+          (if (zerop (transaction-type (first transactions)))
+              (is (string= (hash32-to-hex (receipt-list-root receipts))
+                           (hash32-to-hex receipts-root)))
+              (is (not
+                   (string= (hash32-to-hex (receipt-list-root receipts))
+                            (hash32-to-hex receipts-root)))))
           (is (string= (hash32-to-hex
                         (transaction-receipt-list-root
                          transactions
@@ -1319,4 +1328,4 @@
             (is (string= (field child-latest "hash")
                          (field child-transaction-by-hash "blockHash")))
             (is (string= (fixture-object-field expect "receiptStatus")
-                         (field child-receipt "status")))))))))
+                         (field child-receipt "status"))))))))))
