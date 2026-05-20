@@ -243,6 +243,9 @@ ones.
     fork, EIP-2930 vectors start at Berlin, EIP-1559 vectors start at London,
     EIP-4844 vectors start at Cancun, and EIP-7702 vectors start at Prague,
     with matching pre-fork exception tokens.
+  - Progress: tightened EEST transaction-test ingestion so all successful fork
+    entries for a single `txbytes` case must agree on the transaction hash and
+    recovered sender before the case is converted into the local vector shape.
   - Progress: added canonical quantity validation for valid per-fork
     `intrinsicGas` expectations. Fixture results now reject missing, prefixless,
     or leading-zero gas quantities before comparing against locally derived

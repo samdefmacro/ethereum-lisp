@@ -313,6 +313,25 @@
         (when (and entry (fixture-field-present-p entry "hash"))
           (return entry))))))
 
+(defun validate-eest-transaction-success-results-consistent
+    (case success)
+  (let ((result (fixture-object-field case "result"))
+        (expected-hash (fixture-required-field success "hash"))
+        (expected-sender (fixture-required-field success "sender")))
+    (dolist (fork +transaction-fixture-forks+)
+      (let ((entry (fixture-object-field result fork)))
+        (when (and entry (fixture-field-present-p entry "hash"))
+          (unless (string= expected-hash
+                           (fixture-required-field entry "hash"))
+            (error "EEST transaction case ~A has inconsistent hash on fork ~A"
+                   (fixture-object-field case "name")
+                   fork))
+          (unless (string= expected-sender
+                           (fixture-required-field entry "sender"))
+            (error "EEST transaction case ~A has inconsistent sender on fork ~A"
+                   (fixture-object-field case "name")
+                   fork)))))))
+
 (defun eest-transaction-result-to-fixture-result (case)
   (let ((result (fixture-object-field case "result")))
     (mapcar
@@ -338,6 +357,7 @@
     (unless success
       (error "EEST transaction case ~A has no successful tracked fork result"
              name))
+    (validate-eest-transaction-success-results-consistent case success)
     (let ((vector
             (list
              (cons "name" name)
@@ -1028,6 +1048,45 @@
                 (cons "Shanghai" (list (cons "intrinsicGas" "0x5208")))
                 (cons "Cancun" (list (cons "intrinsicGas" "0x5208")))
                 (cons "Prague" (list (cons "intrinsicGas" "0x5208"))))))))))
+
+(deftest eest-transaction-success-result-consistency-validation
+  (let* ((case (first (load-eest-transaction-test-file
+                       +eest-transaction-test-sample-path+)))
+         (result (fixture-required-field case "result"))
+         (success (eest-transaction-case-success-result case)))
+    (validate-eest-transaction-success-results-consistent case success)
+    (labels ((replace-field (object field value)
+               (cons (cons field value)
+                     (remove field object :key #'car :test #'string=)))
+             (replace-fork-entry (fork entry)
+               (cons (cons fork entry)
+                     (remove fork result :key #'car :test #'string=))))
+      (signals error
+        (let* ((london (fixture-required-field result "London"))
+               (bad-london
+                 (replace-field
+                  london
+                  "hash"
+                  "0x0000000000000000000000000000000000000000000000000000000000000001"))
+               (bad-case
+                 (replace-field
+                  case
+                  "result"
+                  (replace-fork-entry "London" bad-london))))
+          (convert-eest-transaction-case-to-vector bad-case)))
+      (signals error
+        (let* ((london (fixture-required-field result "London"))
+               (bad-london
+                 (replace-field
+                  london
+                  "sender"
+                  "0x0000000000000000000000000000000000000001"))
+               (bad-case
+                 (replace-field
+                  case
+                  "result"
+                  (replace-fork-entry "London" bad-london))))
+          (convert-eest-transaction-case-to-vector bad-case))))))
 
 (deftest eest-transaction-test-file-shape-validation
   (let* ((case (first (load-eest-transaction-test-file
