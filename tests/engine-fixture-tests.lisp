@@ -11,6 +11,9 @@
     "shanghai-dynamic-fee-transfer-with-withdrawal"
     "shanghai-contract-creation-with-withdrawal"))
 
+(defparameter +engine-newpayload-v2-smoke-coverage-families+
+  '(:legacy-transfer :dynamic-fee-transfer :contract-creation))
+
 (defparameter +engine-newpayload-v2-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "referenceClients" "cases"))
 
@@ -530,10 +533,55 @@
                  name))
         (setf (gethash name seen-names) t)))))
 
+(defun engine-newpayload-v2-smoke-coverage-family (case)
+  (let* ((payload (fixture-required-field case "payload"))
+         (raw-transactions (fixture-required-field payload "transactions")))
+    (unless (= 1 (length raw-transactions))
+      (error "Engine newPayloadV2 smoke case ~A must have exactly one transaction"
+             (fixture-required-field case "name")))
+    (let ((transaction (transaction-from-encoding
+                        (hex-to-bytes (first raw-transactions)))))
+      (cond
+        ((null (transaction-to transaction))
+         :contract-creation)
+        ((zerop (transaction-type transaction))
+         :legacy-transfer)
+        ((= 2 (transaction-type transaction))
+         :dynamic-fee-transfer)
+        (t
+         (error "Engine newPayloadV2 smoke case ~A has unsupported coverage transaction type ~A"
+                (fixture-required-field case "name")
+                (transaction-type transaction)))))))
+
+(defun validate-engine-newpayload-v2-smoke-coverage (cases)
+  (let ((case-by-name (make-hash-table :test 'equal))
+        (seen-smoke-names (make-hash-table :test 'equal))
+        (covered-families (make-hash-table :test 'eq)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (case-name +engine-newpayload-v2-smoke-case-names+)
+      (when (gethash case-name seen-smoke-names)
+        (error "Engine newPayloadV2 smoke case list has duplicate name ~A"
+               case-name))
+      (setf (gethash case-name seen-smoke-names) t)
+      (let ((case (gethash case-name case-by-name)))
+        (unless case
+          (error "Engine newPayloadV2 smoke case list references missing case ~A"
+                 case-name))
+        (setf (gethash (engine-newpayload-v2-smoke-coverage-family case)
+                       covered-families)
+              t)))
+    (dolist (family +engine-newpayload-v2-smoke-coverage-families+)
+      (unless (gethash family covered-families)
+        (error "Engine newPayloadV2 smoke cases are missing coverage family ~A"
+               family)))))
+
 (defun validate-engine-newpayload-v2-fixture (fixture)
   (validate-engine-newpayload-v2-fixture-metadata fixture)
-  (validate-engine-newpayload-v2-fixture-cases
-   (fixture-required-field fixture "cases")))
+  (let ((cases (fixture-required-field fixture "cases")))
+    (validate-engine-newpayload-v2-fixture-cases cases)
+    (validate-engine-newpayload-v2-smoke-coverage cases)))
 
 (defun load-engine-newpayload-v2-fixture-cases (path)
   (let ((fixture (load-handwritten-fixture-file path)))
@@ -916,6 +964,31 @@
                   case
                   "expect"
                   (replace-field expect "withdrawalBalance" "0x1")))))))))
+
+(deftest engine-newpayload-v2-smoke-coverage-validation
+  (let* ((fixture
+           (load-handwritten-fixture-file
+            +engine-newpayload-v2-fixture-path+))
+         (cases (handwritten-fixture-cases fixture)))
+    (validate-engine-newpayload-v2-fixture-cases cases)
+    (validate-engine-newpayload-v2-smoke-coverage cases)
+    (signals error
+      (let ((+engine-newpayload-v2-smoke-case-names+
+              '("shanghai-one-transfer-with-withdrawal"
+                "shanghai-dynamic-fee-transfer-with-withdrawal")))
+        (validate-engine-newpayload-v2-smoke-coverage cases)))
+    (signals error
+      (let ((+engine-newpayload-v2-smoke-case-names+
+              '("shanghai-one-transfer-with-withdrawal"
+                "shanghai-one-transfer-with-withdrawal"
+                "shanghai-contract-creation-with-withdrawal")))
+        (validate-engine-newpayload-v2-smoke-coverage cases)))
+    (signals error
+      (let ((+engine-newpayload-v2-smoke-case-names+
+              '("shanghai-one-transfer-with-withdrawal"
+                "shanghai-dynamic-fee-transfer-with-withdrawal"
+                "missing-engine-smoke-case")))
+        (validate-engine-newpayload-v2-smoke-coverage cases)))))
 
 (deftest engine-newpayload-v2-fixture-executes-and-becomes-canonical
   (labels ((field (object name)

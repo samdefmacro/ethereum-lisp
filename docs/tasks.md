@@ -793,6 +793,10 @@ splits can land after the Phase A smoke path closes.
     recipient-versus-contract expectations, and the smoke asserts
     `contractAddress` / null `to` receipt shape plus canonical visibility
     through the same branch-switch path.
+  - Progress: added an Engine smoke coverage guard. Fixture validation now
+    requires the selected smoke cases to include legacy transfer, dynamic-fee
+    typed transfer, and contract-creation families, and rejects duplicate or
+    missing smoke case selectors before replay.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

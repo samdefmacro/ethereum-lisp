@@ -88,11 +88,13 @@ fixes in those areas are allowed; expansion is not.
   broad reference state roots, wider execution-spec fixture ingestion, and
   broader cross-client state-transition coverage beyond the current pinned
   Shanghai Engine smoke.
-- **Next checkpoint:** finish broadening the pinned Shanghai
-  `engine_newPayloadV2` fixture set by adding a contract-creation receipt case
-  to the existing legacy-transfer, dynamic-fee typed-transfer, and two-branch
-  canonical-switch smoke path, then replace the seed cases with a bounded
-  transcribed subset from the pinned execution-spec-tests release.
+- **Next checkpoint:** replace the current in-repo seed fixture cases with a
+  bounded transcribed subset from the pinned execution-spec-tests release,
+  starting with transaction vectors and trie/state-root cases. The Shanghai
+  `engine_newPayloadV2` smoke now covers legacy transfer, dynamic-fee typed
+  transfer, contract creation, withdrawals, safe/finalized checkpoint tags, and
+  two-branch canonical switching; remaining Engine fixture work is mainly
+  pinned-fixture breadth rather than new smoke-path shape.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing
