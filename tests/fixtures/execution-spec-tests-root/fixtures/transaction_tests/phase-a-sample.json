@@ -17,6 +17,11 @@
         "sender": "9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "intrinsicGas": "0x5208"
       },
+      "Paris": {
+        "hash": "33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
+        "sender": "9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "intrinsicGas": "0x5208"
+      },
       "Shanghai": {
         "hash": "33469b22e9f636356c4160a87eb19df52b7412e8eac32a4a55ffe88ea8350788",
         "sender": "9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
@@ -46,6 +51,11 @@
         "intrinsicGas": "0x5228"
       },
       "London": {
+        "hash": "d900408d8fec1ffdb3e360685f94400b2ef6e1211ac0f98abbaa140e1a73683a",
+        "sender": "27cf7d8449c9da59189427619ba59f985cee9c0f",
+        "intrinsicGas": "0x5228"
+      },
+      "Paris": {
         "hash": "d900408d8fec1ffdb3e360685f94400b2ef6e1211ac0f98abbaa140e1a73683a",
         "sender": "27cf7d8449c9da59189427619ba59f985cee9c0f",
         "intrinsicGas": "0x5228"
@@ -81,6 +91,11 @@
         "sender": "d02d72e067e77158444ef2020ff2d325f929b363",
         "intrinsicGas": "0x5208"
       },
+      "Paris": {
+        "hash": "a98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476",
+        "sender": "d02d72e067e77158444ef2020ff2d325f929b363",
+        "intrinsicGas": "0x5208"
+      },
       "Shanghai": {
         "hash": "a98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476",
         "sender": "d02d72e067e77158444ef2020ff2d325f929b363",
@@ -110,6 +125,9 @@
       "London": {
         "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
       },
+      "Paris": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
       "Shanghai": {
         "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
       },
@@ -135,6 +153,9 @@
         "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
       },
       "London": {
+        "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+      },
+      "Paris": {
         "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
       },
       "Shanghai": {

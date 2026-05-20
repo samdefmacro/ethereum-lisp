@@ -339,6 +339,11 @@ ones.
     The Phase A target fork is now checked directly for every transaction
     envelope vector, while blob and set-code vectors still assert their
     Cancun/Prague activation boundaries.
+  - Progress: added Paris to the transaction fixture fork matrix, matching
+    geth's transaction-test runner coverage between London and Shanghai. The
+    seed envelope fixture and EEST-shaped transaction sample now assert that
+    legacy, EIP-2930, and EIP-1559 transactions remain valid on Paris, while
+    blob and set-code transactions are still rejected before Cancun/Prague.
   - Progress: added transaction-test fixture root discovery for pinned EEST
     layouts. The harness now detects both unpacked EEST archive roots
     (`fixtures/transaction_tests`) and geth-style checked-out spec-test roots

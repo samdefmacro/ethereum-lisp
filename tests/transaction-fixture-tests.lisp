@@ -29,7 +29,7 @@
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
 (defparameter +transaction-fixture-forks+
-  '("Frontier" "Berlin" "London" "Shanghai" "Cancun" "Prague"))
+  '("Frontier" "Berlin" "London" "Paris" "Shanghai" "Cancun" "Prague"))
 
 (defparameter +transaction-fixture-required-types+
   '(:legacy :access-list :dynamic-fee :blob :set-code))
@@ -879,10 +879,10 @@
 (defun transaction-fixture-type-valid-on-fork-p (type fork)
   (ecase type
     (:legacy t)
-    (:access-list (member fork '("Berlin" "London" "Shanghai" "Cancun"
-                                 "Prague")
+    (:access-list (member fork '("Berlin" "London" "Paris" "Shanghai"
+                                 "Cancun" "Prague")
                           :test #'string=))
-    (:dynamic-fee (member fork '("London" "Shanghai" "Cancun" "Prague")
+    (:dynamic-fee (member fork '("London" "Paris" "Shanghai" "Cancun" "Prague")
                           :test #'string=))
     (:blob (member fork '("Cancun" "Prague") :test #'string=))
     (:set-code (string= fork "Prague"))))
@@ -1067,6 +1067,9 @@
     ((string= fork "Berlin")
      (make-chain-config :berlin-block 0))
     ((string= fork "London")
+     (make-chain-config :berlin-block 0
+                        :london-block 0))
+    ((string= fork "Paris")
      (make-chain-config :berlin-block 0
                         :london-block 0))
     ((string= fork "Shanghai")
