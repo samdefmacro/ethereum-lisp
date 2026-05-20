@@ -359,9 +359,12 @@
 (defun load-phase-a-eest-transaction-test-root-vectors (root)
   (validate-eest-transaction-selector-list
    +phase-a-eest-transaction-test-case-names+)
-  (load-eest-transaction-test-root-vectors
-   root
-   :names +phase-a-eest-transaction-test-case-names+))
+  (let ((vectors
+          (load-eest-transaction-test-root-vectors
+           root
+           :names +phase-a-eest-transaction-test-case-names+)))
+    (validate-phase-a-eest-transaction-vector-summary vectors)
+    vectors))
 
 (defun transaction-fixture-vector-type-counts (vectors)
   (let ((counts (make-hash-table :test 'eq)))
@@ -382,6 +385,36 @@
    (cons "names" (mapcar (lambda (vector)
                            (fixture-required-field vector "name"))
                          vectors))))
+
+(defun transaction-fixture-string-list-set-equal-p (left right)
+  (and (= (length left) (length right))
+       (every (lambda (value)
+                (member value right :test #'string=))
+              left)
+       (every (lambda (value)
+                (member value left :test #'string=))
+              right)))
+
+(defun validate-phase-a-eest-transaction-vector-summary (vectors)
+  (validate-eest-transaction-selector-list
+   +phase-a-eest-transaction-test-case-names+)
+  (let* ((summary (transaction-fixture-vector-summary vectors))
+         (count (fixture-required-field summary "count"))
+         (names (fixture-required-field summary "names"))
+         (types (fixture-required-field summary "types")))
+    (unless (= count (length +phase-a-eest-transaction-test-case-names+))
+      (error "Phase A EEST transaction selector count ~A loaded ~A vectors"
+             (length +phase-a-eest-transaction-test-case-names+)
+             count))
+    (unless (transaction-fixture-string-list-set-equal-p
+             names
+             +phase-a-eest-transaction-test-case-names+)
+      (error "Phase A EEST transaction summary names ~S do not match selectors ~S"
+             names
+             +phase-a-eest-transaction-test-case-names+))
+    (unless types
+      (error "Phase A EEST transaction summary must include at least one transaction type"))
+    summary))
 
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
@@ -1076,6 +1109,9 @@
                (fixture-object-field summary "types")))
     (is (equal '("phase-a-sample.json")
                (fixture-object-field summary "names")))
+    (is (equal summary
+               (validate-phase-a-eest-transaction-vector-summary
+                selected-vectors)))
     (is (string= "phase-a-sample.json/alpha"
                  (eest-transaction-root-case-name root
                                                   (first paths)
@@ -1097,6 +1133,8 @@
     (signals error
       (validate-eest-transaction-selector-list
        '("phase-a-sample.json" "phase-a-sample.json"))))
+  (signals error
+    (validate-phase-a-eest-transaction-vector-summary nil))
   (signals error
     (load-eest-transaction-test-root-cases
      "tests/fixtures/geth-spec-tests-root/spec-tests/fixtures/transaction_tests/")))

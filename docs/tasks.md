@@ -345,6 +345,11 @@ ones.
     subsets. The harness can now report the selected vector count, source-style
     names, and per-envelope-type counts, giving Phase A fixture expansion a
     stable coverage summary instead of only pass/fail validation.
+  - Progress: wired the Phase A EEST transaction subset through a summary gate.
+    The dedicated loader now checks that the loaded vector count and
+    source-style names match the selector list and that at least one envelope
+    type is represented, so future pinned selector updates cannot silently
+    drift from the reported coverage summary.
 
 ## P0: Module Boundaries
 
