@@ -110,7 +110,8 @@
     "storage-update"))
 
 (defparameter +state-proof-fixture-known-tags+
-  '("present-account"
+  '("empty-state-proof"
+    "present-account"
     "missing-account"
     "storage-present"
     "storage-missing"
@@ -119,13 +120,15 @@
     "geth-shaped-result"))
 
 (defparameter +state-proof-fixture-required-case-names+
-  '("present-account-with-present-and-missing-storage"
+  '("empty-state-missing-account-proof"
+    "present-account-with-present-and-missing-storage"
     "missing-account-proof"
     "present-account-deleted-storage-proof"
     "present-account-with-multiple-present-storage-proofs"))
 
 (defparameter +state-proof-fixture-required-tags+
-  '("present-account"
+  '("empty-state-proof"
+    "present-account"
     "missing-account"
     "storage-present"
     "storage-missing"

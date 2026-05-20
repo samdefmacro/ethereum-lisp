@@ -1383,8 +1383,8 @@ splits can land after the Phase A smoke path closes.
     accounts, missing accounts, present storage, and missing storage. Added a
     multi-storage fixture case that proves two present storage slots and one
     missing slot for the same account, and tightened the required fixture tags
-    so multi-present-storage proof replay cannot silently drop. Added a direct
-    verifier regression that checks multiple storage proof entries together and
+    so multi-present-storage proof replay cannot silently drop.
+    Added a direct verifier regression that checks multiple storage proof entries together and
     rejects tampered storage values or account-bound storage roots. Tightened
     state-proof fixture shape validation so each expected proof address,
     storage proof count, and storage proof key order must match the original
@@ -1421,6 +1421,11 @@ splits can land after the Phase A smoke path closes.
     transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.
+  - Progress: added an empty-state proof vector for a missing account plus
+    missing storage key. The fixture now locks the empty trie root,
+    empty-account `eth_getProof` fields, empty account proof list, and null
+    storage proof for empty storage, complementing the existing non-empty-state
+    missing-account proof case.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
