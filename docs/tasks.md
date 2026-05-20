@@ -246,6 +246,9 @@ ones.
   - Progress: tightened EEST transaction-test ingestion so all successful fork
     entries for a single `txbytes` case must agree on the transaction hash and
     recovered sender before the case is converted into the local vector shape.
+  - Progress: tightened EEST transaction-test result normalization so success
+    and exception fields cannot be mixed in the same fork entry, and exception
+    entries cannot carry orphan sender or intrinsic-gas fields.
   - Progress: added canonical quantity validation for valid per-fork
     `intrinsicGas` expectations. Fixture results now reject missing, prefixless,
     or leading-zero gas quantities before comparing against locally derived

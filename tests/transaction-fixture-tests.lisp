@@ -168,10 +168,23 @@
            fork))
   (let ((hash-present-p (fixture-field-present-p result "hash"))
         (sender-present-p (fixture-field-present-p result "sender"))
+        (intrinsic-gas-present-p (fixture-field-present-p result "intrinsicGas"))
         (exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
+    (when (and hash-present-p (not (blank-string-p exception)))
+      (error "EEST transaction case ~A result for fork ~A cannot have both hash and exception"
+             case-name
+             fork))
     (when (and (not hash-present-p) (blank-string-p exception))
       (error "EEST transaction case ~A result for fork ~A needs hash or exception"
+             case-name
+             fork))
+    (when (and (not hash-present-p) sender-present-p)
+      (error "EEST transaction case ~A result for fork ~A cannot have sender without hash"
+             case-name
+             fork))
+    (when (and (not hash-present-p) intrinsic-gas-present-p)
+      (error "EEST transaction case ~A result for fork ~A cannot have intrinsicGas without hash"
              case-name
              fork))
     (when (and hash-present-p (not sender-present-p))
@@ -1132,6 +1145,44 @@
                          (cons "hash"
                                "0x0000000000000000000000000000000000000000000000000000000000000001")
                          (cons "intrinsicGas" "0x5208")))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "success-with-exception"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "hash"
+                               "0x0000000000000000000000000000000000000000000000000000000000000001")
+                         (cons "sender"
+                               "0x0000000000000000000000000000000000000001")
+                         (cons "intrinsicGas" "0x5208")
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "exception-with-sender"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK")
+                         (cons "sender"
+                               "0x0000000000000000000000000000000000000001"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "exception-with-gas"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK")
+                         (cons "intrinsicGas" "0x5208"))))))))
   (signals error
     (convert-eest-transaction-case-to-vector
      (list
