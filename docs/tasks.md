@@ -328,6 +328,10 @@ ones.
     files by their relative JSON path, while multi-case files use
     `relative/path.json/case-name`, matching the geth harness convention and
     preventing same-key cases in different files from colliding.
+  - Progress: added source-name selectors for EEST transaction-test root
+    loading. Callers can now pass explicit source-style case names to load and
+    convert a bounded pinned subset first; missing selectors fail loudly so the
+    Phase A pinned case list cannot silently drift.
 
 ## P0: Module Boundaries
 

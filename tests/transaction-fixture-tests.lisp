@@ -261,12 +261,30 @@
           (cdr entry)))
        entries))))
 
-(defun load-eest-transaction-test-root-cases (root)
+(defun filter-eest-transaction-test-root-cases (cases names)
+  (if names
+      (let ((selected nil)
+            (seen (make-hash-table :test 'equal)))
+        (dolist (case cases)
+          (let ((name (fixture-object-field case "name")))
+            (when (member name names :test #'string=)
+              (push case selected)
+              (setf (gethash name seen) t))))
+        (dolist (name names)
+          (unless (gethash name seen)
+            (error "EEST transaction selector ~A did not match any loaded case"
+                   name)))
+        (nreverse selected))
+      cases))
+
+(defun load-eest-transaction-test-root-cases (root &key names)
   (let ((paths (eest-transaction-test-json-paths root)))
     (unless paths
       (error "EEST transaction test root ~A has no JSON files" root))
-    (loop for path in paths
-          append (load-eest-transaction-test-root-file-cases root path))))
+    (filter-eest-transaction-test-root-cases
+     (loop for path in paths
+           append (load-eest-transaction-test-root-file-cases root path))
+     names)))
 
 (defun eest-transaction-case-success-result (case)
   (let ((result (fixture-object-field case "result")))
@@ -316,10 +334,10 @@
       (validate-transaction-fixture-decoded-vector vector)
       vector)))
 
-(defun load-eest-transaction-test-root-vectors (root)
+(defun load-eest-transaction-test-root-vectors (root &key names)
   (let ((vectors
           (mapcar #'convert-eest-transaction-case-to-vector
-                  (load-eest-transaction-test-root-cases root))))
+                  (load-eest-transaction-test-root-cases root :names names))))
     (validate-transaction-fixture-vector-set vectors)
     vectors))
 
@@ -991,11 +1009,21 @@
                 "tests/fixtures/execution-spec-tests-root/"))
          (paths (eest-transaction-test-json-paths root))
          (cases (load-eest-transaction-test-root-cases root))
+         (selected-cases
+           (load-eest-transaction-test-root-cases
+            root
+            :names '("phase-a-sample.json")))
          (vectors (load-eest-transaction-test-root-vectors root))
+         (selected-vectors
+           (load-eest-transaction-test-root-vectors
+            root
+            :names '("phase-a-sample.json")))
          (vector (first vectors)))
     (is (= 1 (length paths)))
     (is (= 1 (length cases)))
+    (is (= 1 (length selected-cases)))
     (is (= 1 (length vectors)))
+    (is (= 1 (length selected-vectors)))
     (is (string= "phase-a-sample.json"
                  (fixture-object-field (first cases) "name")))
     (is (string= "phase-a-sample.json"
@@ -1009,7 +1037,11 @@
                                                   nil)))
     (signals error
       (validate-transaction-fixture-vector-set
-       (append vectors (list vector)))))
+       (append vectors (list vector))))
+    (signals error
+      (load-eest-transaction-test-root-cases
+       root
+       :names '("missing.json"))))
   (signals error
     (load-eest-transaction-test-root-cases
      "tests/fixtures/geth-spec-tests-root/spec-tests/fixtures/transaction_tests/")))
