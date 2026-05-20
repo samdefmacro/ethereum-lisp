@@ -909,7 +909,11 @@ splits can land after the Phase A smoke path closes.
     `eth_getProof` field names and hex/quantity values. Wired `eth_getProof`
     into the JSON-RPC dispatcher for retained chain-store state snapshots,
     including account proofs, storage proofs, missing accounts, missing state,
-    and parameter validation. Remaining work: external reference vectors.
+    and parameter validation. Aligned `eth_getProof` storage-key handling with
+    geth's reference behavior: requests are capped at 1024 keys, short keys are
+    returned as quantities, 32-byte keys are returned as fixed DATA, and
+    no-prefix hex input is accepted before secure storage proof lookup.
+    Remaining work: external reference vectors.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

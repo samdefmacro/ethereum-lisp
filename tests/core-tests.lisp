@@ -7414,7 +7414,15 @@
 
 (deftest eth-rpc-get-proof
   (labels ((field (object name)
-             (cdr (assoc name object :test #'string=))))
+             (cdr (assoc name object :test #'string=)))
+           (json-string-list (values)
+             (with-output-to-string (stream)
+               (write-char #\[ stream)
+               (loop for value in values
+                     for first-p = t then nil
+                     unless first-p do (write-char #\, stream)
+                     do (format stream "\"~A\"" value))
+               (write-char #\] stream))))
     (let* ((store (make-engine-payload-memory-store))
            (address
              (address-from-hex "0x0000000000000000000000000000000000000103"))
@@ -7455,7 +7463,9 @@
                   "{\"jsonrpc\":\"2.0\",\"id\":98,"
                   "\"method\":\"eth_getProof\","
                   "\"params\":[\"" (address-to-hex address)
-                  "\",[\"0x7\",\"0x8\"],\"0x1c\"]}")
+                  "\",[\"0x7\",\""
+                  (hash32-to-hex missing-slot)
+                  "\",\"7\"],\"0x1c\"]}")
                  store
                  config)))
              (empty-account-response
@@ -7501,14 +7511,32 @@
                   "\"params\":[\"" (address-to-hex address) "\"]}")
                  store
                  config)))
+             (too-many-storage-keys-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":103,"
+                  "\"method\":\"eth_getProof\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\","
+                  (json-string-list
+                   (loop repeat (1+ ethereum-lisp.core::+eth-get-proof-max-storage-keys+)
+                         collect "0x0"))
+                  ",\"0x1c\"]}")
+                 store
+                 config)))
              (proof (field proof-response "result"))
              (storage-proofs (field proof "storageProof"))
              (first-storage (first storage-proofs))
              (second-storage (second storage-proofs))
+             (third-storage (third storage-proofs))
              (empty-proof (field empty-account-response "result"))
              (invalid-storage-keys-error
                (field invalid-storage-keys-response "error"))
-             (invalid-params-error (field invalid-params-response "error")))
+             (invalid-params-error (field invalid-params-response "error"))
+             (too-many-storage-keys-error
+               (field too-many-storage-keys-response "error")))
         (is (string= (address-to-hex address)
                      (field proof "address")))
         (is (string= (quantity-to-hex 1000)
@@ -7519,9 +7547,8 @@
                      (field proof "codeHash")))
         (is (listp (field proof "accountProof")))
         (is (every #'stringp (field proof "accountProof")))
-        (is (= 2 (length storage-proofs)))
-        (is (string= (hash32-to-hex slot)
-                     (field first-storage "key")))
+        (is (= 3 (length storage-proofs)))
+        (is (string= (quantity-to-hex 7) (field first-storage "key")))
         (is (string= (quantity-to-hex #x2a)
                      (field first-storage "value")))
         (is (every #'stringp (field first-storage "proof")))
@@ -7530,6 +7557,9 @@
         (is (string= (quantity-to-hex 0)
                      (field second-storage "value")))
         (is (every #'stringp (field second-storage "proof")))
+        (is (string= (quantity-to-hex 7) (field third-storage "key")))
+        (is (string= (quantity-to-hex #x2a)
+                     (field third-storage "value")))
         (is (string= (address-to-hex empty-address)
                      (field empty-proof "address")))
         (is (string= (quantity-to-hex 0)
@@ -7538,7 +7568,8 @@
                      (field empty-proof "codeHash")))
         (is (null (field missing-state-response "result")))
         (is (= -32602 (field invalid-storage-keys-error "code")))
-        (is (= -32602 (field invalid-params-error "code")))))))
+        (is (= -32602 (field invalid-params-error "code")))
+        (is (= -32602 (field too-many-storage-keys-error "code")))))))
 
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)

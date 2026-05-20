@@ -4859,7 +4859,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-error ()
       (block-validation-fail "~A ~A must be an address" method label))))
 
-(defun eth-rpc-storage-slot-param (value method)
+(defun eth-rpc-storage-slot-param-values (value method)
   (handler-case
       (let ((text value))
         (unless (stringp text)
@@ -4877,11 +4877,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (let* ((bytes (hex-to-bytes hex))
                  (padded (make-byte-vector 32)))
             (replace padded bytes :start1 (- 32 (length bytes)))
-            (make-hash32 padded))))
+            (values (make-hash32 padded) (length bytes)))))
     (block-validation-error (condition)
       (error condition))
     (error ()
       (block-validation-fail "~A storage key must be hex bytes" method))))
+
+(defun eth-rpc-storage-slot-param (value method)
+  (nth-value 0 (eth-rpc-storage-slot-param-values value method)))
 
 (defun eth-rpc-uint256-word-hex (value)
   (let* ((bytes (integer-to-minimal-bytes
@@ -5010,20 +5013,43 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (eth-rpc-proof-key-for-storage-slot (car entry))
                (rlp-encode (cdr entry))))))
 
-(defun eth-rpc-storage-proof-object (trie slot value)
-  (list (cons "key" (hash32-to-hex slot))
-        (cons "value" (quantity-to-hex value))
-        (cons "proof"
-              (mapcar #'bytes-to-hex
-                      (mpt-get-proof
-                       trie
-                       (eth-rpc-proof-key-for-storage-slot slot))))))
+(defconstant +eth-get-proof-max-storage-keys+ 1024)
+
+(defstruct (eth-rpc-proof-storage-slot
+            (:constructor make-eth-rpc-proof-storage-slot
+                (&key slot output-key)))
+  slot
+  output-key)
+
+(defun eth-rpc-proof-storage-slot-param (value method)
+  (multiple-value-bind (slot input-length)
+      (eth-rpc-storage-slot-param-values value method)
+    (make-eth-rpc-proof-storage-slot
+     :slot slot
+     :output-key
+     (if (= input-length 32)
+         (hash32-to-hex slot)
+         (quantity-to-hex (bytes-to-integer (hash32-bytes slot)))))))
+
+(defun eth-rpc-storage-proof-object (trie proof-slot value)
+  (let ((slot (eth-rpc-proof-storage-slot-slot proof-slot)))
+    (list (cons "key" (eth-rpc-proof-storage-slot-output-key proof-slot))
+          (cons "value" (quantity-to-hex value))
+          (cons "proof"
+                (mapcar #'bytes-to-hex
+                        (mpt-get-proof
+                         trie
+                         (eth-rpc-proof-key-for-storage-slot slot)))))))
 
 (defun eth-rpc-proof-storage-slots-param (value method)
   (unless (listp value)
     (block-validation-fail "~A storage keys must be a list" method))
+  (when (> (length value) +eth-get-proof-max-storage-keys+)
+    (block-validation-fail
+     "~A storage keys must contain at most ~D entries"
+     method +eth-get-proof-max-storage-keys+))
   (mapcar (lambda (slot)
-            (eth-rpc-storage-slot-param slot method))
+            (eth-rpc-proof-storage-slot-param slot method))
           value))
 
 (defun eth-rpc-build-proof-object (store block-hash address slots)
@@ -5073,10 +5099,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (cons "storageProof"
            (mapcar
             (lambda (slot)
-              (eth-rpc-storage-proof-object
-               target-storage-trie
-               slot
-               (gethash (hash32-to-hex slot) target-storage-values 0)))
+              (let ((slot-hash (eth-rpc-proof-storage-slot-slot slot)))
+                (eth-rpc-storage-proof-object
+                 target-storage-trie
+                 slot
+                 (gethash (hash32-to-hex slot-hash) target-storage-values 0))))
             slots)))))
 
 (defun engine-rpc-handle-eth-get-proof (params store)
