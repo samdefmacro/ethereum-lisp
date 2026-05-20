@@ -577,19 +577,37 @@
        nodes
        "State proof fixture storage proof"))))
 
+(defun state-proof-fixture-empty-account-fields-p
+    (balance nonce storage-hash code-hash)
+  (and (zerop balance)
+       (zerop nonce)
+       (bytes= (hash32-bytes storage-hash)
+               (hash32-bytes +empty-trie-hash+))
+       (bytes= (hash32-bytes code-hash)
+               (hash32-bytes +empty-code-hash+))))
+
 (defun validate-state-proof-fixture-proof-shape (proof)
   (validate-fixture-object-fields
    proof
    +state-proof-fixture-proof-fields+
    "State proof fixture expectedProof")
   (address-from-hex (fixture-required-field proof "address"))
-  (validate-state-proof-fixture-proof-node-list
-   (fixture-required-field proof "accountProof")
-   "State proof fixture accountProof")
-  (hex-to-quantity (fixture-required-field proof "balance"))
-  (hash32-from-hex (fixture-required-field proof "codeHash"))
-  (hex-to-quantity (fixture-required-field proof "nonce"))
-  (hash32-from-hex (fixture-required-field proof "storageHash"))
+  (let ((account-proof (fixture-required-field proof "accountProof"))
+        (balance (hex-to-quantity (fixture-required-field proof "balance")))
+        (code-hash (hash32-from-hex (fixture-required-field proof "codeHash")))
+        (nonce (hex-to-quantity (fixture-required-field proof "nonce")))
+        (storage-hash
+          (hash32-from-hex (fixture-required-field proof "storageHash"))))
+    (validate-state-proof-fixture-proof-node-list
+     account-proof
+     "State proof fixture accountProof")
+    (when (and (not (state-proof-fixture-empty-account-fields-p
+                     balance
+                     nonce
+                     storage-hash
+                     code-hash))
+               (not account-proof))
+      (error "State proof fixture expectedProof with non-empty account fields must include accountProof nodes")))
   (let ((storage-proof (fixture-required-field proof "storageProof")))
     (unless (listp storage-proof)
       (error "State proof fixture storageProof must be a JSON array"))
@@ -936,7 +954,7 @@
                   (cons "address"
                         "0x0000000000000000000000000000000000000001")
                   (cons "accountProof" nil)
-                  (cons "balance" "0x1")
+                  (cons "balance" "0x0")
                   (cons "codeHash"
                         "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
                   (cons "nonce" "0x0")
@@ -970,6 +988,11 @@
       (signals error
         (let* ((proof (fixture-required-field valid-case "expectedProof"))
                (bad-proof (replace-field proof "accountProof" (list "0x8101"))))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "expectedProof" bad-proof))))
+      (signals error
+        (let* ((proof (fixture-required-field valid-case "expectedProof"))
+               (bad-proof (replace-field proof "balance" "0x1")))
           (validate-state-proof-fixture-case-shape
            (replace-field valid-case "expectedProof" bad-proof))))
       (signals error

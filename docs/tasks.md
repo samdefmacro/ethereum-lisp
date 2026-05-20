@@ -1076,7 +1076,11 @@ splits can land after the Phase A smoke path closes.
     state-proof fixture proof-node validation so account and storage proof
     entries must be valid RLP nodes, not merely hex byte strings. Tightened
     storage proof shape validation so non-zero expected storage values must
-    include proof nodes. Remaining work: replace the seed proof vectors with
+    include proof nodes. Tightened account proof shape validation the same way:
+    expected non-empty account fields now require account proof nodes, so
+    transcribed `eth_getProof` fixtures cannot claim nonce, balance,
+    storage-root, or code-hash state without carrying the proof nodes that
+    verify those fields. Remaining work: replace the seed proof vectors with
     transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.
