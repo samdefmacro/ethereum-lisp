@@ -1529,6 +1529,11 @@ splits can land after the Phase A smoke path closes.
     proof response, including the geth-shaped distinction between quantity
     output keys for short inputs and fixed DATA output keys for full-width
     inputs.
+  - Progress: tightened state-proof fixture expected-output validation. The
+    `expectedProof` address, balance, nonce, code hash, storage hash, storage
+    proof keys, storage proof values, and proof RLP node byte strings must now
+    be canonical JSON-RPC output values, while request-side storage keys still
+    keep the existing geth-compatible prefixless input normalization.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
