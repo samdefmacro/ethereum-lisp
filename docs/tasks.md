@@ -826,6 +826,10 @@ splits can land after the Phase A smoke path closes.
     Added file-level duplicate case-name rejection to the EEST trie-test
     adapter so duplicate JSON case keys fail before direct file or root imports
     can silently consume ambiguous fixtures.
+    Added selected EEST trie-test root replay assertions. Phase A trie root
+    cases now run through the adapter and compare computed MPT roots against
+    expected roots when an external trie-test root is configured, while still
+    skipping cleanly without one.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

@@ -483,6 +483,12 @@
                               (fixture-required-field case "name")))))))
     trie))
 
+(defun assert-eest-trie-test-case-root (case)
+  (let ((trie (run-eest-trie-test-case case)))
+    (is (string= (fixture-required-field case "root")
+                 (mpt-root-hex trie)))
+    trie))
+
 (defun validate-eest-trie-test-file-case-names (cases source)
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (entry cases)
@@ -1015,7 +1021,7 @@
          (delete-entry (second entries))
          (hex-entry (third entries))
          (hex-delete-entry (fourth entries))
-         (trie (run-eest-trie-test-case case)))
+         (trie (assert-eest-trie-test-case-root case)))
     (is (= 1 (length cases)))
     (is (string= "phase-a-trie-sample"
                  (fixture-object-field case "name")))
@@ -1151,6 +1157,11 @@
     (signals error
       (validate-eest-trie-test-root-case-names
        (append cases (list (first cases)))))))
+
+(deftest optional-phase-a-eest-trie-test-root-vectors
+  (with-execution-spec-tests-trie-test-root (root)
+    (dolist (case (load-phase-a-eest-trie-test-root-cases root))
+      (assert-eest-trie-test-case-root case))))
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json
