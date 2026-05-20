@@ -19,6 +19,7 @@
      (:file "chain-config")
      (:file "genesis")
      (:file "core")
+     (:file "block-validation")
      (:file "state")
      (:file "evm")
      (:file "execution")))))

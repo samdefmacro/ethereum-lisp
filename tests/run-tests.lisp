@@ -9,6 +9,7 @@
 (load "src/chain-config.lisp")
 (load "src/genesis.lisp")
 (load "src/core.lisp")
+(load "src/block-validation.lisp")
 (load "src/state.lisp")
 (load "src/evm.lisp")
 (load "src/execution.lisp")

@@ -577,7 +577,7 @@ splits can land after the Phase A smoke path closes.
     surface; those boundaries now live in `src/chain-config.lisp` and
     `src/genesis.lisp`.
 
-- [ ] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
+- [~] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
   `src/core.lisp`.
   - Milestone: 5
   - References: geth `core/block_validator.go`, `consensus/misc`; Nethermind
@@ -585,6 +585,10 @@ splits can land after the Phase A smoke path closes.
   - Acceptance: header/body/post-execution validation moves behind a clear
     module boundary; public APIs and tests remain unchanged.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Progress: started the module boundary by moving header/config validation,
+    base-fee/blob-gas helpers, fork field gates, and merge header checks into
+    `src/block-validation.lisp`. Body and post-execution validation remain in
+    `src/core.lisp` for follow-up slices.
 
 - [ ] `MOD-ENGINE-RPC`: Split Engine API payload/RPC handlers out of
   `src/core.lisp`.
