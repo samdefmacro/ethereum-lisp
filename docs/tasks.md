@@ -1341,6 +1341,11 @@ splits can land after the Phase A smoke path closes.
     value slot together with child index `0`, embedded child-reference
     assertion, and final lookup/proof checks for both the empty key and child
     key.
+    Added the same zero-child branch-value shape to the selected EEST-style
+    trie subset, plus a Phase A coverage gate requiring a branch root value
+    with child index `0`. This keeps the external-style trie selector aligned
+    with the local seed fixture before real pinned trie vectors replace the
+    in-repo samples.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

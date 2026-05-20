@@ -26,6 +26,13 @@
     ],
     "root": "322d957ebcabf5ba295218b9b8920a905f7da6078010c2228989ebcf004e43d8"
   },
+  "branch-value-zero-child": {
+    "in": [
+      ["0x", "root"],
+      ["0x01", "child"]
+    ],
+    "root": "14aaab8c1f35029628b1191bc6f79cf782ded044f792bf8071a0c1dda3c17da9"
+  },
   "delete-branch-child": {
     "in": [
       ["0x", "root"],
