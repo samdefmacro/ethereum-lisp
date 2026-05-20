@@ -93,6 +93,45 @@
       }
     },
     {
+      "name": "present-account-without-storage-key-request",
+      "tags": ["present-account", "no-storage-request", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000301",
+          "nonce": 1,
+          "balance": 2
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000301",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 7
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000301",
+          "code": "0x6001600201"
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000301",
+        "storageKeys": []
+      },
+      "expectedRoot": "0xe79b4529550189d864be7780b438d48c2314e5e452a48b4559fd1b71912b9ec8",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000301",
+        "accountProof": [
+          "0xf86aa120603ebdf0689d4bbad8317af2bec9f6bfeed5211fba89d9bab31d2ac0e93a12fdb846f8440102a02e7827dc2c61c322f13f77e6f25dd18844ccc48426dde70301d2d57d138fced8a0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d"
+        ],
+        "balance": "0x2",
+        "codeHash": "0xdecae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d",
+        "nonce": "0x1",
+        "storageHash": "0x2e7827dc2c61c322f13f77e6f25dd18844ccc48426dde70301d2d57d138fced8",
+        "storageProof": []
+      }
+    },
+    {
       "name": "missing-account-proof",
       "tags": ["missing-account", "geth-shaped-result"],
       "operations": [

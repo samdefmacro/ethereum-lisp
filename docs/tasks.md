@@ -1426,6 +1426,10 @@ splits can land after the Phase A smoke path closes.
     empty-account `eth_getProof` fields, empty account proof list, and null
     storage proof for empty storage, complementing the existing non-empty-state
     missing-account proof case.
+  - Progress: added a no-storage-key `eth_getProof` fixture for a present
+    account. The vector locks geth-shaped behavior where the account proof and
+    account fields are still returned, while `storageProof` is an empty list
+    when the request does not ask for any storage keys.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

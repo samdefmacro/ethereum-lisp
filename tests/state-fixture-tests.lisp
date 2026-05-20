@@ -115,6 +115,7 @@
     "missing-account"
     "storage-present"
     "storage-missing"
+    "no-storage-request"
     "storage-deleted-missing"
     "multi-storage-present"
     "geth-shaped-result"))
@@ -122,6 +123,7 @@
 (defparameter +state-proof-fixture-required-case-names+
   '("empty-state-missing-account-proof"
     "present-account-with-present-and-missing-storage"
+    "present-account-without-storage-key-request"
     "missing-account-proof"
     "present-account-deleted-storage-proof"
     "present-account-with-multiple-present-storage-proofs"))
@@ -132,6 +134,7 @@
     "missing-account"
     "storage-present"
     "storage-missing"
+    "no-storage-request"
     "storage-deleted-missing"
     "multi-storage-present"
     "geth-shaped-result"))
