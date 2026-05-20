@@ -542,6 +542,28 @@
     (dolist (entry storage-proof)
       (validate-state-proof-fixture-storage-proof-shape entry))))
 
+(defun validate-state-proof-fixture-request-proof-alignment (request proof)
+  (unless (bytes= (address-bytes
+                   (address-from-hex
+                    (fixture-required-field request "address")))
+                  (address-bytes
+                   (address-from-hex
+                    (fixture-required-field proof "address"))))
+    (error "State proof fixture expectedProof address must match request address"))
+  (let ((storage-keys (fixture-required-field request "storageKeys"))
+        (storage-proof (fixture-required-field proof "storageProof")))
+    (unless (= (length storage-keys) (length storage-proof))
+      (error "State proof fixture storageProof length must match request storageKeys"))
+    (loop for key in storage-keys
+          for entry in storage-proof
+          for index from 0
+          unless (bytes= (hash32-bytes (hash32-from-hex key))
+                         (hash32-bytes
+                          (hash32-from-hex
+                           (fixture-required-field entry "key"))))
+            do (error "State proof fixture storageProof key at index ~D must match request storageKeys"
+                      index))))
+
 (defun validate-state-proof-fixture-case-shape (case)
   (validate-fixture-object-fields
    case
@@ -555,11 +577,12 @@
       (error "State proof fixture case operations must be a JSON array"))
     (dolist (operation operations)
       (validate-state-root-fixture-operation-shape operation)))
-  (validate-state-proof-fixture-request-shape
-   (fixture-required-field case "request"))
-  (hash32-from-hex (fixture-required-field case "expectedRoot"))
-  (validate-state-proof-fixture-proof-shape
-   (fixture-required-field case "expectedProof")))
+  (let ((request (fixture-required-field case "request"))
+        (proof (fixture-required-field case "expectedProof")))
+    (validate-state-proof-fixture-request-shape request)
+    (hash32-from-hex (fixture-required-field case "expectedRoot"))
+    (validate-state-proof-fixture-proof-shape proof)
+    (validate-state-proof-fixture-request-proof-alignment request proof)))
 
 (defun validate-state-proof-fixture-cases (cases)
   (unless (listp cases)
@@ -860,8 +883,44 @@
                   (cons "nonce" "0x0")
                   (cons "storageHash"
                         "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
-                  (cons "storageProof" nil))))))
-    (validate-state-proof-fixture-case-shape valid-case))
+                  (cons "storageProof"
+                        (list
+                         (list
+                          (cons "key"
+                                "0x0000000000000000000000000000000000000000000000000000000000000001")
+                          (cons "value" "0x0")
+                          (cons "proof" nil)))))))))
+    (labels ((replace-field (object field value)
+               (cons (cons field value)
+                     (remove field object :key #'car :test #'string=))))
+      (validate-state-proof-fixture-case-shape valid-case)
+      (signals error
+        (let* ((proof (fixture-required-field valid-case "expectedProof"))
+               (bad-proof
+                 (replace-field
+                  proof
+                  "address"
+                  "0x0000000000000000000000000000000000000002")))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "expectedProof" bad-proof))))
+      (signals error
+        (let* ((proof (fixture-required-field valid-case "expectedProof"))
+               (bad-proof (replace-field proof "storageProof" nil)))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "expectedProof" bad-proof))))
+      (signals error
+        (let* ((proof (fixture-required-field valid-case "expectedProof"))
+               (bad-storage-proof
+                 (list
+                  (list
+                   (cons "key"
+                         "0x0000000000000000000000000000000000000000000000000000000000000002")
+                   (cons "value" "0x0")
+                   (cons "proof" nil))))
+               (bad-proof
+                 (replace-field proof "storageProof" bad-storage-proof)))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "expectedProof" bad-proof))))))
   (signals error
     (validate-state-proof-fixture-metadata
      (list (cons "format" +state-proof-fixture-format+)
