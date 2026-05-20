@@ -920,6 +920,10 @@ splits can land after the Phase A smoke path closes.
     Expanded the selected plain EEST-style trie cases with branch-root and
     shared-prefix extension-root vectors, and made the Phase A subset summary
     replay root shapes so branch and extension coverage cannot silently drop.
+    Added a selected EEST-style delete-collapse case whose final root remains
+    non-empty, then tightened the Phase A subset gate to require deletion
+    replay that exercises path compression instead of only delete-to-empty
+    roots.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
