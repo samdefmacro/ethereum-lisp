@@ -397,6 +397,8 @@
         cases)))
 
 (defun validate-eest-transaction-selector-list (names)
+  (unless (listp names)
+    (error "EEST transaction selector list must be a list"))
   (unless names
     (error "EEST transaction selector list must not be empty"))
   (let ((seen (make-hash-table :test 'equal)))
@@ -1736,6 +1738,10 @@
     (signals error
       (load-eest-transaction-test-root-cases
        root
+       :names "phase-a-sample.json"))
+    (signals error
+      (load-eest-transaction-test-root-cases
+       root
        :names '("phase-a-sample.json" "phase-a-sample.json")))
     (signals error
       (filter-eest-transaction-test-root-cases
@@ -1745,6 +1751,8 @@
        nil))
     (validate-eest-transaction-selector-list
      +phase-a-eest-transaction-test-case-names+)
+    (signals error
+      (validate-eest-transaction-selector-list "phase-a-sample.json"))
     (signals error
       (validate-eest-transaction-selector-list nil))
     (signals error

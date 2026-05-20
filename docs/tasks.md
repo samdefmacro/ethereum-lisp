@@ -444,6 +444,9 @@ ones.
   - Progress: tightened transaction fixture object-field validation so wrapper,
     vector, EEST case, and EEST result objects reject non-string field names
     before allowed-field checks run.
+  - Progress: tightened EEST transaction selector-list shape validation so
+    direct `:names` callers reject non-list selector values before iterating
+    selector entries.
 
 ## P0: Module Boundaries
 
