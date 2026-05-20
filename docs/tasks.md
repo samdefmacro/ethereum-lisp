@@ -219,6 +219,12 @@ ones.
     pinned EEST fixture imports fail early if the wrapper shape drifts.
     Remaining work: replace the in-repo seed vectors with vectors drawn from
     the pinned `execution-spec-tests` release.
+  - Progress: added transaction vector summary counts for valid and exceptional
+    per-fork results. Phase A and full typed-set fixture tests now assert the
+    expected fork-result distribution, making type activation coverage visible
+    before seed vectors are replaced by pinned EEST transaction tests.
+    Remaining work: replace the in-repo seed vectors with vectors drawn from
+    the pinned `execution-spec-tests` release.
   - Progress: added machine-checked pinned EEST source metadata to the
     transaction envelope fixture wrapper. The runner now requires the Phase A
     release `v5.4.0`, tag target `88e9fb8`, and `fixtures_stable.tar.gz`

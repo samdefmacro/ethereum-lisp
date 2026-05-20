@@ -654,18 +654,50 @@
           when count
             collect (cons type count))))
 
+(defun transaction-fixture-fork-counts-alist (counts)
+  (loop for fork in +transaction-fixture-forks+
+        for count = (gethash fork counts 0)
+        when (plusp count)
+          collect (cons fork count)))
+
+(defun transaction-fixture-result-count-summary (vectors)
+  (let ((valid-count 0)
+        (exception-count 0)
+        (valid-fork-counts (make-hash-table :test 'equal))
+        (exception-fork-counts (make-hash-table :test 'equal)))
+    (dolist (vector vectors)
+      (dolist (check (fixture-required-field vector "result"))
+        (let ((fork (car check))
+              (entry (cdr check)))
+          (if (transaction-fixture-result-valid-p entry)
+              (progn
+                (incf valid-count)
+                (incf (gethash fork valid-fork-counts 0)))
+              (progn
+                (incf exception-count)
+                (incf (gethash fork exception-fork-counts 0)))))))
+    (list
+     (cons "validResultCount" valid-count)
+     (cons "exceptionResultCount" exception-count)
+     (cons "validForkCounts"
+           (transaction-fixture-fork-counts-alist valid-fork-counts))
+     (cons "exceptionForkCounts"
+           (transaction-fixture-fork-counts-alist exception-fork-counts)))))
+
 (defun transaction-fixture-vector-summary (vectors)
   (unless (listp vectors)
     (error "Transaction fixture summary vectors must be a list"))
   (dolist (vector vectors)
     (unless (listp vector)
       (error "Transaction fixture summary vector must be a JSON object")))
-  (list
-   (cons "count" (length vectors))
-   (cons "types" (transaction-fixture-vector-type-counts vectors))
-   (cons "names" (mapcar (lambda (vector)
-                           (fixture-required-field vector "name"))
-                         vectors))))
+  (append
+   (list
+    (cons "count" (length vectors))
+    (cons "types" (transaction-fixture-vector-type-counts vectors))
+    (cons "names" (mapcar (lambda (vector)
+                            (fixture-required-field vector "name"))
+                          vectors)))
+   (transaction-fixture-result-count-summary vectors)))
 
 (defun validate-phase-a-eest-transaction-summary-types (types)
   (unless types
@@ -2308,9 +2340,39 @@
                  (:blob . 1)
                  (:set-code . 1))
                (fixture-object-field all-summary "types")))
+    (is (= 21 (fixture-object-field all-summary "validResultCount")))
+    (is (= 14 (fixture-object-field all-summary "exceptionResultCount")))
+    (is (equal '(("Frontier" . 1)
+                 ("Berlin" . 2)
+                 ("London" . 3)
+                 ("Paris" . 3)
+                 ("Shanghai" . 3)
+                 ("Cancun" . 4)
+                 ("Prague" . 5))
+               (fixture-object-field all-summary "validForkCounts")))
+    (is (equal '(("Frontier" . 4)
+                 ("Berlin" . 3)
+                 ("London" . 2)
+                 ("Paris" . 2)
+                 ("Shanghai" . 2)
+                 ("Cancun" . 1))
+               (fixture-object-field all-summary "exceptionForkCounts")))
     (is (= 3 (fixture-object-field summary "count")))
     (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
+    (is (= 18 (fixture-object-field summary "validResultCount")))
+    (is (= 3 (fixture-object-field summary "exceptionResultCount")))
+    (is (equal '(("Frontier" . 1)
+                 ("Berlin" . 2)
+                 ("London" . 3)
+                 ("Paris" . 3)
+                 ("Shanghai" . 3)
+                 ("Cancun" . 3)
+                 ("Prague" . 3))
+               (fixture-object-field summary "validForkCounts")))
+    (is (equal '(("Frontier" . 2)
+                 ("Berlin" . 1))
+               (fixture-object-field summary "exceptionForkCounts")))
     (is (equal '("phase-a-sample.json/legacy-eip155-sample"
                  "phase-a-sample.json/typed-eip2930-access-list-sample"
                  "phase-a-sample.json/typed-eip1559-dynamic-fee-sample")
