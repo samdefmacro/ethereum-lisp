@@ -2777,16 +2777,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (chain-store-require-memory-store store)
    payload-id))
 
-(defun engine-payload-store-pending-sender-key (transaction)
+(defun engine-pending-txpool-sender-key (transaction)
   (address-to-hex (or (transaction-sender transaction)
                       (zero-address))))
 
-(defun engine-payload-store-pending-nonce-key (transaction)
+(defun engine-pending-txpool-nonce-key (transaction)
   (write-to-string (transaction-nonce transaction) :base 10))
 
+(defun engine-payload-store-pending-sender-key (transaction)
+  (engine-pending-txpool-sender-key transaction))
+
+(defun engine-payload-store-pending-nonce-key (transaction)
+  (engine-pending-txpool-nonce-key transaction))
+
 (defun engine-pending-txpool-pending-conflict (txpool transaction)
-  (let* ((sender (engine-payload-store-pending-sender-key transaction))
-         (nonce (engine-payload-store-pending-nonce-key transaction))
+  (let* ((sender (engine-pending-txpool-sender-key transaction))
+         (nonce (engine-pending-txpool-nonce-key transaction))
          (sender-transactions
            (gethash sender
                     (engine-pending-txpool-transactions-by-sender
@@ -2796,8 +2802,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-pending-txpool-index-pending-transaction
     (txpool transaction)
-  (let* ((sender (engine-payload-store-pending-sender-key transaction))
-         (nonce (engine-payload-store-pending-nonce-key transaction))
+  (let* ((sender (engine-pending-txpool-sender-key transaction))
+         (nonce (engine-pending-txpool-nonce-key transaction))
          (sender-transactions
            (or (gethash
                 sender
@@ -2812,8 +2818,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-pending-txpool-unindex-pending-transaction
     (txpool transaction)
   (when transaction
-    (let* ((sender (engine-payload-store-pending-sender-key transaction))
-           (nonce (engine-payload-store-pending-nonce-key transaction))
+    (let* ((sender (engine-pending-txpool-sender-key transaction))
+           (nonce (engine-pending-txpool-nonce-key transaction))
            (sender-index
              (engine-pending-txpool-transactions-by-sender txpool))
            (sender-transactions (gethash sender sender-index))

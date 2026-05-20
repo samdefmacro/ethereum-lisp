@@ -1933,6 +1933,10 @@ splits can land after the Phase A smoke path closes.
     queued / basefee / blob count helpers onto the `engine-pending-txpool`
     boundary. Store-level txpool RPC helpers now read through txpool accessors
     instead of inspecting the pending tables directly.
+  - Progress: moved pending sender and nonce key derivation to
+    `engine-pending-txpool` helpers, leaving store-named compatibility wrappers
+    as thin forwards. Txpool mutation and indexing code no longer depends on
+    store-named key helpers.
 
 - [x] Add sender/nonce keyed txpool indexing.
   - Milestone: 7
