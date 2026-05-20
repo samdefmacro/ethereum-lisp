@@ -9,6 +9,9 @@
 (defparameter +eest-trie-test-sample-path+
   "tests/fixtures/execution-spec-tests-root/fixtures/trie_tests/phase-a-trie-sample.json")
 
+(defparameter +eest-trie-test-secure-sample-path+
+  "tests/fixtures/execution-spec-tests-root/fixtures/trie_tests/phase-a-secureTrie.json")
+
 (defparameter +phase-a-eest-trie-test-case-names+
   '("phase-a-trie-sample.json"))
 
@@ -422,7 +425,7 @@
         (bytes-to-hex bytes)
         value)))
 
-(defun normalize-eest-trie-test-case (name case)
+(defun normalize-eest-trie-test-case (name case &optional default-secure-p)
   (when (blank-string-p name)
     (error "EEST trie test case name must be present"))
   (unless (listp case)
@@ -438,20 +441,24 @@
           name
           (fixture-required-field case "in")))
    (cons "secure"
-         (eest-trie-test-normalized-secure-p name case))
+         (eest-trie-test-normalized-secure-p
+          name
+          case
+          default-secure-p))
    (cons "root"
          (eest-trie-test-normalized-root
           (fixture-required-field case "root")
           name))))
 
-(defun eest-trie-test-normalized-secure-p (case-name case)
+(defun eest-trie-test-normalized-secure-p
+    (case-name case &optional default-secure-p)
   (if (fixture-field-present-p case "secure")
       (let ((value (fixture-object-field case "secure")))
         (unless (or (eq value t) (null value))
           (error "EEST trie test case ~A secure must be a boolean"
                  case-name))
         (not (null value)))
-      nil))
+      (not (null default-secure-p))))
 
 (defun eest-trie-test-entry-pair-p (entry)
   (and (consp entry)
@@ -640,8 +647,14 @@
     (validate-eest-trie-test-file-case-names cases path)
     (mapcar
      (lambda (entry)
-       (normalize-eest-trie-test-case (car entry) (cdr entry)))
+       (normalize-eest-trie-test-case
+        (car entry)
+        (cdr entry)
+        (eest-trie-test-secure-path-p path)))
      (sort (copy-list cases) #'string< :key #'car))))
+
+(defun eest-trie-test-secure-path-p (path)
+  (not (null (search "secureTrie" (namestring path) :test #'char-equal))))
 
 (defun eest-trie-root-case-name (root path key singleton-p)
   (let ((relative (enough-namestring (truename path) (truename root))))
@@ -660,7 +673,8 @@
        (lambda (entry)
          (normalize-eest-trie-test-case
           (eest-trie-root-case-name root path (car entry) singleton-p)
-          (cdr entry)))
+          (cdr entry)
+          (eest-trie-test-secure-path-p path)))
        entries))))
 
 (defun filter-eest-trie-test-root-cases (cases names)
@@ -1151,11 +1165,15 @@
   (let* ((root (execution-spec-tests-trie-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
          (paths (eest-trie-test-root-json-paths root)))
-    (is (= 2 (length paths)))
-    (is (equal '("phase-a-trie-multi.json" "phase-a-trie-sample.json")
+    (is (= 3 (length paths)))
+    (is (equal '("phase-a-secureTrie.json"
+                 "phase-a-trie-multi.json"
+                 "phase-a-trie-sample.json")
                (eest-trie-test-root-file-names root)))
     (is (string= (namestring (truename +eest-trie-test-sample-path+))
-                 (namestring (truename (second paths)))))))
+                 (namestring (truename (third paths)))))
+    (is (eest-trie-test-secure-path-p
+         (truename +eest-trie-test-secure-sample-path+)))))
 
 (deftest eest-trie-test-root-json-discovery-rejects-empty-roots
   (signals error
@@ -1197,6 +1215,17 @@
                  "hex sample value")))
     (is (fixture-object-field hex-delete-entry "delete"))
     (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+                 (fixture-object-field case "root")))
+    (is (string= (fixture-object-field case "root")
+                 (mpt-root-hex trie))))
+  (let* ((cases (load-eest-trie-test-file +eest-trie-test-secure-sample-path+))
+         (case (first cases))
+         (trie (assert-eest-trie-test-case-root case)))
+    (is (= 1 (length cases)))
+    (is (string= "phase-a-secure"
+                 (fixture-object-field case "name")))
+    (is (fixture-object-field case "secure"))
+    (is (string= "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
                  (fixture-object-field case "root")))
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
@@ -1383,16 +1412,20 @@
          (selected-cases
            (load-phase-a-eest-trie-test-root-cases root))
          (summary (eest-trie-test-case-summary selected-cases)))
-    (is (= 3 (length cases)))
+    (is (= 4 (length cases)))
     (is (= 1 (length selected-cases)))
-    (is (equal '("phase-a-trie-multi.json/alpha"
+    (is (equal '("phase-a-secureTrie.json"
+                 "phase-a-trie-multi.json/alpha"
                  "phase-a-trie-multi.json/beta"
                  "phase-a-trie-sample.json")
                (mapcar (lambda (case)
                          (fixture-object-field case "name"))
                        cases)))
+    (is (fixture-object-field (first cases) "secure"))
+    (is (string= "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+                 (fixture-object-field (first cases) "root")))
     (is (string= "phase-a-trie-sample.json"
-                 (fixture-object-field (third cases) "name")))
+                 (fixture-object-field (fourth cases) "name")))
     (is (string= "phase-a-trie-sample.json"
                  (fixture-object-field (first selected-cases) "name")))
     (is (= 1 (fixture-object-field summary "count")))
@@ -1411,7 +1444,7 @@
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-multi.json/alpha"
                  (eest-trie-root-case-name root
-                                           (first
+                                           (second
                                             (eest-trie-test-root-json-paths
                                              root))
                                            "alpha"

@@ -870,6 +870,9 @@ splits can land after the Phase A smoke path closes.
     Added operation-derived final lookup checks to EEST trie-test replay, so
     each touched plain or secure key is verified for final value/missing status
     in addition to the expected root hash.
+    Added secure-trie filename inference for EEST trie-test files: `secureTrie`
+    source files default cases to secure-key replay unless an individual case
+    explicitly overrides the `secure` flag.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
