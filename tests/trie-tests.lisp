@@ -726,9 +726,11 @@
 (defun load-phase-a-eest-trie-test-root-cases (root)
   (validate-eest-trie-selector-list
    +phase-a-eest-trie-test-case-names+)
-  (load-eest-trie-test-root-cases
-   root
-   :names +phase-a-eest-trie-test-case-names+))
+  (let ((cases (load-eest-trie-test-root-cases
+                root
+                :names +phase-a-eest-trie-test-case-names+)))
+    (validate-phase-a-eest-trie-test-coverage cases)
+    cases))
 
 (defun eest-trie-test-case-summary (cases)
   (let* ((entries-by-case
@@ -766,6 +768,17 @@
      (cons "roots" (mapcar (lambda (case)
                              (fixture-required-field case "root"))
                            cases)))))
+
+(defun validate-phase-a-eest-trie-test-coverage (cases)
+  (let ((summary (eest-trie-test-case-summary cases)))
+    (when (zerop (fixture-object-field summary "secureCaseCount"))
+      (error "Phase A EEST trie subset must include a secure trie case"))
+    (when (zerop (fixture-object-field summary "plainCaseCount"))
+      (error "Phase A EEST trie subset must include a plain trie case"))
+    (when (zerop (fixture-object-field summary "totalWriteEntryCount"))
+      (error "Phase A EEST trie subset must include write entries"))
+    (when (zerop (fixture-object-field summary "totalDeleteEntryCount"))
+      (error "Phase A EEST trie subset must include delete entries"))))
 
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
@@ -1489,7 +1502,22 @@
        '("phase-a-trie-sample.json" "phase-a-trie-sample.json")))
     (signals error
       (validate-eest-trie-test-root-case-names
-       (append cases (list (first cases)))))))
+       (append cases (list (first cases)))))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (list (fourth cases))))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (list (first cases))))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (list
+        (first cases)
+        (normalize-eest-trie-test-case
+         "plain-write-only"
+         (list (cons "in" (list (list "dog" "puppy")))
+               (cons "root"
+                     "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))))))
 
 (deftest optional-phase-a-eest-trie-test-root-vectors
   (with-execution-spec-tests-trie-test-root (root)

@@ -877,6 +877,8 @@ splits can land after the Phase A smoke path closes.
     plain sample vector and the secureTrie sample vector by default.
     Extended EEST trie-test subset summaries with secure/plain case counts so
     Phase A reports show whether secure-key replay coverage is present.
+    Added Phase A EEST trie subset coverage validation: the selected set must
+    include secure and plain trie cases plus write and delete entries.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
