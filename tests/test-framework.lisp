@@ -78,6 +78,8 @@
   (let ((seen-fields (make-hash-table :test 'equal)))
     (dolist (field object)
       (let ((name (car field)))
+        (unless (stringp name)
+          (error "~A field name must be a string" label))
         (when (gethash name seen-fields)
           (error "~A has duplicate field ~A" label name))
         (setf (gethash name seen-fields) t)

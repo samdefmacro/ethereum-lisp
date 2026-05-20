@@ -450,6 +450,9 @@ ones.
   - Progress: tightened EEST transaction selector entry validation so non-string
     selector names fail with an adapter-specific error before blank-name or
     source-style checks run.
+  - Progress: lifted non-string fixture field-name rejection into the shared
+    pinned EEST fixture validator, so transaction, trie, state, engine, and EVM
+    metadata wrappers fail before allowed-field checks hit lower-level errors.
 
 ## P0: Module Boundaries
 

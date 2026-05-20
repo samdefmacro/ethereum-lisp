@@ -82,6 +82,14 @@
       (validate-fixture-pinned-eest-source
        (fixture
         (list (cons "release" +phase-a-eest-release+)
+              (cons "tagTarget" +phase-a-eest-tag-target+)
+              (cons "archive" +phase-a-eest-archive+)
+              (cons "status" "seed")
+              (cons 42 t)))))
+    (signals error
+      (validate-fixture-pinned-eest-source
+       (fixture
+        (list (cons "release" +phase-a-eest-release+)
               (cons "release" "duplicate release")
               (cons "tagTarget" +phase-a-eest-tag-target+)
               (cons "archive" +phase-a-eest-archive+)
