@@ -565,6 +565,10 @@ splits can land after the Phase A smoke path closes.
     `chain-rules-blob-schedule` into `src/chain-config.lisp`, keeping default
     blob schedule derivation with the fork-rule snapshot. Custom schedule
     validation/selection and genesis parsing remain in `core.lisp`.
+  - Progress: moved custom blob schedule validation/selection and the shared
+    block validation error helper into `src/chain-config.lisp`, so the
+    chain-config module now owns both default and custom blob schedule
+    derivation. Genesis config parsing remains in `core.lisp`.
 
 - [ ] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
   `src/core.lisp`.
