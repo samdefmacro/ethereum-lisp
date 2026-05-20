@@ -1601,10 +1601,22 @@
               (pairing-code-sized
                (concat-bytes g g2 g g2 negative-g g2 negative-g g2))
               :context context))
+           (mixed-zero-g2-nonadjacent-cancel-result
+             (execute-bytecode
+              (pairing-code-sized
+               (concat-bytes g g2
+                             (make-byte-vector 64) g2
+                             g negative-g2))
+              :context context))
            (unbalanced-duplicate-result
              (execute-bytecode
               (pairing-code-sized
                (concat-bytes g g2 negative-g g2 g g2))
+              :context context))
+           (g2-negation-unbalanced-duplicate-result
+             (execute-bytecode
+              (pairing-code-sized
+               (concat-bytes g g2 g negative-g2 g negative-g2))
               :context context))
            (malformed-result (execute-bytecode malformed-code :context context)))
       (is (= 1 (first (evm-result-stack empty-result))))
@@ -1633,9 +1645,24 @@
       (is (= 1 (aref (evm-result-return-data
                       nonadjacent-double-cancel-result)
                      31)))
+      (is (= 1 (first (evm-result-stack
+                       mixed-zero-g2-nonadjacent-cancel-result))))
+      (is (= 1 (aref (evm-result-return-data
+                      mixed-zero-g2-nonadjacent-cancel-result)
+                     31)))
       (is (= 1 (first (evm-result-stack unbalanced-duplicate-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data unbalanced-duplicate-result)))
+      (is (= 1 (first (evm-result-stack
+                       g2-negation-unbalanced-duplicate-result))))
+      (is (bytes= (make-byte-vector 32)
+                  (evm-result-return-data
+                   g2-negation-unbalanced-duplicate-result)))
+      (multiple-value-bind (output gas)
+          (ethereum-lisp.evm::run-bn254-pairing-precompile
+           (concat-bytes g g2))
+        (is (bytes= (make-byte-vector 32) output))
+        (is (= (+ 45000 34000) gas)))
       (is (= 0 (first (evm-result-stack invalid-g2-coordinate-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data invalid-g2-coordinate-result)))
