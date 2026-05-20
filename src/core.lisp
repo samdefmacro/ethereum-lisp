@@ -2738,6 +2738,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       (prepared-payloads (make-hash-table :test 'equal))
                       (blob-sidecars (make-hash-table :test 'equal))
                       (pending-transactions (make-hash-table :test 'equal))
+                      (pending-transactions-by-sender
+                       (make-hash-table :test 'equal))
                       (log-filters (make-hash-table :test 'eql))
                       (next-log-filter-id 1)
                       (head-checkpoint
@@ -2761,6 +2763,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   prepared-payloads
   blob-sidecars
   pending-transactions
+  pending-transactions-by-sender
   log-filters
   (next-log-filter-id 1 :type (integer 1 *))
   head-checkpoint
@@ -2867,9 +2870,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       :transaction transaction
                       :receipt receipt
                       :log-index-start log-index-start))
-               (remhash transaction-key
-                        (engine-payload-memory-store-pending-transactions
-                         store))
+               (engine-payload-store-remove-pending-transaction
+                store
+                (transaction-hash transaction))
                (when receipt
                  (incf log-index-start
                        (length (receipt-logs receipt))))))
@@ -3287,6 +3290,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :pending-transactions
    (engine-payload-store-copy-table
     (engine-payload-memory-store-pending-transactions store))
+   :pending-transactions-by-sender
+   (engine-payload-store-copy-pending-sender-index
+    (engine-payload-memory-store-pending-transactions-by-sender store))
    :log-filters
    (engine-payload-store-copy-filter-table
     (engine-payload-memory-store-log-filters store))
@@ -3333,6 +3339,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-memory-store-blob-sidecars snapshot)
         (engine-payload-memory-store-pending-transactions store)
         (engine-payload-memory-store-pending-transactions snapshot)
+        (engine-payload-memory-store-pending-transactions-by-sender store)
+        (engine-payload-memory-store-pending-transactions-by-sender snapshot)
         (engine-payload-memory-store-log-filters store)
         (engine-payload-memory-store-log-filters snapshot)
         (engine-payload-memory-store-next-log-filter-id store)
@@ -3457,6 +3465,65 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (chain-store-require-memory-store store)
    payload-id))
 
+(defun engine-payload-store-pending-sender-key (transaction)
+  (address-to-hex (or (transaction-sender transaction)
+                      (zero-address))))
+
+(defun engine-payload-store-pending-nonce-key (transaction)
+  (write-to-string (transaction-nonce transaction) :base 10))
+
+(defun engine-payload-store-copy-pending-sender-index (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash (lambda (sender nonce-table)
+               (setf (gethash sender copy)
+                     (engine-payload-store-copy-table nonce-table)))
+             table)
+    copy))
+
+(defun engine-payload-store-index-pending-transaction (store transaction)
+  (let* ((sender (engine-payload-store-pending-sender-key transaction))
+         (nonce (engine-payload-store-pending-nonce-key transaction))
+         (sender-transactions
+           (or (gethash
+                sender
+                (engine-payload-memory-store-pending-transactions-by-sender
+                 store))
+               (setf
+                (gethash
+                 sender
+                 (engine-payload-memory-store-pending-transactions-by-sender
+                  store))
+                (make-hash-table :test 'equal)))))
+    (setf (gethash nonce sender-transactions) transaction)))
+
+(defun engine-payload-store-unindex-pending-transaction (store transaction)
+  (when transaction
+    (let* ((sender (engine-payload-store-pending-sender-key transaction))
+           (nonce (engine-payload-store-pending-nonce-key transaction))
+           (sender-index
+             (engine-payload-memory-store-pending-transactions-by-sender
+              store))
+           (sender-transactions (gethash sender sender-index))
+           (indexed-transaction
+             (and sender-transactions
+                  (gethash nonce sender-transactions))))
+      (when (and indexed-transaction
+                 (hash32= (transaction-hash indexed-transaction)
+                          (transaction-hash transaction)))
+        (remhash nonce sender-transactions)
+        (when (zerop (hash-table-count sender-transactions))
+          (remhash sender sender-index))))))
+
+(defun engine-payload-store-remove-pending-transaction (store hash)
+  (let* ((key (engine-payload-store-key hash))
+         (transaction
+           (gethash key
+                    (engine-payload-memory-store-pending-transactions store))))
+    (when transaction
+      (engine-payload-store-unindex-pending-transaction store transaction)
+      (remhash key (engine-payload-memory-store-pending-transactions store)))
+    transaction))
+
 (defun engine-payload-store-put-pending-transaction (store transaction)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
@@ -3473,6 +3540,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (setf (gethash key
                      (engine-payload-memory-store-pending-transactions store))
             transaction)
+      (engine-payload-store-index-pending-transaction store transaction)
       (loop for filter
               being the hash-values of
                 (engine-payload-memory-store-log-filters store)
@@ -3496,6 +3564,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    #'string<
    :key (lambda (transaction)
           (hash32-to-hex (transaction-hash transaction)))))
+
+(defun engine-payload-store-pending-transactions-by-sender (store)
+  (engine-payload-memory-store-pending-transactions-by-sender store))
 
 (defun engine-payload-store-pending-transaction-count (store)
   (hash-table-count
@@ -5661,6 +5732,34 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (eth-rpc-pending-transaction-object transaction)))
     (eth-rpc-hash-table-object nonce-transactions)))
 
+(defun txpool-rpc-indexed-nonce-transactions
+    (sender-transactions value-function)
+  (if (or (null sender-transactions)
+          (zerop (hash-table-count sender-transactions)))
+      +json-empty-object+
+      (loop for nonce in (sort (loop for nonce being the hash-keys
+                                       of sender-transactions
+                                     collect nonce)
+                               #'string<)
+            collect
+            (cons nonce
+                  (funcall value-function
+                           (gethash nonce sender-transactions))))))
+
+(defun txpool-rpc-indexed-sender-transactions
+    (sender-index value-function)
+  (if (zerop (hash-table-count sender-index))
+      +json-empty-object+
+      (loop for sender in (sort (loop for sender being the hash-keys
+                                        of sender-index
+                                      collect sender)
+                                #'string<)
+            collect
+            (cons sender
+                  (txpool-rpc-indexed-nonce-transactions
+                   (gethash sender sender-index)
+                   value-function)))))
+
 (defun txpool-rpc-transaction-summary (transaction)
   (let ((to (transaction-to transaction)))
     (format nil "~A: ~D wei + ~D gas x ~D wei"
@@ -5694,6 +5793,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                     (eth-rpc-hash-table-object
                      (gethash sender senders)))))))
 
+(defun txpool-rpc-indexed-content-transactions (sender-index)
+  (txpool-rpc-indexed-sender-transactions
+   sender-index
+   #'eth-rpc-pending-transaction-object))
+
 (defun txpool-rpc-inspect-transactions (transactions)
   (let ((senders (make-hash-table :test 'equal)))
     (dolist (transaction transactions)
@@ -5716,6 +5820,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (cons sender
                     (eth-rpc-hash-table-object
                      (gethash sender senders)))))))
+
+(defun txpool-rpc-indexed-inspect-transactions (sender-index)
+  (txpool-rpc-indexed-sender-transactions
+   sender-index
+   #'txpool-rpc-transaction-summary))
 
 (defun eth-rpc-raw-transaction-from-location (location)
   (when location
@@ -6185,8 +6294,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "txpool_content params must be empty"))
   (list
    (cons "pending"
-         (txpool-rpc-content-transactions
-          (engine-payload-store-pending-transactions store)))
+         (txpool-rpc-indexed-content-transactions
+          (engine-payload-store-pending-transactions-by-sender store)))
    (cons "queued" +json-empty-object+)))
 
 (defun engine-rpc-handle-txpool-content-from (params store)
@@ -6197,11 +6306,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   (first params) "txpool_contentFrom" "address")))
     (list
      (cons "pending"
-           (txpool-rpc-nonce-transactions
-            (remove-if-not
-             (lambda (transaction)
-               (txpool-rpc-transaction-sender-p transaction address))
-             (engine-payload-store-pending-transactions store))))
+           (txpool-rpc-indexed-nonce-transactions
+            (gethash
+             (address-to-hex address)
+             (engine-payload-store-pending-transactions-by-sender store))
+            #'eth-rpc-pending-transaction-object))
      (cons "queued" +json-empty-object+))))
 
 (defun engine-rpc-handle-txpool-inspect (params store)
@@ -6209,8 +6318,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "txpool_inspect params must be empty"))
   (list
    (cons "pending"
-         (txpool-rpc-inspect-transactions
-          (engine-payload-store-pending-transactions store)))
+         (txpool-rpc-indexed-inspect-transactions
+          (engine-payload-store-pending-transactions-by-sender store)))
    (cons "queued" +json-empty-object+)))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index

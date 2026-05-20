@@ -1419,13 +1419,18 @@ splits can land after the Phase A smoke path closes.
   - Validation: existing txpool/RPC tests plus
     `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Add sender/nonce keyed txpool indexing.
+- [~] Add sender/nonce keyed txpool indexing.
   - Milestone: 7
   - Dependencies: extracted txpool state.
   - Acceptance: pending transactions are indexed by hash and sender/nonce, and
     txpool content APIs no longer rebuild all groupings from scratch.
   - Validation: add duplicate sender/nonce tests and run
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: added a sender/nonce index to the existing memory-store-backed
+    pending transaction pool. Pending insertion, duplicate hash handling,
+    mined-transaction removal, atomic store snapshots, and `txpool_content`,
+    `txpool_contentFrom`, and `txpool_inspect` now use the index while the
+    txpool object extraction remains a follow-up.
 
 - [ ] Add basic txpool admission preflight.
   - Milestone: 7
