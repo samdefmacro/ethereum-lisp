@@ -109,6 +109,70 @@
       "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
     },
     {
+      "name": "account-clear-preserves-sibling-account-root",
+      "tags": [
+        "multi-account",
+        "account-root",
+        "storage-root",
+        "storage-root-projection",
+        "code-root",
+        "account-projection",
+        "account-prune",
+        "storage-prune",
+        "code-prune"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000112",
+          "balance": 5
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000112",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000012",
+          "value": 18
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000113",
+          "balance": 7
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000113",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000013",
+          "value": 19
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000113",
+          "code": "0x6001"
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x0000000000000000000000000000000000000113"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000112",
+          "nonce": 0,
+          "balance": 5,
+          "storageRoot": "0x75187acbe6d9e504ece760258be4cb61901d693ee51e0364bdf4b00ac73c7b80",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448005a075187acbe6d9e504ece760258be4cb61901d693ee51e0364bdf4b00ac73c7b80a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000112",
+          "root": "0x75187acbe6d9e504ece760258be4cb61901d693ee51e0364bdf4b00ac73c7b80"
+        }
+      ],
+      "expectedRoot": "0x2ba7d05755ec591aee3a3e192de68f139d5b20ac9f2233a2205af5d6b611c4f6"
+    },
+    {
       "name": "single-account-storage-root",
       "tags": ["account-root", "storage-root", "storage-root-projection"],
       "operations": [

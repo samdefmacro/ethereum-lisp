@@ -760,6 +760,9 @@ splits can land after the Phase A smoke path closes.
     Extended `clearAccount` state-root coverage to an account with both
     non-empty code and storage, and tightened final-state assertions so storage
     slots touched before a final account prune must read back as zero.
+    Added multi-account `clearAccount` state-root coverage that prunes one
+    account with code/storage while preserving a sibling account's storage
+    root, account RLP projection, and final state root.
     Added shared fixture metadata validation for trie and state-root vectors:
     both wrappers now machine-check the Phase A EEST release `v5.4.0`, tag
     target `88e9fb8`, and `fixtures_stable.tar.gz` archive before consuming
