@@ -332,6 +332,11 @@ ones.
     loading. Callers can now pass explicit source-style case names to load and
     convert a bounded pinned subset first; missing selectors fail loudly so the
     Phase A pinned case list cannot silently drift.
+  - Progress: centralized the Phase A EEST transaction selector list and wired
+    the optional external transaction-test check through it. The current list
+    names the in-repo `phase-a-sample.json` case; replacing it with real
+    `v5.4.0` source-style names will make local and optional external runs use
+    the same bounded pinned subset.
 
 ## P0: Module Boundaries
 

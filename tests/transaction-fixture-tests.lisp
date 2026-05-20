@@ -6,6 +6,9 @@
 (defparameter +eest-transaction-test-sample-path+
   "tests/fixtures/execution-spec-tests-root/fixtures/transaction_tests/phase-a-sample.json")
 
+(defparameter +phase-a-eest-transaction-test-case-names+
+  '("phase-a-sample.json"))
+
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
@@ -340,6 +343,11 @@
                   (load-eest-transaction-test-root-cases root :names names))))
     (validate-transaction-fixture-vector-set vectors)
     vectors))
+
+(defun load-phase-a-eest-transaction-test-root-vectors (root)
+  (load-eest-transaction-test-root-vectors
+   root
+   :names +phase-a-eest-transaction-test-case-names+))
 
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
@@ -1012,12 +1020,10 @@
          (selected-cases
            (load-eest-transaction-test-root-cases
             root
-            :names '("phase-a-sample.json")))
+            :names +phase-a-eest-transaction-test-case-names+))
          (vectors (load-eest-transaction-test-root-vectors root))
          (selected-vectors
-           (load-eest-transaction-test-root-vectors
-            root
-            :names '("phase-a-sample.json")))
+           (load-phase-a-eest-transaction-test-root-vectors root))
          (vector (first vectors)))
     (is (= 1 (length paths)))
     (is (= 1 (length cases)))
@@ -1048,7 +1054,7 @@
 
 (deftest optional-eest-transaction-test-root-vectors
   (with-execution-spec-tests-transaction-test-root (root)
-    (let ((vectors (load-eest-transaction-test-root-vectors root)))
+    (let ((vectors (load-phase-a-eest-transaction-test-root-vectors root)))
       (is (< 0 (length vectors))))))
 
 (deftest transaction-envelope-fixture-vectors
