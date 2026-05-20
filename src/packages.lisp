@@ -769,6 +769,7 @@
    #:state-proof-result-storage-proofs
    #:state-db-get-account
    #:state-db-set-account
+   #:state-db-clear-account
    #:state-db-set-code
    #:state-db-get-code
    #:state-db-get-code-hash
@@ -1663,6 +1664,7 @@
    #:state-proof-result-storage-proofs
    #:state-db-get-account
    #:state-db-set-account
+   #:state-db-clear-account
    #:state-db-set-code
    #:state-db-get-code
    #:state-db-get-code-hash
@@ -2485,6 +2487,7 @@
    #:state-proof-result-storage-proofs
    #:state-db-get-account
    #:state-db-set-account
+   #:state-db-clear-account
    #:state-db-set-code
    #:state-db-get-code
    #:state-db-get-code-hash

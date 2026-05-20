@@ -80,6 +80,10 @@
     (setf (state-object-account object) account)
     state))
 
+(defun state-db-clear-account (state address)
+  (remhash (address-key address) (state-db-objects state))
+  state)
+
 (defun state-db-set-code (state address code)
   (let* ((key (address-key address))
          (code (ensure-byte-vector code))

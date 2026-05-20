@@ -753,6 +753,10 @@ splits can land after the Phase A smoke path closes.
     Added code-update state-root coverage that overwrites non-empty account code
     and asserts the final code hash, retained code bytes, account RLP, and
     state root.
+    Added account-prune state-root coverage for the EIP-161-style empty-account
+    clearing case: an explicit `clearAccount` fixture operation now prunes a
+    non-empty account back to the empty state root while preserving direct
+    `setAccount` empty-account existence semantics needed by `EXTCODEHASH`.
     Added shared fixture metadata validation for trie and state-root vectors:
     both wrappers now machine-check the Phase A EEST release `v5.4.0`, tag
     target `88e9fb8`, and `fixtures_stable.tar.gz` archive before consuming

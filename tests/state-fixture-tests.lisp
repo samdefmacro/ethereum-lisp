@@ -72,6 +72,7 @@
     "multi-account"
     "account-projection"
     "account-update"
+    "account-prune"
     "storage-update"))
 
 (defparameter +state-root-fixture-required-tags+
@@ -88,6 +89,7 @@
     "multi-account"
     "account-projection"
     "account-update"
+    "account-prune"
     "storage-update"))
 
 (defparameter +state-proof-fixture-known-tags+
@@ -143,6 +145,14 @@
                (fixture-object-field operation "op")
                name)))))
 
+(defun validate-state-root-fixture-operation-absent-fields
+    (operation fields)
+  (dolist (field fields)
+    (when (fixture-field-present-p operation field)
+      (error "State root fixture operation ~A must not contain ~A"
+             (fixture-object-field operation "op")
+             field))))
+
 (defun validate-state-root-fixture-address (operation)
   (address-from-hex (fixture-required-field operation "address")))
 
@@ -190,6 +200,10 @@
         operation "value" :required-p t))
       ((string= op "setCode")
        (hex-to-bytes (fixture-required-field operation "code")))
+      ((string= op "clearAccount")
+       (validate-state-root-fixture-operation-absent-fields
+        operation
+        '("nonce" "balance" "slot" "value" "code")))
       (t
        (error "Unknown state root fixture operation: ~A" op)))))
 
@@ -296,6 +310,8 @@
        (state-db-set-code
         state address
         (hex-to-bytes (fixture-object-field operation "code"))))
+      ((string= op "clearAccount")
+       (state-db-clear-account state address))
       (t
        (error "Unknown state root fixture operation: ~A" op))))
   state)
@@ -382,8 +398,10 @@
          (when account-state
            (setf (state-root-fixture-account-state-code account-state)
                  code)
-           (state-root-fixture-prune-account-state
-            states address account-state))))
+          (state-root-fixture-prune-account-state
+           states address account-state))))
+      ((string= op "clearAccount")
+       (remhash address states))
       (t
        (error "Unknown state root fixture operation: ~A" op))))
   states)
@@ -839,6 +857,11 @@
      (list (cons "op" "setAccount")
            (cons "address" "0x0000000000000000000000000000000000000001")
            (cons "balance" -1))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "clearAccount")
+           (cons "address" "0x0000000000000000000000000000000000000001")
+           (cons "balance" 0))))
   (signals error
     (validate-state-root-fixture-operation-shape
      (list (cons "op" "setCode")

@@ -57,6 +57,23 @@
       "expectedRoot": "0x2dcce5f38ad7313b7c2a6419687744503a336be01219c897f786b4bfeb4a0b39"
     },
     {
+      "name": "account-clear-prunes-to-empty-root",
+      "tags": ["account-root", "account-update", "account-prune"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000110",
+          "nonce": 1,
+          "balance": 1000
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x0000000000000000000000000000000000000110"
+        }
+      ],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    {
       "name": "single-account-storage-root",
       "tags": ["account-root", "storage-root", "storage-root-projection"],
       "operations": [
