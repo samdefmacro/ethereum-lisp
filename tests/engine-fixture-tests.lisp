@@ -12,6 +12,9 @@
 (defparameter +engine-fixture-reference-client-fields+
   '("geth" "nethermind" "reth"))
 
+(defparameter +engine-newpayload-v2-fixture-case-fields+
+  '("name" "network" "chainId" "config" "parent" "payload" "expect"))
+
 (defun validate-engine-newpayload-v2-fixture-metadata (fixture)
   (validate-fixture-object-fields
    fixture
@@ -35,10 +38,48 @@
         (error "Engine newPayloadV2 fixture referenceClients.~A must be present"
                client)))))
 
+(defun validate-engine-newpayload-v2-fixture-case-shape (case)
+  (validate-fixture-object-fields
+   case
+   +engine-newpayload-v2-fixture-case-fields+
+   "Engine newPayloadV2 fixture case")
+  (let ((name (fixture-required-field case "name")))
+    (unless (stringp name)
+      (error "Engine newPayloadV2 fixture case name must be a string"))
+    (when (blank-string-p name)
+      (error "Engine newPayloadV2 fixture case name must be present"))))
+
+(defun validate-engine-newpayload-v2-fixture-cases (cases)
+  (unless (and (listp cases) cases)
+    (error "Engine newPayloadV2 fixture cases must be a non-empty JSON array"))
+  (let ((seen-names (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (validate-engine-newpayload-v2-fixture-case-shape case)
+      (let ((name (fixture-object-field case "name")))
+        (when (gethash name seen-names)
+          (error "Engine newPayloadV2 fixture has duplicate case name ~A"
+                 name))
+        (setf (gethash name seen-names) t)))))
+
+(defun validate-engine-newpayload-v2-fixture (fixture)
+  (validate-engine-newpayload-v2-fixture-metadata fixture)
+  (validate-engine-newpayload-v2-fixture-cases
+   (fixture-required-field fixture "cases")))
+
 (defun load-engine-newpayload-v2-fixture-cases (path)
   (let ((fixture (load-handwritten-fixture-file path)))
-    (validate-engine-newpayload-v2-fixture-metadata fixture)
+    (validate-engine-newpayload-v2-fixture fixture)
     (handwritten-fixture-cases fixture)))
+
+(defun select-engine-newpayload-v2-fixture-case (path name)
+  (let ((case (find name
+                    (load-engine-newpayload-v2-fixture-cases path)
+                    :key (lambda (case)
+                           (fixture-object-field case "name"))
+                    :test #'string=)))
+    (unless case
+      (error "Engine newPayloadV2 fixture case not found: ~A" name))
+    case))
 
 (defun fixture-quantity-field (object name)
   (hex-to-quantity (fixture-object-field object name)))
@@ -124,6 +165,18 @@
     (cons "cases" nil))
    top-extra))
 
+(defun engine-newpayload-v2-case-shape-test-case (&key extra name)
+  (append
+   (list
+    (cons "name" (or name "valid-engine-case"))
+    (cons "network" "Shanghai")
+    (cons "chainId" "0x1")
+    (cons "config" nil)
+    (cons "parent" nil)
+    (cons "payload" nil)
+    (cons "expect" nil))
+   extra))
+
 (deftest engine-newpayload-v2-fixture-metadata-validation
   (validate-engine-newpayload-v2-fixture-metadata
    (engine-newpayload-v2-metadata-shape-test-fixture))
@@ -144,16 +197,30 @@
      (engine-newpayload-v2-metadata-shape-test-fixture
       :reference-extra (list (cons "besu" "test-besu"))))))
 
+(deftest engine-newpayload-v2-fixture-case-validation
+  (let ((case (engine-newpayload-v2-case-shape-test-case)))
+    (validate-engine-newpayload-v2-fixture-cases (list case))
+    (signals error
+      (validate-engine-newpayload-v2-fixture-cases nil))
+    (signals error
+      (validate-engine-newpayload-v2-fixture-cases
+       (list (engine-newpayload-v2-case-shape-test-case
+              :extra (list (cons "unexpected" t))))))
+    (signals error
+      (validate-engine-newpayload-v2-fixture-cases
+       (list (engine-newpayload-v2-case-shape-test-case :name ""))))
+    (signals error
+      (validate-engine-newpayload-v2-fixture-cases
+       (list case
+             (engine-newpayload-v2-case-shape-test-case
+              :name "valid-engine-case"))))))
+
 (deftest engine-newpayload-v2-fixture-executes-and-becomes-canonical
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((case
-             (select-handwritten-fixture-case
-              (let ((fixture
-                      (load-handwritten-fixture-file
-                       +engine-newpayload-v2-fixture-path+)))
-                (validate-engine-newpayload-v2-fixture-metadata fixture)
-                fixture)
+             (select-engine-newpayload-v2-fixture-case
+              +engine-newpayload-v2-fixture-path+
               "shanghai-one-transfer-with-withdrawal"))
            (store (make-engine-payload-memory-store))
            (config (engine-fixture-chain-config case))

@@ -634,6 +634,11 @@ splits can land after the Phase A smoke path closes.
     `engine-newpayload-v2` smoke fixture wrapper. The Engine fixture now
     machine-checks the Phase A release/tag/archive metadata, top-level wrapper
     fields, and reference-client pins before executing the smoke case.
+  - Progress: tightened the Engine `engine-newPayloadV2` fixture loader so the
+    `cases` list is validated before selection. The fixture now rejects empty
+    case arrays, duplicate case names, blank/non-string names, and unknown
+    case fields before the executable smoke replay can silently consume a
+    malformed imported wrapper.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
