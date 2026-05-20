@@ -453,6 +453,9 @@ ones.
   - Progress: lifted non-string fixture field-name rejection into the shared
     pinned EEST fixture validator, so transaction, trie, state, engine, and EVM
     metadata wrappers fail before allowed-field checks hit lower-level errors.
+  - Progress: tightened EEST transaction selector source-style validation to
+    reject doubled path separators, keeping selected names aligned with
+    normalized relative fixture paths before root filtering.
 
 ## P0: Module Boundaries
 
