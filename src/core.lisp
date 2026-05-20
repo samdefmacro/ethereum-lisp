@@ -2784,6 +2784,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-pending-txpool-nonce-key (transaction)
   (write-to-string (transaction-nonce transaction) :base 10))
 
+(defun engine-pending-txpool-hash-key (hash)
+  (engine-payload-store-key hash))
+
 (defun engine-payload-store-pending-sender-key (transaction)
   (engine-pending-txpool-sender-key transaction))
 
@@ -2834,7 +2837,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (remhash sender sender-index))))))
 
 (defun engine-pending-txpool-remove-pending-transaction (txpool hash)
-  (let* ((key (engine-payload-store-key hash))
+  (let* ((key (engine-pending-txpool-hash-key hash))
          (transaction
            (gethash key (engine-pending-txpool-transactions txpool))))
     (when transaction
@@ -2866,7 +2869,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-pending-txpool-put-pending-transaction
     (txpool transaction)
-  (let ((key (engine-payload-store-key (transaction-hash transaction)))
+  (let ((key (engine-pending-txpool-hash-key
+              (transaction-hash transaction)))
         (transactions (engine-pending-txpool-transactions txpool)))
     (if (gethash key transactions)
         (values transaction nil)
@@ -2884,7 +2888,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                txpool
                conflict)
               (remhash
-               (engine-payload-store-key (transaction-hash conflict))
+               (engine-pending-txpool-hash-key (transaction-hash conflict))
                transactions)))
           (setf (gethash key transactions) transaction)
           (engine-pending-txpool-index-pending-transaction
@@ -2893,7 +2897,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (values transaction t)))))
 
 (defun engine-pending-txpool-pending-transaction (txpool hash)
-  (gethash (engine-payload-store-key hash)
+  (gethash (engine-pending-txpool-hash-key hash)
            (engine-pending-txpool-transactions txpool)))
 
 (defun engine-pending-txpool-pending-transactions (txpool)

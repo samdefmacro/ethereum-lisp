@@ -1942,6 +1942,9 @@ splits can land after the Phase A smoke path closes.
     thin compatibility wrappers. Direct txpool insertion now owns duplicate and
     same-sender/nonce replacement decisions without calling store-named policy
     functions.
+  - Progress: moved pending transaction hash-key derivation behind an
+    `engine-pending-txpool-hash-key` helper so txpool mutation, removal, and
+    lookup no longer call the store key helper directly.
 
 - [x] Add sender/nonce keyed txpool indexing.
   - Milestone: 7
