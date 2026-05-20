@@ -1460,6 +1460,10 @@ splits can land after the Phase A smoke path closes.
     account. The vector locks geth-shaped behavior where the account proof and
     account fields are still returned, while `storageProof` is an empty list
     when the request does not ask for any storage keys.
+  - Progress: added a prefixless storage-key request fixture for a present
+    account. The vector locks geth-compatible input normalization: the request
+    may omit `0x`, while the returned `storageProof.key` remains canonical
+    fixed DATA in the geth-shaped result.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

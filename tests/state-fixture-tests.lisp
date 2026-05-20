@@ -116,6 +116,7 @@
     "storage-present"
     "storage-missing"
     "no-storage-request"
+    "prefixless-storage-key-request"
     "storage-deleted-missing"
     "multi-storage-present"
     "geth-shaped-result"))
@@ -124,6 +125,7 @@
   '("empty-state-missing-account-proof"
     "present-account-with-present-and-missing-storage"
     "present-account-without-storage-key-request"
+    "present-account-with-prefixless-storage-key-request"
     "missing-account-proof"
     "present-account-deleted-storage-proof"
     "present-account-with-multiple-present-storage-proofs"))
@@ -135,6 +137,7 @@
     "storage-present"
     "storage-missing"
     "no-storage-request"
+    "prefixless-storage-key-request"
     "storage-deleted-missing"
     "multi-storage-present"
     "geth-shaped-result"))
