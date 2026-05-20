@@ -637,7 +637,12 @@ code/hash itself rather than the resolved target code.
   present, covering byte-vector put/get/delete, ordered write batches, and
   sorted range iteration; a simple S-expression file-backed development
   backend now persists records across process restarts
-- freezer/history abstractions
+- freezer/history abstractions: immutable finalized bodies, receipts,
+  transaction lookup records, and historical header/body payload bytes should
+  move to append-only/static files once finalized beyond the retention window;
+  mutable forkchoice checkpoints, canonical number-to-hash indexes, txpool
+  contents, recent state snapshots, trie node caches, and invalid-tipset caches
+  remain in the key-value database
 - canonical chain indexes
 - snapshot/trie node access APIs
 - import/export test fixtures

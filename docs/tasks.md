@@ -1892,12 +1892,16 @@ splits can land after the Phase A smoke path closes.
     batches. Tests verify block/header/receipt-style byte records survive
     reopening the database and remain visible through range iteration.
 
-- [ ] Add freezer/static-history planning notes.
+- [x] Add freezer/static-history planning notes.
   - Milestone: 6
   - References: geth freezer, Reth static files.
   - Acceptance: document what data will move to append-only/static storage and
     what remains in mutable key-value state.
   - Validation: docs-only diff.
+  - Completed: roadmap now distinguishes append-only/static finalized history
+    data from mutable key-value records such as forkchoice checkpoints,
+    canonical indexes, txpool contents, recent state snapshots, trie node
+    caches, and invalid-tipset caches.
 
 ## P1: Networking And Sync Shell
 
