@@ -1327,6 +1327,10 @@ splits can land after the Phase A smoke path closes.
     Added EEST trie-test summary gates for `0x` byte-string keys/values,
     including a dedicated hex-value requirement so ASCII-only replacements
     cannot silently drop byte-string normalization coverage.
+    Preserved empty-value delete provenance in normalized EEST trie entries
+    and added a summary gate requiring an empty string / `0x` value delete,
+    locking the geth/Nethermind-compatible delete interpretation separately
+    from ordinary JSON null deletes.
     Added normalized duplicate-key rejection for EEST trie object-form `in`
     entries, so ASCII/hex aliases such as `dog` and `0x646f67` cannot replay
     as ambiguous duplicate keys.

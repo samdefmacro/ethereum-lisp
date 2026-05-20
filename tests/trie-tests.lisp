@@ -623,7 +623,8 @@
                       value)))
            (if (zerop (length bytes))
                (list (cons "key" normalized-key)
-                     (cons "delete" t))
+                     (cons "delete" t)
+                     (cons "deleteSource" "empty-value"))
                (list (cons "key" normalized-key)
                      (cons "value" normalized-value)))))))))
 
@@ -939,6 +940,9 @@
     (and value
          (eest-trie-test-prefixed-hex-string-p value))))
 
+(defun eest-trie-test-entry-empty-value-delete-p (entry)
+  (string= "empty-value" (fixture-object-field entry "deleteSource")))
+
 (defun eest-trie-test-case-missing-delete-p (case)
   (let ((present-keys (make-hash-table :test 'equal)))
     (dolist (entry (fixture-required-field case "entries"))
@@ -1106,6 +1110,11 @@
          (hex-value-entry-count
            (loop for entries in entries-by-case
                  sum (count-if #'eest-trie-test-entry-hex-value-p entries)))
+         (empty-value-delete-entry-count
+           (loop for entries in entries-by-case
+                 sum (count-if
+                      #'eest-trie-test-entry-empty-value-delete-p
+                      entries)))
          (non-empty-delete-root-count
            (loop for delete-count in delete-counts
                  for non-empty-p in non-empty-root-flags
@@ -1155,6 +1164,7 @@
      (cons "leafMissingDeleteRootCount" leaf-missing-delete-root-count)
      (cons "hexByteStringEntryCount" hex-byte-string-entry-count)
      (cons "hexValueEntryCount" hex-value-entry-count)
+     (cons "emptyValueDeleteEntryCount" empty-value-delete-entry-count)
      (cons "extensionRootCount" (count "extension" root-shapes :test #'string=))
      (cons "extensionChildReferenceKinds" extension-child-reference-kinds)
      (cons "secureExtensionChildReferenceKinds"
@@ -1240,6 +1250,8 @@
       (error "Phase A EEST trie subset must include hex byte-string keys or values"))
     (when (zerop (fixture-object-field summary "hexValueEntryCount"))
       (error "Phase A EEST trie subset must include a hex byte-string value"))
+    (when (zerop (fixture-object-field summary "emptyValueDeleteEntryCount"))
+      (error "Phase A EEST trie subset must include an empty-value delete"))
     (when (zerop (fixture-object-field summary "extensionRootCount"))
       (error "Phase A EEST trie subset must include a replayed extension root"))
     (when (zerop (fixture-object-field summary "embeddedExtensionChildReferenceCount"))
@@ -1831,6 +1843,8 @@
                  (fixture-object-field hex-entry "value")
                  "hex sample value")))
     (is (fixture-object-field hex-delete-entry "delete"))
+    (is (string= "empty-value"
+                 (fixture-object-field hex-delete-entry "deleteSource")))
     (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (fixture-object-field case "root")))
     (is (string= (fixture-object-field case "root")
@@ -2210,6 +2224,7 @@
     (is (= 1 (fixture-object-field summary "leafMissingDeleteRootCount")))
     (is (= 19 (fixture-object-field summary "hexByteStringEntryCount")))
     (is (= 1 (fixture-object-field summary "hexValueEntryCount")))
+    (is (= 1 (fixture-object-field summary "emptyValueDeleteEntryCount")))
     (is (= 7 (fixture-object-field summary "extensionRootCount")))
     (is (equal '("hashed" "embedded" "hashed" "embedded" "embedded" "embedded" "hashed")
                (fixture-object-field summary "extensionChildReferenceKinds")))
