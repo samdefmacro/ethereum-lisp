@@ -1509,6 +1509,11 @@
              (concat-bytes field-prime (subseq g2 32 128)))
            (g2-off-curve
              (concat-bytes (subseq g2 0 127) #(171)))
+           (g1-coordinate-too-large
+             (concat-bytes field-prime (subseq g 32 64)))
+           (g1-off-curve
+             (hex-to-bytes
+              "0x00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000003"))
            (empty-result (execute-bytecode empty-code :context context))
            (zero-g2-result
              (execute-bytecode
@@ -1528,6 +1533,14 @@
               (pairing-code (concat-bytes (make-byte-vector 64)
                                           g2-off-curve))
               :context context))
+           (invalid-g1-coordinate-result
+             (execute-bytecode
+              (pairing-code (concat-bytes g1-coordinate-too-large g2))
+              :context context))
+           (invalid-g1-curve-result
+             (execute-bytecode
+              (pairing-code (concat-bytes g1-off-curve g2))
+              :context context))
            (malformed-result (execute-bytecode malformed-code :context context)))
       (is (= 1 (first (evm-result-stack empty-result))))
       (is (= 1 (aref (evm-result-return-data empty-result) 31)))
@@ -1541,6 +1554,12 @@
       (is (= 0 (first (evm-result-stack invalid-g2-curve-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data invalid-g2-curve-result)))
+      (is (= 0 (first (evm-result-stack invalid-g1-coordinate-result))))
+      (is (bytes= (make-byte-vector 32)
+                  (evm-result-return-data invalid-g1-coordinate-result)))
+      (is (= 0 (first (evm-result-stack invalid-g1-curve-result))))
+      (is (bytes= (make-byte-vector 32)
+                  (evm-result-return-data invalid-g1-curve-result)))
       (is (= 0 (first (evm-result-stack malformed-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data malformed-result))))))

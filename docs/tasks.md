@@ -1604,6 +1604,9 @@ splits can land after the Phase A smoke path closes.
   - Acceptance: valid non-empty pairing vectors and invalid subgroup/curve
     vectors are covered.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Slice: expanded BN254 pairing precompile failure coverage with non-zero G1
+    invalid coordinate and off-curve vectors, complementing existing malformed
+    size, zero-element, and invalid G2 checks.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5
