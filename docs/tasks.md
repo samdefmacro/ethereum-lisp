@@ -634,7 +634,7 @@ splits can land after the Phase A smoke path closes.
     envelope/HTTP serving and public RPC handlers remain follow-up module
     split work.
 
-- [~] `MOD-PUBLIC-RPC-TXPOOL`: Split public JSON-RPC and txpool placeholder
+- [x] `MOD-PUBLIC-RPC-TXPOOL`: Split public JSON-RPC and txpool placeholder
   handlers out of `src/core.lisp`.
   - Milestone: 7
   - References: geth `internal/ethapi`, `eth/filters`, `core/txpool`;
@@ -667,6 +667,11 @@ splits can land after the Phase A smoke path closes.
   - Progress: moved log query and filter helpers/handlers into
     `src/public-rpc.lisp`, covering `eth_getLogs`, filter installation,
     filter changes/log retrieval, and filter uninstall.
+  - Result: complete. Public `web3_*`, `net_*`, `eth_*`, filter, pending
+    transaction, and `txpool_*` handlers now live in `src/public-rpc.lisp`
+    behind `engine-rpc-handle-public-method`; `src/core.lisp` keeps the
+    generic JSON-RPC envelope/HTTP service and delegates to Engine/Public
+    method dispatchers.
 
 ## P0: Chain Store And Canonical Indexes
 

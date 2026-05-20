@@ -842,7 +842,11 @@ decimal nonce, with an empty queued object placeholder; `txpool_contentFrom`
 returns the same nonce-keyed pending/queued shape filtered to one sender
 address, and `txpool_inspect` exposes a matching sender/nonce grouping with
 geth-style human-readable transaction summaries. Full txpool admission rules
-remain a later networking/txpool slice.
+remain a later networking/txpool slice. Public JSON-RPC and txpool placeholder
+handlers have also been split out of `src/core.lisp` into `src/public-rpc.lisp`
+behind a dedicated public method dispatcher, leaving the core RPC path focused
+on the generic JSON-RPC envelope, Engine/Public dispatch delegation, and HTTP
+serving shell.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT
