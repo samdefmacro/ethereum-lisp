@@ -858,6 +858,9 @@ splits can land after the Phase A smoke path closes.
     `in` operations.
     Added aggregate entry counts to EEST trie-test subset summaries, so selected
     pinned subsets report both per-case operation counts and total replay volume.
+    Added write/delete entry counts to the same summaries, making it visible
+    whether selected trie-test roots exercise deletion paths instead of only
+    insert/update replay.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

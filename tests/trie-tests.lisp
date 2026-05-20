@@ -635,11 +635,20 @@
    :names +phase-a-eest-trie-test-case-names+))
 
 (defun eest-trie-test-case-summary (cases)
-  (let ((entry-counts
-          (mapcar (lambda (case)
-                    (length
-                     (fixture-required-field case "entries")))
-                  cases)))
+  (let* ((entries-by-case
+           (mapcar (lambda (case)
+                     (fixture-required-field case "entries"))
+                   cases))
+         (entry-counts
+           (mapcar #'length entries-by-case))
+         (delete-counts
+           (mapcar (lambda (entries)
+                     (count-if (lambda (entry)
+                                 (fixture-field-present-p entry "delete"))
+                               entries))
+                   entries-by-case))
+         (write-counts
+           (mapcar #'- entry-counts delete-counts)))
     (list
      (cons "count" (length cases))
      (cons "names" (mapcar (lambda (case)
@@ -647,6 +656,10 @@
                            cases))
      (cons "entryCounts" entry-counts)
      (cons "totalEntryCount" (reduce #'+ entry-counts :initial-value 0))
+     (cons "writeEntryCounts" write-counts)
+     (cons "totalWriteEntryCount" (reduce #'+ write-counts :initial-value 0))
+     (cons "deleteEntryCounts" delete-counts)
+     (cons "totalDeleteEntryCount" (reduce #'+ delete-counts :initial-value 0))
      (cons "roots" (mapcar (lambda (case)
                              (fixture-required-field case "root"))
                            cases)))))
@@ -1268,6 +1281,12 @@
     (is (equal '(4)
                (fixture-object-field summary "entryCounts")))
     (is (= 4 (fixture-object-field summary "totalEntryCount")))
+    (is (equal '(2)
+               (fixture-object-field summary "writeEntryCounts")))
+    (is (= 2 (fixture-object-field summary "totalWriteEntryCount")))
+    (is (equal '(2)
+               (fixture-object-field summary "deleteEntryCounts")))
+    (is (= 2 (fixture-object-field summary "totalDeleteEntryCount")))
     (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-multi.json/alpha"
