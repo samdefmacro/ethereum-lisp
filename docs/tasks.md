@@ -350,6 +350,12 @@ ones.
     source-style names match the selector list and that at least one envelope
     type is represented, so future pinned selector updates cannot silently
     drift from the reported coverage summary.
+  - Progress: expanded the in-repo EEST transaction-test sample used by the
+    Phase A selector path from a legacy-only singleton to a source-style
+    multi-case file covering both legacy EIP-155 and EIP-2930 access-list
+    transactions. The root loader now exercises geth-style multi-case naming
+    and typed transaction conversion directly before real pinned cases are
+    swapped in.
 
 ## P0: Module Boundaries
 

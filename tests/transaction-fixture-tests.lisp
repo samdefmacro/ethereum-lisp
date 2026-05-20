@@ -7,7 +7,8 @@
   "tests/fixtures/execution-spec-tests-root/fixtures/transaction_tests/phase-a-sample.json")
 
 (defparameter +phase-a-eest-transaction-test-case-names+
-  '("phase-a-sample.json"))
+  '("phase-a-sample.json/legacy-eip155-sample"
+    "phase-a-sample.json/typed-eip2930-access-list-sample"))
 
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
@@ -1092,22 +1093,32 @@
          (selected-vectors
            (load-phase-a-eest-transaction-test-root-vectors root))
          (vector (first vectors))
+         (typed-vector
+           (find "phase-a-sample.json/typed-eip2930-access-list-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 1 (length paths)))
-    (is (= 1 (length cases)))
-    (is (= 1 (length selected-cases)))
-    (is (= 1 (length vectors)))
-    (is (= 1 (length selected-vectors)))
-    (is (string= "phase-a-sample.json"
+    (is (= 2 (length cases)))
+    (is (= 2 (length selected-cases)))
+    (is (= 2 (length vectors)))
+    (is (= 2 (length selected-vectors)))
+    (is (string= "phase-a-sample.json/legacy-eip155-sample"
                  (fixture-object-field (first cases) "name")))
-    (is (string= "phase-a-sample.json"
+    (is (string= "phase-a-sample.json/legacy-eip155-sample"
                  (fixture-object-field vector "name")))
     (is (string= "legacy"
                  (fixture-object-field vector "type")))
-    (is (= 1 (fixture-object-field summary "count")))
-    (is (equal '((:legacy . 1))
+    (is typed-vector)
+    (is (string= "access-list"
+                 (fixture-object-field typed-vector "type")))
+    (is (= 2 (fixture-object-field summary "count")))
+    (is (equal '((:legacy . 1) (:access-list . 1))
                (fixture-object-field summary "types")))
-    (is (equal '("phase-a-sample.json")
+    (is (equal '("phase-a-sample.json/legacy-eip155-sample"
+                 "phase-a-sample.json/typed-eip2930-access-list-sample")
                (fixture-object-field summary "names")))
     (is (equal summary
                (validate-phase-a-eest-transaction-vector-summary
