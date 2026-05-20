@@ -264,6 +264,10 @@ ones.
   - Progress: tightened EEST transaction-test result normalization so
     prefixless or uppercase success `hash` and `sender` fields are normalized
     to canonical lowercase RPC hex before consistency and derived-value checks.
+  - Progress: tightened EEST transaction-test case normalization so `txbytes`
+    is canonicalized to lowercase RPC hex during import, preventing equivalent
+    raw encodings with different casing from drifting through selection or
+    uniqueness checks.
   - Progress: tightened EEST transaction-test conversion so every successful
     fork entry's `intrinsicGas` must match the decoded transaction before the
     local vector is built.

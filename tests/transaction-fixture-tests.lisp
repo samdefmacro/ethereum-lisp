@@ -175,6 +175,12 @@
   (declare (ignore label))
   (address-to-hex (address-from-hex value)))
 
+(defun transaction-fixture-canonical-bytes (value label)
+  (let ((bytes (hex-to-bytes value)))
+    (when (zerop (length bytes))
+      (error "~A must encode at least one byte" label))
+    (bytes-to-hex bytes)))
+
 (defun normalize-eest-transaction-result-entry (case-name fork result)
   (unless (listp result)
     (error "EEST transaction case ~A result for fork ~A must be a JSON object"
@@ -270,13 +276,12 @@
    case
    +eest-transaction-test-case-fields+
    (format nil "EEST transaction case ~A" name))
-  (let ((txbytes (transaction-fixture-normalized-hex
-                  (fixture-required-field case "txbytes")
+  (let ((txbytes (transaction-fixture-canonical-bytes
+                  (transaction-fixture-normalized-hex
+                   (fixture-required-field case "txbytes")
+                   "EEST transaction txbytes")
                   "EEST transaction txbytes"))
         (result (fixture-required-field case "result")))
-    (when (zerop (length (hex-to-bytes txbytes)))
-      (error "EEST transaction case ~A txbytes must encode at least one byte"
-             name))
     (unless (listp result)
       (error "EEST transaction case ~A result must be a JSON object" name))
     (validate-eest-transaction-result-forks name result)
@@ -1323,7 +1328,7 @@
           (normalize-eest-transaction-test-case
            "uppercase-success-fields"
            (list
-            (cons "txbytes" "0x01")
+            (cons "txbytes" "0XAB")
             (cons "result"
                   (list
                    (cons "Shanghai"
@@ -1336,6 +1341,7 @@
     (let ((shanghai (fixture-object-field
                      (fixture-object-field case "result")
                      "Shanghai")))
+      (is (string= "0xab" (fixture-object-field case "txbytes")))
       (is (string=
            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
            (fixture-object-field shanghai "hash")))
