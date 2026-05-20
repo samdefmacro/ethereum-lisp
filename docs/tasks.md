@@ -656,6 +656,10 @@ splits can land after the Phase A smoke path closes.
     `eth_getProof`.
   - Progress: moved header query serialization and `eth_getHeaderByNumber` /
     `eth_getHeaderByHash` helpers into `src/public-rpc.lisp`.
+  - Progress: moved block query shaping and handlers into
+    `src/public-rpc.lisp`, covering `eth_getBlockByNumber`,
+    `eth_getBlockByHash`, block transaction counts, uncle counts, and
+    uncle-by-index lookups.
 
 ## P0: Chain Store And Canonical Indexes
 
