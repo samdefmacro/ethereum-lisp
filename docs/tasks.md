@@ -571,6 +571,12 @@ ones.
     the wider matrix, and the harness builds matching chain-config snapshots
     for each label before validating intrinsic gas, hash, sender, and typed
     transaction activation boundaries.
+  - Progress: relaxed EEST transaction-test conversion to accept sparse
+    per-fork result maps while preserving the local fixed fork matrix. Missing
+    imported fork entries are synthesized from the decoded transaction and the
+    tracked fork activation rules, yielding derived hash/sender/intrinsic-gas
+    success entries for active forks and expected typed-transaction pre-fork
+    exceptions for inactive forks.
 
 ## P0: Module Boundaries
 

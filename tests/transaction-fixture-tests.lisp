@@ -582,25 +582,39 @@
                    case-name
                    fork)))))))
 
-(defun eest-transaction-result-to-fixture-result (case)
+(defun eest-transaction-synthesized-result-entry
+    (transaction success fork)
+  (let ((type (transaction-vector-type transaction)))
+    (if (transaction-fixture-type-valid-on-fork-p type fork)
+        (list (cons "hash" (fixture-required-field success "hash"))
+              (cons "sender" (fixture-required-field success "sender"))
+              (cons "intrinsicGas"
+                    (quantity-to-hex
+                     (transaction-intrinsic-gas transaction))))
+        (list (cons "exception"
+                    (transaction-fixture-expected-pre-fork-exception type))))))
+
+(defun eest-transaction-result-to-fixture-result
+    (case transaction success)
   (let ((result (fixture-object-field case "result")))
     (mapcar
      (lambda (fork)
        (let ((entry (fixture-object-field result fork)))
-         (unless entry
-           (error "EEST transaction case ~A is missing result for fork ~A"
-                  (fixture-object-field case "name")
-                  fork))
          (cons fork
-               (if (fixture-field-present-p entry "hash")
-                   (list (cons "hash"
-                               (fixture-required-field entry "hash"))
-                         (cons "sender"
-                               (fixture-required-field entry "sender"))
-                         (cons "intrinsicGas"
-                               (fixture-required-field entry "intrinsicGas")))
-                   (list (cons "exception"
-                               (fixture-required-field entry "exception")))))))
+               (if (null entry)
+                   (eest-transaction-synthesized-result-entry
+                    transaction
+                    success
+                    fork)
+                   (if (fixture-field-present-p entry "hash")
+                       (list (cons "hash"
+                                   (fixture-required-field entry "hash"))
+                             (cons "sender"
+                                   (fixture-required-field entry "sender"))
+                             (cons "intrinsicGas"
+                                   (fixture-required-field entry "intrinsicGas")))
+                       (list (cons "exception"
+                                   (fixture-required-field entry "exception"))))))))
      +transaction-fixture-forks+)))
 
 (defun convert-eest-transaction-case-to-vector (case)
@@ -624,7 +638,10 @@
              (cons "hash" (fixture-required-field success "hash"))
              (cons "sender" (fixture-required-field success "sender"))
              (cons "result"
-                   (eest-transaction-result-to-fixture-result case)))))
+                   (eest-transaction-result-to-fixture-result
+                    case
+                    transaction
+                    success)))))
       (validate-transaction-fixture-vector-shape vector)
       (validate-transaction-fixture-result-shape vector)
       (validate-transaction-fixture-decoded-vector vector)
@@ -2235,6 +2252,46 @@
                  (fixture-object-field vector "hash")))
     (is (string= "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"
                  (fixture-object-field vector "sender"))))
+
+  (let* ((cases (load-eest-transaction-test-file
+                 +eest-transaction-test-sample-path+))
+         (legacy-case
+           (find "legacy-eip155-sample" cases
+                 :key (lambda (case) (fixture-required-field case "name"))
+                 :test #'string=))
+         (access-list-case
+           (find "typed-eip2930-access-list-sample" cases
+                 :key (lambda (case) (fixture-required-field case "name"))
+                 :test #'string=)))
+    (labels ((without-fork-result (case fork)
+               (let ((result (fixture-required-field case "result")))
+                 (cons (cons "result"
+                             (remove fork result :key #'car :test #'string=))
+                       (remove "result" case :key #'car :test #'string=)))))
+      (let* ((sparse-legacy
+               (without-fork-result legacy-case "Homestead"))
+             (legacy-vector
+               (convert-eest-transaction-case-to-vector sparse-legacy))
+             (legacy-result
+               (fixture-required-field legacy-vector "result"))
+             (frontier
+               (fixture-required-field legacy-result "Frontier"))
+             (homestead
+               (fixture-required-field legacy-result "Homestead")))
+        (is (equal frontier homestead))
+        (validate-transaction-fixture-result-shape legacy-vector))
+      (let* ((sparse-access-list
+               (without-fork-result access-list-case "Homestead"))
+             (access-list-vector
+               (convert-eest-transaction-case-to-vector sparse-access-list))
+             (homestead
+               (fixture-required-field
+                (fixture-required-field access-list-vector "result")
+                "Homestead")))
+        (is (string= "TransactionException.TYPE_1_TX_PRE_FORK"
+                     (fixture-required-field homestead "exception")))
+        (validate-transaction-fixture-result-shape access-list-vector))))
+
   (signals error
     (normalize-eest-transaction-test-case
      "missing-result"
