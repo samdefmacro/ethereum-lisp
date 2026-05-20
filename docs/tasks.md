@@ -252,6 +252,9 @@ ones.
   - Progress: tightened EEST transaction-test result fork validation so unknown
     or duplicate fork labels are rejected before conversion to the local vector
     shape, preventing typoed fork results from being silently dropped.
+  - Progress: tightened EEST transaction-test result normalization so unknown
+    exception tokens are rejected before conversion, keeping pure-failure
+    cases from degrading into vague "no successful tracked fork" errors.
   - Progress: tightened EEST transaction-test conversion so the selected
     successful result's hash and sender must match the decoded `txbytes`
     before the local vector is built.

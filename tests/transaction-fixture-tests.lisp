@@ -199,6 +199,12 @@
       (error "EEST transaction case ~A result for fork ~A cannot have intrinsicGas without hash"
              case-name
              fork))
+    (when (and (not (blank-string-p exception))
+               (not (transaction-fixture-known-exception-p exception)))
+      (error "EEST transaction case ~A result for fork ~A has unknown exception ~A"
+             case-name
+             fork
+             exception))
     (when (and hash-present-p (not sender-present-p))
       (error "EEST transaction case ~A result for fork ~A needs sender with hash"
              case-name
@@ -1314,6 +1320,16 @@
                         (list
                          (cons "exception"
                                "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "unknown-exception"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "exception"
+                               "TransactionException.UNKNOWN"))))))))
   (signals error
     (normalize-eest-transaction-test-case
      "duplicate-result-fork"
