@@ -26,7 +26,8 @@
      (:file "public-rpc")
      (:file "state")
      (:file "evm")
-     (:file "execution")))))
+     (:file "execution")
+     (:file "cli")))))
 
 (asdf:defsystem #:ethereum-lisp/test
   :description "Tests for ethereum-lisp."
@@ -52,7 +53,8 @@
      (:file "core-tests")
      (:file "state-tests")
      (:file "evm-tests")
-     (:file "execution-tests"))))
+     (:file "execution-tests")
+     (:file "cli-tests"))))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call '#:ethereum-lisp.test '#:run-all-tests)))

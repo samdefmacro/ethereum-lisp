@@ -2163,12 +2163,19 @@ splits can land after the Phase A smoke path closes.
     stream start/finish, per-stream count, listener start/finish, and listener
     connection-count events without hardcoding a backend.
 
-- [ ] Add CLI entry point for local devnet experiments.
+- [x] Add CLI entry point for local devnet experiments.
   - Milestone: future node shell
   - Dependencies: socket-backed HTTP service and chain-store interface.
   - Acceptance: one command can load genesis, start RPC, and expose current
     chain id/head.
   - Validation: smoke test or documented manual command.
+  - Result: added `ethereum-lisp.cli:main` with a `devnet` command that loads a
+    genesis JSON file into the in-memory chain store, commits the genesis state
+    projection, prepares the Engine/public JSON-RPC HTTP service, prints a
+    machine-readable endpoint/chain/head summary, and can either serve the
+    socket listener or run in `--no-serve` smoke mode. CLI tests cover genesis
+    loading, current head/state visibility, `--no-serve` summary output, and
+    missing-genesis validation.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

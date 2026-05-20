@@ -936,6 +936,27 @@
    #:execute-and-commit-signed-block
    #:execute-signed-block))
 
+(defpackage #:ethereum-lisp.cli
+  (:use #:cl
+        #:ethereum-lisp.hex
+        #:ethereum-lisp.types
+        #:ethereum-lisp.telemetry
+        #:ethereum-lisp.core
+        #:ethereum-lisp.state
+        #:ethereum-lisp.execution)
+  (:export
+   #:devnet-node
+   #:make-devnet-node
+   #:devnet-node-genesis-path
+   #:devnet-node-store
+   #:devnet-node-config
+   #:devnet-node-genesis-block
+   #:devnet-node-service
+   #:devnet-node-telemetry-sink
+   #:devnet-node-summary
+   #:start-devnet-node
+   #:main))
+
 (defpackage #:ethereum-lisp
   (:use #:cl)
   (:import-from #:ethereum-lisp.bytes
