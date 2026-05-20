@@ -435,6 +435,9 @@ ones.
   - Progress: tightened EEST transaction-test result fork validation so
     non-object result entries fail with an adapter-specific error before fork
     labels are read.
+  - Progress: tightened EEST transaction-test case normalization itself to
+    reject blank or non-string case names, so direct adapter calls preserve the
+    same source-name invariant as file/root loading.
 
 ## P0: Module Boundaries
 

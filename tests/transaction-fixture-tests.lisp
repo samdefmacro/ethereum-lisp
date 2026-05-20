@@ -276,6 +276,8 @@
                  fork))))))
 
 (defun normalize-eest-transaction-test-case (name case)
+  (when (blank-string-p name)
+    (error "EEST transaction case name must be present"))
   (unless (listp case)
     (error "EEST transaction case ~A must be a JSON object" name))
   (validate-transaction-fixture-object-fields
@@ -1363,6 +1365,16 @@
     (normalize-eest-transaction-test-case
      "missing-result"
      (list (cons "txbytes" "0x01"))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     ""
+     (list (cons "txbytes" "0x01")
+           (cons "result" nil))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     nil
+     (list (cons "txbytes" "0x01")
+           (cons "result" nil))))
   (signals error
     (normalize-eest-transaction-test-case
      "empty-result"
