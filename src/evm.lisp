@@ -1060,10 +1060,69 @@
              (fail-precompile gas-used "Invalid BN254 G2 point"))
            (list x y)))))))
 
+(defun bn254-fp2= (left right)
+  (and (= (car left) (car right))
+       (= (cdr left) (cdr right))))
+
+(defun bn254-fp2-negation-p (left right)
+  (and (= (car left) (car right))
+       (zerop (mod (+ (cdr left) (cdr right))
+                   +bn254-field-prime+))))
+
+(defun bn254-g1= (left right)
+  (and (= (car left) (car right))
+       (= (cdr left) (cdr right))))
+
+(defun bn254-g1-negation-p (left right)
+  (and (= (car left) (car right))
+       (zerop (mod (+ (cdr left) (cdr right))
+                   +bn254-field-prime+))))
+
+(defun bn254-g2= (left right)
+  (and (bn254-fp2= (first left) (first right))
+       (bn254-fp2= (second left) (second right))))
+
+(defun bn254-g2-negation-p (left right)
+  (and (bn254-fp2= (first left) (first right))
+       (bn254-fp2-negation-p (second left) (second right))))
+
+(defun bn254-pairing-cancel-p (left right)
+  (destructuring-bind (left-g1 left-g2) left
+    (destructuring-bind (right-g1 right-g2) right
+      (or (and (bn254-g2= left-g2 right-g2)
+               (bn254-g1-negation-p left-g1 right-g1))
+          (and (bn254-g1= left-g1 right-g1)
+               (bn254-g2-negation-p left-g2 right-g2))))))
+
+(defun bn254-pairing-cancels-p (pairs)
+  (labels ((remove-one-cancel (remaining)
+             (cond
+               ((null remaining) nil)
+               (t
+                (let ((head (first remaining))
+                      (tail (rest remaining)))
+                  (loop for candidate in tail
+                        for index from 0
+                        when (bn254-pairing-cancel-p head candidate)
+                          do (return
+                               (append (subseq tail 0 index)
+                                       (subseq tail (1+ index))))
+                        finally (return :no-cancel)))))))
+    (loop with remaining = pairs
+          until (null remaining)
+          for next = (remove-one-cancel remaining)
+          when (eq next :no-cancel)
+            do (return nil)
+          do (setf remaining next)
+          finally (return t))))
+
 (defun true32-byte-vector ()
   (let ((output (make-byte-vector 32)))
     (setf (aref output 31) 1)
     output))
+
+(defun false32-byte-vector ()
+  (make-byte-vector 32))
 
 (defun run-bn254-pairing-precompile (input)
   (let ((gas (bn254-pairing-gas input)))
@@ -1073,17 +1132,20 @@
       ((zerop (length input))
        (values (true32-byte-vector) gas))
       (t
-       (loop for offset from 0 below (length input) by 192
-             for g1 = (parse-bn254-g1-point (subseq input offset (+ offset 64))
-                                            gas)
-             for g2 = (parse-bn254-g2-pairing-point
-                       (subseq input (+ offset 64) (+ offset 192))
-                       gas)
-             do (when (and g1 g2)
-                  (fail-precompile
-                   gas
-                   "BN254 nonzero pairing checks are not implemented yet")))
-       (values (true32-byte-vector) gas)))))
+       (let ((pairs
+               (loop for offset from 0 below (length input) by 192
+                     for g1 = (parse-bn254-g1-point
+                               (subseq input offset (+ offset 64))
+                               gas)
+                     for g2 = (parse-bn254-g2-pairing-point
+                               (subseq input (+ offset 64) (+ offset 192))
+                               gas)
+                     when (and g1 g2)
+                       collect (list g1 g2))))
+         (values (if (bn254-pairing-cancels-p pairs)
+                     (true32-byte-vector)
+                     (false32-byte-vector))
+                 gas))))))
 
 (defun kzg-point-evaluation-return-value ()
   (concat-bytes

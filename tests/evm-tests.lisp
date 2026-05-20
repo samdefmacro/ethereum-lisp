@@ -1489,7 +1489,25 @@
               #(96 192 96 24 95 57
                 96 32 95 96 192 95 95 96 8 98 1 52 152 241
                 96 32 95 243)
-              input)))
+              input))
+           (pairing-code-sized (input)
+             (let* ((input (ensure-byte-vector input))
+                    (size (length input))
+                    (size-bytes (ethereum-lisp.evm::integer-to-fixed-bytes
+                                 size 2))
+                    (gas (+ 45000 (* 34000 (floor size 192))))
+                    (gas-bytes (ethereum-lisp.evm::integer-to-fixed-bytes
+                                gas 3)))
+               (concat-bytes
+                (vector 97 (aref size-bytes 0) (aref size-bytes 1)
+                        96 26 95 57
+                        96 32 95
+                        97 (aref size-bytes 0) (aref size-bytes 1)
+                        95 95 96 8
+                        98 (aref gas-bytes 0) (aref gas-bytes 1)
+                        (aref gas-bytes 2)
+                        241 96 32 95 243)
+                input))))
     (let* ((state (make-state-db))
            (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))
            (context (make-evm-context :state state :address caller))
@@ -1500,6 +1518,9 @@
                              96 32 95 243))
            (g (hex-to-bytes
                "0x00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002"))
+           (negative-g
+             (hex-to-bytes
+              "0x000000000000000000000000000000000000000000000000000000000000000130644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd45"))
            (field-prime
              (hex-to-bytes
               "0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47"))
@@ -1541,6 +1562,14 @@
              (execute-bytecode
               (pairing-code (concat-bytes g1-off-curve g2))
               :context context))
+           (nonempty-true-result
+             (execute-bytecode
+              (pairing-code-sized (concat-bytes g g2 negative-g g2))
+              :context context))
+           (nonempty-false-result
+             (execute-bytecode
+              (pairing-code-sized (concat-bytes g g2))
+              :context context))
            (malformed-result (execute-bytecode malformed-code :context context)))
       (is (= 1 (first (evm-result-stack empty-result))))
       (is (= 1 (aref (evm-result-return-data empty-result) 31)))
@@ -1548,6 +1577,11 @@
       (is (= 1 (aref (evm-result-return-data zero-g2-result) 31)))
       (is (= 1 (first (evm-result-stack zero-g1-result))))
       (is (= 1 (aref (evm-result-return-data zero-g1-result) 31)))
+      (is (= 1 (first (evm-result-stack nonempty-true-result))))
+      (is (= 1 (aref (evm-result-return-data nonempty-true-result) 31)))
+      (is (= 1 (first (evm-result-stack nonempty-false-result))))
+      (is (bytes= (make-byte-vector 32)
+                  (evm-result-return-data nonempty-false-result)))
       (is (= 0 (first (evm-result-stack invalid-g2-coordinate-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data invalid-g2-coordinate-result)))

@@ -283,9 +283,11 @@ MODEXP is present with Berlin/EIP-2565 gas accounting, BN254 `ECADD`/`ECMUL`
 precompiles are present with Istanbul gas costs and invalid-point failure
 coverage, BN254 pairing now covers the empty-input true result and malformed
 input-size failure using Istanbul gas constants, plus non-empty inputs where
-each pair contains a zero/infinity element; G2 pairing inputs now receive
-first-pass field-coordinate and twist-curve validation for those skipped
-pairs, with oversized-coordinate and off-curve failure coverage. BLAKE2F is present for
+each pair contains a zero/infinity element, explicit non-empty cancellation
+relations, and non-cancelled non-zero inputs that return false instead of a
+precompile failure; G2 pairing inputs now receive first-pass field-coordinate
+and twist-curve validation for those skipped pairs, with oversized-coordinate
+and off-curve failure coverage. BLAKE2F is present for
 EIP-152 valid and malformed-input paths. The Cancun KZG point-evaluation
 precompile address is now recognized with the fixed 50,000 gas cost, 192-byte
 input length validation, and versioned-hash/commitment mismatch failure

@@ -1693,7 +1693,7 @@ splits can land after the Phase A smoke path closes.
     and delegated-code resolution. Broader CALLCODE/DELEGATECALL expansion can
     be tracked as separate follow-up tasks if needed.
 
-- [ ] Complete non-empty BN254 pairing precompile coverage.
+- [~] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4
   - References: geth `crypto/bn256`, EVM precompile tests, Nethermind
     precompiles.
@@ -1703,6 +1703,10 @@ splits can land after the Phase A smoke path closes.
   - Slice: expanded BN254 pairing precompile failure coverage with non-zero G1
     invalid coordinate and off-curve vectors, complementing existing malformed
     size, zero-element, and invalid G2 checks.
+  - Progress: added a first non-empty pairing path for explicit cancellation
+    relations such as `e(P,Q) * e(-P,Q) = 1` and non-cancelled non-zero
+    inputs returning false instead of failing the precompile. Remaining work:
+    full library-backed optimal Ate pairing and subgroup validation.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5
