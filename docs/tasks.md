@@ -1156,6 +1156,9 @@ splits can land after the Phase A smoke path closes.
     The fixture asserts that child `SSTORE` changes roll back on `REVERT`, the
     parent can copy reverted returndata and persist it, post-state storage is
     exact for expected accounts, and the transaction receipt remains successful.
+  - Slice: added a fixture-backed London `STATICCALL` read-only case. The child
+    attempts `SSTORE`, fails under the static context, leaves callee storage
+    empty, and the parent continues to persist its own success marker.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4

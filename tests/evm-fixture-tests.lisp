@@ -32,7 +32,7 @@
 
 (defparameter +evm-state-fixture-known-tags+
   '("legacy-call" "nested-call" "revert" "returndata"
-    "sstore" "log" "post-state-root"))
+    "staticcall" "read-only" "sstore" "log" "post-state-root"))
 
 (defparameter +evm-state-fixture-required-tags+
   '("legacy-call" "sstore" "log" "post-state-root"))
