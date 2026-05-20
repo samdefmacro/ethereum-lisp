@@ -852,6 +852,18 @@
                    append
                    (mapcar (lambda (index)
                              (trie-fixture-root-child-reference-kind
+                             trie
+                             index))
+                           (trie-fixture-root-children trie))))
+         (secure-branch-child-reference-kinds
+           (loop for secure-p in secure-flags
+                 for shape in root-shapes
+                 for trie in tries
+                 when (and secure-p
+                           (string= "branch" shape))
+                   append
+                   (mapcar (lambda (index)
+                             (trie-fixture-root-child-reference-kind
                               trie
                               index))
                            (trie-fixture-root-children trie))))
@@ -898,10 +910,16 @@
      (cons "rootShapes" root-shapes)
      (cons "branchRootCount" (count "branch" root-shapes :test #'string=))
      (cons "branchChildReferenceKinds" branch-child-reference-kinds)
+     (cons "secureBranchChildReferenceKinds"
+           secure-branch-child-reference-kinds)
      (cons "embeddedBranchChildReferenceCount"
            (count "embedded" branch-child-reference-kinds :test #'string=))
      (cons "hashedBranchChildReferenceCount"
            (count "hashed" branch-child-reference-kinds :test #'string=))
+     (cons "secureHashedBranchChildReferenceCount"
+           (count "hashed"
+                  secure-branch-child-reference-kinds
+                  :test #'string=))
      (cons "branchValueRootCount" branch-value-root-count)
      (cons "emptyKeyDeleteNonEmptyRootCount"
            empty-key-delete-non-empty-root-count)
@@ -970,6 +988,8 @@
       (error "Phase A EEST trie subset must include an embedded branch child reference"))
     (when (zerop (fixture-object-field summary "hashedBranchChildReferenceCount"))
       (error "Phase A EEST trie subset must include a hashed branch child reference"))
+    (when (zerop (fixture-object-field summary "secureHashedBranchChildReferenceCount"))
+      (error "Phase A EEST trie subset must include a secure hashed branch child reference"))
     (when (zerop (fixture-object-field summary "branchValueRootCount"))
       (error "Phase A EEST trie subset must include a branch root value"))
     (when (zerop (fixture-object-field summary "emptyKeyDeleteNonEmptyRootCount"))
@@ -1809,8 +1829,11 @@
     (is (equal '("hashed" "hashed" "embedded" "embedded" "embedded"
                  "hashed" "embedded")
                (fixture-object-field summary "branchChildReferenceKinds")))
+    (is (equal '("hashed" "hashed")
+               (fixture-object-field summary "secureBranchChildReferenceKinds")))
     (is (= 4 (fixture-object-field summary "embeddedBranchChildReferenceCount")))
     (is (= 3 (fixture-object-field summary "hashedBranchChildReferenceCount")))
+    (is (= 2 (fixture-object-field summary "secureHashedBranchChildReferenceCount")))
     (is (= 1 (fixture-object-field summary "branchValueRootCount")))
     (is (= 1 (fixture-object-field summary "emptyKeyDeleteNonEmptyRootCount")))
     (is (= 1 (fixture-object-field summary "branchChildDeleteValueLeafCount")))

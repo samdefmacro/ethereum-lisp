@@ -1000,6 +1000,9 @@ splits can land after the Phase A smoke path closes.
     root, covering secure path compression beyond branch roots.
     Tightened the same summary/gate to track secure extension child-reference
     kinds separately and require a secure hashed extension child reference.
+    Tightened secure branch-root summaries the same way: secure branch
+    child-reference kinds are now tracked separately and must include hashed
+    child references.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
