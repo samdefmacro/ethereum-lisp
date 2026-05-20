@@ -31,7 +31,8 @@
   '("address" "topics" "data"))
 
 (defparameter +evm-state-fixture-known-tags+
-  '("legacy-call" "nested-call" "revert" "returndata"
+  '("legacy-call" "nested-call" "revert" "returndata" "code-resolution"
+    "delegated-code"
     "staticcall" "read-only" "value-transfer" "sstore" "log"
     "post-state-root"))
 

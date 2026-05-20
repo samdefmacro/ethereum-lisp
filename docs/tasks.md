@@ -1163,6 +1163,10 @@ splits can land after the Phase A smoke path closes.
     contract receives transaction value, forwards part of it with `CALL`, keeps
     the remainder, persists the child success flag, and the callee balance is
     asserted in post-state.
+  - Slice: added a fixture-backed delegated-code resolution case. A parent
+    `CALL`s an account containing a delegation designator, executes target code,
+    and asserts that storage writes happen at the delegated callee rather than
+    the target account.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4
