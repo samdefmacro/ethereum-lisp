@@ -194,21 +194,31 @@
   (let ((value (fixture-required-field vector "hash")))
     (unless (stringp value)
       (error "Transaction fixture hash must be a string"))
-    (handler-case
-        (hash32-from-hex value)
-      (error (condition)
-        (error "Transaction fixture hash must be a 32-byte hex string: ~A"
-               condition)))))
+    (let ((canonical
+            (handler-case
+                (transaction-fixture-canonical-hash32
+                 value
+                 "Transaction fixture hash")
+              (error (condition)
+                (error "Transaction fixture hash must be a 32-byte hex string: ~A"
+                       condition)))))
+      (unless (string= value canonical)
+        (error "Transaction fixture hash must be canonical lowercase 0x-prefixed hex")))))
 
 (defun validate-transaction-fixture-address-field (vector)
   (let ((value (fixture-required-field vector "sender")))
     (unless (stringp value)
       (error "Transaction fixture sender must be a string"))
-    (handler-case
-        (address-from-hex value)
-      (error (condition)
-        (error "Transaction fixture sender must be an address hex string: ~A"
-               condition)))))
+    (let ((canonical
+            (handler-case
+                (transaction-fixture-canonical-address
+                 value
+                 "Transaction fixture sender")
+              (error (condition)
+                (error "Transaction fixture sender must be an address hex string: ~A"
+                       condition)))))
+      (unless (string= value canonical)
+        (error "Transaction fixture sender must be canonical lowercase 0x-prefixed hex")))))
 
 (defun transaction-fixture-hex-prefixed-p (value)
   (and (stringp value)
@@ -1859,6 +1869,34 @@
             nil)
         (error (condition)
           (search "hash must be a string" (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "prefixless-hash")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "hash must be canonical" (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "uppercase-hash")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0X00000000000000000000000000000000000000000000000000000000000000AB")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "hash must be canonical" (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "bad-sender")
@@ -1898,6 +1936,34 @@
             nil)
         (error (condition)
           (search "sender must be a string" (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "prefixless-sender")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "sender must be canonical" (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "uppercase-sender")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0X00000000000000000000000000000000000000AB")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "sender must be canonical" (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "unknown-vector-field")

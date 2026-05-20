@@ -343,6 +343,11 @@ ones.
     aligns the seed wrapper with the EEST transaction-test importer and keeps
     prefixless or uppercase raw encodings from bypassing duplicate detection
     before pinned vectors replace the in-repo samples.
+  - Progress: tightened local transaction envelope fixture `hash` and `sender`
+    validation to require canonical lowercase `0x`-prefixed hex values during
+    vector shape checking. Malformed hashes/addresses still report parse
+    errors, while prefixless or uppercase values fail before decoded-vector
+    comparison.
   - Progress: added duplicate-field and duplicate-fork rejection to the
     transaction fixture loader. Wrapper objects, `referenceClients`, vectors,
     result entries, and per-fork result maps now fail on duplicate keys before
