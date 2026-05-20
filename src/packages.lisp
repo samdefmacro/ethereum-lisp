@@ -38,6 +38,23 @@
    #:kv-apply-batch
    #:kv-iterator))
 
+(defpackage #:ethereum-lisp.telemetry
+  (:use #:cl)
+  (:export
+   #:*telemetry-sink*
+   #:telemetry-event
+   #:make-telemetry-event
+   #:telemetry-event-kind
+   #:telemetry-event-name
+   #:telemetry-event-value
+   #:telemetry-event-fields
+   #:memory-telemetry-sink
+   #:make-memory-telemetry-sink
+   #:telemetry-events
+   #:telemetry-emit
+   #:telemetry-log
+   #:telemetry-metric))
+
 (defpackage #:ethereum-lisp.rlp
   (:use #:cl #:ethereum-lisp.bytes)
   (:export
