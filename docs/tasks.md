@@ -249,6 +249,9 @@ ones.
   - Progress: tightened EEST transaction-test result normalization so success
     and exception fields cannot be mixed in the same fork entry, and exception
     entries cannot carry orphan sender or intrinsic-gas fields.
+  - Progress: tightened EEST transaction-test result fork validation so unknown
+    or duplicate fork labels are rejected before conversion to the local vector
+    shape, preventing typoed fork results from being silently dropped.
   - Progress: added canonical quantity validation for valid per-fork
     `intrinsicGas` expectations. Fixture results now reject missing, prefixless,
     or leading-zero gas quantities before comparing against locally derived

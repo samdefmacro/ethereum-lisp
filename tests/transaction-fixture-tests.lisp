@@ -214,6 +214,20 @@
         (push (cons "exception" exception) normalized))
       (nreverse normalized))))
 
+(defun validate-eest-transaction-result-forks (case-name result)
+  (let ((seen-forks (make-hash-table :test 'equal)))
+    (dolist (entry result)
+      (let ((fork (car entry)))
+        (when (gethash fork seen-forks)
+          (error "EEST transaction case ~A has duplicate result fork ~A"
+                 case-name
+                 fork))
+        (setf (gethash fork seen-forks) t)
+        (unless (member fork +transaction-fixture-forks+ :test #'string=)
+          (error "EEST transaction case ~A has unknown result fork ~A"
+                 case-name
+                 fork))))))
+
 (defun normalize-eest-transaction-test-case (name case)
   (unless (listp case)
     (error "EEST transaction case ~A must be a JSON object" name))
@@ -230,6 +244,7 @@
              name))
     (unless (listp result)
       (error "EEST transaction case ~A result must be a JSON object" name))
+    (validate-eest-transaction-result-forks name result)
     (list
      (cons "name" name)
      (cons "txbytes" txbytes)
@@ -1134,6 +1149,30 @@
      (list (cons "txbytes" "0x01")
            (cons "result" nil)
            (cons "unexpected" t))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "unknown-result-fork"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Osaka"
+                        (list
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "duplicate-result-fork"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK")))
+                  (cons "Shanghai"
+                        (list
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
   (signals error
     (normalize-eest-transaction-test-case
      "missing-success-sender"
