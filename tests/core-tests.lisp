@@ -7759,6 +7759,81 @@
                (chain-store-account-storage
                 store (block-hash block) contract slot)))))))
 
+(deftest eth-rpc-estimate-gas-binary-searches-retained-state-call
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (hex-quantity-integer (value)
+             (parse-integer (subseq value 2) :radix 16)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (recipient
+             (address-from-hex "0x00000000000000000000000000000000000000aa"))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           (reverter
+             (address-from-hex "0x00000000000000000000000000000000000000dd"))
+           ;; SSTORE slot 1 := 42; MSTORE 0 := 7; RETURN mem[0:32].
+           (code #(96 42 96 1 85 96 7 96 0 82 96 32 96 0 243))
+           (revert-code #(96 0 96 0 253))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 31
+                       :timestamp 310
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state)))))
+      (state-db-set-code state contract code)
+      (state-db-set-code state reverter revert-code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((transfer-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 105)
+                      (cons "method" "eth_estimateGas")
+                      (cons "params"
+                            (list
+                             (list (cons "to" (address-to-hex recipient)))
+                             "latest")))
+                store
+                config))
+             (contract-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 106)
+                      (cons "method" "eth_estimateGas")
+                      (cons "params"
+                            (list
+                             (list (cons "to" (address-to-hex contract))
+                                   (cons "gas" (quantity-to-hex 100000)))
+                             "latest")))
+                store
+                config))
+             (revert-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 107)
+                      (cons "method" "eth_estimateGas")
+                      (cons "params"
+                            (list
+                             (list (cons "to" (address-to-hex reverter))
+                                   (cons "gas" (quantity-to-hex 100000)))
+                             "latest")))
+                store
+                config))
+             (contract-estimate
+               (hex-quantity-integer (field contract-response "result"))))
+        (is (string= (quantity-to-hex 21000)
+                     (field transfer-response "result")))
+        (is (> contract-estimate 21000))
+        (is (<= contract-estimate 100000))
+        (is (= -32602
+               (field (field revert-response "error") "code")))))))
+
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

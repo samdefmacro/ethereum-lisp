@@ -1825,12 +1825,16 @@ splits can land after the Phase A smoke path closes.
     retained block state, executes recipient code against a copied state DB,
     and returns EVM output without committing state writes.
 
-- [ ] Add `eth_estimateGas` first-pass binary search.
+- [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7
   - Dependencies: `eth_call`.
   - Acceptance: simple transfer and contract-call gas estimates are bounded by
     block gas limit and detect reverts.
   - Validation: estimate tests plus `sbcl --script tests/run-tests.lisp`.
+  - Completed: `eth_estimateGas` now reuses retained-state call simulation,
+    caps estimates by the block/request gas limit, detects reverting calls, and
+    binary-searches the lowest successful gas for simple transfers and contract
+    calls.
 
 - [ ] Add `eth_createAccessList` first-pass support.
   - Milestone: 7
