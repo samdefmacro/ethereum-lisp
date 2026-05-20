@@ -1622,12 +1622,18 @@ splits can land after the Phase A smoke path closes.
     explicitly recorded as "shape-checked only, not Phase A VALID".
   - Validation: KZG vector tests plus `sbcl --script tests/run-tests.lisp`.
 
-- [ ] Add EOF planning notes and fork gates.
+- [x] Add EOF planning notes and fork gates.
   - Milestone: 4
   - References: geth and Reth EOF support status for active forks.
   - Acceptance: roadmap/tasks identify exact EOF requirements before any EOF
     implementation begins.
   - Validation: docs-only diff.
+  - Result: `docs/roadmap.md` now records that EOF is outside Phase A and
+    outside the currently modeled Cancun/Prague/Osaka/Amsterdam surface until
+    an explicit chain-rule activation flag exists. The planned order is:
+    container/version gate, deployment validation, legacy-vs-EOF dispatch,
+    EOF control-flow/instruction validation, and fixture-backed execution
+    semantics.
 
 ## P1: Documentation Health
 

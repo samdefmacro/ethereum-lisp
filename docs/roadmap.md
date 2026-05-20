@@ -182,6 +182,16 @@ fixture compatibility remain.
 - precompiles
 - EOF support when required by activated forks
 
+EOF planning gate: EOF is not part of the Phase A Shanghai smoke path and is
+not enabled by the currently modeled Cancun, Prague, Osaka, or Amsterdam
+surface. Before implementation starts, add an explicit chain-rule activation
+flag for the first fork this client chooses to support with EOF, then land the
+work in this order: EOF container parser/version gate, deployment validation,
+legacy-vs-EOF code dispatch, EOF-specific instruction/control-flow validation,
+and finally execution semantics with fixture-backed state tests. Until that
+activation flag exists, EOF-formatted code remains out of consensus scope
+beyond the existing legacy `0xef` runtime-code rejection behavior.
+
 Validation targets: geth `core/vm`, Nethermind `Nethermind.Evm`, and Reth/revm
 behavior.
 
