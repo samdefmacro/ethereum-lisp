@@ -67,6 +67,15 @@
     ],
     "root": "f803dfcb7e8f1afd45e88eedb4699a7138d6c07b71243d9ae9bff720c99925f9"
   },
+  "delete-prefix-branch-value": {
+    "in": [
+      ["do", "verb"],
+      ["dog", "puppy"],
+      ["doge", "coin"],
+      ["do", null]
+    ],
+    "root": "c7615a9d094af6bb896a53d59877b9aa6db39b5f2184582aebda3c7dff53d843"
+  },
   "embedded-extension": {
     "in": [
       ["do", "v"],

@@ -1046,9 +1046,16 @@ splits can land after the Phase A smoke path closes.
     Added nested branch-value deletion coverage under an extension root:
     deleting `dog` from `do` / `dog` / `doge` preserves `do` and `doge`,
     removes the deleted branch value, and locks the compressed extension root.
+    Added the complementary prefix branch-value deletion coverage under an
+    extension root: deleting `do` from `do` / `dog` / `doge` preserves the two
+    longer keys, removes the prefix branch value, and locks the remaining
+    embedded-extension compression shape.
     Added the same nested branch-value deletion shape to the selected Phase A
     EEST trie subset so the external-style trie adapter exercises that
     non-root deletion boundary too.
+    Added the same prefix branch-value deletion shape to the selected Phase A
+    EEST trie subset and updated the summary gate so this embedded extension
+    delete boundary cannot be dropped silently.
     Added the same branch-child deletion shape to the selected Phase A EEST
     trie subset, with a summary gate that fails if the root-value-preserving
     branch child delete case is dropped.

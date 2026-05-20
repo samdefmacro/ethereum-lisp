@@ -128,6 +128,27 @@
       ]
     },
     {
+      "name": "delete-prefix-branch-value-keeps-sibling-extension",
+      "tags": ["extension-root", "branch-value", "delete-collapse", "embedded-child-reference", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "delete", "keyAscii": "do" }
+      ],
+      "expectedRoot": "0xc7615a9d094af6bb896a53d59877b9aa6db39b5f2184582aebda3c7dff53d843",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7],
+      "expectedChildReference": "embedded",
+      "expectedGets": [
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "doge", "valueAscii": "coin" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "do" }
+      ]
+    },
+    {
       "name": "delete-last-entry-empty-root",
       "tags": ["delete-to-empty"],
       "operations": [
