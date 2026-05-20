@@ -848,10 +848,13 @@ shapes, intrinsic gas, access-list/blob/set-code field shapes, and
 non-delegation sender code before entering pending. Same-sender same-nonce
 pending replacements now follow a geth-style 10% fee bump policy, replacing
 the indexed transaction only when both fee cap and priority fee clear the bump
-threshold. Public JSON-RPC and txpool placeholder handlers have also been split
-out of `src/core.lisp` into `src/public-rpc.lisp` behind a dedicated public
-method dispatcher, leaving the core RPC path focused on the generic JSON-RPC
-envelope, Engine/Public dispatch delegation, and HTTP serving shell.
+threshold. The txpool object now also has queued, basefee, and blob placeholder
+subpools, and `txpool_*` RPC views read queued data from the queued subpool
+instead of hard-coded empty placeholders. Public JSON-RPC and txpool
+placeholder handlers have also been split out of `src/core.lisp` into
+`src/public-rpc.lisp` behind a dedicated public method dispatcher, leaving the
+core RPC path focused on the generic JSON-RPC envelope, Engine/Public dispatch
+delegation, and HTTP serving shell.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

@@ -1466,7 +1466,9 @@
    (cons "pending"
          (quantity-to-hex
           (engine-payload-store-pending-transaction-count store)))
-   (cons "queued" (quantity-to-hex 0))))
+   (cons "queued"
+         (quantity-to-hex
+          (engine-payload-store-queued-transaction-count store)))))
 
 (defun engine-rpc-handle-txpool-content (params store)
   (when params
@@ -1475,7 +1477,9 @@
    (cons "pending"
          (txpool-rpc-indexed-content-transactions
           (engine-payload-store-pending-transactions-by-sender store)))
-   (cons "queued" +json-empty-object+)))
+   (cons "queued"
+         (txpool-rpc-indexed-content-transactions
+          (engine-payload-store-queued-sender-index store)))))
 
 (defun engine-rpc-handle-txpool-content-from (params store)
   (unless (= 1 (length params))
@@ -1490,7 +1494,12 @@
              (address-to-hex address)
              (engine-payload-store-pending-transactions-by-sender store))
             #'eth-rpc-pending-transaction-object))
-     (cons "queued" +json-empty-object+))))
+     (cons "queued"
+           (txpool-rpc-indexed-nonce-transactions
+            (gethash
+             (address-to-hex address)
+             (engine-payload-store-queued-sender-index store))
+            #'eth-rpc-pending-transaction-object)))))
 
 (defun engine-rpc-handle-txpool-inspect (params store)
   (when params
@@ -1499,7 +1508,9 @@
    (cons "pending"
          (txpool-rpc-indexed-inspect-transactions
           (engine-payload-store-pending-transactions-by-sender store)))
-   (cons "queued" +json-empty-object+)))
+   (cons "queued"
+         (txpool-rpc-indexed-inspect-transactions
+          (engine-payload-store-queued-sender-index store)))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)

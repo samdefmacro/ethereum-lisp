@@ -1799,7 +1799,7 @@ splits can land after the Phase A smoke path closes.
     in sufficiently bumped replacements while removing the old hash entry and
     updating the sender/nonce index.
 
-- [ ] Add queued/basefee/blob subpool placeholders.
+- [x] Add queued/basefee/blob subpool placeholders.
   - Milestone: 7
   - Dependencies: replacement policy.
   - References: Reth pending/queued/basefee/blob pools, geth txpool queues.
@@ -1807,6 +1807,10 @@ splits can land after the Phase A smoke path closes.
     fee/basefee-ineligible transactions have a defined place.
   - Validation: txpool status/content tests and
     `sbcl --script tests/run-tests.lisp`.
+  - Completed: `engine-pending-txpool` now has queued, basefee, and blob
+    placeholder subpools. `txpool_status`, `txpool_content`,
+    `txpool_contentFrom`, and `txpool_inspect` read queued data from the
+    queued subpool instead of hard-coded empty placeholders.
 
 ## P1: Public RPC Execution APIs
 

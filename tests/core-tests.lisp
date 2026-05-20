@@ -3194,6 +3194,15 @@
     (is (typep
          (ethereum-lisp.core::engine-payload-memory-store-txpool store)
          'ethereum-lisp.core::engine-pending-txpool))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+            store)))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+            store)))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+            store)))
     (ethereum-lisp.core::engine-payload-store-put-pending-transaction
      store transaction)
     (ethereum-lisp.core::engine-payload-store-put-pending-transaction
