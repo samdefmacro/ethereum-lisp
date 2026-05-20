@@ -1934,7 +1934,7 @@ splits can land after the Phase A smoke path closes.
     boundary. Store-level txpool RPC helpers now read through txpool accessors
     instead of inspecting the pending tables directly.
 
-- [~] Add sender/nonce keyed txpool indexing.
+- [x] Add sender/nonce keyed txpool indexing.
   - Milestone: 7
   - Dependencies: extracted txpool state.
   - Acceptance: pending transactions are indexed by hash and sender/nonce, and
@@ -1946,6 +1946,10 @@ splits can land after the Phase A smoke path closes.
     mined-transaction removal, atomic store snapshots, and `txpool_content`,
     `txpool_contentFrom`, and `txpool_inspect` now use the index while the
     txpool object extraction remains a follow-up.
+  - Result: complete. Pending transactions are indexed by hash and by
+    sender/nonce, same-sender/nonce replacement is enforced with the configured
+    price bump, and txpool content/inspect APIs read from the sender index
+    instead of rebuilding sender groupings from the flat pending set.
 
 - [x] Add basic txpool admission preflight.
   - Milestone: 7
