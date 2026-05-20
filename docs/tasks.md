@@ -334,6 +334,12 @@ ones.
     the value derived from decoded `txbytes`, so transcribed EEST vectors fail
     during fixture loading if their expected gas drifts from the encoded
     transaction.
+  - Progress: preserved EEST-style per-fork success `hash` and `sender`
+    fields when converting transaction-test cases into local vectors. Local
+    fixture results now allow success entries to carry `hash`, `sender`, and
+    `intrinsicGas` together, reject orphan or non-canonical hash/sender fields,
+    and compare any per-fork hash/sender assertions against the decoded
+    `txbytes`.
   - Progress: added explicit Shanghai coverage to the transaction fixture fork
     matrix and made Cancun/Prague fixture configs include Shanghai activation.
     The Phase A target fork is now checked directly for every transaction

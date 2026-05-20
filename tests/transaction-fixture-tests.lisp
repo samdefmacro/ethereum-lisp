@@ -62,7 +62,7 @@
   '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
 
 (defparameter +transaction-fixture-result-entry-fields+
-  '("exception" "intrinsicGas"))
+  '("hash" "sender" "exception" "intrinsicGas"))
 
 (defparameter +eest-transaction-test-case-fields+
   '("txbytes" "result"))
@@ -578,7 +578,11 @@
                   fork))
          (cons fork
                (if (fixture-field-present-p entry "hash")
-                   (list (cons "intrinsicGas"
+                   (list (cons "hash"
+                               (fixture-required-field entry "hash"))
+                         (cons "sender"
+                               (fixture-required-field entry "sender"))
+                         (cons "intrinsicGas"
                                (fixture-required-field entry "intrinsicGas")))
                    (list (cons "exception"
                                (fixture-required-field entry "exception")))))))
@@ -910,6 +914,36 @@
              fork
              field))))
 
+(defun validate-transaction-fixture-hash-result-field
+    (vector fork result)
+  (let ((value (fixture-object-field result "hash")))
+    (when (blank-string-p value)
+      (error "Transaction fixture ~A valid result for fork ~A needs hash"
+             (fixture-object-field vector "name")
+             fork))
+    (unless (string= value
+                     (transaction-fixture-canonical-hash32
+                      value
+                      "Transaction fixture result hash"))
+      (error "Transaction fixture ~A result for fork ~A has non-canonical hash"
+             (fixture-object-field vector "name")
+             fork))))
+
+(defun validate-transaction-fixture-sender-result-field
+    (vector fork result)
+  (let ((value (fixture-object-field result "sender")))
+    (when (blank-string-p value)
+      (error "Transaction fixture ~A valid result for fork ~A needs sender"
+             (fixture-object-field vector "name")
+             fork))
+    (unless (string= value
+                     (transaction-fixture-canonical-address
+                      value
+                      "Transaction fixture result sender"))
+      (error "Transaction fixture ~A result for fork ~A has non-canonical sender"
+             (fixture-object-field vector "name")
+             fork))))
+
 (defun validate-transaction-fixture-result-entry
     (vector type fork result)
   (validate-transaction-fixture-object-fields
@@ -918,7 +952,9 @@
    (format nil "Transaction fixture ~A result for fork ~A"
            (fixture-object-field vector "name")
            fork))
-  (let ((exception-present-p (fixture-field-present-p result "exception"))
+  (let ((hash-present-p (fixture-field-present-p result "hash"))
+        (sender-present-p (fixture-field-present-p result "sender"))
+        (exception-present-p (fixture-field-present-p result "exception"))
         (intrinsic-gas-present-p (fixture-field-present-p result "intrinsicGas"))
         (exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
@@ -926,9 +962,23 @@
       (error "Transaction fixture ~A result for fork ~A has a blank exception"
              (fixture-object-field vector "name")
              fork))
+    (when (and hash-present-p (not sender-present-p))
+      (error "Transaction fixture ~A result for fork ~A has hash without sender"
+             (fixture-object-field vector "name")
+             fork))
+    (when (and sender-present-p (not hash-present-p))
+      (error "Transaction fixture ~A result for fork ~A has sender without hash"
+             (fixture-object-field vector "name")
+             fork))
     (if (blank-string-p exception)
-        (validate-transaction-fixture-quantity-field
-         vector fork result "intrinsicGas")
+        (progn
+          (validate-transaction-fixture-quantity-field
+           vector fork result "intrinsicGas")
+          (when hash-present-p
+            (validate-transaction-fixture-hash-result-field
+             vector fork result)
+            (validate-transaction-fixture-sender-result-field
+             vector fork result)))
         (progn
           (unless (transaction-fixture-known-exception-p exception)
             (error "Transaction fixture ~A result for fork ~A has unknown exception ~A"
@@ -937,6 +987,14 @@
                    exception))
           (when intrinsic-gas-present-p
             (error "Transaction fixture ~A invalid result for fork ~A must not include intrinsicGas"
+                   (fixture-object-field vector "name")
+                   fork))
+          (when hash-present-p
+            (error "Transaction fixture ~A invalid result for fork ~A must not include hash"
+                   (fixture-object-field vector "name")
+                   fork))
+          (when sender-present-p
+            (error "Transaction fixture ~A invalid result for fork ~A must not include sender"
                    (fixture-object-field vector "name")
                    fork))))
     (let ((expected-valid
@@ -1154,7 +1212,9 @@
 
 (defun validate-transaction-fixture-derived-results (vector transaction)
   (let ((expected-gas (quantity-to-hex
-                       (transaction-intrinsic-gas transaction))))
+                       (transaction-intrinsic-gas transaction)))
+        (expected-hash (hash32-to-hex (transaction-hash transaction)))
+        (expected-sender (fixture-required-field vector "sender")))
     (dolist (check (fixture-object-field vector "result"))
       (let ((fork (car check))
             (result (cdr check)))
@@ -1165,7 +1225,23 @@
                    (fixture-object-field vector "name")
                    fork
                    (fixture-object-field result "intrinsicGas")
-                   expected-gas)))))))
+                   expected-gas))
+          (when (fixture-field-present-p result "hash")
+            (unless (string= expected-hash
+                             (fixture-required-field result "hash"))
+              (error "Transaction fixture ~A result for fork ~A has hash ~A but decoded transaction hash is ~A"
+                     (fixture-object-field vector "name")
+                     fork
+                     (fixture-object-field result "hash")
+                     expected-hash)))
+          (when (fixture-field-present-p result "sender")
+            (unless (string= expected-sender
+                             (fixture-required-field result "sender"))
+              (error "Transaction fixture ~A result for fork ~A has sender ~A but decoded transaction sender is ~A"
+                     (fixture-object-field vector "name")
+                     fork
+                     (fixture-object-field result "sender")
+                     expected-sender))))))))
 
 (defun validate-transaction-fixture-decoded-vector (vector)
   (let* ((raw (transaction-fixture-txbytes-value vector))
@@ -1319,6 +1395,42 @@
        vector
        :dynamic-fee
        "London"
+       (list (cons "hash"
+                   "0xa98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476")
+             (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
+       (list (cons "sender"
+                   "0xd02d72e067e77158444ef2020ff2d325f929b363")
+             (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
+       (list (cons "hash"
+                   "a98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476")
+             (cons "sender"
+                   "0xd02d72e067e77158444ef2020ff2d325f929b363")
+             (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
+       (list (cons "hash"
+                   "0xa98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476")
+             (cons "sender"
+                   "d02d72e067e77158444ef2020ff2d325f929b363")
+             (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
        (list (cons "intrinsicGas" "0x5208")
              (cons "intrinsicGas" "0x5209"))))
     (signals error
@@ -1362,6 +1474,15 @@
        (list (cons "exception" "TransactionException.TYPE_1_TX_PRE_FORK"))))
     (validate-transaction-fixture-result-entry
      vector :dynamic-fee "London" (list (cons "intrinsicGas" "0x5208")))
+    (validate-transaction-fixture-result-entry
+     vector
+     :dynamic-fee
+     "London"
+     (list (cons "hash"
+                 "0xa98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476")
+           (cons "sender"
+                 "0xd02d72e067e77158444ef2020ff2d325f929b363")
+           (cons "intrinsicGas" "0x5208")))
     (validate-transaction-fixture-result-entry
      vector :dynamic-fee "Berlin" (list (cons "exception"
                                  "TransactionException.TYPE_2_TX_PRE_FORK")))))
@@ -2414,7 +2535,14 @@
                        transaction config 0 0))
                   (is (string= (fixture-object-field result "intrinsicGas")
                                (quantity-to-hex
-                                (transaction-intrinsic-gas transaction)))))
+                                (transaction-intrinsic-gas transaction))))
+                  (when (fixture-field-present-p result "hash")
+                    (is (string= (fixture-object-field result "hash")
+                                 (hash32-to-hex
+                                  (transaction-hash transaction)))))
+                  (when (fixture-field-present-p result "sender")
+                    (is (string= (fixture-object-field result "sender")
+                                 (address-to-hex sender)))))
                 (handler-case
                     (progn
                       (validate-transaction-type-for-config
