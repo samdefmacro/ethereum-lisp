@@ -13,7 +13,8 @@
   "tests/fixtures/execution-spec-tests-root/fixtures/trie_tests/phase-a-secureTrie.json")
 
 (defparameter +phase-a-eest-trie-test-case-names+
-  '("phase-a-trie-sample.json"))
+  '("phase-a-secureTrie.json"
+    "phase-a-trie-sample.json"))
 
 (defparameter +trie-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "cases"))
@@ -1413,7 +1414,7 @@
            (load-phase-a-eest-trie-test-root-cases root))
          (summary (eest-trie-test-case-summary selected-cases)))
     (is (= 4 (length cases)))
-    (is (= 1 (length selected-cases)))
+    (is (= 2 (length selected-cases)))
     (is (equal '("phase-a-secureTrie.json"
                  "phase-a-trie-multi.json/alpha"
                  "phase-a-trie-multi.json/beta"
@@ -1426,21 +1427,26 @@
                  (fixture-object-field (first cases) "root")))
     (is (string= "phase-a-trie-sample.json"
                  (fixture-object-field (fourth cases) "name")))
-    (is (string= "phase-a-trie-sample.json"
+    (is (string= "phase-a-secureTrie.json"
                  (fixture-object-field (first selected-cases) "name")))
-    (is (= 1 (fixture-object-field summary "count")))
-    (is (equal '("phase-a-trie-sample.json")
+    (is (fixture-object-field (first selected-cases) "secure"))
+    (is (string= "phase-a-trie-sample.json"
+                 (fixture-object-field (second selected-cases) "name")))
+    (is (= 2 (fixture-object-field summary "count")))
+    (is (equal '("phase-a-secureTrie.json"
+                 "phase-a-trie-sample.json")
                (fixture-object-field summary "names")))
-    (is (equal '(4)
+    (is (equal '(1 4)
                (fixture-object-field summary "entryCounts")))
-    (is (= 4 (fixture-object-field summary "totalEntryCount")))
-    (is (equal '(2)
+    (is (= 5 (fixture-object-field summary "totalEntryCount")))
+    (is (equal '(1 2)
                (fixture-object-field summary "writeEntryCounts")))
-    (is (= 2 (fixture-object-field summary "totalWriteEntryCount")))
-    (is (equal '(2)
+    (is (= 3 (fixture-object-field summary "totalWriteEntryCount")))
+    (is (equal '(0 2)
                (fixture-object-field summary "deleteEntryCounts")))
     (is (= 2 (fixture-object-field summary "totalDeleteEntryCount")))
-    (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+    (is (equal '("0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-multi.json/alpha"
                  (eest-trie-root-case-name root
