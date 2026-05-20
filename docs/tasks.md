@@ -906,9 +906,10 @@ splits can land after the Phase A smoke path closes.
     proof-result structs that bundle decoded account fields, storage slot
     values, account proofs, and storage proofs in an `eth_getProof`-style
     shape. Added `state-proof-result-rpc-object` to encode the bundle using
-    `eth_getProof` field names and hex/quantity values. Remaining work: wire
-    the RPC handler to retained state snapshots and add external reference
-    vectors.
+    `eth_getProof` field names and hex/quantity values. Wired `eth_getProof`
+    into the JSON-RPC dispatcher for retained chain-store state snapshots,
+    including account proofs, storage proofs, missing accounts, missing state,
+    and parameter validation. Remaining work: external reference vectors.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

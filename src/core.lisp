@@ -4997,6 +4997,103 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (chain-store-account-storage
         store (block-hash block) address slot)))))
 
+(defun eth-rpc-proof-key-for-address (address)
+  (keccak-256 (address-bytes address)))
+
+(defun eth-rpc-proof-key-for-storage-slot (slot)
+  (keccak-256 (hash32-bytes slot)))
+
+(defun eth-rpc-storage-trie-from-entries (storage-entries)
+  (let ((trie (make-mpt)))
+    (dolist (entry storage-entries trie)
+      (mpt-put trie
+               (eth-rpc-proof-key-for-storage-slot (car entry))
+               (rlp-encode (cdr entry))))))
+
+(defun eth-rpc-storage-proof-object (trie slot value)
+  (list (cons "key" (hash32-to-hex slot))
+        (cons "value" (quantity-to-hex value))
+        (cons "proof"
+              (mapcar #'bytes-to-hex
+                      (mpt-get-proof
+                       trie
+                       (eth-rpc-proof-key-for-storage-slot slot))))))
+
+(defun eth-rpc-proof-storage-slots-param (value method)
+  (unless (listp value)
+    (block-validation-fail "~A storage keys must be a list" method))
+  (mapcar (lambda (slot)
+            (eth-rpc-storage-slot-param slot method))
+          value))
+
+(defun eth-rpc-build-proof-object (store block-hash address slots)
+  (let ((state-trie (make-mpt))
+        (target-account nil)
+        (target-storage-trie nil)
+        (target-storage-values (make-hash-table :test #'equal)))
+    (chain-store-for-each-account
+     store
+     block-hash
+     (lambda (account-address balance nonce code storage-entries)
+       (let* ((storage-trie
+                (eth-rpc-storage-trie-from-entries storage-entries))
+              (account
+                (make-state-account
+                 :nonce nonce
+                 :balance balance
+                 :storage-root (make-hash32 (mpt-root-hash storage-trie))
+                 :code-hash (keccak-256-hash code))))
+         (mpt-put state-trie
+                  (eth-rpc-proof-key-for-address account-address)
+                  (state-account-rlp account))
+         (when (bytes= (address-bytes account-address)
+                       (address-bytes address))
+           (setf target-account account
+                 target-storage-trie storage-trie)
+           (dolist (entry storage-entries)
+             (setf (gethash (hash32-to-hex (car entry))
+                            target-storage-values)
+                   (cdr entry)))))))
+    (unless target-account
+      (setf target-account (make-state-account)
+            target-storage-trie (make-mpt)))
+    (list
+     (cons "address" (address-to-hex address))
+     (cons "accountProof"
+           (mapcar #'bytes-to-hex
+                   (mpt-get-proof
+                    state-trie
+                    (eth-rpc-proof-key-for-address address))))
+     (cons "balance" (quantity-to-hex (state-account-balance target-account)))
+     (cons "codeHash"
+           (hash32-to-hex (state-account-code-hash target-account)))
+     (cons "nonce" (quantity-to-hex (state-account-nonce target-account)))
+     (cons "storageHash"
+           (hash32-to-hex (state-account-storage-root target-account)))
+     (cons "storageProof"
+           (mapcar
+            (lambda (slot)
+              (eth-rpc-storage-proof-object
+               target-storage-trie
+               slot
+               (gethash (hash32-to-hex slot) target-storage-values 0)))
+            slots)))))
+
+(defun engine-rpc-handle-eth-get-proof (params store)
+  (unless (= 3 (length params))
+    (block-validation-fail
+     "eth_getProof params must contain address, storage keys, and block id"))
+  (let* ((address (eth-rpc-address-param
+                   (first params) "eth_getProof" "address"))
+         (slots (eth-rpc-proof-storage-slots-param
+                 (second params) "eth_getProof"))
+         (block (eth-rpc-block-param
+                 (list (third params)) store "eth_getProof")))
+    (when (and block
+               (chain-store-state-available-p
+                store (block-hash block)))
+      (eth-rpc-build-proof-object store (block-hash block) address slots))))
+
 (defun eth-rpc-header-object (header)
   (unless (block-header-p header)
     (block-validation-fail "eth header result must be a block header"))
@@ -6712,6 +6809,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 id
                 :result
                 (engine-rpc-handle-eth-get-storage-at params store)))
+              ((string= method "eth_getProof")
+               (engine-rpc-response
+                id
+                :result
+                (engine-rpc-handle-eth-get-proof params store)))
               ((string= method "eth_getHeaderByNumber")
                (engine-rpc-response
                 id

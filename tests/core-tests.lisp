@@ -7412,6 +7412,134 @@
         (is (= -32602 (field invalid-slot-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
 
+(deftest eth-rpc-get-proof
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (address
+             (address-from-hex "0x0000000000000000000000000000000000000103"))
+           (empty-address
+             (address-from-hex "0x0000000000000000000000000000000000000104"))
+           (slot
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000007"))
+           (missing-slot
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000008"))
+           (state-block
+             (make-block
+              :header (make-block-header :number 28
+                                         :timestamp 280
+                                         :gas-limit 30000000)))
+           (missing-state-block
+             (make-block
+              :header (make-block-header :number 29
+                                         :timestamp 290
+                                         :gas-limit 30000000)))
+           (config (make-chain-config)))
+      (engine-payload-store-put-block store state-block)
+      (engine-payload-store-put-account-balance
+       store (block-hash state-block) address 1000)
+      (engine-payload-store-put-account-nonce
+       store (block-hash state-block) address 3)
+      (engine-payload-store-put-account-code
+       store (block-hash state-block) address #(96 1 96 0))
+      (engine-payload-store-put-account-storage
+       store (block-hash state-block) address slot #x2a)
+      (engine-payload-store-put-block store missing-state-block)
+      (let* ((proof-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":98,"
+                  "\"method\":\"eth_getProof\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",[\"0x7\",\"0x8\"],\"0x1c\"]}")
+                 store
+                 config)))
+             (empty-account-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":99,"
+                  "\"method\":\"eth_getProof\","
+                  "\"params\":[\"" (address-to-hex empty-address)
+                  "\",[\"0x7\"],\"0x1c\"]}")
+                 store
+                 config)))
+             (missing-state-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":100,"
+                  "\"method\":\"eth_getProof\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",[\"0x7\"],\"0x1d\"]}")
+                 store
+                 config)))
+             (invalid-storage-keys-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":101,"
+                  "\"method\":\"eth_getProof\","
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"0x7\",\"0x1c\"]}")
+                 store
+                 config)))
+             (invalid-params-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":102,"
+                  "\"method\":\"eth_getProof\","
+                  "\"params\":[\"" (address-to-hex address) "\"]}")
+                 store
+                 config)))
+             (proof (field proof-response "result"))
+             (storage-proofs (field proof "storageProof"))
+             (first-storage (first storage-proofs))
+             (second-storage (second storage-proofs))
+             (empty-proof (field empty-account-response "result"))
+             (invalid-storage-keys-error
+               (field invalid-storage-keys-response "error"))
+             (invalid-params-error (field invalid-params-response "error")))
+        (is (string= (address-to-hex address)
+                     (field proof "address")))
+        (is (string= (quantity-to-hex 1000)
+                     (field proof "balance")))
+        (is (string= (quantity-to-hex 3)
+                     (field proof "nonce")))
+        (is (string= (hash32-to-hex (keccak-256-hash #(96 1 96 0)))
+                     (field proof "codeHash")))
+        (is (listp (field proof "accountProof")))
+        (is (every #'stringp (field proof "accountProof")))
+        (is (= 2 (length storage-proofs)))
+        (is (string= (hash32-to-hex slot)
+                     (field first-storage "key")))
+        (is (string= (quantity-to-hex #x2a)
+                     (field first-storage "value")))
+        (is (every #'stringp (field first-storage "proof")))
+        (is (string= (hash32-to-hex missing-slot)
+                     (field second-storage "key")))
+        (is (string= (quantity-to-hex 0)
+                     (field second-storage "value")))
+        (is (every #'stringp (field second-storage "proof")))
+        (is (string= (address-to-hex empty-address)
+                     (field empty-proof "address")))
+        (is (string= (quantity-to-hex 0)
+                     (field empty-proof "balance")))
+        (is (string= (hash32-to-hex +empty-code-hash+)
+                     (field empty-proof "codeHash")))
+        (is (null (field missing-state-response "result")))
+        (is (= -32602 (field invalid-storage-keys-error "code")))
+        (is (= -32602 (field invalid-params-error "code")))))))
+
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
