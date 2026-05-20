@@ -484,6 +484,21 @@
 (defun validate-phase-a-eest-transaction-summary-types (types)
   (unless types
     (error "Phase A EEST transaction summary must include at least one transaction type"))
+  (let ((seen-types (make-hash-table :test 'eq)))
+    (dolist (entry types)
+      (unless (and (consp entry)
+                   (member (car entry)
+                           (append +phase-a-eest-transaction-required-types+
+                                   +phase-a-eest-transaction-forbidden-types+)
+                           :test #'eq)
+                   (integerp (cdr entry))
+                   (plusp (cdr entry)))
+        (error "Phase A EEST transaction summary has malformed type entry ~S"
+               entry))
+      (when (gethash (car entry) seen-types)
+        (error "Phase A EEST transaction summary has duplicate type ~A"
+               (car entry)))
+      (setf (gethash (car entry) seen-types) t)))
   (dolist (type +phase-a-eest-transaction-required-types+)
     (unless (assoc type types)
       (error "Phase A EEST transaction summary is missing required type ~A"
@@ -1397,6 +1412,23 @@
          (:access-list . 1)
          (:dynamic-fee . 1)
          (:set-code . 1))))
+    (signals error
+      (validate-phase-a-eest-transaction-summary-types
+       '((:legacy . 1)
+         (:access-list . 1)
+         (:dynamic-fee . 1)
+         (:unknown . 1))))
+    (signals error
+      (validate-phase-a-eest-transaction-summary-types
+       '((:legacy . 1)
+         (:legacy . 1)
+         (:access-list . 1)
+         (:dynamic-fee . 1))))
+    (signals error
+      (validate-phase-a-eest-transaction-summary-types
+       '((:legacy . 1)
+         (:access-list . 0)
+         (:dynamic-fee . 1))))
     (is (string= "phase-a-sample.json/alpha"
                  (eest-transaction-root-case-name root
                                                   (first paths)

@@ -384,6 +384,9 @@ ones.
   - Progress: tightened the same Phase A summary gate to reject Cancun/Prague
     only transaction families (`blob` and `set-code`) so the Shanghai fixture
     subset cannot silently widen past the Phase A scope gate.
+  - Progress: tightened the Phase A transaction subset summary shape so type
+    counts must be known, unique, and positive integers before required
+    Shanghai families are checked.
 
 ## P0: Module Boundaries
 
