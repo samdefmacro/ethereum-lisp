@@ -447,6 +447,9 @@ ones.
   - Progress: tightened EEST transaction selector-list shape validation so
     direct `:names` callers reject non-list selector values before iterating
     selector entries.
+  - Progress: tightened EEST transaction selector entry validation so non-string
+    selector names fail with an adapter-specific error before blank-name or
+    source-style checks run.
 
 ## P0: Module Boundaries
 

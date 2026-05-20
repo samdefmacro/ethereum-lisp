@@ -403,6 +403,8 @@
     (error "EEST transaction selector list must not be empty"))
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (name names)
+      (unless (stringp name)
+        (error "EEST transaction selector name must be a string"))
       (when (blank-string-p name)
         (error "EEST transaction selector name must be present"))
       (unless (eest-transaction-selector-source-style-p name)
@@ -1742,6 +1744,10 @@
     (signals error
       (load-eest-transaction-test-root-cases
        root
+       :names '(42)))
+    (signals error
+      (load-eest-transaction-test-root-cases
+       root
        :names '("phase-a-sample.json" "phase-a-sample.json")))
     (signals error
       (filter-eest-transaction-test-root-cases
@@ -1755,6 +1761,8 @@
       (validate-eest-transaction-selector-list "phase-a-sample.json"))
     (signals error
       (validate-eest-transaction-selector-list nil))
+    (signals error
+      (validate-eest-transaction-selector-list '(42)))
     (signals error
       (validate-eest-transaction-selector-list '("")))
     (signals error
