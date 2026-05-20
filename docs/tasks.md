@@ -437,6 +437,10 @@ splits can land after the Phase A smoke path closes.
     Engine RPC host reload-safe under SBCL/ASDF. The main script test remains
     the primary validation, and ASDF load is now an additional module-boundary
     smoke check.
+  - Progress: moved `chain-rules-transaction-type-supported-p` into
+    `src/chain-config.lisp`, keeping typed-transaction fork activation rules
+    with the chain-rules module boundary while preserving the existing public
+    export and call sites.
 
 - [ ] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
   `src/core.lisp`.
