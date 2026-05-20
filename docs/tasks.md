@@ -1077,6 +1077,10 @@ splits can land after the Phase A smoke path closes.
     Added secure-key replay support to the seed trie-vector fixture runner
     itself, plus a secure delete-collapse vector that hashes logical keys before
     MPT replay and checks final secure-key lookups.
+    Added secure branch-root and extension-root cases to the seed trie-vector
+    fixture, with runner-side coverage guards requiring secure branch and
+    secure extension roots so the local seed set stays aligned with the
+    selected EEST-style secure trie subset.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

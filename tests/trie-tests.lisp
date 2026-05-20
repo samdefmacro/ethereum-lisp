@@ -368,15 +368,27 @@
   (unless (and (listp cases) cases)
     (error "Trie fixture must include at least one case"))
   (let ((seen-names (make-hash-table :test #'equal))
-        (seen-tags (make-hash-table :test #'equal)))
+        (seen-tags (make-hash-table :test #'equal))
+        secure-branch-root-p
+        secure-extension-root-p)
     (dolist (case cases)
       (unless (listp case)
         (error "Trie fixture case must be a JSON object"))
       (validate-trie-fixture-case-name case seen-names)
-      (validate-trie-fixture-case-tags case seen-tags))
+      (validate-trie-fixture-case-tags case seen-tags)
+      (let ((secure-p (not (null (fixture-object-field case "secure"))))
+            (shape (fixture-object-field case "expectedShape")))
+        (when (and secure-p (stringp shape) (string= shape "branch"))
+          (setf secure-branch-root-p t))
+        (when (and secure-p (stringp shape) (string= shape "extension"))
+          (setf secure-extension-root-p t))))
     (dolist (tag +trie-fixture-required-tags+)
       (unless (gethash tag seen-tags)
-        (error "Trie fixture is missing required coverage tag ~A" tag)))))
+        (error "Trie fixture is missing required coverage tag ~A" tag)))
+    (unless secure-branch-root-p
+      (error "Trie fixture must include a secure branch root case"))
+    (unless secure-extension-root-p
+      (error "Trie fixture must include a secure extension root case"))))
 
 (defun validate-trie-fixture-cases (cases)
   (validate-trie-fixture-case-coverage cases)
@@ -1499,6 +1511,25 @@
      (list (cons "name" "duplicate-tag")
            (cons "tags" (list "leaf-root" "leaf-root")))
      (make-hash-table :test 'equal))))
+
+(deftest trie-fixture-coverage-validation-requires-secure-root-shapes
+  (let* ((fixture (parse-json
+                   (fixture-file-string +trie-vector-fixture-path+)))
+         (cases (fixture-object-field fixture "cases")))
+    (signals error
+      (validate-trie-fixture-case-coverage
+       (remove-if
+        (lambda (case)
+          (string= "secure-branch-root"
+                   (fixture-object-field case "name")))
+        cases)))
+    (signals error
+      (validate-trie-fixture-case-coverage
+       (remove-if
+        (lambda (case)
+          (string= "secure-extension-root"
+                   (fixture-object-field case "name")))
+        cases)))))
 
 (deftest optional-eest-trie-test-root-discovery
   (with-execution-spec-tests-trie-test-root (root)

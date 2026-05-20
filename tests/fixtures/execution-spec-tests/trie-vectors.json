@@ -118,6 +118,43 @@
       "expectedShape": "empty"
     },
     {
+      "name": "secure-branch-root",
+      "secure": true,
+      "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "cat", "valueAscii": "kitten" }
+      ],
+      "expectedRoot": "0x8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268",
+      "expectedShape": "branch",
+      "expectedRootChildren": [4, 5],
+      "expectedRootChildReferences": {
+        "4": "hashed",
+        "5": "hashed"
+      },
+      "expectedGets": [
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "cat", "valueAscii": "kitten" }
+      ]
+    },
+    {
+      "name": "secure-extension-root",
+      "secure": true,
+      "tags": ["secure-key", "extension-root", "path-compression", "hashed-child-reference", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "left" },
+        { "op": "put", "keyAscii": "beam", "valueAscii": "right" }
+      ],
+      "expectedRoot": "0x2c6f6489a6626f2f887d76882467e53e711032408473799352c0c2d192db7f80",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [4],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyAscii": "dog", "valueAscii": "left" },
+        { "keyAscii": "beam", "valueAscii": "right" }
+      ]
+    },
+    {
       "name": "secure-delete-branch-child-collapses-to-leaf",
       "secure": true,
       "tags": ["secure-key", "leaf-root", "path-compression", "delete-collapse", "lookup-assertions"],
