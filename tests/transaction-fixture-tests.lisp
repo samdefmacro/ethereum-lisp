@@ -1710,16 +1710,33 @@
         (validate-transaction-fixture-decoded-vector
          (replace-field "sender"
                         "0x0000000000000000000000000000000000000000")))
-      (signals error
-        (validate-transaction-fixture-decoded-vector
-         (replace-field
-          "result"
-          (list (cons "Frontier" (list (cons "intrinsicGas" "0x5209")))
-                (cons "Berlin" (list (cons "intrinsicGas" "0x5208")))
-                (cons "London" (list (cons "intrinsicGas" "0x5208")))
-                (cons "Shanghai" (list (cons "intrinsicGas" "0x5208")))
-                (cons "Cancun" (list (cons "intrinsicGas" "0x5208")))
-                (cons "Prague" (list (cons "intrinsicGas" "0x5208"))))))))))
+      (let ((message
+              (handler-case
+                  (progn
+                    (validate-transaction-fixture-decoded-vector
+                     (replace-field
+                      "result"
+                      (list (cons "Frontier"
+                                  (list (cons "intrinsicGas" "0x5209")))
+                            (cons "Berlin"
+                                  (list (cons "intrinsicGas" "0x5208")))
+                            (cons "London"
+                                  (list (cons "intrinsicGas" "0x5208")))
+                            (cons "Paris"
+                                  (list (cons "intrinsicGas" "0x5208")))
+                            (cons "Shanghai"
+                                  (list (cons "intrinsicGas" "0x5208")))
+                            (cons "Cancun"
+                                  (list (cons "intrinsicGas" "0x5208")))
+                            (cons "Prague"
+                                  (list (cons "intrinsicGas" "0x5208"))))))
+                    nil)
+                (error (condition)
+                  (princ-to-string condition)))))
+        (is message)
+        (is (search "fork Frontier" message))
+        (is (search "0x5209" message))
+        (is (search "0x5208" message))))))
 
 (deftest eest-transaction-success-result-consistency-validation
   (let* ((case (first (load-eest-transaction-test-file
