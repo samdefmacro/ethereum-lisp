@@ -654,6 +654,8 @@ splits can land after the Phase A smoke path closes.
     `src/public-rpc.lisp`, covering `eth_getBalance`,
     `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, and
     `eth_getProof`.
+  - Progress: moved header query serialization and `eth_getHeaderByNumber` /
+    `eth_getHeaderByHash` helpers into `src/public-rpc.lisp`.
 
 ## P0: Chain Store And Canonical Indexes
 
