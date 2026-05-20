@@ -763,6 +763,8 @@
    #:state-db-set-storage
    #:state-db-get-storage
    #:state-db-get-storage-root
+   #:state-db-get-account-proof
+   #:state-db-verify-account-proof
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
@@ -1636,6 +1638,8 @@
    #:state-db-set-storage
    #:state-db-get-storage
    #:state-db-get-storage-root
+   #:state-db-get-account-proof
+   #:state-db-verify-account-proof
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
@@ -2437,6 +2441,8 @@
    #:state-db-set-storage
    #:state-db-get-storage
    #:state-db-get-storage-root
+   #:state-db-get-account-proof
+   #:state-db-verify-account-proof
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex

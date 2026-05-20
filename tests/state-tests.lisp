@@ -167,6 +167,33 @@
     (is (state-db-get-account state address))
     (is (string= (state-db-root-hex state) (state-db-root-hex state)))))
 
+(deftest state-account-proof-verifies-present-missing-and-bad-root
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000010"))
+        (missing-address (address-from-hex "0x0000000000000000000000000000000000000011")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 1 :balance 1000))
+    (multiple-value-bind (account-rlp present-p)
+        (state-db-verify-account-proof
+         (state-db-root state)
+         address
+         (state-db-get-account-proof state address))
+      (is present-p)
+      (is (bytes= (state-account-rlp (state-db-get-account state address))
+                  account-rlp)))
+    (multiple-value-bind (account-rlp present-p)
+        (state-db-verify-account-proof
+         (state-db-root state)
+         missing-address
+         (state-db-get-account-proof state missing-address))
+      (is (null present-p))
+      (is (null account-rlp)))
+    (signals error
+      (state-db-verify-account-proof
+       (zero-hash32)
+       address
+       (state-db-get-account-proof state address)))))
+
 (deftest state-storage-roundtrip-and-delete
   (let ((state (make-state-db))
         (address (address-from-hex "0x0000000000000000000000000000000000000002"))
