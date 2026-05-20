@@ -483,10 +483,27 @@
                               (fixture-required-field case "name")))))))
     trie))
 
+(defun validate-eest-trie-test-file-case-names (cases source)
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (entry cases)
+      (let ((name (car entry)))
+        (unless (stringp name)
+          (error "EEST trie test file ~A case name must be a string"
+                 source))
+        (when (blank-string-p name)
+          (error "EEST trie test file ~A case name must be present"
+                 source))
+        (when (gethash name seen)
+          (error "EEST trie test file ~A has duplicate case name ~A"
+                 source
+                 name))
+        (setf (gethash name seen) t)))))
+
 (defun load-eest-trie-test-file (path)
   (let ((cases (load-handwritten-fixture-file path)))
     (unless (listp cases)
       (error "EEST trie test file must be a JSON object"))
+    (validate-eest-trie-test-file-case-names cases path)
     (mapcar
      (lambda (entry)
        (normalize-eest-trie-test-case (car entry) (cdr entry)))
@@ -502,6 +519,7 @@
   (let ((cases (load-handwritten-fixture-file path)))
     (unless (listp cases)
       (error "EEST trie test file must be a JSON object"))
+    (validate-eest-trie-test-file-case-names cases path)
     (let* ((entries (sort (copy-list cases) #'string< :key #'car))
            (singleton-p (= 1 (length entries))))
       (mapcar
@@ -1079,7 +1097,18 @@
      (list (cons "in" nil)
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
-           (cons "unexpected" t)))))
+           (cons "unexpected" t))))
+  (signals error
+    (validate-eest-trie-test-file-case-names
+     (list (cons "duplicate-case"
+                 (list (cons "in" nil)
+                       (cons "root"
+                             "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")))
+           (cons "duplicate-case"
+                 (list (cons "in" nil)
+                       (cons "root"
+                             "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+     "inline")))
 
 (deftest eest-trie-test-root-case-loading
   (let* ((root (execution-spec-tests-trie-test-root

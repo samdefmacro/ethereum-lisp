@@ -823,6 +823,9 @@ splits can land after the Phase A smoke path closes.
     Added geth/Nethermind-aligned empty-value delete handling for EEST
     trie-test entries. Zero-length byte strings, including `""` and `"0x"`,
     now normalize to delete operations instead of value inserts.
+    Added file-level duplicate case-name rejection to the EEST trie-test
+    adapter so duplicate JSON case keys fail before direct file or root imports
+    can silently consume ambiguous fixtures.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
