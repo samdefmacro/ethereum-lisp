@@ -732,10 +732,27 @@
     (dolist (name names)
       (when (blank-string-p name)
         (error "EEST trie selector name must be present"))
+      (unless (eest-trie-selector-source-style-p name)
+        (error "EEST trie selector ~A must be a source-style JSON case name"
+               name))
       (when (gethash name seen)
         (error "EEST trie selector list has duplicate name ~A"
                name))
       (setf (gethash name seen) t))))
+
+(defun eest-trie-selector-source-style-p (name)
+  (and (stringp name)
+       (not (blank-string-p name))
+       (not (char= (char name 0) #\/))
+       (null (search ".." name))
+       (let ((json-position (search ".json" name :test #'char-equal)))
+         (and json-position
+              (let ((after-json (+ json-position 5)))
+                (or (= after-json (length name))
+                    (and (< after-json (length name))
+                         (char= (char name after-json) #\/)
+                         (< (1+ after-json) (length name))
+                         (not (char= (char name (1+ after-json)) #\/)))))))))
 
 (defun validate-eest-trie-test-root-case-names (cases)
   (let ((seen (make-hash-table :test 'equal)))
@@ -1954,6 +1971,18 @@
       (validate-eest-trie-selector-list nil))
     (signals error
       (validate-eest-trie-selector-list '("")))
+    (signals error
+      (validate-eest-trie-selector-list '("bare-case-name")))
+    (signals error
+      (validate-eest-trie-selector-list '("../escape.json")))
+    (signals error
+      (validate-eest-trie-selector-list '("/absolute.json")))
+    (signals error
+      (validate-eest-trie-selector-list '("case.jsonx/name")))
+    (signals error
+      (validate-eest-trie-selector-list '("case.json/")))
+    (signals error
+      (validate-eest-trie-selector-list '("case.json//name")))
     (signals error
       (validate-eest-trie-selector-list
        '("phase-a-trie-sample.json" "phase-a-trie-sample.json")))

@@ -1053,6 +1053,10 @@ splits can land after the Phase A smoke path closes.
     Added a selected branch-value EEST-style trie case and tightened the Phase
     A subset summary/gate to require a replayed branch root value slot, covering
     the empty-key branch value shape in the external-style subset.
+    Tightened EEST trie selector validation to require source-style JSON case
+    names (`file.json` or `file.json/case`) and reject bare names, absolute
+    paths, parent-directory escapes, empty case suffixes, and doubled case
+    separators before loading.
     Added a selected branch-value deletion EEST-style trie case and tightened
     the Phase A subset summary/gate to require an empty-key delete whose final
     root remains non-empty, covering branch-value collapse after deletion.
