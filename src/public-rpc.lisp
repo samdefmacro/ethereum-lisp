@@ -1110,6 +1110,125 @@
   (eth-rpc-json-array
    (mapcar #'eth-rpc-pending-transaction-object transactions)))
 
+(defun eth-rpc-hash-table-object (table)
+  (if (zerop (hash-table-count table))
+      +json-empty-object+
+      (loop for key in (sort (loop for key being the hash-keys of table
+                                   collect key)
+                             #'string<)
+            collect (cons key (gethash key table)))))
+
+(defun txpool-rpc-transaction-sender (transaction)
+  (or (transaction-sender transaction)
+      (zero-address)))
+
+(defun txpool-rpc-transaction-sender-p (transaction address)
+  (bytes= (address-bytes (txpool-rpc-transaction-sender transaction))
+          (address-bytes address)))
+
+(defun txpool-rpc-nonce-transactions (transactions)
+  (let ((nonce-transactions (make-hash-table :test 'equal)))
+    (dolist (transaction transactions)
+      (setf (gethash
+             (write-to-string (transaction-nonce transaction) :base 10)
+             nonce-transactions)
+            (eth-rpc-pending-transaction-object transaction)))
+    (eth-rpc-hash-table-object nonce-transactions)))
+
+(defun txpool-rpc-indexed-nonce-transactions
+    (sender-transactions value-function)
+  (if (or (null sender-transactions)
+          (zerop (hash-table-count sender-transactions)))
+      +json-empty-object+
+      (loop for nonce in (sort (loop for nonce being the hash-keys
+                                       of sender-transactions
+                                     collect nonce)
+                               #'string<)
+            collect
+            (cons nonce
+                  (funcall value-function
+                           (gethash nonce sender-transactions))))))
+
+(defun txpool-rpc-indexed-sender-transactions
+    (sender-index value-function)
+  (if (zerop (hash-table-count sender-index))
+      +json-empty-object+
+      (loop for sender in (sort (loop for sender being the hash-keys
+                                        of sender-index
+                                      collect sender)
+                                #'string<)
+            collect
+            (cons sender
+                  (txpool-rpc-indexed-nonce-transactions
+                   (gethash sender sender-index)
+                   value-function)))))
+
+(defun txpool-rpc-transaction-summary (transaction)
+  (let ((to (transaction-to transaction)))
+    (format nil "~A: ~D wei + ~D gas x ~D wei"
+            (if to
+                (address-to-hex to)
+                "contract creation")
+            (transaction-value transaction)
+            (transaction-gas-limit transaction)
+            (transaction-max-fee-per-gas transaction))))
+
+(defun txpool-rpc-content-transactions (transactions)
+  (let ((senders (make-hash-table :test 'equal)))
+    (dolist (transaction transactions)
+      (let* ((sender (address-to-hex
+                      (txpool-rpc-transaction-sender transaction)))
+             (nonce (write-to-string (transaction-nonce transaction)
+                                     :base 10))
+             (sender-transactions (or (gethash sender senders)
+                                      (setf (gethash sender senders)
+                                            (make-hash-table :test 'equal)))))
+        (setf (gethash nonce sender-transactions)
+              (eth-rpc-pending-transaction-object transaction))))
+    (if (zerop (hash-table-count senders))
+        +json-empty-object+
+        (loop for sender in (sort (loop for sender being the hash-keys
+                                          of senders
+                                        collect sender)
+                                  #'string<)
+              collect
+              (cons sender
+                    (eth-rpc-hash-table-object
+                     (gethash sender senders)))))))
+
+(defun txpool-rpc-indexed-content-transactions (sender-index)
+  (txpool-rpc-indexed-sender-transactions
+   sender-index
+   #'eth-rpc-pending-transaction-object))
+
+(defun txpool-rpc-inspect-transactions (transactions)
+  (let ((senders (make-hash-table :test 'equal)))
+    (dolist (transaction transactions)
+      (let* ((sender (address-to-hex
+                      (txpool-rpc-transaction-sender transaction)))
+             (nonce (write-to-string (transaction-nonce transaction)
+                                     :base 10))
+             (sender-transactions (or (gethash sender senders)
+                                      (setf (gethash sender senders)
+                                            (make-hash-table :test 'equal)))))
+        (setf (gethash nonce sender-transactions)
+              (txpool-rpc-transaction-summary transaction))))
+    (if (zerop (hash-table-count senders))
+        +json-empty-object+
+        (loop for sender in (sort (loop for sender being the hash-keys
+                                          of senders
+                                        collect sender)
+                                  #'string<)
+              collect
+              (cons sender
+                    (eth-rpc-hash-table-object
+                     (gethash sender senders)))))))
+
+(defun txpool-rpc-indexed-inspect-transactions (sender-index)
+  (txpool-rpc-indexed-sender-transactions
+   sender-index
+   #'txpool-rpc-transaction-summary))
+
 (defun eth-rpc-raw-transaction-from-location (location)
   (when location
     (bytes-to-hex
@@ -1289,6 +1408,54 @@
     (unless (chain-store-transaction-location store hash)
       (engine-payload-store-put-pending-transaction store transaction))
     (hash32-to-hex hash)))
+
+(defun engine-rpc-handle-eth-pending-transactions (params store)
+  (when params
+    (block-validation-fail "eth_pendingTransactions params must be empty"))
+  (eth-rpc-pending-transaction-objects
+   (engine-payload-store-pending-transactions store)))
+
+(defun engine-rpc-handle-txpool-status (params store)
+  (when params
+    (block-validation-fail "txpool_status params must be empty"))
+  (list
+   (cons "pending"
+         (quantity-to-hex
+          (engine-payload-store-pending-transaction-count store)))
+   (cons "queued" (quantity-to-hex 0))))
+
+(defun engine-rpc-handle-txpool-content (params store)
+  (when params
+    (block-validation-fail "txpool_content params must be empty"))
+  (list
+   (cons "pending"
+         (txpool-rpc-indexed-content-transactions
+          (engine-payload-store-pending-transactions-by-sender store)))
+   (cons "queued" +json-empty-object+)))
+
+(defun engine-rpc-handle-txpool-content-from (params store)
+  (unless (= 1 (length params))
+    (block-validation-fail
+     "txpool_contentFrom params must contain exactly one address"))
+  (let ((address (eth-rpc-address-param
+                  (first params) "txpool_contentFrom" "address")))
+    (list
+     (cons "pending"
+           (txpool-rpc-indexed-nonce-transactions
+            (gethash
+             (address-to-hex address)
+             (engine-payload-store-pending-transactions-by-sender store))
+            #'eth-rpc-pending-transaction-object))
+     (cons "queued" +json-empty-object+))))
+
+(defun engine-rpc-handle-txpool-inspect (params store)
+  (when params
+    (block-validation-fail "txpool_inspect params must be empty"))
+  (list
+   (cons "pending"
+         (txpool-rpc-indexed-inspect-transactions
+          (engine-payload-store-pending-transactions-by-sender store)))
+   (cons "queued" +json-empty-object+)))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)

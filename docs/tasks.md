@@ -662,6 +662,8 @@ splits can land after the Phase A smoke path closes.
     uncle-by-index lookups.
   - Progress: moved transaction query, raw transaction, send raw transaction,
     receipt, and block receipt helpers/handlers into `src/public-rpc.lisp`.
+  - Progress: moved `eth_pendingTransactions` and `txpool_*` placeholder
+    helpers/handlers into `src/public-rpc.lisp`.
 
 ## P0: Chain Store And Canonical Indexes
 
