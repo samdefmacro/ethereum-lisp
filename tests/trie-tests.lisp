@@ -12,9 +12,13 @@
 (defparameter +eest-trie-test-secure-sample-path+
   "tests/fixtures/execution-spec-tests-root/fixtures/trie_tests/phase-a-secureTrie.json")
 
+(defparameter +empty-trie-root-hex+
+  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+
 (defparameter +phase-a-eest-trie-test-case-names+
   '("phase-a-secureTrie.json/phase-a-secure-delete"
     "phase-a-secureTrie.json/phase-a-secure-insert"
+    "phase-a-trie-multi.json/alpha"
     "phase-a-trie-sample.json"))
 
 (defparameter +trie-fixture-top-level-fields+
@@ -772,7 +776,20 @@
            (loop for secure-p in secure-flags
                  for count in delete-counts
                  unless secure-p
-                   collect count)))
+                   collect count))
+         (non-empty-root-flags
+           (mapcar (lambda (case)
+                     (not (string= +empty-trie-root-hex+
+                                    (fixture-required-field case "root"))))
+                   cases))
+         (secure-non-empty-root-count
+           (loop for secure-p in secure-flags
+                 for non-empty-p in non-empty-root-flags
+                 count (and secure-p non-empty-p)))
+         (plain-non-empty-root-count
+           (loop for secure-p in secure-flags
+                 for non-empty-p in non-empty-root-flags
+                 count (and (not secure-p) non-empty-p))))
     (list
      (cons "count" (length cases))
      (cons "names" (mapcar (lambda (case)
@@ -781,6 +798,9 @@
      (cons "secureFlags" secure-flags)
      (cons "secureCaseCount" (count t secure-flags))
      (cons "plainCaseCount" (count nil secure-flags))
+     (cons "nonEmptyRootFlags" non-empty-root-flags)
+     (cons "secureNonEmptyRootCount" secure-non-empty-root-count)
+     (cons "plainNonEmptyRootCount" plain-non-empty-root-count)
      (cons "entryCounts" entry-counts)
      (cons "totalEntryCount" (reduce #'+ entry-counts :initial-value 0))
      (cons "writeEntryCounts" write-counts)
@@ -816,7 +836,11 @@
     (when (zerop (fixture-object-field summary "plainWriteEntryCount"))
       (error "Phase A EEST trie subset must include plain trie write entries"))
     (when (zerop (fixture-object-field summary "plainDeleteEntryCount"))
-      (error "Phase A EEST trie subset must include plain trie delete entries"))))
+      (error "Phase A EEST trie subset must include plain trie delete entries"))
+    (when (zerop (fixture-object-field summary "secureNonEmptyRootCount"))
+      (error "Phase A EEST trie subset must include a non-empty secure trie root"))
+    (when (zerop (fixture-object-field summary "plainNonEmptyRootCount"))
+      (error "Phase A EEST trie subset must include a non-empty plain trie root"))))
 
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
@@ -1536,7 +1560,7 @@
            (load-phase-a-eest-trie-test-root-cases root))
          (summary (eest-trie-test-case-summary selected-cases)))
     (is (= 5 (length cases)))
-    (is (= 3 (length selected-cases)))
+    (is (= 4 (length selected-cases)))
     (is (equal '("phase-a-secureTrie.json/phase-a-secure-delete"
                  "phase-a-secureTrie.json/phase-a-secure-insert"
                  "phase-a-trie-multi.json/alpha"
@@ -1555,32 +1579,40 @@
     (is (fixture-object-field (first selected-cases) "secure"))
     (is (string= "phase-a-secureTrie.json/phase-a-secure-insert"
                  (fixture-object-field (second selected-cases) "name")))
-    (is (string= "phase-a-trie-sample.json"
+    (is (string= "phase-a-trie-multi.json/alpha"
                  (fixture-object-field (third selected-cases) "name")))
-    (is (= 3 (fixture-object-field summary "count")))
+    (is (string= "phase-a-trie-sample.json"
+                 (fixture-object-field (fourth selected-cases) "name")))
+    (is (= 4 (fixture-object-field summary "count")))
     (is (equal '("phase-a-secureTrie.json/phase-a-secure-delete"
                  "phase-a-secureTrie.json/phase-a-secure-insert"
+                 "phase-a-trie-multi.json/alpha"
                  "phase-a-trie-sample.json")
                (fixture-object-field summary "names")))
-    (is (equal '(t t nil)
+    (is (equal '(t t nil nil)
                (fixture-object-field summary "secureFlags")))
     (is (= 2 (fixture-object-field summary "secureCaseCount")))
-    (is (= 1 (fixture-object-field summary "plainCaseCount")))
-    (is (equal '(2 1 4)
+    (is (= 2 (fixture-object-field summary "plainCaseCount")))
+    (is (equal '(nil t t nil)
+               (fixture-object-field summary "nonEmptyRootFlags")))
+    (is (= 1 (fixture-object-field summary "secureNonEmptyRootCount")))
+    (is (= 1 (fixture-object-field summary "plainNonEmptyRootCount")))
+    (is (equal '(2 1 1 4)
                (fixture-object-field summary "entryCounts")))
-    (is (= 7 (fixture-object-field summary "totalEntryCount")))
-    (is (equal '(1 1 2)
+    (is (= 8 (fixture-object-field summary "totalEntryCount")))
+    (is (equal '(1 1 1 2)
                (fixture-object-field summary "writeEntryCounts")))
-    (is (= 4 (fixture-object-field summary "totalWriteEntryCount")))
+    (is (= 5 (fixture-object-field summary "totalWriteEntryCount")))
     (is (= 2 (fixture-object-field summary "secureWriteEntryCount")))
-    (is (= 2 (fixture-object-field summary "plainWriteEntryCount")))
-    (is (equal '(1 0 2)
+    (is (= 3 (fixture-object-field summary "plainWriteEntryCount")))
+    (is (equal '(1 0 0 2)
                (fixture-object-field summary "deleteEntryCounts")))
     (is (= 3 (fixture-object-field summary "totalDeleteEntryCount")))
     (is (= 1 (fixture-object-field summary "secureDeleteEntryCount")))
     (is (= 2 (fixture-object-field summary "plainDeleteEntryCount")))
     (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-multi.json/alpha"
@@ -1629,6 +1661,12 @@
                (cons "secure" t)
                (cons "root"
                      "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")))
+        (fifth cases))))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (list
+        (first cases)
+        (second cases)
         (fifth cases))))
     (signals error
       (validate-phase-a-eest-trie-test-coverage

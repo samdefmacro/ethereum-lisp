@@ -913,6 +913,10 @@ splits can land after the Phase A smoke path closes.
     Tightened Phase A EEST trie subset coverage again so plain trie writes are
     required explicitly, matching the existing plain delete and secure
     write/delete gates.
+    Added a selected plain trie case with a non-empty final root and tightened
+    the Phase A EEST subset gate so both secure and plain selections must
+    include non-empty final roots, not only write/delete operations that net
+    back to the empty trie.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
