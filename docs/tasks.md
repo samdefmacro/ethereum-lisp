@@ -735,6 +735,9 @@ splits can land after the Phase A smoke path closes.
     when deleting the only child from a root branch that still has a value slot,
     the branch collapses back to a terminator-only leaf with the root value
     preserved.
+    Added the same branch-child deletion shape to the selected Phase A EEST
+    trie subset, with a summary gate that fails if the root-value-preserving
+    branch child delete case is dropped.
     Added fixture assertions for compressed root path nibbles on leaf and
     extension roots, locking the path-compression shape in addition to root
     hashes and node kinds.
