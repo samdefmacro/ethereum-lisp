@@ -441,6 +441,10 @@ splits can land after the Phase A smoke path closes.
     `src/chain-config.lisp`, keeping typed-transaction fork activation rules
     with the chain-rules module boundary while preserving the existing public
     export and call sites.
+  - Progress: moved `chain-config-rules` into `src/chain-config.lisp`, so the
+    per-block fork-rule snapshot constructor now lives with the chain-rules
+    structure and activation predicates. Blob schedule selection and genesis
+    config parsing remain in `core.lisp` for follow-up slices.
 
 - [ ] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
   `src/core.lisp`.
