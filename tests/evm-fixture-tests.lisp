@@ -43,6 +43,14 @@
 (defparameter +evm-state-fixture-required-tags+
   '("legacy-call" "sstore" "log" "post-state-root"))
 
+(defparameter +evm-state-fixture-required-case-names+
+  '("legacy-call-sstore-log1-london"
+    "nested-call-revert-returndata-london"
+    "staticcall-readonly-sstore-fails-london"
+    "nested-call-value-transfer-london"
+    "call-resolves-delegated-code-london"
+    "access-list-call-prewarms-callee-london"))
+
 (defun validate-evm-state-fixture-metadata (fixture)
   (validate-fixture-object-fields
    fixture
@@ -233,6 +241,21 @@
       (unless (gethash tag seen-tags)
         (error "EVM state fixture is missing required coverage tag ~A" tag)))))
 
+(defun validate-evm-state-fixture-required-case-names (cases)
+  (let ((case-by-name (make-hash-table :test 'equal))
+        (seen-required-names (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name +evm-state-fixture-required-case-names+)
+      (when (gethash name seen-required-names)
+        (error "EVM state fixture required case list has duplicate name ~A"
+               name))
+      (setf (gethash name seen-required-names) t)
+      (unless (gethash name case-by-name)
+        (error "EVM state fixture is missing required seed case ~A"
+               name)))))
+
 (defun apply-evm-state-fixture-account (state address-hex account)
   (let ((address (address-from-hex address-hex)))
     (state-db-set-account
@@ -390,13 +413,22 @@
            (cons "pre" nil)
            (cons "transaction" nil)
            (cons "expect" nil)
-           (cons "unexpected" t)))))
+           (cons "unexpected" t))))
+  (let ((+evm-state-fixture-required-case-names+ '("present" "missing")))
+    (signals error
+      (validate-evm-state-fixture-required-case-names
+       (list (list (cons "name" "present"))))))
+  (let ((+evm-state-fixture-required-case-names+ '("present" "present")))
+    (signals error
+      (validate-evm-state-fixture-required-case-names
+       (list (list (cons "name" "present")))))))
 
 (deftest evm-state-fixture-vectors
   (let* ((fixture (load-handwritten-fixture-file +evm-state-fixture-path+))
          (cases (fixture-object-field fixture "cases")))
     (validate-evm-state-fixture-metadata fixture)
     (validate-evm-state-fixture-cases cases)
+    (validate-evm-state-fixture-required-case-names cases)
     (dolist (case cases)
       (multiple-value-bind (state receipt)
           (execute-evm-state-fixture-case case)

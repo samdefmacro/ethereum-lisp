@@ -1560,7 +1560,10 @@ splits can land after the Phase A smoke path closes.
     legacy message call, and asserts post-state root, account balances, nonce,
     code, storage, receipt status, cumulative gas, logs bloom, and emitted log
     address/topic/data. Shape validation locks the wrapper, env, pre/post
-    account, transaction, receipt, and coverage-tag fields.
+    account, transaction, receipt, and coverage-tag fields. A named seed-case
+    gate now locks the fixture-backed CALL/revert/static/value/delegated-code
+    and access-list cases so the London state-test seed set cannot silently
+    shrink while retaining generic tag coverage.
 
 - [ ] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
