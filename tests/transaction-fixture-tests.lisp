@@ -18,6 +18,13 @@
     "phase-a-sample.json/typed-eip4844-blob-sample"
     "phase-a-sample.json/typed-eip7702-set-code-sample"))
 
+(defparameter +transaction-envelope-fixture-required-vector-names+
+  '("legacy-eip155"
+    "eip2930-access-list"
+    "eip1559-dynamic-fee"
+    "eip4844-blob"
+    "eip7702-set-code"))
+
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
@@ -1019,8 +1026,27 @@
           (error "Transaction fixture vectors are missing required type ~A"
                  type))))))
 
+(defun validate-transaction-fixture-required-vector-names
+    (vectors required-names)
+  (let ((vector-by-name (make-hash-table :test 'equal))
+        (seen-required-names (make-hash-table :test 'equal)))
+    (dolist (vector vectors)
+      (setf (gethash (fixture-required-field vector "name") vector-by-name)
+            vector))
+    (dolist (name required-names)
+      (when (gethash name seen-required-names)
+        (error "Transaction fixture required vector list has duplicate name ~A"
+               name))
+      (setf (gethash name seen-required-names) t)
+      (unless (gethash name vector-by-name)
+        (error "Transaction fixture is missing required seed vector ~A"
+               name)))))
+
 (defun validate-transaction-envelope-vector-coverage (vectors)
-  (validate-transaction-fixture-vector-set vectors :require-required-types t))
+  (validate-transaction-fixture-vector-set vectors :require-required-types t)
+  (validate-transaction-fixture-required-vector-names
+   vectors
+   +transaction-envelope-fixture-required-vector-names+))
 
 (defun load-transaction-envelope-vectors (path)
   (let* ((fixture (load-handwritten-fixture-file path))
@@ -2333,42 +2359,50 @@
       (is (< 0 (length (fixture-object-field summary "types")))))))
 
 (deftest transaction-envelope-fixture-vectors
-  (dolist (vector (load-transaction-envelope-vectors
-                   +transaction-envelope-fixture-path+))
-    (let* ((raw (transaction-fixture-txbytes vector))
-           (chain-id (fixture-object-field vector "chainId"))
-           (transaction (transaction-from-encoding (hex-to-bytes raw)))
-           (sender (transaction-sender transaction :expected-chain-id chain-id)))
-      (validate-transaction-fixture-decoded-envelope vector transaction)
-      (is (eq (transaction-fixture-type-keyword
-               (fixture-object-field vector "type"))
-              (transaction-vector-type transaction)))
-      (is (string= raw (bytes-to-hex (transaction-encoding transaction))))
-      (is (string= (fixture-object-field vector "hash")
-                   (hash32-to-hex (transaction-hash transaction))))
-      (is sender)
-      (is (string= (fixture-object-field vector "sender")
-                   (address-to-hex sender)))
-      (is (null (transaction-sender transaction
-                                    :expected-chain-id (1+ chain-id))))
-      (dolist (check (transaction-fixture-result-checks vector))
-        (let ((config (transaction-fixture-fork-config (car check)))
-              (result (cdr check)))
-          (if (transaction-fixture-result-valid-p result)
-              (progn
-                (is (validate-transaction-type-for-config
-                     transaction config 0 0))
-                (is (string= (fixture-object-field result "intrinsicGas")
-                             (quantity-to-hex
-                              (transaction-intrinsic-gas transaction)))))
-              (handler-case
-                  (progn
-                    (validate-transaction-type-for-config
-                     transaction config 0 0)
-                    (error "Expected transaction fixture exception ~A"
-                           (fixture-object-field result "exception")))
-                (block-validation-error (condition)
-                  (is (string=
-                       (transaction-fixture-exception-message
-                        (fixture-object-field result "exception"))
-                       (block-validation-error-message condition)))))))))))
+  (let ((vectors (load-transaction-envelope-vectors
+                  +transaction-envelope-fixture-path+)))
+    (signals error
+      (validate-transaction-envelope-vector-coverage
+       (remove "eip4844-blob"
+               vectors
+               :test #'string=
+               :key (lambda (candidate)
+                      (fixture-object-field candidate "name")))))
+    (dolist (vector vectors)
+      (let* ((raw (transaction-fixture-txbytes vector))
+             (chain-id (fixture-object-field vector "chainId"))
+             (transaction (transaction-from-encoding (hex-to-bytes raw)))
+             (sender (transaction-sender transaction :expected-chain-id chain-id)))
+        (validate-transaction-fixture-decoded-envelope vector transaction)
+        (is (eq (transaction-fixture-type-keyword
+                 (fixture-object-field vector "type"))
+                (transaction-vector-type transaction)))
+        (is (string= raw (bytes-to-hex (transaction-encoding transaction))))
+        (is (string= (fixture-object-field vector "hash")
+                     (hash32-to-hex (transaction-hash transaction))))
+        (is sender)
+        (is (string= (fixture-object-field vector "sender")
+                     (address-to-hex sender)))
+        (is (null (transaction-sender transaction
+                                      :expected-chain-id (1+ chain-id))))
+        (dolist (check (transaction-fixture-result-checks vector))
+          (let ((config (transaction-fixture-fork-config (car check)))
+                (result (cdr check)))
+            (if (transaction-fixture-result-valid-p result)
+                (progn
+                  (is (validate-transaction-type-for-config
+                       transaction config 0 0))
+                  (is (string= (fixture-object-field result "intrinsicGas")
+                               (quantity-to-hex
+                                (transaction-intrinsic-gas transaction)))))
+                (handler-case
+                    (progn
+                      (validate-transaction-type-for-config
+                       transaction config 0 0)
+                      (error "Expected transaction fixture exception ~A"
+                             (fixture-object-field result "exception")))
+                  (block-validation-error (condition)
+                    (is (string=
+                         (transaction-fixture-exception-message
+                          (fixture-object-field result "exception"))
+                         (block-validation-error-message condition))))))))))))

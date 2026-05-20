@@ -521,6 +521,11 @@ ones.
     sample vectors to match the seed fixture on `txbytes`, hash, sender, chain
     id, and per-fork result matrix, creating a stronger bridge before the seed
     vectors are replaced by real pinned EEST cases.
+  - Progress: added a named seed-vector coverage gate for the local transaction
+    envelope fixture set. The runner now requires the legacy, EIP-2930,
+    EIP-1559, EIP-4844, and EIP-7702 seed vector names in addition to type
+    coverage, so fixture edits cannot silently replace one placeholder while
+    preserving the same envelope-family matrix.
 
 ## P0: Module Boundaries
 
