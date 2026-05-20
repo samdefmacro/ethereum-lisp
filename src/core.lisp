@@ -2090,6 +2090,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (&key hashes)))
   hashes)
 
+(defun engine-pending-transaction-filter-record-hash (filter hash)
+  (unless (typep filter 'engine-pending-transaction-filter)
+    (block-validation-fail
+     "Pending transaction filter must be a pending transaction filter"))
+  (unless (hash32-p hash)
+    (block-validation-fail "Pending transaction filter hash must be a hash32"))
+  (setf (engine-pending-transaction-filter-hashes filter)
+        (append
+         (engine-pending-transaction-filter-hashes filter)
+         (list hash)))
+  filter)
+
 (defun engine-payload-store-key (hash)
   (unless (hash32-p hash)
     (block-validation-fail "Engine payload store key must be a hash32"))
@@ -2984,6 +2996,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-txpool store)
    hash))
 
+(defun engine-payload-store-notify-pending-transaction-filters
+    (store transaction)
+  (loop for filter
+          being the hash-values of
+            (engine-payload-memory-store-log-filters store)
+        when (typep filter 'engine-pending-transaction-filter)
+          do (engine-pending-transaction-filter-record-hash
+              filter
+              (transaction-hash transaction))))
+
 (defun engine-payload-store-put-pending-transaction (store transaction)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
@@ -2999,14 +3021,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (engine-payload-store-txpool store)
        transaction)
     (when inserted-p
-      (loop for filter
-              being the hash-values of
-                (engine-payload-memory-store-log-filters store)
-            when (typep filter 'engine-pending-transaction-filter)
-              do (setf (engine-pending-transaction-filter-hashes filter)
-                       (append
-                        (engine-pending-transaction-filter-hashes filter)
-                        (list (transaction-hash transaction))))))
+      (engine-payload-store-notify-pending-transaction-filters
+       store
+       transaction))
     transaction))
 
 (defun engine-payload-store-pending-transaction (store hash)

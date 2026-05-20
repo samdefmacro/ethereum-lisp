@@ -1945,6 +1945,12 @@ splits can land after the Phase A smoke path closes.
   - Progress: moved pending transaction hash-key derivation behind an
     `engine-pending-txpool-hash-key` helper so txpool mutation, removal, and
     lookup no longer call the store key helper directly.
+  - Progress: factored pending transaction filter hash recording into an
+    `engine-pending-transaction-filter-record-hash` helper and made the
+    store-level txpool insertion wrapper use a dedicated filter notification
+    boundary. Pending filters still share the log/block filter id table, but
+    their per-transaction update logic is no longer embedded in txpool mutation
+    plumbing.
 
 - [x] Add sender/nonce keyed txpool indexing.
   - Milestone: 7

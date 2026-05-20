@@ -3302,6 +3302,31 @@
       (is (eq replacement-transaction
               (gethash nonce-key sender-transactions))))))
 
+(deftest engine-pending-transaction-filter-records-hashes-in-order
+  (let ((filter
+          (ethereum-lisp.core::make-engine-pending-transaction-filter))
+        (first-hash
+          (hash32-from-hex
+           "0x0101010101010101010101010101010101010101010101010101010101010101"))
+        (second-hash
+          (hash32-from-hex
+           "0x0202020202020202020202020202020202020202020202020202020202020202")))
+    (is (eq filter
+            (ethereum-lisp.core::engine-pending-transaction-filter-record-hash
+             filter
+             first-hash)))
+    (ethereum-lisp.core::engine-pending-transaction-filter-record-hash
+     filter
+     second-hash)
+    (is (equal
+         (list first-hash second-hash)
+         (ethereum-lisp.core::engine-pending-transaction-filter-hashes
+          filter)))
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-pending-transaction-filter-record-hash
+       filter
+       (make-array 31 :element-type '(unsigned-byte 8) :initial-element 0)))))
+
 (deftest engine-pending-txpool-replaces-same-sender-nonce-directly
   (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
          (recipient
