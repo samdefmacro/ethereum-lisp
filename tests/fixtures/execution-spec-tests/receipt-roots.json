@@ -45,6 +45,12 @@
         "0x02f901080182f618",
         "0x03f901090183014820"
       ],
+      "expectedTypes": [
+        "0x0",
+        "0x1",
+        "0x2",
+        "0x3"
+      ],
       "expectedEncodingLengths": [
         536,
         538,

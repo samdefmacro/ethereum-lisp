@@ -16,6 +16,7 @@
   '("name"
     "transactions"
     "receipts"
+    "expectedTypes"
     "expectedEncodingPrefixes"
     "expectedEncodingLengths"
     "expectedRoot"
@@ -95,20 +96,33 @@
    "Receipt root fixture vector")
   (let ((transactions (fixture-required-field vector "transactions"))
         (receipts (fixture-required-field vector "receipts"))
+        (expected-types (fixture-required-field vector "expectedTypes"))
         (prefixes (fixture-required-field vector "expectedEncodingPrefixes"))
         (lengths (fixture-required-field vector "expectedEncodingLengths")))
     (unless (and (listp transactions) transactions)
       (error "Receipt root fixture vector transactions must be a non-empty JSON array"))
     (unless (and (listp receipts) receipts)
       (error "Receipt root fixture vector receipts must be a non-empty JSON array"))
+    (unless (and (listp expected-types) expected-types)
+      (error "Receipt root fixture vector expectedTypes must be a non-empty JSON array"))
     (unless (and (listp prefixes) prefixes)
       (error "Receipt root fixture vector expectedEncodingPrefixes must be a non-empty JSON array"))
     (unless (and (listp lengths) lengths)
       (error "Receipt root fixture vector expectedEncodingLengths must be a non-empty JSON array"))
+    (unless (= (length transactions)
+               (length receipts)
+               (length expected-types)
+               (length prefixes)
+               (length lengths))
+      (error "Receipt root fixture vector transaction, receipt, type, prefix, and length counts must match"))
     (dolist (transaction transactions)
       (hex-to-bytes transaction))
     (dolist (receipt receipts)
       (validate-receipt-root-fixture-receipt-shape receipt))
+    (dolist (expected-type expected-types)
+      (let ((type (hex-to-quantity expected-type)))
+        (unless (<= 0 type 4)
+          (error "Receipt root fixture vector expectedTypes entries must be known transaction types"))))
     (dolist (prefix prefixes)
       (hex-to-bytes prefix))
     (dolist (length lengths)
@@ -187,6 +201,8 @@
                      (fixture-object-field vector "receipts")))
            (expected-prefixes
              (fixture-object-field vector "expectedEncodingPrefixes"))
+           (expected-types
+             (fixture-object-field vector "expectedTypes"))
            (expected-lengths
              (fixture-object-field vector "expectedEncodingLengths"))
            (typed-root
@@ -194,16 +210,20 @@
            (legacy-only-root
              (receipt-list-root receipts)))
       (is (= (length transactions) (length receipts)))
+      (is (= (length expected-types) (length receipts)))
       (is (= (length expected-prefixes) (length receipts)))
       (is (= (length expected-lengths) (length receipts)))
       (loop for transaction in transactions
             for receipt in receipts
+            for expected-type in expected-types
             for expected-prefix in expected-prefixes
             for expected-length in expected-lengths
             do (let ((encoding
                        (bytes-to-hex
                         (transaction-receipt-encoding
                          transaction receipt))))
+                 (is (= (hex-to-quantity expected-type)
+                        (transaction-type transaction)))
                  (is (= expected-length (length encoding)))
                  (is (string= expected-prefix
                               (subseq encoding 0

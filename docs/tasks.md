@@ -1681,6 +1681,11 @@ splits can land after the Phase A smoke path closes.
     receipt-root fixture loader, so receipt vectors now fail early on wrapper
     drift before replaying typed receipt encodings.
     Remaining work: CREATE2 coverage where applicable.
+  - Progress: tightened the external-style receipt-root fixture contract with
+    explicit per-transaction expected receipt types. The loader now requires
+    transaction, receipt, type, encoding-prefix, and encoding-length arrays to
+    have matching cardinality, and the replay test asserts each decoded
+    envelope type before checking the typed receipt encoding and root.
   - Result: added an Engine-imported internal CREATE2 receipt boundary. The
     test imports a signed transaction that calls an existing contract whose
     code performs CREATE2, verifies the internally-created runtime code is
