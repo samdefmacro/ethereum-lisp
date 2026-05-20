@@ -75,6 +75,23 @@
     "account-prune"
     "storage-update"))
 
+(defparameter +state-root-fixture-required-case-names+
+  '("empty-state-root"
+    "single-account-nonce-balance-root"
+    "account-update-overwrites-nonce-balance-root"
+    "account-clear-prunes-to-empty-root"
+    "account-clear-prunes-code-and-storage-root"
+    "account-clear-preserves-sibling-account-root"
+    "single-account-storage-root"
+    "storage-update-overwrites-slot-root"
+    "storage-created-account-prunes-to-empty-root"
+    "storage-delete-keeps-funded-account-root"
+    "single-code-account-root"
+    "code-update-overwrites-code-hash-root"
+    "code-created-account-prunes-to-empty-root"
+    "code-delete-keeps-funded-account-root"
+    "multi-account-secure-state-root"))
+
 (defparameter +state-root-fixture-required-tags+
   '("empty-state-root"
     "account-root"
@@ -292,6 +309,21 @@
       (unless (gethash tag seen-tags)
         (error "State root fixture is missing required coverage tag ~A"
                tag)))))
+
+(defun validate-state-root-fixture-required-case-names (cases)
+  (let ((case-by-name (make-hash-table :test 'equal))
+        (seen-required-names (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name +state-root-fixture-required-case-names+)
+      (when (gethash name seen-required-names)
+        (error "State root fixture required case list has duplicate name ~A"
+               name))
+      (setf (gethash name seen-required-names) t)
+      (unless (gethash name case-by-name)
+        (error "State root fixture is missing required seed case ~A"
+               name)))))
 
 (defun apply-state-root-fixture-operation (state operation)
   (let* ((op (fixture-object-field operation "op"))
@@ -892,6 +924,14 @@
             (cons "operations" nil)
             (cons "expectedRoot"
                   "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")))))
+  (let ((+state-root-fixture-required-case-names+ '("present" "missing")))
+    (signals error
+      (validate-state-root-fixture-required-case-names
+       (list (list (cons "name" "present"))))))
+  (let ((+state-root-fixture-required-case-names+ '("present" "present")))
+    (signals error
+      (validate-state-root-fixture-required-case-names
+       (list (list (cons "name" "present"))))))
   (signals error
     (validate-state-root-fixture-operation-shape
      (list (cons "op" "setAccount")
@@ -930,6 +970,7 @@
          (cases (fixture-object-field fixture "cases")))
     (validate-state-root-fixture-metadata fixture)
     (validate-state-root-fixture-cases cases)
+    (validate-state-root-fixture-required-case-names cases)
     (dolist (case cases)
       (let ((state (run-state-root-fixture-case case)))
         (is (string= (fixture-object-field case "expectedRoot")

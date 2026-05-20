@@ -1244,6 +1244,9 @@ splits can land after the Phase A smoke path closes.
     Added matching account projection assertions to the funded-account
     code-delete state-root vector, locking that clearing code restores the empty
     code hash without pruning the non-empty account itself.
+    Added a named seed-case coverage gate for the local state-root fixture set,
+    so account, storage, code, prune, update, and multi-account vectors cannot
+    silently disappear while still satisfying generic tag coverage.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
