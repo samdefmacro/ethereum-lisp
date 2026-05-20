@@ -639,6 +639,11 @@ splits can land after the Phase A smoke path closes.
     case arrays, duplicate case names, blank/non-string names, and unknown
     case fields before the executable smoke replay can silently consume a
     malformed imported wrapper.
+  - Progress: extended the same Engine fixture validation into the case body.
+    `config`, `parent`, parent account, `payload`, withdrawal, and `expect`
+    objects now reject unknown fields and malformed quantities, addresses,
+    transaction bytes, withdrawal arrays, or non-`VALID` expected statuses
+    before the smoke path constructs local blocks from fixture data.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

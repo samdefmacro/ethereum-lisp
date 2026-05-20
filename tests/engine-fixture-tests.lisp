@@ -15,6 +15,44 @@
 (defparameter +engine-newpayload-v2-fixture-case-fields+
   '("name" "network" "chainId" "config" "parent" "payload" "expect"))
 
+(defparameter +engine-newpayload-v2-fixture-config-fields+
+  '("londonBlock" "shanghaiTime"))
+
+(defparameter +engine-newpayload-v2-fixture-parent-fields+
+  '("number"
+    "gasLimit"
+    "gasUsed"
+    "timestamp"
+    "baseFeePerGas"
+    "feeRecipient"
+    "accounts"))
+
+(defparameter +engine-newpayload-v2-fixture-account-fields+
+  '("address" "nonce" "balance"))
+
+(defparameter +engine-newpayload-v2-fixture-payload-fields+
+  '("number"
+    "gasLimit"
+    "timestamp"
+    "baseFeePerGas"
+    "transactions"
+    "withdrawals"))
+
+(defparameter +engine-newpayload-v2-fixture-withdrawal-fields+
+  '("index" "validatorIndex" "address" "amount"))
+
+(defparameter +engine-newpayload-v2-fixture-expect-fields+
+  '("status"
+    "sender"
+    "senderNonce"
+    "senderBalance"
+    "recipient"
+    "recipientBalance"
+    "withdrawalRecipient"
+    "withdrawalBalance"
+    "receiptType"
+    "receiptStatus"))
+
 (defun validate-engine-newpayload-v2-fixture-metadata (fixture)
   (validate-fixture-object-fields
    fixture
@@ -38,6 +76,118 @@
         (error "Engine newPayloadV2 fixture referenceClients.~A must be present"
                client)))))
 
+(defun validate-engine-fixture-quantity-field (object field label)
+  (handler-case
+      (hex-to-quantity (fixture-required-field object field))
+    (error (condition)
+      (error "~A ~A must be a hex quantity: ~A"
+             label field condition))))
+
+(defun validate-engine-fixture-address-field (object field label)
+  (handler-case
+      (address-from-hex (fixture-required-field object field))
+    (error (condition)
+      (error "~A ~A must be an address: ~A"
+             label field condition))))
+
+(defun validate-engine-fixture-config-shape (config case-name)
+  (validate-fixture-object-fields
+   config
+   +engine-newpayload-v2-fixture-config-fields+
+   (format nil "Engine newPayloadV2 fixture case ~A config" case-name))
+  (dolist (field +engine-newpayload-v2-fixture-config-fields+)
+    (validate-engine-fixture-quantity-field
+     config
+     field
+     (format nil "Engine newPayloadV2 fixture case ~A config" case-name))))
+
+(defun validate-engine-fixture-parent-account-shape (account case-name)
+  (let ((label
+          (format nil
+                  "Engine newPayloadV2 fixture case ~A parent account"
+                  case-name)))
+    (validate-fixture-object-fields
+     account
+     +engine-newpayload-v2-fixture-account-fields+
+     label)
+    (validate-engine-fixture-address-field account "address" label)
+    (validate-engine-fixture-quantity-field account "nonce" label)
+    (validate-engine-fixture-quantity-field account "balance" label)))
+
+(defun validate-engine-fixture-parent-shape (parent case-name)
+  (let ((label (format nil
+                       "Engine newPayloadV2 fixture case ~A parent"
+                       case-name)))
+    (validate-fixture-object-fields
+     parent
+     +engine-newpayload-v2-fixture-parent-fields+
+     label)
+    (dolist (field '("number" "gasLimit" "gasUsed" "timestamp" "baseFeePerGas"))
+      (validate-engine-fixture-quantity-field parent field label))
+    (validate-engine-fixture-address-field parent "feeRecipient" label)
+    (let ((accounts (fixture-required-field parent "accounts")))
+      (unless (listp accounts)
+        (error "~A accounts must be a JSON array" label))
+      (dolist (account accounts)
+        (validate-engine-fixture-parent-account-shape account case-name)))))
+
+(defun validate-engine-fixture-withdrawal-shape (withdrawal case-name)
+  (let ((label
+          (format nil
+                  "Engine newPayloadV2 fixture case ~A payload withdrawal"
+                  case-name)))
+    (validate-fixture-object-fields
+     withdrawal
+     +engine-newpayload-v2-fixture-withdrawal-fields+
+     label)
+    (dolist (field '("index" "validatorIndex" "amount"))
+      (validate-engine-fixture-quantity-field withdrawal field label))
+    (validate-engine-fixture-address-field withdrawal "address" label)))
+
+(defun validate-engine-fixture-payload-shape (payload case-name)
+  (let ((label (format nil
+                       "Engine newPayloadV2 fixture case ~A payload"
+                       case-name)))
+    (validate-fixture-object-fields
+     payload
+     +engine-newpayload-v2-fixture-payload-fields+
+     label)
+    (dolist (field '("number" "gasLimit" "timestamp" "baseFeePerGas"))
+      (validate-engine-fixture-quantity-field payload field label))
+    (let ((transactions (fixture-required-field payload "transactions")))
+      (unless (and (listp transactions) transactions)
+        (error "~A transactions must be a non-empty JSON array" label))
+      (dolist (raw transactions)
+        (unless (stringp raw)
+          (error "~A transactions entries must be hex strings" label))
+        (transaction-from-encoding (hex-to-bytes raw))))
+    (let ((withdrawals (fixture-required-field payload "withdrawals")))
+      (unless (listp withdrawals)
+        (error "~A withdrawals must be a JSON array" label))
+      (dolist (withdrawal withdrawals)
+        (validate-engine-fixture-withdrawal-shape withdrawal case-name)))))
+
+(defun validate-engine-fixture-expect-shape (expect case-name)
+  (let ((label (format nil
+                       "Engine newPayloadV2 fixture case ~A expect"
+                       case-name)))
+    (validate-fixture-object-fields
+     expect
+     +engine-newpayload-v2-fixture-expect-fields+
+     label)
+    (unless (string= +payload-status-valid+
+                     (fixture-required-field expect "status"))
+      (error "~A status must be VALID" label))
+    (dolist (field '("sender" "recipient" "withdrawalRecipient"))
+      (validate-engine-fixture-address-field expect field label))
+    (dolist (field '("senderNonce"
+                     "senderBalance"
+                     "recipientBalance"
+                     "withdrawalBalance"
+                     "receiptType"
+                     "receiptStatus"))
+      (validate-engine-fixture-quantity-field expect field label))))
+
 (defun validate-engine-newpayload-v2-fixture-case-shape (case)
   (validate-fixture-object-fields
    case
@@ -47,7 +197,26 @@
     (unless (stringp name)
       (error "Engine newPayloadV2 fixture case name must be a string"))
     (when (blank-string-p name)
-      (error "Engine newPayloadV2 fixture case name must be present"))))
+      (error "Engine newPayloadV2 fixture case name must be present"))
+    (unless (string= "Shanghai" (fixture-required-field case "network"))
+      (error "Engine newPayloadV2 fixture case ~A network must be Shanghai"
+             name))
+    (validate-engine-fixture-quantity-field
+     case
+     "chainId"
+     (format nil "Engine newPayloadV2 fixture case ~A" name))
+    (validate-engine-fixture-config-shape
+     (fixture-required-field case "config")
+     name)
+    (validate-engine-fixture-parent-shape
+     (fixture-required-field case "parent")
+     name)
+    (validate-engine-fixture-payload-shape
+     (fixture-required-field case "payload")
+     name)
+    (validate-engine-fixture-expect-shape
+     (fixture-required-field case "expect")
+     name)))
 
 (defun validate-engine-newpayload-v2-fixture-cases (cases)
   (unless (and (listp cases) cases)
@@ -171,10 +340,54 @@
     (cons "name" (or name "valid-engine-case"))
     (cons "network" "Shanghai")
     (cons "chainId" "0x1")
-    (cons "config" nil)
-    (cons "parent" nil)
-    (cons "payload" nil)
-    (cons "expect" nil))
+    (cons "config"
+          (list (cons "londonBlock" "0x0")
+                (cons "shanghaiTime" "0x0")))
+    (cons "parent"
+          (list
+           (cons "number" "0x29")
+           (cons "gasLimit" "0xc350")
+           (cons "gasUsed" "0x61a8")
+           (cons "timestamp" "0x62")
+           (cons "baseFeePerGas" "0x64")
+           (cons "feeRecipient" "0x0000000000000000000000000000000000000001")
+           (cons "accounts"
+                 (list
+                  (list
+                   (cons "address"
+                         "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f")
+                   (cons "nonce" "0x9")
+                   (cons "balance" "0x1bc16d674ec80000"))))))
+    (cons "payload"
+          (list
+           (cons "number" "0x2a")
+           (cons "gasLimit" "0xc350")
+           (cons "timestamp" "0x63")
+           (cons "baseFeePerGas" "0x64")
+           (cons "transactions"
+                 (list
+                  "0xf86c098504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276a067cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83"))
+           (cons "withdrawals"
+                 (list
+                  (list
+                   (cons "index" "0x0")
+                   (cons "validatorIndex" "0x1")
+                   (cons "address"
+                         "0x0000000000000000000000000000000000000002")
+                   (cons "amount" "0x1"))))))
+    (cons "expect"
+          (list
+           (cons "status" "VALID")
+           (cons "sender" "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f")
+           (cons "senderNonce" "0xa")
+           (cons "senderBalance" "0xddf38b6c895c000")
+           (cons "recipient" "0x3535353535353535353535353535353535353535")
+           (cons "recipientBalance" "0xde0b6b3a7640000")
+           (cons "withdrawalRecipient"
+                 "0x0000000000000000000000000000000000000002")
+           (cons "withdrawalBalance" "0x3b9aca00")
+           (cons "receiptType" "0x0")
+           (cons "receiptStatus" "0x1"))))
    extra))
 
 (deftest engine-newpayload-v2-fixture-metadata-validation
@@ -199,21 +412,59 @@
 
 (deftest engine-newpayload-v2-fixture-case-validation
   (let ((case (engine-newpayload-v2-case-shape-test-case)))
-    (validate-engine-newpayload-v2-fixture-cases (list case))
-    (signals error
-      (validate-engine-newpayload-v2-fixture-cases nil))
-    (signals error
-      (validate-engine-newpayload-v2-fixture-cases
-       (list (engine-newpayload-v2-case-shape-test-case
-              :extra (list (cons "unexpected" t))))))
-    (signals error
-      (validate-engine-newpayload-v2-fixture-cases
-       (list (engine-newpayload-v2-case-shape-test-case :name ""))))
-    (signals error
-      (validate-engine-newpayload-v2-fixture-cases
-       (list case
-             (engine-newpayload-v2-case-shape-test-case
-              :name "valid-engine-case"))))))
+    (labels ((replace-field (object field value)
+               (cons (cons field value)
+                     (remove field object :key #'car :test #'string=))))
+      (validate-engine-newpayload-v2-fixture-cases (list case))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases nil))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (engine-newpayload-v2-case-shape-test-case
+                :extra (list (cons "unexpected" t))))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (engine-newpayload-v2-case-shape-test-case :name ""))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list case
+               (engine-newpayload-v2-case-shape-test-case
+                :name "valid-engine-case"))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "config"
+                (list (cons "londonBlock" "0x0")
+                      (cons "shanghaiTime" "0x0")
+                      (cons "unknownFork" "0x0"))))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "parent"
+                (replace-field
+                 (fixture-required-field case "parent")
+                 "feeRecipient"
+                 "0x1234")))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "payload"
+                (replace-field
+                 (fixture-required-field case "payload")
+                 "transactions"
+                 nil)))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "expect"
+                (replace-field
+                 (fixture-required-field case "expect")
+                 "status"
+                 "INVALID"))))))))
 
 (deftest engine-newpayload-v2-fixture-executes-and-becomes-canonical
   (labels ((field (object name)
