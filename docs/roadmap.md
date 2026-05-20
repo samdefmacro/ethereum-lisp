@@ -858,9 +858,12 @@ geth-style human-readable transaction summaries. Full txpool admission rules
 remain a later networking/txpool slice, but raw local submissions now run a
 basic admission preflight for fork transaction type support, scalar/fee/nonce
 shapes, intrinsic gas, access-list/blob/set-code field shapes, and
-non-delegation sender code before entering pending. Same-sender same-nonce
-pending replacements now follow a geth-style 10% fee bump policy, replacing
-the indexed transaction only when both fee cap and priority fee clear the bump
+non-delegation sender code before entering pending. When the latest head has
+retained account state, raw submissions also reject transactions below the
+retained sender nonce and insufficient retained sender balance for the
+maximum upfront execution/blob gas plus value. Same-sender same-nonce pending
+replacements now follow a geth-style 10% fee bump policy, replacing the
+indexed transaction only when both fee cap and priority fee clear the bump
 threshold. The txpool object now also has queued, basefee, and blob placeholder
 subpools, and `txpool_*` RPC views read queued data from the queued subpool
 instead of hard-coded empty placeholders. Public JSON-RPC and txpool

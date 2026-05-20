@@ -1780,7 +1780,7 @@ splits can land after the Phase A smoke path closes.
     `txpool_contentFrom`, and `txpool_inspect` now use the index while the
     txpool object extraction remains a follow-up.
 
-- [~] Add basic txpool admission preflight.
+- [x] Add basic txpool admission preflight.
   - Milestone: 7
   - Dependencies: sender/nonce keyed txpool indexing.
   - References: geth txpool validation, Reth transaction validation.
@@ -1792,8 +1792,10 @@ splits can land after the Phase A smoke path closes.
   - Progress: `eth_sendRawTransaction` now runs txpool admission preflight
     before pending insertion: recovered sender is reused, fork transaction type
     support, scalar/fee/nonce shapes, access-list/blob/set-code field shapes,
-    intrinsic gas, and non-delegation sender code are checked. Stateful account
-    nonce/balance admission remains a later txpool policy slice.
+    intrinsic gas, and non-delegation sender code are checked. When the latest
+    head has retained account state, admission now rejects transactions below
+    the retained sender nonce and rejects insufficient retained sender balance
+    for the transaction's maximum upfront execution/blob gas plus value.
 
 - [x] Add same-sender same-nonce replacement policy.
   - Milestone: 7

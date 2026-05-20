@@ -9473,6 +9473,8 @@
            (private-key 1)
            (low-gas-store (make-engine-payload-memory-store))
            (typed-store (make-engine-payload-memory-store))
+           (nonce-store (make-engine-payload-memory-store))
+           (balance-store (make-engine-payload-memory-store))
            (sender-code-store (make-engine-payload-memory-store))
            (config (make-chain-config))
            (low-gas-transaction
@@ -9509,6 +9511,26 @@
                :value 0)
               private-key
               1))
+           (nonce-too-low-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              private-key
+              1))
+           (insufficient-balance-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 10
+               :gas-limit 21000
+               :to recipient
+               :value 1)
+              private-key
+              1))
            (sender (transaction-sender sender-code-transaction
                                        :expected-chain-id 1))
            (head-block
@@ -9516,6 +9538,14 @@
               :header (make-block-header :number 0
                                          :timestamp 0
                                          :gas-limit 30000000))))
+      (chain-store-put-block nonce-store head-block :state-available-p t)
+      (chain-store-put-account-nonce
+       nonce-store (block-hash head-block) sender 2)
+      (chain-store-put-account-balance
+       nonce-store (block-hash head-block) sender 1000000)
+      (chain-store-put-block balance-store head-block :state-available-p t)
+      (chain-store-put-account-balance
+       balance-store (block-hash head-block) sender 100)
       (engine-payload-store-put-block sender-code-store head-block)
       (engine-payload-store-put-account-code
        sender-code-store (block-hash head-block) sender #(1 2 3))
@@ -9523,24 +9553,46 @@
                (send-raw low-gas-transaction 112 low-gas-store config))
              (typed-response
                (send-raw unsupported-access-transaction 113 typed-store config))
+             (nonce-too-low-response
+               (send-raw nonce-too-low-transaction 114 nonce-store config))
+             (insufficient-balance-response
+               (send-raw insufficient-balance-transaction
+                         115
+                         balance-store
+                         config))
              (sender-code-response
-               (send-raw sender-code-transaction 114 sender-code-store config))
+               (send-raw sender-code-transaction
+                         116
+                         sender-code-store
+                         config))
              (low-gas-status
                (parse-json
                 (engine-rpc-handle-request-json
-                 "{\"jsonrpc\":\"2.0\",\"id\":115,\"method\":\"txpool_status\",\"params\":[]}"
+                 "{\"jsonrpc\":\"2.0\",\"id\":117,\"method\":\"txpool_status\",\"params\":[]}"
                  low-gas-store
                  config)))
              (typed-status
                (parse-json
                 (engine-rpc-handle-request-json
-                 "{\"jsonrpc\":\"2.0\",\"id\":116,\"method\":\"txpool_status\",\"params\":[]}"
+                 "{\"jsonrpc\":\"2.0\",\"id\":118,\"method\":\"txpool_status\",\"params\":[]}"
                  typed-store
+                 config)))
+             (nonce-status
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":119,\"method\":\"txpool_status\",\"params\":[]}"
+                 nonce-store
+                 config)))
+             (balance-status
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":120,\"method\":\"txpool_status\",\"params\":[]}"
+                 balance-store
                  config)))
              (sender-code-status
                (parse-json
                 (engine-rpc-handle-request-json
-                 "{\"jsonrpc\":\"2.0\",\"id\":117,\"method\":\"txpool_status\",\"params\":[]}"
+                 "{\"jsonrpc\":\"2.0\",\"id\":121,\"method\":\"txpool_status\",\"params\":[]}"
                  sender-code-store
                  config))))
         (is (= -32602 (field (field low-gas-response "error") "code")))
@@ -9549,12 +9601,28 @@
         (is (= -32602 (field (field typed-response "error") "code")))
         (is (string= "Access-list transaction before Berlin"
                      (field (field typed-response "error") "message")))
+        (is (= -32602
+               (field (field nonce-too-low-response "error") "code")))
+        (is (string= "eth_sendRawTransaction nonce too low"
+                     (field (field nonce-too-low-response "error")
+                            "message")))
+        (is (= -32602
+               (field (field insufficient-balance-response "error")
+                      "code")))
+        (is (string=
+             "eth_sendRawTransaction insufficient sender balance"
+             (field (field insufficient-balance-response "error")
+                    "message")))
         (is (= -32602 (field (field sender-code-response "error") "code")))
         (is (string=
              "eth_sendRawTransaction sender has non-delegation code"
              (field (field sender-code-response "error") "message")))
         (dolist (status-response
-                 (list low-gas-status typed-status sender-code-status))
+                 (list low-gas-status
+                       typed-status
+                       nonce-status
+                       balance-status
+                       sender-code-status))
           (is (string= (quantity-to-hex 0)
                        (field (field status-response "result")
                               "pending"))))))))

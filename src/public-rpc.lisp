@@ -1530,6 +1530,40 @@
          "eth_sendRawTransaction sender has non-delegation code"))))
   t)
 
+(defun eth-rpc-txpool-upfront-cost (transaction)
+  (+ (transaction-value transaction)
+     (* (transaction-gas-limit transaction)
+        (transaction-max-fee-per-gas transaction))
+     (* (transaction-blob-gas-used transaction)
+        (if (typep transaction 'blob-transaction)
+            (blob-transaction-max-fee-per-blob-gas transaction)
+            0))))
+
+(defun eth-rpc-account-balance-retained-p (store block-hash sender)
+  (nth-value
+   1
+   (gethash
+    (engine-payload-store-account-key block-hash sender)
+    (engine-payload-memory-store-account-balances
+     (chain-store-require-memory-store store)))))
+
+(defun eth-rpc-validate-txpool-sender-state (store head sender transaction)
+  (when (and head
+             (chain-store-state-available-p store (block-hash head)))
+    (let* ((block-hash (block-hash head))
+           (state-nonce (chain-store-account-nonce store block-hash sender))
+           (state-balance
+             (chain-store-account-balance store block-hash sender)))
+      (when (< (transaction-nonce transaction) state-nonce)
+        (block-validation-fail "eth_sendRawTransaction nonce too low"))
+      (when (and (eth-rpc-account-balance-retained-p
+                  store block-hash sender)
+                 (< state-balance
+                    (eth-rpc-txpool-upfront-cost transaction)))
+        (block-validation-fail
+         "eth_sendRawTransaction insufficient sender balance"))))
+  t)
+
 (defun eth-rpc-validate-txpool-admission
     (transaction sender store config)
   (multiple-value-bind (head block-number timestamp)
@@ -1553,6 +1587,8 @@
         (when (< (transaction-gas-limit transaction) intrinsic-gas)
           (block-validation-fail
            "eth_sendRawTransaction gas limit below intrinsic gas")))
+      (eth-rpc-validate-txpool-sender-state
+       store head sender transaction)
       (eth-rpc-validate-txpool-sender-code store head sender)))
   t)
 
