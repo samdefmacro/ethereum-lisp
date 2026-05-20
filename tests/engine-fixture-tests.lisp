@@ -1187,4 +1187,106 @@
           (is (string= (field transaction-by-block "hash")
                        (field transaction-by-hash "hash")))
           (is (string= (field transaction-by-block "blockHash")
-                       (field transaction-by-hash "blockHash"))))))))
+                       (field transaction-by-hash "blockHash")))
+          (let* ((side-forkchoice-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-forkchoice-request
+                     119 (block-hash side-block))
+                    store config))
+                 (side-forkchoice-result
+                   (field side-forkchoice-response "result"))
+                 (side-payload-status
+                   (field side-forkchoice-result "payloadStatus"))
+                 (side-latest-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-block-by-number-request 120 "latest" nil)
+                    store config))
+                 (side-latest
+                   (field side-latest-response "result"))
+                 (side-latest-count-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-transaction-count-by-number-request
+                     121 "latest")
+                    store config))
+                 (side-latest-raw-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-raw-transaction-by-block-number-request
+                     122 "latest" 0)
+                    store config))
+                 (side-transaction-by-hash-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-transaction-by-hash-request
+                     123 transaction-hash)
+                    store config))
+                 (side-receipt-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-receipt-request 124 transaction-hash)
+                    store config))
+                 (child-by-hash-after-side-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-block-by-hash-request
+                     125 (block-hash child-block) nil)
+                    store config))
+                 (child-by-hash-after-side
+                   (field child-by-hash-after-side-response "result")))
+            (is (string= +payload-status-valid+
+                         (field side-payload-status "status")))
+            (is (string= (hash32-to-hex (block-hash side-block))
+                         (hash32-to-hex
+                          (chain-store-canonical-hash
+                           store
+                           (block-header-number
+                            (block-header side-block))))))
+            (is (string= (hash32-to-hex (block-hash side-block))
+                         (field side-latest "hash")))
+            (is (string= (quantity-to-hex 0)
+                         (field side-latest-count-response "result")))
+            (is (null (field side-latest-raw-response "result")))
+            (is (null (field side-transaction-by-hash-response "result")))
+            (is (null (field side-receipt-response "result")))
+            (is (string= (hash32-to-hex (block-hash child-block))
+                         (field child-by-hash-after-side "hash"))))
+          (let* ((child-forkchoice-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-forkchoice-request
+                     126 (block-hash child-block))
+                    store config))
+                 (child-forkchoice-result
+                   (field child-forkchoice-response "result"))
+                 (child-payload-status
+                   (field child-forkchoice-result "payloadStatus"))
+                 (child-latest-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-block-by-number-request 127 "latest" nil)
+                    store config))
+                 (child-latest
+                   (field child-latest-response "result"))
+                 (child-transaction-by-hash-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-transaction-by-hash-request
+                     128 transaction-hash)
+                    store config))
+                 (child-transaction-by-hash
+                   (field child-transaction-by-hash-response "result"))
+                 (child-receipt-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-receipt-request 129 transaction-hash)
+                    store config))
+                 (child-receipt
+                   (field child-receipt-response "result")))
+            (is (string= +payload-status-valid+
+                         (field child-payload-status "status")))
+            (is (string= (hash32-to-hex (block-hash child-block))
+                         (hash32-to-hex
+                          (chain-store-canonical-hash
+                           store
+                           (block-header-number
+                            (block-header child-block))))))
+            (is (string= (hash32-to-hex (block-hash child-block))
+                         (field child-latest "hash")))
+            (is (string= (hash32-to-hex transaction-hash)
+                         (field child-transaction-by-hash "hash")))
+            (is (string= (field child-latest "hash")
+                         (field child-transaction-by-hash "blockHash")))
+            (is (string= (fixture-object-field expect "receiptStatus")
+                         (field child-receipt "status")))))))))

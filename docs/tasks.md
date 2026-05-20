@@ -774,6 +774,11 @@ splits can land after the Phase A smoke path closes.
     transaction-bearing child, the side-chain block remains retrievable by
     hash and reports its own transaction count, while canonical `latest`
     block and transaction reads continue to resolve to the selected child.
+  - Progress: extended the same fixture smoke into a two-branch canonical
+    switch. Forkchoice can move from the transaction-bearing child to the
+    sibling payload and back again; `latest`, canonical number indexes,
+    transaction-by-hash, and receipt visibility now follow the selected branch
+    while non-canonical blocks remain hash-retrievable.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
