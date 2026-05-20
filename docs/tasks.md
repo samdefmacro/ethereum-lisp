@@ -1590,6 +1590,9 @@ splits can land after the Phase A smoke path closes.
   - Slice: extended the EVM state fixture runner to support type-1 access-list
     transactions and added a fixture-backed `CALL` case that prewarms the callee
     address plus parent storage slot through the transaction access list.
+  - Slice: added a fixture-backed London `CALL` gas-forwarding case. The parent
+    forwards an explicit stack gas value to a child that returns `GAS`, then
+    persists both the call success flag and returned child gas in storage.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4

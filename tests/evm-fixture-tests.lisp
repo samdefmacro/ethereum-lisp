@@ -37,8 +37,8 @@
 (defparameter +evm-state-fixture-known-tags+
   '("legacy-call" "nested-call" "revert" "returndata" "code-resolution"
     "delegated-code"
-    "staticcall" "read-only" "value-transfer" "access-list" "sstore" "log"
-    "post-state-root"))
+    "staticcall" "read-only" "value-transfer" "access-list"
+    "gas-forwarding" "sstore" "log" "post-state-root"))
 
 (defparameter +evm-state-fixture-required-tags+
   '("legacy-call" "sstore" "log" "post-state-root"))
@@ -49,7 +49,8 @@
     "staticcall-readonly-sstore-fails-london"
     "nested-call-value-transfer-london"
     "call-resolves-delegated-code-london"
-    "access-list-call-prewarms-callee-london"))
+    "access-list-call-prewarms-callee-london"
+    "call-forwards-stack-gas-london"))
 
 (defun validate-evm-state-fixture-metadata (fixture)
   (validate-fixture-object-fields
