@@ -387,6 +387,9 @@ ones.
   - Progress: tightened the Phase A transaction subset summary shape so type
     counts must be known, unique, and positive integers before required
     Shanghai families are checked.
+  - Progress: tightened the Phase A transaction subset summary gate to require
+    every selected vector to be valid on the target Shanghai fork with an
+    explicit `intrinsicGas` result.
 
 ## P0: Module Boundaries
 

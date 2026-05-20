@@ -26,6 +26,9 @@
 (defparameter +phase-a-eest-transaction-forbidden-types+
   '(:blob :set-code))
 
+(defparameter +phase-a-eest-transaction-target-fork+
+  "Shanghai")
+
 (defparameter +transaction-fixture-known-exceptions+
   '("TransactionException.TYPE_1_TX_PRE_FORK"
     "TransactionException.TYPE_2_TX_PRE_FORK"
@@ -509,6 +512,32 @@
              type)))
   types)
 
+(defun validate-phase-a-eest-transaction-target-fork-results (vectors)
+  (dolist (vector vectors)
+    (let* ((name (fixture-required-field vector "name"))
+           (result (fixture-required-field vector "result"))
+           (target-result
+             (and (listp result)
+                  (fixture-object-field
+                   result
+                   +phase-a-eest-transaction-target-fork+))))
+      (unless (listp result)
+        (error "Phase A EEST transaction vector ~A result must be a JSON object"
+               name))
+      (unless target-result
+        (error "Phase A EEST transaction vector ~A is missing ~A result"
+               name
+               +phase-a-eest-transaction-target-fork+))
+      (when (fixture-field-present-p target-result "exception")
+        (error "Phase A EEST transaction vector ~A is invalid on ~A"
+               name
+               +phase-a-eest-transaction-target-fork+))
+      (unless (fixture-field-present-p target-result "intrinsicGas")
+        (error "Phase A EEST transaction vector ~A lacks ~A intrinsicGas"
+               name
+               +phase-a-eest-transaction-target-fork+))))
+  vectors)
+
 (defun validate-phase-a-eest-transaction-vector-summary (vectors)
   (validate-eest-transaction-selector-list
    +phase-a-eest-transaction-test-case-names+)
@@ -526,6 +555,7 @@
       (error "Phase A EEST transaction summary names ~S do not match selectors ~S"
              names
              +phase-a-eest-transaction-test-case-names+))
+    (validate-phase-a-eest-transaction-target-fork-results vectors)
     (validate-phase-a-eest-transaction-summary-types types)
     summary))
 
@@ -1400,6 +1430,17 @@
     (signals error
       (validate-phase-a-eest-transaction-vector-summary
        (remove dynamic-fee-vector selected-vectors)))
+    (signals error
+      (validate-phase-a-eest-transaction-target-fork-results
+       (list
+        (list
+         (cons "name" "phase-a-invalid-on-target")
+         (cons "result"
+               (list
+                (cons +phase-a-eest-transaction-target-fork+
+                      (list
+                       (cons "exception"
+                             "TransactionException.TYPE_2_TX_PRE_FORK")))))))))
     (signals error
       (validate-phase-a-eest-transaction-summary-types
        '((:legacy . 1)
