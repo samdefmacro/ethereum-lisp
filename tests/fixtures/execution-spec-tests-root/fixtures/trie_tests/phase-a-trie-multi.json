@@ -58,6 +58,15 @@
     ],
     "root": "779db3986dd4f38416bfde49750ef7b13c6ecb3e2221620bcad9267e94604d36"
   },
+  "delete-nested-branch-value": {
+    "in": [
+      ["do", "verb"],
+      ["dog", "puppy"],
+      ["doge", "coin"],
+      ["dog", null]
+    ],
+    "root": "f803dfcb7e8f1afd45e88eedb4699a7138d6c07b71243d9ae9bff720c99925f9"
+  },
   "embedded-extension": {
     "in": [
       ["do", "v"],
