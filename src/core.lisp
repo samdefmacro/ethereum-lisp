@@ -17,6 +17,7 @@
 (defconstant +block-access-list-max-code-size+ 24576)
 (defconstant +block-access-list-amsterdam-max-code-size+ 32768)
 (defconstant +block-access-list-item-gas-cost+ 2000)
+(defconstant +txpool-replacement-price-bump-percent+ 10)
 (defun genesis-alloc-from-genesis-json-string (string)
   (genesis-alloc-from-genesis-object (parse-json string)))
 
@@ -2772,6 +2773,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-pending-txpool-transactions-by-sender
    (engine-payload-store-txpool store)))
 
+(defun engine-payload-store-pending-conflict (store transaction)
+  (let* ((sender (engine-payload-store-pending-sender-key transaction))
+         (nonce (engine-payload-store-pending-nonce-key transaction))
+         (sender-transactions
+           (gethash sender
+                    (engine-payload-store-pending-sender-index store))))
+    (and sender-transactions
+         (gethash nonce sender-transactions))))
+
+(defun engine-payload-store-replacement-price-bumped-p
+    (old-transaction new-transaction price-function)
+  (let ((old-price (funcall price-function old-transaction))
+        (new-price (funcall price-function new-transaction)))
+    (>= (* new-price 100)
+        (* old-price
+           (+ 100 +txpool-replacement-price-bump-percent+)))))
+
+(defun engine-payload-store-replacement-transaction-p
+    (old-transaction new-transaction)
+  (and
+   (engine-payload-store-replacement-price-bumped-p
+    old-transaction
+    new-transaction
+    #'transaction-max-fee-per-gas)
+   (engine-payload-store-replacement-price-bumped-p
+    old-transaction
+    new-transaction
+    #'transaction-max-priority-fee-per-gas)))
+
 (defun engine-payload-store-index-pending-transaction (store transaction)
   (let* ((sender (engine-payload-store-pending-sender-key transaction))
          (nonce (engine-payload-store-pending-nonce-key transaction))
@@ -2823,12 +2853,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       blob-transaction
                       set-code-transaction))
     (block-validation-fail "Pending transaction must be a transaction"))
-  (let ((key (engine-payload-store-key (transaction-hash transaction))))
+  (let ((key (engine-payload-store-key (transaction-hash transaction)))
+        (transactions (engine-payload-store-pending-transaction-table store)))
     (unless (gethash key
-                     (engine-payload-store-pending-transaction-table store))
-      (setf (gethash key
-                     (engine-payload-store-pending-transaction-table store))
-            transaction)
+                     transactions)
+      (let ((conflict
+              (engine-payload-store-pending-conflict store transaction)))
+        (when conflict
+          (unless (engine-payload-store-replacement-transaction-p
+                   conflict transaction)
+            (block-validation-fail
+             "Pending transaction replacement underpriced"))
+          (engine-payload-store-unindex-pending-transaction store conflict)
+          (remhash
+           (engine-payload-store-key (transaction-hash conflict))
+           transactions)))
+      (setf (gethash key transactions) transaction)
       (engine-payload-store-index-pending-transaction store transaction)
       (loop for filter
               being the hash-values of

@@ -3225,6 +3225,74 @@
       (is (null sender-transactions))
       (is (zerop (hash-table-count sender-index))))))
 
+(deftest engine-payload-store-replaces-same-sender-nonce-with-price-bump
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (private-key 1)
+         (base-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 4
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (underpriced-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 4
+             :gas-price 109
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (replacement-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 4
+             :gas-price 110
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (sender-key
+           (address-to-hex
+            (or (transaction-sender base-transaction)
+                (zero-address))))
+         (nonce-key (write-to-string
+                     (transaction-nonce base-transaction)
+                     :base 10)))
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store base-transaction)
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+       store underpriced-transaction))
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (eq base-transaction
+            (ethereum-lisp.core::engine-payload-store-pending-transaction
+             store (transaction-hash base-transaction))))
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store replacement-transaction)
+    (let* ((sender-index
+             (ethereum-lisp.core::engine-payload-store-pending-transactions-by-sender
+              store))
+           (sender-transactions (gethash sender-key sender-index)))
+      (is (= 1
+             (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+              store)))
+      (is (null
+           (ethereum-lisp.core::engine-payload-store-pending-transaction
+            store (transaction-hash base-transaction))))
+      (is (eq replacement-transaction
+              (ethereum-lisp.core::engine-payload-store-pending-transaction
+               store (transaction-hash replacement-transaction))))
+      (is (eq replacement-transaction
+              (gethash nonce-key sender-transactions))))))
+
 (deftest execute-and-commit-block-stores-only-after-execution-success
   (let* ((store (make-engine-payload-memory-store))
          (state (make-state-db))

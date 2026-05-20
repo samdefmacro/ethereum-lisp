@@ -1787,13 +1787,17 @@ splits can land after the Phase A smoke path closes.
     intrinsic gas, and non-delegation sender code are checked. Stateful account
     nonce/balance admission remains a later txpool policy slice.
 
-- [ ] Add same-sender same-nonce replacement policy.
+- [x] Add same-sender same-nonce replacement policy.
   - Milestone: 7
   - Dependencies: basic txpool admission preflight.
   - Acceptance: a higher-priced replacement can replace a pending transaction,
     while insufficient price bumps are rejected or ignored according to the
     selected geth/Reth-compatible policy.
   - Validation: replacement tests and `sbcl --script tests/run-tests.lisp`.
+  - Completed: pending insertion now detects same-sender/same-nonce conflicts,
+    rejects replacements below a 10% fee-cap and priority-fee bump, and swaps
+    in sufficiently bumped replacements while removing the old hash entry and
+    updating the sender/nonce index.
 
 - [ ] Add queued/basefee/blob subpool placeholders.
   - Milestone: 7
