@@ -1,6 +1,12 @@
 {
   "format": "ethereum-lisp/receipt-root-fixtures-v1",
   "source": "in-repo receipt vectors shaped for ethereum/execution-spec-tests ingestion",
+  "executionSpecTests": {
+    "release": "v5.4.0",
+    "tagTarget": "88e9fb8",
+    "archive": "fixtures_stable.tar.gz",
+    "status": "seed receipt-root vectors shaped for pinned fixture ingestion; replace with transcribed pinned receipt tests"
+  },
   "referenceClients": {
     "geth": "8a0223e",
     "nethermind": "1c72a72",

@@ -1529,8 +1529,12 @@ splits can land after the Phase A smoke path closes.
     new fixture drives legacy, EIP-2930, EIP-1559, and EIP-4844 transaction
     envelopes with post-Byzantium receipts, asserting typed receipt encoding
     prefixes, encoded lengths, the mixed typed receipt trie root, and the
-    legacy-only root for contrast. Remaining work: CREATE2 coverage where
-    applicable.
+    legacy-only root for contrast.
+  - Progress: added pinned-source metadata, wrapper/vector field whitelists,
+    reference-client metadata validation, and a named seed-vector gate to the
+    receipt-root fixture loader, so receipt vectors now fail early on wrapper
+    drift before replaying typed receipt encodings.
+    Remaining work: CREATE2 coverage where applicable.
   - Result: added an Engine-imported internal CREATE2 receipt boundary. The
     test imports a signed transaction that calls an existing contract whose
     code performs CREATE2, verifies the internally-created runtime code is
