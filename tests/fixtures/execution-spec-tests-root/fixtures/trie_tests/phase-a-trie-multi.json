@@ -57,6 +57,13 @@
     ],
     "root": "83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5"
   },
+  "delete-missing-leaf": {
+    "in": [
+      ["dog", "puppy"],
+      ["cat", null]
+    ],
+    "root": "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
+  },
   "duplicate-overwrite": {
     "in": [
       ["dog", "puppy"],
