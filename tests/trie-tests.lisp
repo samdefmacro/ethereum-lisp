@@ -369,6 +369,8 @@
     (error "Trie fixture must include at least one case"))
   (let ((seen-names (make-hash-table :test #'equal))
         (seen-tags (make-hash-table :test #'equal))
+        secure-leaf-root-p
+        secure-delete-to-empty-p
         secure-branch-root-p
         secure-extension-root-p)
     (dolist (case cases)
@@ -381,10 +383,23 @@
         (when (and secure-p (stringp shape) (string= shape "branch"))
           (setf secure-branch-root-p t))
         (when (and secure-p (stringp shape) (string= shape "extension"))
-          (setf secure-extension-root-p t))))
+          (setf secure-extension-root-p t))
+        (when (and secure-p (stringp shape) (string= shape "leaf"))
+          (setf secure-leaf-root-p t))
+        (when (and secure-p
+                   (stringp shape)
+                   (string= shape "empty")
+                   (member "delete-to-empty"
+                           (fixture-object-field case "tags")
+                           :test #'string=))
+          (setf secure-delete-to-empty-p t))))
     (dolist (tag +trie-fixture-required-tags+)
       (unless (gethash tag seen-tags)
         (error "Trie fixture is missing required coverage tag ~A" tag)))
+    (unless secure-leaf-root-p
+      (error "Trie fixture must include a secure leaf root case"))
+    (unless secure-delete-to-empty-p
+      (error "Trie fixture must include a secure delete-to-empty case"))
     (unless secure-branch-root-p
       (error "Trie fixture must include a secure branch root case"))
     (unless secure-extension-root-p
@@ -1589,6 +1604,20 @@
        (remove-if
         (lambda (case)
           (string= "secure-extension-root"
+                   (fixture-object-field case "name")))
+        cases)))
+    (signals error
+      (validate-trie-fixture-case-coverage
+       (remove-if
+        (lambda (case)
+          (string= "secure-single-leaf"
+                   (fixture-object-field case "name")))
+        cases)))
+    (signals error
+      (validate-trie-fixture-case-coverage
+       (remove-if
+        (lambda (case)
+          (string= "secure-delete-last-entry-empty-root"
                    (fixture-object-field case "name")))
         cases)))))
 

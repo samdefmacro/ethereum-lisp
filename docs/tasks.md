@@ -1213,6 +1213,9 @@ splits can land after the Phase A smoke path closes.
     replay, so selected plain and secure external-style cases now check
     `mpt-get-proof` / `mpt-verify-proof` against every final touched key in
     addition to root and lookup assertions.
+    Added secure single-leaf and secure delete-to-empty cases to the seed
+    trie-vector fixture, and tightened seed coverage guards so secure leaf,
+    branch, extension, and delete-to-empty root shapes all remain present.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
