@@ -468,6 +468,9 @@ ones.
   - Progress: tightened EEST transaction selector source-style validation so
     the optional case suffix after `.json/` must be a single path segment,
     preventing malformed top-level case names from looking like nested files.
+  - Progress: moved EEST transaction selector-list validation into the root
+    case filter itself, so direct filter calls reject malformed selector
+    inputs before matching against loaded cases.
 
 ## P0: Module Boundaries
 

@@ -387,6 +387,8 @@
        entries))))
 
 (defun filter-eest-transaction-test-root-cases (cases names)
+  (when names
+    (validate-eest-transaction-selector-list names))
   (let ((case-index (make-hash-table :test 'equal)))
     (dolist (case cases)
       (let ((name (fixture-required-field case "name")))
@@ -1776,6 +1778,10 @@
         (list (cons "name" "duplicate-source-name"))
         (list (cons "name" "duplicate-source-name")))
        nil))
+    (signals error
+      (filter-eest-transaction-test-root-cases cases "phase-a-sample.json"))
+    (signals error
+      (filter-eest-transaction-test-root-cases cases '("bare-case-name")))
     (validate-eest-transaction-selector-list
      +phase-a-eest-transaction-test-case-names+)
     (signals error
