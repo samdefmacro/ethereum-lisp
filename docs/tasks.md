@@ -1772,7 +1772,7 @@ splits can land after the Phase A smoke path closes.
     `txpool_contentFrom`, and `txpool_inspect` now use the index while the
     txpool object extraction remains a follow-up.
 
-- [ ] Add basic txpool admission preflight.
+- [~] Add basic txpool admission preflight.
   - Milestone: 7
   - Dependencies: sender/nonce keyed txpool indexing.
   - References: geth txpool validation, Reth transaction validation.
@@ -1781,6 +1781,11 @@ splits can land after the Phase A smoke path closes.
     sender-code restrictions before entering pending.
   - Validation: invalid raw tx admission tests and
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: `eth_sendRawTransaction` now runs txpool admission preflight
+    before pending insertion: recovered sender is reused, fork transaction type
+    support, scalar/fee/nonce shapes, access-list/blob/set-code field shapes,
+    intrinsic gas, and non-delegation sender code are checked. Stateful account
+    nonce/balance admission remains a later txpool policy slice.
 
 - [ ] Add same-sender same-nonce replacement policy.
   - Milestone: 7

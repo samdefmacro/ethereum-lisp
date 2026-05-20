@@ -7147,10 +7147,10 @@
            (empty-address
              (address-from-hex "0x00000000000000000000000000000000000000dd"))
            (pending-transaction
-             (make-legacy-transaction
+           (make-legacy-transaction
               :nonce 9
               :gas-price 11
-              :gas-limit 21000
+              :gas-limit 21100
               :to empty-address
               :value 13
               :data #(1 2 3)
@@ -9193,6 +9193,112 @@
         (is (= 0 (length (field pending-response "result"))))
         (is (string= (quantity-to-hex 0) (field status "pending")))
         (is (search "\"result\":[]" filter-response))))))
+
+(deftest eth-rpc-send-raw-transaction-applies-basic-admission-preflight
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw (transaction id store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding transaction))
+                "\"]}")
+               store
+               config))))
+    (let* ((recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (private-key 1)
+           (low-gas-store (make-engine-payload-memory-store))
+           (typed-store (make-engine-payload-memory-store))
+           (sender-code-store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (low-gas-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0
+               :data #(1))
+              private-key
+              1))
+           (unsupported-access-transaction
+             (make-access-list-transaction
+              :chain-id 1
+              :nonce 3
+              :gas-price 1
+              :gas-limit 25000
+              :to (address-from-hex
+                   "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b")
+              :value 10
+              :data (hex-to-bytes "0x5544")
+              :y-parity 1
+              :r #xc9519f4f2b30335884581971573fadf60c6204f59a911df35ee8a540456b2660
+              :s #x32f1e8e2c5dd761f9e4f88f41c8310aeaba26a8bfcdacfedfa12ec3862d37521))
+           (sender-code-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              private-key
+              1))
+           (sender (transaction-sender sender-code-transaction
+                                       :expected-chain-id 1))
+           (head-block
+             (make-block
+              :header (make-block-header :number 0
+                                         :timestamp 0
+                                         :gas-limit 30000000))))
+      (engine-payload-store-put-block sender-code-store head-block)
+      (engine-payload-store-put-account-code
+       sender-code-store (block-hash head-block) sender #(1 2 3))
+      (let* ((low-gas-response
+               (send-raw low-gas-transaction 112 low-gas-store config))
+             (typed-response
+               (send-raw unsupported-access-transaction 113 typed-store config))
+             (sender-code-response
+               (send-raw sender-code-transaction 114 sender-code-store config))
+             (low-gas-status
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":115,\"method\":\"txpool_status\",\"params\":[]}"
+                 low-gas-store
+                 config)))
+             (typed-status
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":116,\"method\":\"txpool_status\",\"params\":[]}"
+                 typed-store
+                 config)))
+             (sender-code-status
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":117,\"method\":\"txpool_status\",\"params\":[]}"
+                 sender-code-store
+                 config))))
+        (is (= -32602 (field (field low-gas-response "error") "code")))
+        (is (string= "eth_sendRawTransaction gas limit below intrinsic gas"
+                     (field (field low-gas-response "error") "message")))
+        (is (= -32602 (field (field typed-response "error") "code")))
+        (is (string= "Access-list transaction before Berlin"
+                     (field (field typed-response "error") "message")))
+        (is (= -32602 (field (field sender-code-response "error") "code")))
+        (is (string=
+             "eth_sendRawTransaction sender has non-delegation code"
+             (field (field sender-code-response "error") "message")))
+        (dolist (status-response
+                 (list low-gas-status typed-status sender-code-status))
+          (is (string= (quantity-to-hex 0)
+                       (field (field status-response "result")
+                              "pending"))))))))
 
 (deftest eth-rpc-get-transaction-receipt
   (labels ((field (object name)

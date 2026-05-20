@@ -1261,6 +1261,48 @@
          "Authorization signature values are invalid"))))
   t)
 
+(defun eth-rpc-txpool-admission-head-context (store)
+  (let* ((head (chain-store-latest-block store))
+         (header (and head (block-header head))))
+    (values head
+            (if header (block-header-number header) 0)
+            (if header (block-header-timestamp header) 0))))
+
+(defun eth-rpc-validate-txpool-sender-code (store head sender)
+  (when head
+    (let ((code (chain-store-account-code store (block-hash head) sender)))
+      (when (and (plusp (length code))
+                 (not (set-code-delegation-target code)))
+        (block-validation-fail
+         "eth_sendRawTransaction sender has non-delegation code"))))
+  t)
+
+(defun eth-rpc-validate-txpool-admission
+    (transaction sender store config)
+  (multiple-value-bind (head block-number timestamp)
+      (eth-rpc-txpool-admission-head-context store)
+    (let ((rules (chain-config-rules config block-number timestamp)))
+      (validate-transaction-type-for-config
+       transaction config block-number timestamp)
+      (validate-transaction-data-field transaction)
+      (validate-transaction-recipient-field transaction)
+      (validate-transaction-scalar-fields transaction)
+      (validate-transaction-signature-fields transaction)
+      (validate-access-list-fields transaction)
+      (validate-set-code-transaction-fields transaction)
+      (when (typep transaction 'blob-transaction)
+        (validate-blob-transaction-fields transaction))
+      (let ((intrinsic-gas
+              (ethereum-lisp.state:transaction-intrinsic-gas
+               transaction
+               :eip3860-p (or (null rules)
+                               (chain-rules-shanghai-p rules)))))
+        (when (< (transaction-gas-limit transaction) intrinsic-gas)
+          (block-validation-fail
+           "eth_sendRawTransaction gas limit below intrinsic gas")))
+      (eth-rpc-validate-txpool-sender-code store head sender)))
+  t)
+
 (defun eth-rpc-receipt-gas-used (receipt previous-receipt)
   (- (receipt-cumulative-gas-used receipt)
      (if previous-receipt
@@ -1400,11 +1442,13 @@
          (hash (transaction-hash transaction)))
     (validate-set-code-transaction-fields transaction)
     (eth-rpc-validate-set-code-authorization-signatures transaction)
-    (unless (transaction-sender
-             transaction
-             :expected-chain-id (chain-config-chain-id config))
-      (block-validation-fail
-       "eth_sendRawTransaction transaction sender recovery failed"))
+    (let ((sender
+            (or (transaction-sender
+                 transaction
+                 :expected-chain-id (chain-config-chain-id config))
+                (block-validation-fail
+                 "eth_sendRawTransaction transaction sender recovery failed"))))
+      (eth-rpc-validate-txpool-admission transaction sender store config))
     (unless (chain-store-transaction-location store hash)
       (engine-payload-store-put-pending-transaction store transaction))
     (hash32-to-hex hash)))
