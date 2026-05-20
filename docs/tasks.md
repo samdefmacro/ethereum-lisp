@@ -1912,6 +1912,10 @@ splits can land after the Phase A smoke path closes.
     implementation notes are preserved in `docs/status.md` or an equivalent
     status/changelog document.
   - Validation: docs-only diff.
+  - Progress: added Done/Partial/Missing Phase A summaries to Section 4 EVM
+    and Section 7 Engine API / JSON-RPC, matching the Section 5 Block Execution
+    structure while preserving the detailed historical logs for later
+    migration.
 
 ## P1: Txpool Beyond Placeholder
 

@@ -200,6 +200,23 @@ beyond the existing legacy `0xef` runtime-code rejection behavior.
 Validation targets: geth `core/vm`, Nethermind `Nethermind.Evm`, and Reth/revm
 behavior.
 
+**Phase A summary**
+
+- *Done:* a broad interpreter skeleton with stack/memory/gas accounting,
+  fork-gated opcode coverage, warm/cold access tracking, CALL-family frame
+  rollback, CREATE/CREATE2 basics, SELFDESTRUCT, logs, returndata, transient
+  storage, and precompile coverage through the current Phase A smoke needs.
+- *Partial:* fixture-backed CALL/CREATE/precompile breadth, exact gas parity
+  for all edge cases, EIP-7702 delegated-code execution beyond the covered
+  paths, and stopgap BN254 pairing behavior until a full pairing library lands.
+- *Missing for Phase A:* broader pinned execution-spec state fixtures, real
+  KZG point-evaluation verification before Cancun blob execution can enter the
+  Phase A gate, and any EOF support until an explicit activated-fork rule is
+  chosen.
+
+The detailed implementation log below is preserved for historical context and
+is queued for migration into a status document via `DOC-ROADMAP-STATUS-SPLIT`.
+
 Status: interpreter skeleton implemented for a growing opcode subset. Initial
 gas-limit accounting, 1024-item stack limit enforcement, unsigned and signed
 arithmetic/comparison, EXP, SHA3,
@@ -656,6 +673,24 @@ first pass, but interfaces must not block that path.
 - `eth_*` read RPC
 - transaction submission and pool placeholder
 - tracing/debug APIs after EVM is mature
+
+**Phase A summary**
+
+- *Done:* Engine payload object conversion, version-gated
+  `engine_newPayloadV1` through `V5` parsing, executable known-parent import
+  through the atomic signed-block path, forkchoice canonical-head switching,
+  public read RPCs over retained state, polling filters, local raw-transaction
+  admission, HTTP stream/listener serving, telemetry hooks, and a devnet CLI
+  shell that loads genesis and exposes the current head.
+- *Partial:* txpool policy beyond the current in-memory pending pool,
+  cross-client Engine fixture breadth, authenticated process wiring, and
+  concrete long-running devnet/Hive process ergonomics.
+- *Missing for Phase A:* pinned execution-spec / Hive-style Engine smoke
+  breadth around the existing Shanghai path, plus any Cancun blob execution
+  acceptance until real KZG verification is available.
+
+The detailed implementation log below is preserved for historical context and
+is queued for migration into a status document via `DOC-ROADMAP-STATUS-SPLIT`.
 
 Status: initial local Engine payload projection is present. Blocks can be
 converted into geth-shaped `ExecutableData` payload envelopes, including
