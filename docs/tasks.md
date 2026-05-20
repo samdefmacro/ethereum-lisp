@@ -438,6 +438,9 @@ ones.
   - Progress: tightened EEST transaction-test case normalization itself to
     reject blank or non-string case names, so direct adapter calls preserve the
     same source-name invariant as file/root loading.
+  - Progress: tightened EEST transaction-test result fork labels so direct
+    adapter calls reject blank or non-string fork names before duplicate or
+    known-fork validation runs.
 
 ## P0: Module Boundaries
 

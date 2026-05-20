@@ -265,6 +265,12 @@
         (error "EEST transaction case ~A result entries must be JSON object fields"
                case-name))
       (let ((fork (car entry)))
+        (unless (stringp fork)
+          (error "EEST transaction case ~A result fork must be a string"
+                 case-name))
+        (when (blank-string-p fork)
+          (error "EEST transaction case ~A result fork must be present"
+                 case-name))
         (when (gethash fork seen-forks)
           (error "EEST transaction case ~A has duplicate result fork ~A"
                  case-name
@@ -1447,6 +1453,26 @@
      "malformed-result-entry"
      (list (cons "txbytes" "0x01")
            (cons "result" '("not-a-fork-entry")))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "non-string-result-fork"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons nil
+                        (list
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "blank-result-fork"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons ""
+                        (list
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
   (signals error
     (normalize-eest-transaction-test-case
      "unknown-exception"
