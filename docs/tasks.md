@@ -805,6 +805,9 @@ splits can land after the Phase A smoke path closes.
     harness can now report selected case count, source-style names, and
     expected roots, giving external trie fixture runs a stable coverage summary
     before the adapter grows beyond root-only cases.
+    Added duplicate source-name rejection for EEST trie-test root imports. Root
+    loads now fail before selector filtering if two discovered cases normalize
+    to the same source-style name.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

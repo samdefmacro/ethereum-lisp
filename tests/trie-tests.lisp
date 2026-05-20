@@ -464,11 +464,20 @@
                name))
       (setf (gethash name seen) t))))
 
+(defun validate-eest-trie-test-root-case-names (cases)
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (let ((name (fixture-required-field case "name")))
+        (when (gethash name seen)
+          (error "EEST trie test root has duplicate case name ~A"
+                 name))
+        (setf (gethash name seen) t)))))
+
 (defun load-eest-trie-test-root-cases (root &key names)
-  (filter-eest-trie-test-root-cases
-   (loop for path in (eest-trie-test-root-json-paths root)
-         append (load-eest-trie-test-root-file-cases root path))
-   names))
+  (let ((cases (loop for path in (eest-trie-test-root-json-paths root)
+                     append (load-eest-trie-test-root-file-cases root path))))
+    (validate-eest-trie-test-root-case-names cases)
+    (filter-eest-trie-test-root-cases cases names)))
 
 (defun load-phase-a-eest-trie-test-root-cases (root)
   (validate-eest-trie-selector-list
@@ -965,7 +974,10 @@
       (validate-eest-trie-selector-list '("")))
     (signals error
       (validate-eest-trie-selector-list
-       '("phase-a-trie-sample.json" "phase-a-trie-sample.json")))))
+       '("phase-a-trie-sample.json" "phase-a-trie-sample.json")))
+    (signals error
+      (validate-eest-trie-test-root-case-names
+       (append cases (list (first cases)))))))
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json
