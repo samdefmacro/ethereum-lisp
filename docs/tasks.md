@@ -648,6 +648,10 @@ splits can land after the Phase A smoke path closes.
     overwrites. Parent account lists now reject duplicate normalized addresses,
     and withdrawal lists reject duplicate withdrawal indexes before fixture
     replay can collapse conflicting entries into one local state transition.
+  - Progress: added parent/payload coherence checks to the Engine
+    `newPayloadV2` fixture gate. Fixture cases now reject non-contiguous child
+    block numbers, non-increasing timestamps, invalid parent-relative gas
+    limit changes, and payload base-fee values that do not match the parent.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

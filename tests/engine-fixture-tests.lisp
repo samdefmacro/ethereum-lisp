@@ -198,6 +198,45 @@
        withdrawals
        case-name))))
 
+(defun validate-engine-fixture-parent-payload-coherence
+    (parent payload case-name)
+  (let* ((parent-number (fixture-quantity-field parent "number"))
+         (parent-gas-limit (fixture-quantity-field parent "gasLimit"))
+         (parent-gas-used (fixture-quantity-field parent "gasUsed"))
+         (parent-timestamp (fixture-quantity-field parent "timestamp"))
+         (parent-base-fee (fixture-quantity-field parent "baseFeePerGas"))
+         (payload-number (fixture-quantity-field payload "number"))
+         (payload-gas-limit (fixture-quantity-field payload "gasLimit"))
+         (payload-timestamp (fixture-quantity-field payload "timestamp"))
+         (payload-base-fee (fixture-quantity-field payload "baseFeePerGas"))
+         (label (format nil
+                        "Engine newPayloadV2 fixture case ~A"
+                        case-name)))
+    (when (> parent-gas-used parent-gas-limit)
+      (error "~A parent gasUsed exceeds parent gasLimit" label))
+    (unless (= payload-number (1+ parent-number))
+      (error "~A payload number must be parent number plus one" label))
+    (unless (> payload-timestamp parent-timestamp)
+      (error "~A payload timestamp must be greater than parent timestamp"
+             label))
+    (handler-case
+        (validate-gas-limit-delta parent-gas-limit payload-gas-limit)
+      (block-validation-error (condition)
+        (error "~A payload gasLimit is not parent-relative: ~A"
+               label
+               (block-validation-error-message condition))))
+    (let* ((parent-header
+             (make-block-header
+              :gas-limit parent-gas-limit
+              :gas-used parent-gas-used
+              :base-fee-per-gas parent-base-fee))
+           (expected-base-fee (expected-base-fee-per-gas parent-header)))
+      (unless (= payload-base-fee expected-base-fee)
+        (error "~A payload baseFeePerGas must be ~A, got ~A"
+               label
+               (quantity-to-hex expected-base-fee)
+               (quantity-to-hex payload-base-fee))))))
+
 (defun validate-engine-fixture-expect-shape (expect case-name)
   (let ((label (format nil
                        "Engine newPayloadV2 fixture case ~A expect"
@@ -239,12 +278,14 @@
     (validate-engine-fixture-config-shape
      (fixture-required-field case "config")
      name)
-    (validate-engine-fixture-parent-shape
-     (fixture-required-field case "parent")
-     name)
-    (validate-engine-fixture-payload-shape
-     (fixture-required-field case "payload")
-     name)
+    (let ((parent (fixture-required-field case "parent"))
+          (payload (fixture-required-field case "payload")))
+      (validate-engine-fixture-parent-shape parent name)
+      (validate-engine-fixture-payload-shape payload name)
+      (validate-engine-fixture-parent-payload-coherence
+       parent
+       payload
+       name))
     (validate-engine-fixture-expect-shape
      (fixture-required-field case "expect")
      name)))
@@ -510,6 +551,34 @@
                    payload
                    "withdrawals"
                    duplicate-withdrawals))))))
+      (signals error
+        (let ((payload (fixture-required-field case "payload")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "payload"
+                  (replace-field payload "number" "0x2b"))))))
+      (signals error
+        (let ((payload (fixture-required-field case "payload")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "payload"
+                  (replace-field payload "timestamp" "0x62"))))))
+      (signals error
+        (let ((payload (fixture-required-field case "payload")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "payload"
+                  (replace-field payload "gasLimit" "0x1"))))))
+      (signals error
+        (let ((payload (fixture-required-field case "payload")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "payload"
+                  (replace-field payload "baseFeePerGas" "0x65"))))))
       (signals error
         (validate-engine-newpayload-v2-fixture-cases
          (list (replace-field
