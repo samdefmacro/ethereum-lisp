@@ -77,7 +77,7 @@
   '("keyHex" "keyAscii"))
 
 (defparameter +eest-trie-test-case-fields+
-  '("in" "root"))
+  '("in" "root" "secure"))
 
 (defun validate-trie-fixture-object-fields (object allowed-fields label)
   (unless (listp object)
@@ -437,10 +437,21 @@
          (normalize-eest-trie-test-entries
           name
           (fixture-required-field case "in")))
+   (cons "secure"
+         (eest-trie-test-normalized-secure-p name case))
    (cons "root"
          (eest-trie-test-normalized-root
           (fixture-required-field case "root")
           name))))
+
+(defun eest-trie-test-normalized-secure-p (case-name case)
+  (if (fixture-field-present-p case "secure")
+      (let ((value (fixture-object-field case "secure")))
+        (unless (or (eq value t) (null value))
+          (error "EEST trie test case ~A secure must be a boolean"
+                 case-name))
+        (not (null value)))
+      nil))
 
 (defun eest-trie-test-entry-pair-p (entry)
   (and (consp entry)
@@ -538,14 +549,17 @@
 (defun run-eest-trie-test-case (case)
   (let ((trie (make-mpt)))
     (dolist (entry (fixture-required-field case "entries"))
-      (let ((key (eest-trie-test-byte-string
-                  (fixture-required-field entry "key")
-                  (format nil "EEST trie test case ~A in entry key"
-                          (fixture-required-field case "name")))))
+      (let* ((key (eest-trie-test-byte-string
+                   (fixture-required-field entry "key")
+                   (format nil "EEST trie test case ~A in entry key"
+                           (fixture-required-field case "name"))))
+             (trie-key (if (fixture-object-field case "secure")
+                           (keccak-256 key)
+                           key)))
         (if (fixture-field-present-p entry "delete")
-            (mpt-delete trie key)
+            (mpt-delete trie trie-key)
             (mpt-put trie
-                     key
+                     trie-key
                      (eest-trie-test-byte-string
                       (fixture-required-field entry "value")
                       (format nil "EEST trie test case ~A in entry value"
@@ -1172,6 +1186,18 @@
                  (fixture-object-field entry "value")))
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
+  (let* ((case (normalize-eest-trie-test-case
+                "secure-entry"
+                (list (cons "in" (list (list "dog" "puppy")))
+                      (cons "secure" t)
+                      (cons "root"
+                            "ff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"))))
+         (trie (assert-eest-trie-test-case-root case)))
+    (is (fixture-object-field case "secure"))
+    (is (string= "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+                 (fixture-object-field case "root")))
+    (is (string= (fixture-object-field case "root")
+                 (mpt-root-hex trie))))
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                (fixture-object-field
                 (normalize-eest-trie-test-case
@@ -1293,6 +1319,13 @@
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
            (cons "unexpected" t))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "bad-secure"
+     (list (cons "in" nil)
+           (cons "secure" "yes")
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
     (validate-eest-trie-test-file-case-names nil "inline-empty"))
   (signals error

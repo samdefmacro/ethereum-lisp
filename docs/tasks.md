@@ -864,6 +864,9 @@ splits can land after the Phase A smoke path closes.
     Added string-valued object-form `in` support to the EEST trie-test adapter,
     matching the Nethermind classic TrieTest JSON path alongside the existing
     array-of-pairs path, with duplicate object-key rejection before replay.
+    Added optional secure-key replay for EEST trie-test cases, hashing keys
+    with Keccak before MPT insertion/deletion to match geth StateTrie /
+    Nethermind secure trie fixture semantics for secure trie vectors.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
