@@ -426,6 +426,9 @@ ones.
   - Progress: tightened EEST transaction-test file loading so empty JSON files
     now fail loudly before normalization, preventing a discovered pinned source
     file from silently contributing zero cases to the selected subset.
+  - Progress: tightened EEST transaction-test file entry validation so
+    non-object top-level entries fail with an adapter-specific error before
+    malformed JSON arrays can reach case-name normalization.
 
 ## P0: Module Boundaries
 

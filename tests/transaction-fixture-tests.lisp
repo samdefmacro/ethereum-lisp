@@ -304,6 +304,9 @@
            path-label))
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (entry entries)
+      (unless (consp entry)
+        (error "EEST transaction test file ~A entries must be JSON object fields"
+               path-label))
       (let ((name (car entry)))
         (unless (stringp name)
           (error "EEST transaction test file ~A case name must be a string"
@@ -1359,6 +1362,10 @@
    "sample.json")
   (signals error
     (validate-eest-transaction-test-file-entries nil "empty.json"))
+  (signals error
+    (validate-eest-transaction-test-file-entries
+     '("not-an-object-entry")
+     "array.json"))
   (signals error
     (validate-eest-transaction-test-file-entries
      (list (cons "" nil))
