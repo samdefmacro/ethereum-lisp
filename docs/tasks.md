@@ -459,6 +459,9 @@ ones.
   - Progress: tightened the Phase A EEST transaction subset summary gate so
     non-list vector inputs fail before summary construction, preserving a clear
     boundary for direct pinned-subset validator calls.
+  - Progress: tightened EEST transaction root-file loading so generated
+    source names must pass the same source-style selector validation before
+    case normalization, catching mismatched root/path calls early.
 
 ## P0: Module Boundaries
 

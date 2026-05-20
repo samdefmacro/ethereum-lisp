@@ -374,9 +374,16 @@
            (singleton-p (= 1 (length entries))))
       (mapcar
        (lambda (entry)
-         (normalize-eest-transaction-test-case
-          (eest-transaction-root-case-name root path (car entry) singleton-p)
-          (cdr entry)))
+         (let ((source-name
+                 (eest-transaction-root-case-name
+                  root
+                  path
+                  (car entry)
+                  singleton-p)))
+           (unless (eest-transaction-selector-source-style-p source-name)
+             (error "EEST transaction source name ~A must be source-style"
+                    source-name))
+           (normalize-eest-transaction-test-case source-name (cdr entry))))
        entries))))
 
 (defun filter-eest-transaction-test-root-cases (cases names)
@@ -1732,6 +1739,10 @@
                                                   (first paths)
                                                   "alpha"
                                                   nil)))
+    (signals error
+      (load-eest-transaction-test-root-file-cases
+       "tests/fixtures/execution-spec-tests-root/fixtures/trie_tests/"
+       (first paths)))
     (signals error
       (validate-transaction-fixture-vector-set
        (append vectors (list vector))))
