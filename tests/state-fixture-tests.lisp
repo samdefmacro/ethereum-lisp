@@ -444,7 +444,15 @@
               (is (null account))
               (is (string= "0x"
                            (bytes-to-hex
-                            (state-db-get-code state address))))))))))
+                            (state-db-get-code state address))))
+              (when (string= "setStorage"
+                              (fixture-object-field operation "op"))
+                (is (zerop
+                     (state-db-get-storage
+                      state
+                       address
+                       (hash32-from-hex
+                       (fixture-object-field operation "slot"))))))))))))
 
 (defun assert-state-root-fixture-storage-roots (state case)
   (dolist (expected (fixture-object-field case "expectedStorageRoots"))

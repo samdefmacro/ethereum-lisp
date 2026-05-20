@@ -757,6 +757,9 @@ splits can land after the Phase A smoke path closes.
     clearing case: an explicit `clearAccount` fixture operation now prunes a
     non-empty account back to the empty state root while preserving direct
     `setAccount` empty-account existence semantics needed by `EXTCODEHASH`.
+    Extended `clearAccount` state-root coverage to an account with both
+    non-empty code and storage, and tightened final-state assertions so storage
+    slots touched before a final account prune must read back as zero.
     Added shared fixture metadata validation for trie and state-root vectors:
     both wrappers now machine-check the Phase A EEST release `v5.4.0`, tag
     target `88e9fb8`, and `fixtures_stable.tar.gz` archive before consuming

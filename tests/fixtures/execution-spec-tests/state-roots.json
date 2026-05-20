@@ -74,6 +74,41 @@
       "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
     },
     {
+      "name": "account-clear-prunes-code-and-storage-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "code-root",
+        "account-prune",
+        "storage-prune",
+        "code-prune"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000111",
+          "nonce": 1,
+          "balance": 1000
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000111",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000011",
+          "value": 17
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000111",
+          "code": "0x6001600201"
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x0000000000000000000000000000000000000111"
+        }
+      ],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    {
       "name": "single-account-storage-root",
       "tags": ["account-root", "storage-root", "storage-root-projection"],
       "operations": [
