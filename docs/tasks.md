@@ -1057,8 +1057,10 @@ splits can land after the Phase A smoke path closes.
     duplicate storage-key rejection for state-proof fixture requests, preventing
     exact proof vectors from inflating coverage with repeated keys. Tightened
     state-proof fixture proof-node validation so account and storage proof
-    entries must be valid RLP nodes, not merely hex byte strings. Remaining
-    work: replace the seed proof vectors with transcribed
+    entries must be valid RLP nodes, not merely hex byte strings. Tightened
+    storage proof shape validation so non-zero expected storage values must
+    include proof nodes. Remaining work: replace the seed proof vectors with
+    transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.
 
