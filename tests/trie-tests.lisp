@@ -1001,11 +1001,11 @@
   (let* ((root (execution-spec-tests-trie-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
          (paths (eest-trie-test-root-json-paths root)))
-    (is (= 1 (length paths)))
-    (is (equal '("phase-a-trie-sample.json")
+    (is (= 2 (length paths)))
+    (is (equal '("phase-a-trie-multi.json" "phase-a-trie-sample.json")
                (eest-trie-test-root-file-names root)))
     (is (string= (namestring (truename +eest-trie-test-sample-path+))
-                 (namestring (truename (first paths)))))))
+                 (namestring (truename (second paths)))))))
 
 (deftest eest-trie-test-root-json-discovery-rejects-empty-roots
   (signals error
@@ -1123,10 +1123,16 @@
          (selected-cases
            (load-phase-a-eest-trie-test-root-cases root))
          (summary (eest-trie-test-case-summary selected-cases)))
-    (is (= 1 (length cases)))
+    (is (= 3 (length cases)))
     (is (= 1 (length selected-cases)))
+    (is (equal '("phase-a-trie-multi.json/alpha"
+                 "phase-a-trie-multi.json/beta"
+                 "phase-a-trie-sample.json")
+               (mapcar (lambda (case)
+                         (fixture-object-field case "name"))
+                       cases)))
     (is (string= "phase-a-trie-sample.json"
-                 (fixture-object-field (first cases) "name")))
+                 (fixture-object-field (third cases) "name")))
     (is (string= "phase-a-trie-sample.json"
                  (fixture-object-field (first selected-cases) "name")))
     (is (= 1 (fixture-object-field summary "count")))
@@ -1134,7 +1140,7 @@
                (fixture-object-field summary "names")))
     (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
-    (is (string= "phase-a-trie-sample.json/alpha"
+    (is (string= "phase-a-trie-multi.json/alpha"
                  (eest-trie-root-case-name root
                                            (first
                                             (eest-trie-test-root-json-paths

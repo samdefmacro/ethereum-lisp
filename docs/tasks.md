@@ -830,6 +830,9 @@ splits can land after the Phase A smoke path closes.
     cases now run through the adapter and compare computed MPT roots against
     expected roots when an external trie-test root is configured, while still
     skipping cleanly without one.
+    Added multi-case EEST trie-test file coverage. Root imports now exercise
+    source-style `file.json/case` naming for files containing more than one
+    case while preserving singleton file names for selected Phase A vectors.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
