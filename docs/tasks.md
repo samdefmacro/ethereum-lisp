@@ -764,6 +764,11 @@ splits can land after the Phase A smoke path closes.
     `eth_getBlockByHash`, block transaction counts, raw transaction by block,
     transaction-by-block, and transaction-by-hash now all assert the imported
     block and transaction are visible through the canonical `latest` view.
+  - Progress: extended the same Engine fixture parent-state shape with
+    optional account code and storage entries, then asserted `eth_getCode` and
+    `eth_getStorageAt` at `latest` after executable import and forkchoice. The
+    Phase A smoke now verifies retained state snapshots expose balance, nonce,
+    code, and storage through public RPC reads.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

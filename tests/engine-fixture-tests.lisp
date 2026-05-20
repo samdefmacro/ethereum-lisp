@@ -28,7 +28,7 @@
     "accounts"))
 
 (defparameter +engine-newpayload-v2-fixture-account-fields+
-  '("address" "nonce" "balance"))
+  '("address" "nonce" "balance" "code" "storage"))
 
 (defparameter +engine-newpayload-v2-fixture-payload-fields+
   '("number"
@@ -50,6 +50,11 @@
     "recipientBalance"
     "withdrawalRecipient"
     "withdrawalBalance"
+    "codeAddress"
+    "code"
+    "storageAddress"
+    "storageKey"
+    "storageValue"
     "receiptType"
     "receiptStatus"))
 
@@ -90,6 +95,42 @@
       (error "~A ~A must be an address: ~A"
              label field condition))))
 
+(defun validate-engine-fixture-optional-code-field (object field label)
+  (when (fixture-field-present-p object field)
+    (handler-case
+        (hex-to-bytes (fixture-object-field object field))
+      (error (condition)
+        (error "~A ~A must be hex bytes: ~A"
+               label field condition)))))
+
+(defun validate-engine-fixture-code-field (object field label)
+  (handler-case
+      (hex-to-bytes (fixture-required-field object field))
+    (error (condition)
+      (error "~A ~A must be hex bytes: ~A"
+             label field condition))))
+
+(defun validate-engine-fixture-storage-object (storage label)
+  (unless (listp storage)
+    (error "~A storage must be a JSON object" label))
+  (let ((seen-slots (make-hash-table :test 'equal)))
+    (dolist (entry storage)
+      (let ((slot (car entry))
+            (value (cdr entry)))
+        (handler-case
+            (hash32-from-hex slot)
+          (error (condition)
+            (error "~A storage key must be a 32-byte hash: ~A"
+                   label condition)))
+        (when (gethash (string-downcase slot) seen-slots)
+          (error "~A has duplicate storage slot ~A" label slot))
+        (setf (gethash (string-downcase slot) seen-slots) t)
+        (handler-case
+            (hex-to-quantity value)
+          (error (condition)
+            (error "~A storage value must be a hex quantity: ~A"
+                   label condition)))))))
+
 (defun validate-engine-fixture-config-shape (config case-name)
   (validate-fixture-object-fields
    config
@@ -112,7 +153,12 @@
      label)
     (validate-engine-fixture-address-field account "address" label)
     (validate-engine-fixture-quantity-field account "nonce" label)
-    (validate-engine-fixture-quantity-field account "balance" label)))
+    (validate-engine-fixture-quantity-field account "balance" label)
+    (validate-engine-fixture-optional-code-field account "code" label)
+    (when (fixture-field-present-p account "storage")
+      (validate-engine-fixture-storage-object
+       (fixture-object-field account "storage")
+       label))))
 
 (defun validate-engine-fixture-parent-account-uniqueness
     (accounts case-name)
@@ -248,7 +294,11 @@
     (unless (string= +payload-status-valid+
                      (fixture-required-field expect "status"))
       (error "~A status must be VALID" label))
-    (dolist (field '("sender" "recipient" "withdrawalRecipient"))
+    (dolist (field '("sender"
+                     "recipient"
+                     "withdrawalRecipient"
+                     "codeAddress"
+                     "storageAddress"))
       (validate-engine-fixture-address-field expect field label))
     (dolist (field '("senderNonce"
                      "senderBalance"
@@ -256,7 +306,18 @@
                      "withdrawalBalance"
                      "receiptType"
                      "receiptStatus"))
-      (validate-engine-fixture-quantity-field expect field label))))
+      (validate-engine-fixture-quantity-field expect field label))
+    (validate-engine-fixture-code-field expect "code" label)
+    (handler-case
+        (hash32-from-hex (fixture-required-field expect "storageKey"))
+      (error (condition)
+        (error "~A storageKey must be a 32-byte hash: ~A"
+               label condition)))
+    (handler-case
+        (hash32-from-hex (fixture-required-field expect "storageValue"))
+      (error (condition)
+        (error "~A storageValue must be a 32-byte word: ~A"
+               label condition)))))
 
 (defun fixture-account-balance (state address)
   (let ((account (state-db-get-account state address)))
@@ -456,12 +517,24 @@
 (defun engine-fixture-parent-state (parent)
   (let ((state (make-state-db)))
     (dolist (account (fixture-object-field parent "accounts"))
-      (state-db-set-account
-       state
-       (fixture-address-field account "address")
-       (make-state-account
-        :nonce (fixture-quantity-field account "nonce")
-        :balance (fixture-quantity-field account "balance"))))
+      (let ((address (fixture-address-field account "address")))
+        (state-db-set-account
+         state
+         address
+         (make-state-account
+          :nonce (fixture-quantity-field account "nonce")
+          :balance (fixture-quantity-field account "balance")))
+        (when (fixture-field-present-p account "code")
+          (state-db-set-code
+           state
+           address
+           (hex-to-bytes (fixture-object-field account "code"))))
+        (dolist (entry (fixture-object-field account "storage"))
+          (state-db-set-storage
+           state
+           address
+           (hash32-from-hex (car entry))
+           (hex-to-quantity (cdr entry))))))
     state))
 
 (defun engine-fixture-withdrawal (object)
@@ -495,6 +568,21 @@
         (cons "id" id)
         (cons "method" "eth_getBalance")
         (cons "params" (list (address-to-hex address) "latest"))))
+
+(defun engine-fixture-code-request (id address)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getCode")
+        (cons "params" (list (address-to-hex address) "latest"))))
+
+(defun engine-fixture-storage-request (id address slot)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getStorageAt")
+        (cons "params"
+              (list (address-to-hex address)
+                    (hash32-to-hex slot)
+                    "latest"))))
 
 (defun engine-fixture-block-by-number-request (id tag full-transactions-p)
   (list (cons "jsonrpc" "2.0")
@@ -618,6 +706,13 @@
            (cons "withdrawalRecipient"
                  "0x0000000000000000000000000000000000000002")
            (cons "withdrawalBalance" "0x3b9aca00")
+           (cons "codeAddress" "0x0000000000000000000000000000000000001002")
+           (cons "code" "0x6001600055")
+           (cons "storageAddress" "0x0000000000000000000000000000000000001002")
+           (cons "storageKey"
+                 "0x0000000000000000000000000000000000000000000000000000000000000000")
+           (cons "storageValue"
+                 "0x000000000000000000000000000000000000000000000000000000000000002a")
            (cons "receiptType" "0x0")
            (cons "receiptStatus" "0x1"))))
    extra))
@@ -797,7 +892,11 @@
            (sender (fixture-address-field expect "sender"))
            (recipient (fixture-address-field expect "recipient"))
            (withdrawal-recipient
-             (fixture-address-field expect "withdrawalRecipient")))
+             (fixture-address-field expect "withdrawalRecipient"))
+           (code-address (fixture-address-field expect "codeAddress"))
+           (storage-address (fixture-address-field expect "storageAddress"))
+           (storage-key
+             (hash32-from-hex (fixture-object-field expect "storageKey"))))
       (let* ((parent-header
                (make-block-header
                 :parent-hash (zero-hash32)
@@ -892,15 +991,24 @@
                  (engine-rpc-handle-request
                   (engine-fixture-balance-request 105 withdrawal-recipient)
                   store config))
+               (code-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-code-request 106 code-address)
+                  store config))
+               (storage-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-storage-request
+                   107 storage-address storage-key)
+                  store config))
                (block-by-number-response
                  (engine-rpc-handle-request
-                  (engine-fixture-block-by-number-request 106 "latest" nil)
+                  (engine-fixture-block-by-number-request 108 "latest" nil)
                   store config))
                (block-by-number
                  (field block-by-number-response "result"))
                (full-block-response
                  (engine-rpc-handle-request
-                  (engine-fixture-block-by-number-request 107 "latest" t)
+                  (engine-fixture-block-by-number-request 109 "latest" t)
                   store config))
                (full-block
                  (field full-block-response "result"))
@@ -909,36 +1017,36 @@
                (block-by-hash-response
                  (engine-rpc-handle-request
                   (engine-fixture-block-by-hash-request
-                   108 (block-hash child-block) nil)
+                   110 (block-hash child-block) nil)
                   store config))
                (block-by-hash
                  (field block-by-hash-response "result"))
                (transaction-count-by-number-response
                  (engine-rpc-handle-request
                   (engine-fixture-transaction-count-by-number-request
-                   109 "latest")
+                   111 "latest")
                   store config))
                (transaction-count-by-hash-response
                  (engine-rpc-handle-request
                   (engine-fixture-transaction-count-by-hash-request
-                   110 (block-hash child-block))
+                   112 (block-hash child-block))
                   store config))
                (raw-transaction-response
                  (engine-rpc-handle-request
                   (engine-fixture-raw-transaction-by-block-number-request
-                   111 "latest" 0)
+                   113 "latest" 0)
                   store config))
                (transaction-by-block-response
                  (engine-rpc-handle-request
                   (engine-fixture-transaction-by-block-hash-request
-                   112 (block-hash child-block) 0)
+                   114 (block-hash child-block) 0)
                   store config))
                (transaction-by-block
                  (field transaction-by-block-response "result"))
                (transaction-by-hash-response
                  (engine-rpc-handle-request
                   (engine-fixture-transaction-by-hash-request
-                   113 transaction-hash)
+                   115 transaction-hash)
                   store config))
                (transaction-by-hash
                  (field transaction-by-hash-response "result"))
@@ -975,6 +1083,10 @@
                         (hex-to-quantity
                          (fixture-object-field expect "withdrawalBalance")))
                        (field withdrawal-balance-response "result")))
+          (is (string= (fixture-object-field expect "code")
+                       (field code-response "result")))
+          (is (string= (fixture-object-field expect "storageValue")
+                       (field storage-response "result")))
           (is (string= (hash32-to-hex (block-hash child-block))
                        (field block-by-number "hash")))
           (is (string= (quantity-to-hex
