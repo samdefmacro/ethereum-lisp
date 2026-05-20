@@ -230,6 +230,11 @@ ones.
     legacy, EIP-2930, EIP-1559, EIP-4844, or EIP-7702 coverage, duplicate
     names, duplicate `txbytes` / `raw`, duplicate hashes, blank senders, and
     invalid chain ids before running per-fork checks.
+  - Progress: expanded the local EEST-shaped transaction-test sample root from
+    the Phase A three-type subset to all five envelope families. Root vector
+    loading now decodes legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702
+    `txbytes` / per-fork `result` cases, while the Phase A selector still
+    gates its smoke subset to legacy, access-list, and dynamic-fee cases.
   - Progress: added transaction fixture result-shape validation. Per-fork
     `result` entries now reject unknown exception tokens, valid entries without
     `intrinsicGas`, invalid entries that carry an `intrinsicGas` field even

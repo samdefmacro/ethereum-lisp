@@ -1990,12 +1990,26 @@
                  :test #'string=
                  :key (lambda (candidate)
                         (fixture-object-field candidate "name"))))
+         (blob-vector
+           (find "phase-a-sample.json/typed-eip4844-blob-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
+         (set-code-vector
+           (find "phase-a-sample.json/typed-eip7702-set-code-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
+         (all-summary (transaction-fixture-vector-summary vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 1 (length paths)))
-    (is (= 3 (length cases)))
+    (is (= 5 (length cases)))
     (is (= 3 (length selected-cases)))
-    (is (= 3 (length vectors)))
+    (is (= 5 (length vectors)))
     (is (= 3 (length selected-vectors)))
+    (validate-transaction-fixture-vector-set vectors :require-required-types t)
     (is (equal +phase-a-eest-transaction-test-case-names+
                (mapcar
                 (lambda (case)
@@ -2013,6 +2027,19 @@
     (is dynamic-fee-vector)
     (is (string= "dynamic-fee"
                  (fixture-object-field dynamic-fee-vector "type")))
+    (is blob-vector)
+    (is (string= "blob"
+                 (fixture-object-field blob-vector "type")))
+    (is set-code-vector)
+    (is (string= "set-code"
+                 (fixture-object-field set-code-vector "type")))
+    (is (= 5 (fixture-object-field all-summary "count")))
+    (is (equal '((:legacy . 1)
+                 (:access-list . 1)
+                 (:dynamic-fee . 1)
+                 (:blob . 1)
+                 (:set-code . 1))
+               (fixture-object-field all-summary "types")))
     (is (= 3 (fixture-object-field summary "count")))
     (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
