@@ -783,6 +783,7 @@
    #:state-db-verify-account-proof
    #:state-db-get-proof
    #:state-db-verify-proof
+   #:state-proof-result-rpc-object
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
@@ -1676,6 +1677,7 @@
    #:state-db-verify-account-proof
    #:state-db-get-proof
    #:state-db-verify-proof
+   #:state-proof-result-rpc-object
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
@@ -2497,6 +2499,7 @@
    #:state-db-verify-account-proof
    #:state-db-get-proof
    #:state-db-verify-proof
+   #:state-proof-result-rpc-object
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex

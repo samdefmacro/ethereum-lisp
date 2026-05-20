@@ -274,6 +274,36 @@
               (first (state-proof-result-storage-proofs proof)))))
     (is (state-db-verify-proof (state-db-root state) proof))))
 
+(deftest state-proof-result-rpc-object-uses-eth-get-proof-shape
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000015"))
+        (slot (hash32-from-hex
+               "0x0000000000000000000000000000000000000000000000000000000000000011")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 3 :balance 1000))
+    (state-db-set-storage state address slot 42)
+    (let* ((proof (state-db-get-proof state address (list slot)))
+           (object (state-proof-result-rpc-object proof))
+           (storage-entry (first (fixture-object-field object "storageProof"))))
+      (is (string= (address-to-hex address)
+                   (fixture-object-field object "address")))
+      (is (listp (fixture-object-field object "accountProof")))
+      (is (every #'stringp (fixture-object-field object "accountProof")))
+      (is (string= (quantity-to-hex 3)
+                   (fixture-object-field object "nonce")))
+      (is (string= (quantity-to-hex 1000)
+                   (fixture-object-field object "balance")))
+      (is (string= (hash32-to-hex (state-db-get-code-hash state address))
+                   (fixture-object-field object "codeHash")))
+      (is (string= (hash32-to-hex (state-db-get-storage-root state address))
+                   (fixture-object-field object "storageHash")))
+      (is (string= (hash32-to-hex slot)
+                   (fixture-object-field storage-entry "key")))
+      (is (string= (quantity-to-hex 42)
+                   (fixture-object-field storage-entry "value")))
+      (is (every #'stringp
+                 (fixture-object-field storage-entry "proof"))))))
+
 (deftest state-zero-storage-write-does-not-create-empty-account
   (let* ((state (make-state-db))
          (address (address-from-hex "0x0000000000000000000000000000000000000003"))

@@ -302,6 +302,33 @@
                     (zerop expected-value))
           (error "State proof storage value does not match storage proof"))))))
 
+(defun state-proof-node-hex-list (proof)
+  (mapcar #'bytes-to-hex proof))
+
+(defun state-storage-proof-rpc-object (proof)
+  (unless (typep proof 'state-storage-proof)
+    (error "Storage proof entry must be a state-storage-proof"))
+  (list (cons "key" (hash32-to-hex (state-storage-proof-slot proof)))
+        (cons "value" (quantity-to-hex (state-storage-proof-value proof)))
+        (cons "proof" (state-proof-node-hex-list
+                       (state-storage-proof-proof proof)))))
+
+(defun state-proof-result-rpc-object (proof)
+  (unless (typep proof 'state-proof-result)
+    (error "State proof must be a state-proof-result"))
+  (list (cons "address" (address-to-hex (state-proof-result-address proof)))
+        (cons "accountProof"
+              (state-proof-node-hex-list
+               (state-proof-result-account-proof proof)))
+        (cons "balance" (quantity-to-hex (state-proof-result-balance proof)))
+        (cons "codeHash" (hash32-to-hex (state-proof-result-code-hash proof)))
+        (cons "nonce" (quantity-to-hex (state-proof-result-nonce proof)))
+        (cons "storageHash"
+              (hash32-to-hex (state-proof-result-storage-root proof)))
+        (cons "storageProof"
+              (mapcar #'state-storage-proof-rpc-object
+                      (state-proof-result-storage-proofs proof)))))
+
 (defun account-with-storage-root (object)
   (let ((account (or (state-object-account object) (make-state-account))))
     (make-state-account
