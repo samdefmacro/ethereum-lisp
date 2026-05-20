@@ -11,6 +11,13 @@
     "phase-a-sample.json/typed-eip2930-access-list-sample"
     "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"))
 
+(defparameter +full-eest-transaction-test-case-names+
+  '("phase-a-sample.json/legacy-eip155-sample"
+    "phase-a-sample.json/typed-eip2930-access-list-sample"
+    "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
+    "phase-a-sample.json/typed-eip4844-blob-sample"
+    "phase-a-sample.json/typed-eip7702-set-code-sample"))
+
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
@@ -614,6 +621,16 @@
     (validate-phase-a-eest-transaction-vector-summary vectors)
     vectors))
 
+(defun load-full-eest-transaction-test-root-vectors (root)
+  (validate-eest-transaction-selector-list
+   +full-eest-transaction-test-case-names+)
+  (let ((vectors
+          (load-eest-transaction-test-root-vectors
+           root
+           :names +full-eest-transaction-test-case-names+)))
+    (validate-full-eest-transaction-vector-summary vectors)
+    vectors))
+
 (defun transaction-fixture-vector-type-counts (vectors)
   (let ((counts (make-hash-table :test 'eq)))
     (dolist (vector vectors)
@@ -712,6 +729,30 @@
              +phase-a-eest-transaction-test-case-names+))
     (validate-phase-a-eest-transaction-target-fork-results vectors)
     (validate-phase-a-eest-transaction-summary-types types)
+    summary))
+
+(defun validate-full-eest-transaction-vector-summary (vectors)
+  (validate-eest-transaction-selector-list
+   +full-eest-transaction-test-case-names+)
+  (unless (listp vectors)
+    (error "Full EEST transaction vectors must be a list"))
+  (validate-transaction-fixture-vector-set vectors :require-required-types t)
+  (let* ((summary (transaction-fixture-vector-summary vectors))
+         (count (fixture-required-field summary "count"))
+         (names (fixture-required-field summary "names"))
+         (types (fixture-required-field summary "types")))
+    (unless (= count (length +full-eest-transaction-test-case-names+))
+      (error "Full EEST transaction selector count ~A loaded ~A vectors"
+             (length +full-eest-transaction-test-case-names+)
+             count))
+    (unless (equal names +full-eest-transaction-test-case-names+)
+      (error "Full EEST transaction summary names ~S do not match selectors ~S"
+             names
+             +full-eest-transaction-test-case-names+))
+    (dolist (type +transaction-fixture-required-types+)
+      (unless (assoc type types)
+        (error "Full EEST transaction summary is missing required type ~A"
+               type)))
     summary))
 
 (defun phase-a-eest-transaction-vectors-by-type (vectors label)
@@ -2016,6 +2057,8 @@
          (vectors (load-eest-transaction-test-root-vectors root))
          (selected-vectors
            (load-phase-a-eest-transaction-test-root-vectors root))
+         (full-vectors
+           (load-full-eest-transaction-test-root-vectors root))
          (seed-vectors
            (load-transaction-envelope-vectors
             +transaction-envelope-fixture-path+))
@@ -2045,18 +2088,25 @@
                  :key (lambda (candidate)
                         (fixture-object-field candidate "name"))))
          (all-summary (transaction-fixture-vector-summary vectors))
+         (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 1 (length paths)))
     (is (= 5 (length cases)))
     (is (= 3 (length selected-cases)))
     (is (= 5 (length vectors)))
     (is (= 3 (length selected-vectors)))
+    (is (= 5 (length full-vectors)))
     (validate-transaction-fixture-vector-set vectors :require-required-types t)
     (is (equal +phase-a-eest-transaction-test-case-names+
                (mapcar
                 (lambda (case)
                   (fixture-object-field case "name"))
                 selected-cases)))
+    (is (equal +full-eest-transaction-test-case-names+
+               (mapcar
+                (lambda (vector)
+                  (fixture-object-field vector "name"))
+                full-vectors)))
     (is (string= "phase-a-sample.json/legacy-eip155-sample"
                  (fixture-object-field (first cases) "name")))
     (is (string= "phase-a-sample.json/legacy-eip155-sample"
@@ -2092,6 +2142,9 @@
     (is (equal summary
                (validate-phase-a-eest-transaction-vector-summary
                 selected-vectors)))
+    (is (equal full-summary
+               (validate-full-eest-transaction-vector-summary
+                full-vectors)))
     (is (equal vectors
                (validate-eest-transaction-seed-alignment
                 vectors
@@ -2113,6 +2166,12 @@
     (signals error
       (validate-phase-a-eest-transaction-vector-summary
        (remove dynamic-fee-vector selected-vectors)))
+    (signals error
+      (validate-full-eest-transaction-vector-summary
+       (remove set-code-vector full-vectors)))
+    (signals error
+      (validate-full-eest-transaction-vector-summary
+       (reverse full-vectors)))
     (signals error
       (validate-phase-a-eest-transaction-target-fork-results
        (list

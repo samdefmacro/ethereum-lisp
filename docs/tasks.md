@@ -240,6 +240,10 @@ ones.
     legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702 vectors against the
     seed envelope fixture by type, chain id, `txbytes`, hash, sender, and
     per-fork result matrix.
+  - Progress: added an explicit full-envelope EEST transaction selector and
+    summary gate. The harness now has a stable all-family selector contract
+    for legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702 cases in addition
+    to the narrower Shanghai Phase A smoke selector.
   - Progress: added transaction fixture result-shape validation. Per-fork
     `result` entries now reject unknown exception tokens, valid entries without
     `intrinsicGas`, invalid entries that carry an `intrinsicGas` field even
