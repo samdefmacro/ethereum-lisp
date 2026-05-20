@@ -188,6 +188,38 @@
       "expectedRoot": "0xb8dcb19c3ff31a94b0c45b05daaa8a2775f8a22756f6142674f419026956e854"
     },
     {
+      "name": "code-update-overwrites-code-hash-root",
+      "tags": ["account-root", "code-root", "code-update", "account-projection"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000109",
+          "balance": 1
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000109",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000109",
+          "code": "0x6002600301"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000109",
+          "nonce": 0,
+          "balance": 1,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0x48abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8",
+          "rlp": "0xf8448001a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a048abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8"
+        }
+      ],
+      "expectedRoot": "0xa71076e81cddb7521d7345f5aa21a0b5781991a366f66861e5faca0a336798ad"
+    },
+    {
       "name": "code-created-account-prunes-to-empty-root",
       "tags": ["code-root", "code-delete", "code-prune"],
       "operations": [

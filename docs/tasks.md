@@ -750,6 +750,9 @@ splits can land after the Phase A smoke path closes.
     Added storage-update state-root coverage that writes the same storage slot
     twice, then asserts the final slot value, storage root projection, account
     RLP, and state root so storage overwrite semantics cannot regress.
+    Added code-update state-root coverage that overwrites non-empty account code
+    and asserts the final code hash, retained code bytes, account RLP, and
+    state root.
     Added shared fixture metadata validation for trie and state-root vectors:
     both wrappers now machine-check the Phase A EEST release `v5.4.0`, tag
     target `88e9fb8`, and `fixtures_stable.tar.gz` archive before consuming
