@@ -744,6 +744,9 @@ splits can land after the Phase A smoke path closes.
     Added a multi-account secure state-root fixture that asserts account nonce,
     balance, storage root, code hash, and account RLP projections alongside the
     final root.
+    Added account-update state-root coverage that replays repeated
+    `setAccount` operations for the same address and asserts the final
+    nonce/balance, empty storage/code commitments, account RLP, and state root.
     Added shared fixture metadata validation for trie and state-root vectors:
     both wrappers now machine-check the Phase A EEST release `v5.4.0`, tag
     target `88e9fb8`, and `fixtures_stable.tar.gz` archive before consuming
