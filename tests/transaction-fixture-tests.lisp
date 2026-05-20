@@ -332,6 +332,8 @@
       (setf (gethash name seen) t))))
 
 (defun load-eest-transaction-test-root-cases (root &key names)
+  (when names
+    (validate-eest-transaction-selector-list names))
   (let ((paths (eest-transaction-test-json-paths root)))
     (unless paths
       (error "EEST transaction test root ~A has no JSON files" root))
@@ -1482,6 +1484,14 @@
       (load-eest-transaction-test-root-cases
        root
        :names '("missing.json")))
+    (signals error
+      (load-eest-transaction-test-root-cases
+       root
+       :names '("")))
+    (signals error
+      (load-eest-transaction-test-root-cases
+       root
+       :names '("phase-a-sample.json" "phase-a-sample.json")))
     (validate-eest-transaction-selector-list
      +phase-a-eest-transaction-test-case-names+)
     (signals error

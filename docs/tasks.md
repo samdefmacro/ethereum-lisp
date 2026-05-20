@@ -390,6 +390,9 @@ ones.
   - Progress: tightened the Phase A transaction subset summary gate to require
     every selected vector to be valid on the target Shanghai fork with an
     explicit `intrinsicGas` result.
+  - Progress: moved EEST transaction selector validation into the generic root
+    loader so direct `:names` usage rejects blank or duplicate selectors before
+    fixture discovery and filtering.
 
 ## P0: Module Boundaries
 
