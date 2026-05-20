@@ -318,6 +318,29 @@
       (signals error
         (state-db-verify-proof (state-db-root state) proof)))))
 
+(deftest state-proof-result-copies-address-and-slot-keys
+  (let* ((state (make-state-db))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000018"))
+         (slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000024"))
+         (address-hex (address-to-hex address))
+         (slot-hex (hash32-to-hex slot)))
+    (state-db-set-account state address
+                          (make-state-account :nonce 6 :balance 4000))
+    (state-db-set-storage state address slot 123)
+    (let* ((proof (state-db-get-proof state address (list slot)))
+           (storage-proof (first (state-proof-result-storage-proofs proof))))
+      (setf (aref (address-bytes address) 19) #x19
+            (aref (hash32-bytes slot) 31) #x25)
+      (is (string= address-hex
+                   (address-to-hex (state-proof-result-address proof))))
+      (is (string= slot-hex
+                   (hash32-to-hex
+                    (state-storage-proof-slot storage-proof))))
+      (is (state-db-verify-proof (state-db-root state) proof)))))
+
 (deftest state-proof-result-verifies-missing-account
   (let* ((state (make-state-db))
          (address (address-from-hex "0x0000000000000000000000000000000000000014"))

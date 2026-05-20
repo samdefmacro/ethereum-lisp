@@ -238,6 +238,12 @@
             (copy-seq (ensure-byte-vector node)))
           proof))
 
+(defun copy-state-proof-address (address)
+  (make-address (copy-seq (address-bytes address))))
+
+(defun copy-state-proof-hash32 (hash)
+  (make-hash32 (copy-seq (hash32-bytes hash))))
+
 (defun account-proof-result-account (result)
   (make-state-account
    :nonce (state-proof-result-nonce result)
@@ -247,7 +253,7 @@
 
 (defun state-storage-proof-for-slot (state address slot)
   (make-state-storage-proof
-   :slot slot
+   :slot (copy-state-proof-hash32 slot)
    :value (state-db-get-storage state address slot)
    :proof (copy-state-proof-nodes
            (state-db-get-storage-proof state address slot))))
@@ -256,11 +262,13 @@
   (let ((account (or (state-db-get-account state address)
                      (make-state-account))))
     (make-state-proof-result
-     :address address
+     :address (copy-state-proof-address address)
      :nonce (state-account-nonce account)
      :balance (state-account-balance account)
-     :storage-root (state-account-storage-root account)
-     :code-hash (state-account-code-hash account)
+     :storage-root (copy-state-proof-hash32
+                    (state-account-storage-root account))
+     :code-hash (copy-state-proof-hash32
+                 (state-account-code-hash account))
      :account-proof (copy-state-proof-nodes
                      (state-db-get-account-proof state address))
      :storage-proofs

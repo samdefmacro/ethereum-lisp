@@ -1113,7 +1113,10 @@ splits can land after the Phase A smoke path closes.
     direct verifier regression that rejects tampered account nonce, balance,
     storage root, and code hash fields when they no longer match the account
     proof RLP node, locking the `eth_getProof` account-result consistency
-    check explicitly. Remaining work: replace the seed proof vectors with
+    check explicitly. Hardened `state-db-get-proof` result construction so
+    account addresses, storage keys, storage roots, and code hashes are copied
+    into the returned proof object instead of sharing caller-owned mutable byte
+    vectors. Remaining work: replace the seed proof vectors with
     transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.
