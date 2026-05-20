@@ -53,6 +53,27 @@
     "secure-key"
     "lookup-assertions"))
 
+(defparameter +trie-fixture-required-case-names+
+  '("single-leaf"
+    "delete-missing-key-keeps-leaf"
+    "duplicate-key-overwrites-leaf-value"
+    "branch-extension-shared-prefix"
+    "extension-embedded-child-reference"
+    "extension-hashed-child-reference"
+    "delete-collapses-path"
+    "delete-last-entry-empty-root"
+    "secure-branch-root"
+    "secure-extension-root"
+    "secure-delete-branch-child-collapses-to-leaf"
+    "secure-single-leaf"
+    "secure-delete-last-entry-empty-root"
+    "root-branch-sparse-children"
+    "root-branch-mixed-child-references"
+    "delete-missing-branch-child-keeps-root-branch"
+    "root-branch-value-for-prefix-key"
+    "delete-root-branch-value-collapses-to-leaf"
+    "delete-root-branch-child-collapses-to-root-value-leaf"))
+
 (defparameter +trie-fixture-required-tags+
   '("leaf-root"
     "branch-root"
@@ -409,6 +430,21 @@
   (validate-trie-fixture-case-coverage cases)
   (dolist (case cases)
     (validate-trie-fixture-case-shape case)))
+
+(defun validate-trie-fixture-required-case-names (cases)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-required-names (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name +trie-fixture-required-case-names+)
+      (when (gethash name seen-required-names)
+        (error "Trie fixture required case list has duplicate name ~A"
+               name))
+      (setf (gethash name seen-required-names) t)
+      (unless (gethash name case-by-name)
+        (error "Trie fixture is missing required seed case ~A"
+               name)))))
 
 (defun eest-trie-test-json-paths (root)
   (let* ((root-path (pathname root))
@@ -1628,7 +1664,18 @@
         (lambda (case)
           (string= "secure-delete-last-entry-empty-root"
                    (fixture-object-field case "name")))
-        cases)))))
+        cases)))
+    (signals error
+      (validate-trie-fixture-required-case-names
+       (remove-if
+        (lambda (case)
+          (string= "root-branch-mixed-child-references"
+                   (fixture-object-field case "name")))
+        cases)))
+    (let ((+trie-fixture-required-case-names+
+            '("single-leaf" "single-leaf")))
+      (signals error
+        (validate-trie-fixture-required-case-names cases)))))
 
 (deftest optional-eest-trie-test-root-discovery
   (with-execution-spec-tests-trie-test-root (root)
@@ -2284,6 +2331,7 @@
          (cases (fixture-object-field fixture "cases")))
     (validate-trie-fixture-metadata fixture)
     (validate-trie-fixture-cases cases)
+    (validate-trie-fixture-required-case-names cases)
     (dolist (case cases)
       (let ((trie (run-trie-fixture-case case)))
         (is (string= (fixture-object-field case "expectedRoot")

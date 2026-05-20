@@ -1252,6 +1252,11 @@ splits can land after the Phase A smoke path closes.
     Added a named seed-case coverage gate for the local state-root fixture set,
     so account, storage, code, prune, update, and multi-account vectors cannot
     silently disappear while still satisfying generic tag coverage.
+    Added the same named seed-case coverage gate to the local trie-vector
+    fixture set, locking the current leaf, branch, extension,
+    child-reference, deletion, branch-value, duplicate-overwrite, and secure
+    replay seed cases before they are replaced or extended with pinned EEST
+    vectors.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
