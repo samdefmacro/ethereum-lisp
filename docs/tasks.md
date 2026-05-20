@@ -1907,7 +1907,7 @@ splits can land after the Phase A smoke path closes.
 
 ## P1: Txpool Beyond Placeholder
 
-- [~] Extract txpool state from the Engine payload memory store.
+- [x] Extract txpool state from the Engine payload memory store.
   - Milestone: 7
   - Dependencies: module split or chain-store boundary.
   - References: geth `core/txpool`, Reth transaction pool subpools.
@@ -1951,6 +1951,12 @@ splits can land after the Phase A smoke path closes.
     boundary. Pending filters still share the log/block filter id table, but
     their per-transaction update logic is no longer embedded in txpool mutation
     plumbing.
+  - Result: complete for the current local-memory txpool scope. Pending hash
+    storage, sender/nonce indexing, mutation, replacement policy, removal,
+    snapshot copying, counts, and RPC views are behind `engine-pending-txpool`
+    helpers or store wrappers that delegate to the txpool object. Pending
+    transaction filters still share the existing log/block filter id table;
+    subscription-compatible lifecycle design remains tracked separately.
 
 - [x] Add sender/nonce keyed txpool indexing.
   - Milestone: 7
