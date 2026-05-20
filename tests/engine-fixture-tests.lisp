@@ -8,7 +8,8 @@
 
 (defparameter +engine-newpayload-v2-smoke-case-names+
   '("shanghai-one-transfer-with-withdrawal"
-    "shanghai-dynamic-fee-transfer-with-withdrawal"))
+    "shanghai-dynamic-fee-transfer-with-withdrawal"
+    "shanghai-contract-creation-with-withdrawal"))
 
 (defparameter +engine-newpayload-v2-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "referenceClients" "cases"))
@@ -52,6 +53,8 @@
     "senderBalance"
     "recipient"
     "recipientBalance"
+    "contractAddress"
+    "contractBalance"
     "withdrawalRecipient"
     "withdrawalBalance"
     "codeAddress"
@@ -299,18 +302,22 @@
                      (fixture-required-field expect "status"))
       (error "~A status must be VALID" label))
     (dolist (field '("sender"
-                     "recipient"
                      "withdrawalRecipient"
                      "codeAddress"
                      "storageAddress"))
       (validate-engine-fixture-address-field expect field label))
+    (dolist (field '("recipient" "contractAddress"))
+      (when (fixture-field-present-p expect field)
+        (validate-engine-fixture-address-field expect field label)))
     (dolist (field '("senderNonce"
                      "senderBalance"
-                     "recipientBalance"
                      "withdrawalBalance"
                      "receiptType"
                      "receiptStatus"))
       (validate-engine-fixture-quantity-field expect field label))
+    (dolist (field '("recipientBalance" "contractBalance"))
+      (when (fixture-field-present-p expect field)
+        (validate-engine-fixture-quantity-field expect field label)))
     (validate-engine-fixture-code-field expect "code" label)
     (handler-case
         (hash32-from-hex (fixture-required-field expect "storageKey"))
@@ -374,18 +381,61 @@
            (parent-state (engine-fixture-parent-state parent)))
       (unless sender
         (error "~A sender recovery failed" label))
-      (unless recipient
-        (error "~A transaction recipient must be present" label))
       (assert-engine-fixture-address=
        (fixture-address-field expect "sender")
        sender
        label
        "sender")
-      (assert-engine-fixture-address=
-       (fixture-address-field expect "recipient")
-       recipient
-       label
-       "recipient")
+      (if recipient
+          (progn
+            (unless (fixture-field-present-p expect "recipient")
+              (error "~A recipient must be present for transfer transactions"
+                     label))
+            (unless (fixture-field-present-p expect "recipientBalance")
+              (error "~A recipientBalance must be present for transfer transactions"
+                     label))
+            (when (fixture-field-present-p expect "contractAddress")
+              (error "~A contractAddress must be absent for transfer transactions"
+                     label))
+            (assert-engine-fixture-address=
+             (fixture-address-field expect "recipient")
+             recipient
+             label
+             "recipient")
+            (assert-engine-fixture-quantity=
+             (fixture-quantity-field expect "recipientBalance")
+             (+ (fixture-account-balance parent-state recipient)
+                (transaction-value transaction))
+             label
+             "recipientBalance"))
+          (let ((contract-address
+                  (make-address
+                   (subseq
+                    (keccak-256
+                     (rlp-encode
+                      (make-rlp-list (address-bytes sender)
+                                     (transaction-nonce transaction))))
+                    12 32))))
+            (unless (fixture-field-present-p expect "contractAddress")
+              (error "~A contractAddress must be present for contract creation"
+                     label))
+            (unless (fixture-field-present-p expect "contractBalance")
+              (error "~A contractBalance must be present for contract creation"
+                     label))
+            (when (fixture-field-present-p expect "recipient")
+              (error "~A recipient must be absent for contract creation"
+                     label))
+            (assert-engine-fixture-address=
+             (fixture-address-field expect "contractAddress")
+             contract-address
+             label
+             "contractAddress")
+            (assert-engine-fixture-quantity=
+             (fixture-quantity-field expect "contractBalance")
+             (+ (fixture-account-balance parent-state contract-address)
+                (transaction-value transaction))
+             label
+             "contractBalance")))
       (assert-engine-fixture-address=
        (fixture-address-field expect "withdrawalRecipient")
        (fixture-address-field withdrawal "address")
@@ -403,12 +453,6 @@
          label
          "senderNonce"))
       (assert-engine-fixture-quantity=
-       (fixture-quantity-field expect "recipientBalance")
-       (+ (fixture-account-balance parent-state recipient)
-          (transaction-value transaction))
-       label
-       "recipientBalance")
-      (assert-engine-fixture-quantity=
        (fixture-quantity-field expect "withdrawalBalance")
        (+ (fixture-account-balance
            parent-state
@@ -416,15 +460,16 @@
           (* (fixture-quantity-field withdrawal "amount") +wei-per-gwei+))
        label
        "withdrawalBalance")
-      (assert-engine-fixture-quantity=
-       (fixture-quantity-field expect "senderBalance")
-       (- (fixture-account-balance parent-state sender)
-          (transaction-value transaction)
-          (* (transaction-intrinsic-gas transaction)
-             (transaction-effective-gas-price transaction
-                                              :base-fee base-fee)))
-       label
-       "senderBalance")
+      (when recipient
+        (assert-engine-fixture-quantity=
+         (fixture-quantity-field expect "senderBalance")
+         (- (fixture-account-balance parent-state sender)
+            (transaction-value transaction)
+            (* (transaction-intrinsic-gas transaction)
+               (transaction-effective-gas-price transaction
+                                                :base-fee base-fee)))
+         label
+         "senderBalance"))
       (assert-engine-fixture-quantity=
        (fixture-quantity-field expect "receiptType")
        (transaction-type transaction)
@@ -895,7 +940,15 @@
                (mapcar #'engine-fixture-withdrawal
                        (fixture-object-field payload-case "withdrawals")))
              (sender (fixture-address-field expect "sender"))
-             (recipient (fixture-address-field expect "recipient"))
+             (recipient
+               (when (fixture-field-present-p expect "recipient")
+                 (fixture-address-field expect "recipient")))
+             (contract-address
+               (when (fixture-field-present-p expect "contractAddress")
+                 (fixture-address-field expect "contractAddress")))
+             (value-address (or recipient contract-address))
+             (value-balance-field
+               (if recipient "recipientBalance" "contractBalance"))
              (withdrawal-recipient
                (fixture-address-field expect "withdrawalRecipient"))
              (code-address (fixture-address-field expect "codeAddress"))
@@ -992,9 +1045,9 @@
                  (chain-store-account-balance
                   store (block-hash child-block) sender)))
           (is (= (hex-to-quantity
-                  (fixture-object-field expect "recipientBalance"))
+                  (fixture-object-field expect value-balance-field))
                  (chain-store-account-balance
-                  store (block-hash child-block) recipient)))
+                  store (block-hash child-block) value-address)))
           (is (= (hex-to-quantity
                   (fixture-object-field expect "withdrawalBalance"))
                  (chain-store-account-balance
@@ -1032,7 +1085,7 @@
                (receipt (field receipt-response "result"))
                (recipient-balance-response
                  (engine-rpc-handle-request
-                  (engine-fixture-balance-request 104 recipient)
+                  (engine-fixture-balance-request 104 value-address)
                   store config))
                (withdrawal-balance-response
                  (engine-rpc-handle-request
@@ -1150,9 +1203,18 @@
                        (field receipt "type")))
           (is (string= (fixture-object-field expect "receiptStatus")
                        (field receipt "status")))
+          (if recipient
+              (progn
+                (is (null (field receipt "contractAddress")))
+                (is (string= (address-to-hex recipient)
+                             (field receipt "to"))))
+              (progn
+                (is (string= (address-to-hex contract-address)
+                             (field receipt "contractAddress")))
+                (is (null (field receipt "to")))))
           (is (string= (quantity-to-hex
                         (hex-to-quantity
-                         (fixture-object-field expect "recipientBalance")))
+                         (fixture-object-field expect value-balance-field)))
                        (field recipient-balance-response "result")))
           (is (string= (quantity-to-hex
                         (hex-to-quantity
@@ -1192,8 +1254,10 @@
                        (field full-block-transaction "transactionIndex")))
           (is (string= (address-to-hex sender)
                        (field full-block-transaction "from")))
-          (is (string= (address-to-hex recipient)
-                       (field full-block-transaction "to")))
+          (if recipient
+              (is (string= (address-to-hex recipient)
+                           (field full-block-transaction "to")))
+              (is (null (field full-block-transaction "to"))))
           (is (string= (quantity-to-hex 1)
                        (field transaction-count-by-number-response "result")))
           (is (string= (quantity-to-hex 1)
@@ -1209,8 +1273,10 @@
                        (field transaction-by-block "hash")))
           (is (string= (address-to-hex sender)
                        (field transaction-by-block "from")))
-          (is (string= (address-to-hex recipient)
-                       (field transaction-by-block "to")))
+          (if recipient
+              (is (string= (address-to-hex recipient)
+                           (field transaction-by-block "to")))
+              (is (null (field transaction-by-block "to"))))
           (is (string= (field transaction-by-block "hash")
                        (field transaction-by-hash "hash")))
           (is (string= (field transaction-by-block "blockHash")

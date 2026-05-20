@@ -788,6 +788,11 @@ splits can land after the Phase A smoke path closes.
     dynamic-fee transfer with withdrawal. The same executable import,
     forkchoice, public RPC, side-chain, branch-switch, and checkpoint-tag
     assertions now run against both fixture cases.
+  - Progress: expanded the Engine `newPayloadV2` fixture smoke with a
+    Shanghai contract-creation transaction. The fixture validator now handles
+    recipient-versus-contract expectations, and the smoke asserts
+    `contractAddress` / null `to` receipt shape plus canonical visibility
+    through the same branch-switch path.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
