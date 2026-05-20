@@ -1464,6 +1464,12 @@ splits can land after the Phase A smoke path closes.
     account. The vector locks geth-compatible input normalization: the request
     may omit `0x`, while the returned `storageProof.key` remains canonical
     fixed DATA in the geth-shaped result.
+  - Progress: tightened `eth_getProof` RPC storage-key normalization tests.
+    The public RPC path now locks short quantity keys, prefixless short keys,
+    uppercase `0X` keys, and prefixless 32-byte keys in one retained-state
+    proof response, including the geth-shaped distinction between quantity
+    output keys for short inputs and fixed DATA output keys for full-width
+    inputs.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

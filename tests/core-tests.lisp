@@ -7605,7 +7605,9 @@
                   "\"params\":[\"" (address-to-hex address)
                   "\",[\"0x7\",\""
                   (hash32-to-hex missing-slot)
-                  "\",\"7\"],\"0x1c\"]}")
+                  "\",\"7\",\""
+                  (subseq (hash32-to-hex slot) 2)
+                  "\",\"0X7\"],\"0x1c\"]}")
                  store
                  config)))
              (empty-account-response
@@ -7671,6 +7673,8 @@
              (first-storage (first storage-proofs))
              (second-storage (second storage-proofs))
              (third-storage (third storage-proofs))
+             (fourth-storage (fourth storage-proofs))
+             (fifth-storage (fifth storage-proofs))
              (empty-proof (field empty-account-response "result"))
              (invalid-storage-keys-error
                (field invalid-storage-keys-response "error"))
@@ -7687,7 +7691,7 @@
                      (field proof "codeHash")))
         (is (listp (field proof "accountProof")))
         (is (every #'stringp (field proof "accountProof")))
-        (is (= 3 (length storage-proofs)))
+        (is (= 5 (length storage-proofs)))
         (is (string= (quantity-to-hex 7) (field first-storage "key")))
         (is (string= (quantity-to-hex #x2a)
                      (field first-storage "value")))
@@ -7700,6 +7704,13 @@
         (is (string= (quantity-to-hex 7) (field third-storage "key")))
         (is (string= (quantity-to-hex #x2a)
                      (field third-storage "value")))
+        (is (string= (hash32-to-hex slot) (field fourth-storage "key")))
+        (is (string= (quantity-to-hex #x2a)
+                     (field fourth-storage "value")))
+        (is (every #'stringp (field fourth-storage "proof")))
+        (is (string= (quantity-to-hex 7) (field fifth-storage "key")))
+        (is (string= (quantity-to-hex #x2a)
+                     (field fifth-storage "value")))
         (is (string= (address-to-hex empty-address)
                      (field empty-proof "address")))
         (is (string= (quantity-to-hex 0)
