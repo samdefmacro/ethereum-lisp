@@ -341,6 +341,25 @@
                     (state-storage-proof-slot storage-proof))))
       (is (state-db-verify-proof (state-db-root state) proof)))))
 
+(deftest state-proof-result-remains-bound-to-original-root
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000019"))
+        (slot (hash32-from-hex
+               "0x0000000000000000000000000000000000000000000000000000000000000026")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 7 :balance 5000))
+    (state-db-set-code state address #(96 1 96 0 85))
+    (state-db-set-storage state address slot 321)
+    (let ((root (state-db-root state))
+          (proof (state-db-get-proof state address (list slot))))
+      (state-db-set-code state address #(96 2 96 0 85))
+      (state-db-set-storage state address slot 654)
+      (is (not (bytes= (hash32-bytes root)
+                       (hash32-bytes (state-db-root state)))))
+      (is (state-db-verify-proof root proof))
+      (signals error
+        (state-db-verify-proof (state-db-root state) proof)))))
+
 (deftest state-proof-result-verifies-missing-account
   (let* ((state (make-state-db))
          (address (address-from-hex "0x0000000000000000000000000000000000000014"))

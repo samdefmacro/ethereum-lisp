@@ -1120,7 +1120,10 @@ splits can land after the Phase A smoke path closes.
     check explicitly. Hardened `state-db-get-proof` result construction so
     account addresses, storage keys, storage roots, and code hashes are copied
     into the returned proof object instead of sharing caller-owned mutable byte
-    vectors. Remaining work: replace the seed proof vectors with
+    vectors. Added a direct snapshot regression proving that a generated proof
+    remains valid against its original state root after later state mutation,
+    while failing against the mutated root. Remaining work: replace the seed
+    proof vectors with
     transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.
