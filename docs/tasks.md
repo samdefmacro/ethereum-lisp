@@ -779,6 +779,10 @@ splits can land after the Phase A smoke path closes.
     sibling payload and back again; `latest`, canonical number indexes,
     transaction-by-hash, and receipt visibility now follow the selected branch
     while non-canonical blocks remain hash-retrievable.
+  - Progress: added fixture-driven safe/finalized checkpoint assertions to the
+    same branch-switch smoke. Forkchoice now carries the parent as both safe
+    and finalized while switching heads, and public `safe` / `finalized` block
+    tags are checked against that ancestor.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

@@ -551,7 +551,8 @@
         (cons "params"
               (list (engine-rpc-executable-data-object payload)))))
 
-(defun engine-fixture-forkchoice-request (id head)
+(defun engine-fixture-forkchoice-request
+    (id head &key (safe (zero-hash32)) (finalized (zero-hash32)))
   (list (cons "jsonrpc" "2.0")
         (cons "id" id)
         (cons "method" "engine_forkchoiceUpdatedV1")
@@ -559,9 +560,8 @@
               (list
                (list
                 (cons "headBlockHash" (hash32-to-hex head))
-                (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
-                (cons "finalizedBlockHash"
-                      (hash32-to-hex (zero-hash32))))))))
+                (cons "safeBlockHash" (hash32-to-hex safe))
+                (cons "finalizedBlockHash" (hash32-to-hex finalized)))))))
 
 (defun engine-fixture-balance-request (id address)
   (list (cons "jsonrpc" "2.0")
@@ -1012,7 +1012,9 @@
         (let* ((forkchoice-response
                  (engine-rpc-handle-request
                   (engine-fixture-forkchoice-request
-                   102 (block-hash child-block))
+                   102 (block-hash child-block)
+                   :safe (block-hash parent-block)
+                   :finalized (block-hash parent-block))
                   store config))
                (forkchoice-result
                  (field forkchoice-response "result"))
@@ -1046,6 +1048,18 @@
                   store config))
                (block-by-number
                  (field block-by-number-response "result"))
+               (safe-block-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-block-by-number-request 130 "safe" nil)
+                  store config))
+               (safe-block
+                 (field safe-block-response "result"))
+               (finalized-block-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-block-by-number-request 131 "finalized" nil)
+                  store config))
+               (finalized-block
+                 (field finalized-block-response "result"))
                (full-block-response
                  (engine-rpc-handle-request
                   (engine-fixture-block-by-number-request 109 "latest" t)
@@ -1141,6 +1155,10 @@
                        (field storage-response "result")))
           (is (string= (hash32-to-hex (block-hash child-block))
                        (field block-by-number "hash")))
+          (is (string= (hash32-to-hex (block-hash parent-block))
+                       (field safe-block "hash")))
+          (is (string= (hash32-to-hex (block-hash parent-block))
+                       (field finalized-block "hash")))
           (is (string= (quantity-to-hex
                         (block-header-number (block-header child-block)))
                        (field block-by-number "number")))
@@ -1191,7 +1209,9 @@
           (let* ((side-forkchoice-response
                    (engine-rpc-handle-request
                     (engine-fixture-forkchoice-request
-                     119 (block-hash side-block))
+                     119 (block-hash side-block)
+                     :safe (block-hash parent-block)
+                     :finalized (block-hash parent-block))
                     store config))
                  (side-forkchoice-result
                    (field side-forkchoice-response "result"))
@@ -1203,6 +1223,12 @@
                     store config))
                  (side-latest
                    (field side-latest-response "result"))
+                 (side-safe-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-block-by-number-request 132 "safe" nil)
+                    store config))
+                 (side-safe
+                   (field side-safe-response "result"))
                  (side-latest-count-response
                    (engine-rpc-handle-request
                     (engine-fixture-transaction-count-by-number-request
@@ -1239,6 +1265,8 @@
                             (block-header side-block))))))
             (is (string= (hash32-to-hex (block-hash side-block))
                          (field side-latest "hash")))
+            (is (string= (hash32-to-hex (block-hash parent-block))
+                         (field side-safe "hash")))
             (is (string= (quantity-to-hex 0)
                          (field side-latest-count-response "result")))
             (is (null (field side-latest-raw-response "result")))
@@ -1249,7 +1277,9 @@
           (let* ((child-forkchoice-response
                    (engine-rpc-handle-request
                     (engine-fixture-forkchoice-request
-                     126 (block-hash child-block))
+                     126 (block-hash child-block)
+                     :safe (block-hash parent-block)
+                     :finalized (block-hash parent-block))
                     store config))
                  (child-forkchoice-result
                    (field child-forkchoice-response "result"))
