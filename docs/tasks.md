@@ -917,6 +917,9 @@ splits can land after the Phase A smoke path closes.
     the Phase A EEST subset gate so both secure and plain selections must
     include non-empty final roots, not only write/delete operations that net
     back to the empty trie.
+    Expanded the selected plain EEST-style trie cases with branch-root and
+    shared-prefix extension-root vectors, and made the Phase A subset summary
+    replay root shapes so branch and extension coverage cannot silently drop.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
