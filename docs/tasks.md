@@ -456,6 +456,9 @@ ones.
   - Progress: tightened EEST transaction selector source-style validation to
     reject doubled path separators, keeping selected names aligned with
     normalized relative fixture paths before root filtering.
+  - Progress: tightened the Phase A EEST transaction subset summary gate so
+    non-list vector inputs fail before summary construction, preserving a clear
+    boundary for direct pinned-subset validator calls.
 
 ## P0: Module Boundaries
 

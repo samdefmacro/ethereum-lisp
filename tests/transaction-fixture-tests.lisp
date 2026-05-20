@@ -633,6 +633,8 @@
 (defun validate-phase-a-eest-transaction-vector-summary (vectors)
   (validate-eest-transaction-selector-list
    +phase-a-eest-transaction-test-case-names+)
+  (unless (listp vectors)
+    (error "Phase A EEST transaction vectors must be a list"))
   (let* ((summary (transaction-fixture-vector-summary vectors))
          (count (fixture-required-field summary "count"))
          (names (fixture-required-field summary "names"))
@@ -1679,6 +1681,9 @@
     (signals error
       (validate-phase-a-eest-transaction-vector-summary
        (reverse selected-vectors)))
+    (signals error
+      (validate-phase-a-eest-transaction-vector-summary
+       "phase-a-vectors"))
     (signals error
       (validate-phase-a-eest-transaction-vector-summary
        (remove dynamic-fee-vector selected-vectors)))
