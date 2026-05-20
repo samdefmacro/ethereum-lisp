@@ -496,6 +496,48 @@
         (cons "method" "eth_getBalance")
         (cons "params" (list (address-to-hex address) "latest"))))
 
+(defun engine-fixture-block-by-number-request (id tag full-transactions-p)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getBlockByNumber")
+        (cons "params" (list tag full-transactions-p))))
+
+(defun engine-fixture-block-by-hash-request (id hash full-transactions-p)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getBlockByHash")
+        (cons "params" (list (hash32-to-hex hash) full-transactions-p))))
+
+(defun engine-fixture-transaction-count-by-number-request (id tag)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getBlockTransactionCountByNumber")
+        (cons "params" (list tag))))
+
+(defun engine-fixture-transaction-count-by-hash-request (id hash)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getBlockTransactionCountByHash")
+        (cons "params" (list (hash32-to-hex hash)))))
+
+(defun engine-fixture-raw-transaction-by-block-number-request (id tag index)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getRawTransactionByBlockNumberAndIndex")
+        (cons "params" (list tag (quantity-to-hex index)))))
+
+(defun engine-fixture-transaction-by-block-hash-request (id hash index)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getTransactionByBlockHashAndIndex")
+        (cons "params" (list (hash32-to-hex hash) (quantity-to-hex index)))))
+
+(defun engine-fixture-transaction-by-hash-request (id hash)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getTransactionByHash")
+        (cons "params" (list (hash32-to-hex hash)))))
+
 (defun engine-fixture-receipt-request (id hash)
   (list (cons "jsonrpc" "2.0")
         (cons "id" id)
@@ -850,6 +892,56 @@
                  (engine-rpc-handle-request
                   (engine-fixture-balance-request 105 withdrawal-recipient)
                   store config))
+               (block-by-number-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-block-by-number-request 106 "latest" nil)
+                  store config))
+               (block-by-number
+                 (field block-by-number-response "result"))
+               (full-block-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-block-by-number-request 107 "latest" t)
+                  store config))
+               (full-block
+                 (field full-block-response "result"))
+               (full-block-transaction
+                 (first (field full-block "transactions")))
+               (block-by-hash-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-block-by-hash-request
+                   108 (block-hash child-block) nil)
+                  store config))
+               (block-by-hash
+                 (field block-by-hash-response "result"))
+               (transaction-count-by-number-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-transaction-count-by-number-request
+                   109 "latest")
+                  store config))
+               (transaction-count-by-hash-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-transaction-count-by-hash-request
+                   110 (block-hash child-block))
+                  store config))
+               (raw-transaction-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-raw-transaction-by-block-number-request
+                   111 "latest" 0)
+                  store config))
+               (transaction-by-block-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-transaction-by-block-hash-request
+                   112 (block-hash child-block) 0)
+                  store config))
+               (transaction-by-block
+                 (field transaction-by-block-response "result"))
+               (transaction-by-hash-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-transaction-by-hash-request
+                   113 transaction-hash)
+                  store config))
+               (transaction-by-hash
+                 (field transaction-by-hash-response "result"))
                (receipts
                  (chain-store-block-receipts
                   store (block-hash child-block)))
@@ -882,4 +974,44 @@
           (is (string= (quantity-to-hex
                         (hex-to-quantity
                          (fixture-object-field expect "withdrawalBalance")))
-                       (field withdrawal-balance-response "result"))))))))
+                       (field withdrawal-balance-response "result")))
+          (is (string= (hash32-to-hex (block-hash child-block))
+                       (field block-by-number "hash")))
+          (is (string= (quantity-to-hex
+                        (block-header-number (block-header child-block)))
+                       (field block-by-number "number")))
+          (is (equal (list (hash32-to-hex transaction-hash))
+                     (field block-by-number "transactions")))
+          (is (string= (field block-by-number "hash")
+                       (field block-by-hash "hash")))
+          (is (string= (hash32-to-hex transaction-hash)
+                       (field full-block-transaction "hash")))
+          (is (string= (field block-by-number "hash")
+                       (field full-block-transaction "blockHash")))
+          (is (string= (field block-by-number "number")
+                       (field full-block-transaction "blockNumber")))
+          (is (string= (quantity-to-hex 0)
+                       (field full-block-transaction "transactionIndex")))
+          (is (string= (address-to-hex sender)
+                       (field full-block-transaction "from")))
+          (is (string= (address-to-hex recipient)
+                       (field full-block-transaction "to")))
+          (is (string= (quantity-to-hex 1)
+                       (field transaction-count-by-number-response "result")))
+          (is (string= (quantity-to-hex 1)
+                       (field transaction-count-by-hash-response "result")))
+          (is (string= (bytes-to-hex
+                        (transaction-encoding (first transactions)))
+                       (field raw-transaction-response "result")))
+          (is (string= (field block-by-number "hash")
+                       (field transaction-by-block "blockHash")))
+          (is (string= (hash32-to-hex transaction-hash)
+                       (field transaction-by-block "hash")))
+          (is (string= (address-to-hex sender)
+                       (field transaction-by-block "from")))
+          (is (string= (address-to-hex recipient)
+                       (field transaction-by-block "to")))
+          (is (string= (field transaction-by-block "hash")
+                       (field transaction-by-hash "hash")))
+          (is (string= (field transaction-by-block "blockHash")
+                       (field transaction-by-hash "blockHash"))))))))

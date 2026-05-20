@@ -758,7 +758,12 @@ splits can land after the Phase A smoke path closes.
   - Progress: added expectation coherence checks for the one-transfer Engine
     smoke fixture. Expected sender, nonce, recipient, balances, withdrawal
     credit, and typed receipt fields are now derived from the decoded
-    transaction, parent state, and withdrawal entry before replay.
+    transaction, parent state, and withdrawal list before fixture replay.
+  - Progress: extended the fixture-driven `engine_newPayloadV2` smoke after
+    forkchoice with canonical public RPC reads: `eth_getBlockByNumber`,
+    `eth_getBlockByHash`, block transaction counts, raw transaction by block,
+    transaction-by-block, and transaction-by-hash now all assert the imported
+    block and transaction are visible through the canonical `latest` view.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
