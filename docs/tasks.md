@@ -965,9 +965,11 @@ splits can land after the Phase A smoke path closes.
     accounts, missing accounts, present storage, and missing storage. Added a
     multi-storage fixture case that proves two present storage slots and one
     missing slot for the same account, and tightened the required fixture tags
-    so multi-present-storage proof replay cannot silently drop. Remaining work:
-    replace the seed proof vectors with transcribed geth proof workload output
-    or pinned execution-spec-tests proof fixtures once available.
+    so multi-present-storage proof replay cannot silently drop. Added a direct
+    verifier regression that checks multiple storage proof entries together and
+    rejects tampered storage values or account-bound storage roots. Remaining
+    work: replace the seed proof vectors with transcribed geth proof workload
+    output or pinned execution-spec-tests proof fixtures once available.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

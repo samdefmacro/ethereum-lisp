@@ -260,6 +260,36 @@
       (signals error
         (state-db-verify-proof (state-db-root state) proof)))))
 
+(deftest state-proof-result-verifies-multiple-storage-proofs-together
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x0000000000000000000000000000000000000016"))
+        (slot-a (hash32-from-hex
+                 "0x0000000000000000000000000000000000000000000000000000000000000020"))
+        (slot-b (hash32-from-hex
+                 "0x0000000000000000000000000000000000000000000000000000000000000021"))
+        (missing-slot (hash32-from-hex
+                       "0x0000000000000000000000000000000000000000000000000000000000000022")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 4 :balance 2000))
+    (state-db-set-storage state address slot-a 111)
+    (state-db-set-storage state address slot-b 222)
+    (let* ((proof (state-db-get-proof state address
+                                      (list slot-a slot-b missing-slot)))
+           (storage-proofs (state-proof-result-storage-proofs proof))
+           (slot-b-proof (second storage-proofs)))
+      (is (= 3 (length storage-proofs)))
+      (is (= 111 (state-storage-proof-value (first storage-proofs))))
+      (is (= 222 (state-storage-proof-value slot-b-proof)))
+      (is (= 0 (state-storage-proof-value (third storage-proofs))))
+      (is (state-db-verify-proof (state-db-root state) proof))
+      (setf (state-storage-proof-value slot-b-proof) 223)
+      (signals error
+        (state-db-verify-proof (state-db-root state) proof))
+      (setf (state-storage-proof-value slot-b-proof) 222)
+      (setf (state-proof-result-storage-root proof) +empty-trie-hash+)
+      (signals error
+        (state-db-verify-proof (state-db-root state) proof)))))
+
 (deftest state-proof-result-verifies-missing-account
   (let* ((state (make-state-db))
          (address (address-from-hex "0x0000000000000000000000000000000000000014"))
