@@ -4,30 +4,11 @@
 (defconstant +initial-base-fee+ 1000000000)
 (defconstant +base-fee-elasticity-multiplier+ 2)
 (defconstant +base-fee-change-denominator+ 8)
-(defconstant +blob-gas-per-blob+ 131072)
 (defconstant +blob-byte-size+ +blob-gas-per-blob+)
 (defconstant +kzg-proof-size+ +kzg-commitment-size+)
 (defconstant +cell-proofs-per-blob+ 128)
-(defconstant +target-blobs-per-block+ 3)
-(defconstant +max-blobs-per-block+ 6)
-(defconstant +osaka-target-blobs-per-block+ 6)
-(defconstant +osaka-max-blobs-per-block+ 9)
-(defconstant +bpo1-target-blobs-per-block+ 10)
-(defconstant +bpo1-max-blobs-per-block+ 15)
-(defconstant +bpo2-target-blobs-per-block+ 14)
-(defconstant +bpo2-max-blobs-per-block+ 21)
-(defconstant +bpo3-target-blobs-per-block+ 21)
-(defconstant +bpo3-max-blobs-per-block+ 32)
-(defconstant +bpo4-target-blobs-per-block+ 14)
-(defconstant +bpo4-max-blobs-per-block+ 21)
 (defconstant +min-blobs-per-transaction+ 1)
 (defconstant +min-blob-gas-price+ 1)
-(defconstant +blob-base-fee-update-fraction+ 3338477)
-(defconstant +osaka-blob-base-fee-update-fraction+ 5007716)
-(defconstant +bpo1-blob-base-fee-update-fraction+ 8346193)
-(defconstant +bpo2-blob-base-fee-update-fraction+ 11684671)
-(defconstant +bpo3-blob-base-fee-update-fraction+ 20609697)
-(defconstant +bpo4-blob-base-fee-update-fraction+ 13739630)
 (defconstant +blob-base-cost+ 8192)
 (defconstant +maximum-extra-data-size+ 32)
 (defconstant +gas-limit-bound-divisor+ 1024)
@@ -48,11 +29,6 @@
   (nonce 0 :type (integer 0 *))
   (code (make-byte-vector 0) :type byte-vector)
   (storage nil :type list))
-
-(defun blob-schedule-values (target-blobs max-blobs update-fraction)
-  (values (* target-blobs +blob-gas-per-blob+)
-          (* max-blobs +blob-gas-per-blob+)
-          update-fraction))
 
 (defun validate-blob-schedule-entry (entry)
   (unless (typep entry 'blob-schedule-entry)
@@ -867,39 +843,6 @@
            (blob-schedule-values +target-blobs-per-block+
                                  +max-blobs-per-block+
                                  +blob-base-fee-update-fraction+))))))
-
-(defun chain-rules-blob-schedule (rules)
-  (if (and (chain-rules-blob-schedule-target-gas rules)
-           (chain-rules-blob-schedule-max-gas rules)
-           (chain-rules-blob-schedule-update-fraction rules))
-      (values (chain-rules-blob-schedule-target-gas rules)
-              (chain-rules-blob-schedule-max-gas rules)
-              (chain-rules-blob-schedule-update-fraction rules))
-      (cond
-        ((chain-rules-bpo4-p rules)
-         (blob-schedule-values +bpo4-target-blobs-per-block+
-                               +bpo4-max-blobs-per-block+
-                               +bpo4-blob-base-fee-update-fraction+))
-        ((chain-rules-bpo3-p rules)
-         (blob-schedule-values +bpo3-target-blobs-per-block+
-                               +bpo3-max-blobs-per-block+
-                               +bpo3-blob-base-fee-update-fraction+))
-        ((chain-rules-bpo2-p rules)
-         (blob-schedule-values +bpo2-target-blobs-per-block+
-                               +bpo2-max-blobs-per-block+
-                               +bpo2-blob-base-fee-update-fraction+))
-        ((chain-rules-bpo1-p rules)
-         (blob-schedule-values +bpo1-target-blobs-per-block+
-                               +bpo1-max-blobs-per-block+
-                               +bpo1-blob-base-fee-update-fraction+))
-        ((chain-rules-expanded-blob-schedule-p rules)
-         (blob-schedule-values +osaka-target-blobs-per-block+
-                               +osaka-max-blobs-per-block+
-                               +osaka-blob-base-fee-update-fraction+))
-        (t
-         (blob-schedule-values +target-blobs-per-block+
-                               +max-blobs-per-block+
-                               +blob-base-fee-update-fraction+)))))
 
 (defun ensure-uint256 (value label)
   (unless (uint256-p value)

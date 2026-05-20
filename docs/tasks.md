@@ -445,6 +445,10 @@ splits can land after the Phase A smoke path closes.
     per-block fork-rule snapshot constructor now lives with the chain-rules
     structure and activation predicates. Blob schedule selection and genesis
     config parsing remain in `core.lisp` for follow-up slices.
+  - Progress: moved blob schedule constants, `blob-schedule-values`, and
+    `chain-rules-blob-schedule` into `src/chain-config.lisp`, keeping default
+    blob schedule derivation with the fork-rule snapshot. Custom schedule
+    validation/selection and genesis parsing remain in `core.lisp`.
 
 - [ ] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
   `src/core.lisp`.
