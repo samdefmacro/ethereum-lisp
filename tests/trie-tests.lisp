@@ -522,9 +522,15 @@
     trie))
 
 (defun assert-eest-trie-test-case-root (case)
-  (let ((trie (run-eest-trie-test-case case)))
-    (is (string= (fixture-required-field case "root")
-                 (mpt-root-hex trie)))
+  (let* ((trie (run-eest-trie-test-case case))
+         (name (fixture-required-field case "name"))
+         (expected-root (fixture-required-field case "root"))
+         (actual-root (mpt-root-hex trie)))
+    (unless (string= expected-root actual-root)
+      (error "EEST trie test case ~A root mismatch: expected ~A, got ~A"
+             name
+             expected-root
+             actual-root))
     trie))
 
 (defun validate-eest-trie-test-file-case-names (cases source)
@@ -1127,6 +1133,19 @@
     (is (fixture-object-field delete-entry "delete"))
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
+  (is (handler-case
+          (progn
+            (assert-eest-trie-test-case-root
+             (normalize-eest-trie-test-case
+              "wrong-root-message"
+              (list (cons "in" (list (list "dog" "puppy")))
+                    (cons "root"
+                          "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+            nil)
+        (error (condition)
+          (not (null
+                (search "EEST trie test case wrong-root-message root mismatch"
+                        (princ-to-string condition)))))))
   (signals error
     (normalize-eest-trie-test-case
      "missing-root"

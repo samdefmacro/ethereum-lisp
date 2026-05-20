@@ -848,6 +848,9 @@ splits can land after the Phase A smoke path closes.
     lower-level hex/hash error.
     Added EEST trie-test `in` entry indexes to adapter errors, so malformed
     key/value pairs in long pinned vectors identify the exact failing entry.
+    Added case-specific EEST trie-test replay mismatch errors that report the
+    failing case name plus expected and actual roots instead of a generic
+    assertion failure.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
