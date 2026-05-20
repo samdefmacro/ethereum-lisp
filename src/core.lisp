@@ -2844,6 +2844,26 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (remhash key (engine-pending-txpool-transactions txpool)))
     transaction))
 
+(defun engine-pending-txpool-replacement-price-bumped-p
+    (old-transaction new-transaction price-function)
+  (let ((old-price (funcall price-function old-transaction))
+        (new-price (funcall price-function new-transaction)))
+    (>= (* new-price 100)
+        (* old-price
+           (+ 100 +txpool-replacement-price-bump-percent+)))))
+
+(defun engine-pending-txpool-replacement-transaction-p
+    (old-transaction new-transaction)
+  (and
+   (engine-pending-txpool-replacement-price-bumped-p
+    old-transaction
+    new-transaction
+    #'transaction-max-fee-per-gas)
+   (engine-pending-txpool-replacement-price-bumped-p
+    old-transaction
+    new-transaction
+    #'transaction-max-priority-fee-per-gas)))
+
 (defun engine-pending-txpool-put-pending-transaction
     (txpool transaction)
   (let ((key (engine-payload-store-key (transaction-hash transaction)))
@@ -2856,7 +2876,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    txpool
                    transaction)))
             (when conflict
-              (unless (engine-payload-store-replacement-transaction-p
+              (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction)
                 (block-validation-fail
                  "Pending transaction replacement underpriced"))
@@ -2934,23 +2954,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-replacement-price-bumped-p
     (old-transaction new-transaction price-function)
-  (let ((old-price (funcall price-function old-transaction))
-        (new-price (funcall price-function new-transaction)))
-    (>= (* new-price 100)
-        (* old-price
-           (+ 100 +txpool-replacement-price-bump-percent+)))))
+  (engine-pending-txpool-replacement-price-bumped-p
+   old-transaction
+   new-transaction
+   price-function))
 
 (defun engine-payload-store-replacement-transaction-p
     (old-transaction new-transaction)
-  (and
-   (engine-payload-store-replacement-price-bumped-p
-    old-transaction
-    new-transaction
-    #'transaction-max-fee-per-gas)
-   (engine-payload-store-replacement-price-bumped-p
-    old-transaction
-    new-transaction
-    #'transaction-max-priority-fee-per-gas)))
+  (engine-pending-txpool-replacement-transaction-p
+   old-transaction
+   new-transaction))
 
 (defun engine-payload-store-index-pending-transaction (store transaction)
   (engine-pending-txpool-index-pending-transaction

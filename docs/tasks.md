@@ -1937,6 +1937,11 @@ splits can land after the Phase A smoke path closes.
     `engine-pending-txpool` helpers, leaving store-named compatibility wrappers
     as thin forwards. Txpool mutation and indexing code no longer depends on
     store-named key helpers.
+  - Progress: moved pending replacement price-bump policy to
+    `engine-pending-txpool` helpers and made store-named replacement helpers
+    thin compatibility wrappers. Direct txpool insertion now owns duplicate and
+    same-sender/nonce replacement decisions without calling store-named policy
+    functions.
 
 - [x] Add sender/nonce keyed txpool indexing.
   - Milestone: 7
