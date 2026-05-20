@@ -846,6 +846,8 @@ splits can land after the Phase A smoke path closes.
     Wrapped malformed EEST trie-test root hash decoding with the source case
     name, so bad pinned vectors report the failing trie case instead of only a
     lower-level hex/hash error.
+    Added EEST trie-test `in` entry indexes to adapter errors, so malformed
+    key/value pairs in long pinned vectors identify the exact failing entry.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

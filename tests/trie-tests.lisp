@@ -442,30 +442,50 @@
           (fixture-required-field case "root")
           name))))
 
-(defun normalize-eest-trie-test-entry (case-name entry)
+(defun eest-trie-test-entry-label (case-name index field)
+  (if index
+      (format nil "EEST trie test case ~A in entry ~D ~A"
+              case-name
+              index
+              field)
+      (format nil "EEST trie test case ~A in entry ~A"
+              case-name
+              field)))
+
+(defun normalize-eest-trie-test-entry (case-name entry &optional index)
   (unless (and (listp entry)
                (= 2 (length entry)))
-    (error "EEST trie test case ~A in entry must be a key/value pair"
-           case-name))
+    (if index
+        (error "EEST trie test case ~A in entry ~D must be a key/value pair"
+               case-name
+               index)
+        (error "EEST trie test case ~A in entry must be a key/value pair"
+               case-name)))
   (destructuring-bind (key value) entry
     (unless (stringp key)
-      (error "EEST trie test case ~A in entry key must be a string"
-             case-name))
+      (if index
+          (error "EEST trie test case ~A in entry ~D key must be a string"
+                 case-name
+                 index)
+          (error "EEST trie test case ~A in entry key must be a string"
+                 case-name)))
     (let ((normalized-key
             (eest-trie-test-normalized-byte-string
              key
-             (format nil "EEST trie test case ~A in entry key" case-name))))
+             (eest-trie-test-entry-label case-name index "key"))))
       (cond
         ((null value)
          (list (cons "key" normalized-key)
                (cons "delete" t)))
         ((not (stringp value))
-         (error "EEST trie test case ~A in entry value must be a string or null"
-                case-name))
+         (if index
+             (error "EEST trie test case ~A in entry ~D value must be a string or null"
+                    case-name
+                    index)
+             (error "EEST trie test case ~A in entry value must be a string or null"
+                    case-name)))
         (t
-         (let* ((label
-                  (format nil "EEST trie test case ~A in entry value"
-                          case-name))
+         (let* ((label (eest-trie-test-entry-label case-name index "value"))
                 (bytes (eest-trie-test-byte-string value label))
                 (normalized-value
                   (if (eest-trie-test-prefixed-hex-string-p value)
@@ -480,9 +500,9 @@
 (defun normalize-eest-trie-test-entries (case-name entries)
   (unless (listp entries)
     (error "EEST trie test case ~A in must be a JSON array" case-name))
-  (mapcar (lambda (entry)
-            (normalize-eest-trie-test-entry case-name entry))
-          entries))
+  (loop for entry in entries
+        for index from 0
+        collect (normalize-eest-trie-test-entry case-name entry index)))
 
 (defun run-eest-trie-test-case (case)
   (let ((trie (make-mpt)))
@@ -1134,6 +1154,19 @@
      (list (cons "in" (list (list "0x0" "puppy")))
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (is (handler-case
+          (progn
+            (normalize-eest-trie-test-case
+             "bad-entry-key-message"
+             (list (cons "in" (list (list "dog" "puppy")
+                                    (list "0x0" "puppy")))
+                   (cons "root"
+                         "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")))
+            nil)
+        (error (condition)
+          (not (null
+                (search "EEST trie test case bad-entry-key-message in entry 1 key"
+                        (princ-to-string condition)))))))
   (signals error
     (normalize-eest-trie-test-case
      "bad-entry-value-hex"
