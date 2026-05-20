@@ -879,6 +879,18 @@ placeholder handlers have also been split out of `src/core.lisp` into
 `src/public-rpc.lisp` behind a dedicated public method dispatcher, leaving the
 core RPC path focused on the generic JSON-RPC envelope, Engine/Public dispatch
 delegation, and HTTP serving shell.
+Filter lifecycle scope is intentionally polling-only for now. The current
+filter ids belong to the JSON-RPC polling methods (`eth_newFilter`,
+`eth_newBlockFilter`, `eth_newPendingTransactionFilter`,
+`eth_getFilterChanges`, `eth_getFilterLogs`, and `eth_uninstallFilter`) and
+represent in-memory cursors or pending hash queues. Future WebSocket
+subscriptions should use a separate subscription registry and transport-owned
+lifetime: subscription ids are created by `eth_subscribe`, removed by
+`eth_unsubscribe` or connection close, and should stream events without
+advancing polling filter cursors. Before subscriptions land, the polling
+filter store should gain explicit timeout/cleanup policy compatible with
+geth-style filter expiry, while keeping `eth_uninstallFilter` idempotent for
+unknown or expired polling ids.
 A first HTTP POST adapter now
 validates request method and JSON content type before handing the body to the
 shared JSON-RPC dispatcher. The HTTP adapter can also enforce Engine-style JWT

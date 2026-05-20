@@ -2057,13 +2057,19 @@ splits can land after the Phase A smoke path closes.
     `accessList`/`gasUsed` results while filtering implicit warm addresses and
     preserving touched storage keys.
 
-- [ ] Add subscription-compatible filter lifecycle notes before implementing
+- [x] Add subscription-compatible filter lifecycle notes before implementing
   WebSocket subscriptions.
   - Milestone: 7
   - References: geth filters/subscriptions, Nethermind subscriptions, Reth RPC.
   - Acceptance: tasks/roadmap describe polling filters versus subscription
     semantics and cleanup/timeout expectations.
   - Validation: docs-only diff.
+  - Result: `docs/roadmap.md` now records that current filter ids are
+    polling-only in-memory cursors/queues, while future WebSocket
+    subscriptions should use a separate subscription registry with
+    transport-owned lifetime, `eth_subscribe` / `eth_unsubscribe` semantics,
+    connection-close cleanup, and explicit polling-filter timeout/expiry
+    policy before subscription work begins.
 
 ## P1: Persistence
 
