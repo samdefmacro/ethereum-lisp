@@ -660,6 +660,8 @@ splits can land after the Phase A smoke path closes.
     `src/public-rpc.lisp`, covering `eth_getBlockByNumber`,
     `eth_getBlockByHash`, block transaction counts, uncle counts, and
     uncle-by-index lookups.
+  - Progress: moved transaction query, raw transaction, send raw transaction,
+    receipt, and block receipt helpers/handlers into `src/public-rpc.lisp`.
 
 ## P0: Chain Store And Canonical Indexes
 
