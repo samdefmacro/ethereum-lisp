@@ -73,6 +73,9 @@
 (defparameter +trie-fixture-expected-missing-fields+
   '("keyHex" "keyAscii"))
 
+(defparameter +eest-trie-test-case-fields+
+  '("root"))
+
 (defun validate-trie-fixture-object-fields (object allowed-fields label)
   (unless (listp object)
     (error "~A must be a JSON object" label))
@@ -371,6 +374,68 @@
   (mapcar (lambda (path)
             (enough-namestring (truename path) (truename root)))
           (eest-trie-test-root-json-paths root)))
+
+(defun eest-trie-test-normalized-root (value case-name)
+  (when (blank-string-p value)
+    (error "EEST trie test case ~A root must be present" case-name))
+  (unless (stringp value)
+    (error "EEST trie test case ~A root must be a string" case-name))
+  (let ((normalized
+          (if (and (<= 2 (length value))
+                   (char= #\0 (char value 0))
+                   (char= #\x (char-downcase (char value 1))))
+              value
+              (concatenate 'string "0x" value))))
+    (hash32-from-hex normalized)
+    normalized))
+
+(defun normalize-eest-trie-test-case (name case)
+  (when (blank-string-p name)
+    (error "EEST trie test case name must be present"))
+  (unless (listp case)
+    (error "EEST trie test case ~A must be a JSON object" name))
+  (validate-trie-fixture-object-fields
+   case
+   +eest-trie-test-case-fields+
+   (format nil "EEST trie test case ~A" name))
+  (list
+   (cons "name" name)
+   (cons "root"
+         (eest-trie-test-normalized-root
+          (fixture-required-field case "root")
+          name))))
+
+(defun load-eest-trie-test-file (path)
+  (let ((cases (load-handwritten-fixture-file path)))
+    (unless (listp cases)
+      (error "EEST trie test file must be a JSON object"))
+    (mapcar
+     (lambda (entry)
+       (normalize-eest-trie-test-case (car entry) (cdr entry)))
+     (sort (copy-list cases) #'string< :key #'car))))
+
+(defun eest-trie-root-case-name (root path key singleton-p)
+  (let ((relative (enough-namestring (truename path) (truename root))))
+    (if singleton-p
+        relative
+        (format nil "~A/~A" relative key))))
+
+(defun load-eest-trie-test-root-file-cases (root path)
+  (let ((cases (load-handwritten-fixture-file path)))
+    (unless (listp cases)
+      (error "EEST trie test file must be a JSON object"))
+    (let* ((entries (sort (copy-list cases) #'string< :key #'car))
+           (singleton-p (= 1 (length entries))))
+      (mapcar
+       (lambda (entry)
+         (normalize-eest-trie-test-case
+          (eest-trie-root-case-name root path (car entry) singleton-p)
+          (cdr entry)))
+       entries))))
+
+(defun load-eest-trie-test-root-cases (root)
+  (loop for path in (eest-trie-test-root-json-paths root)
+        append (load-eest-trie-test-root-file-cases root path)))
 
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
@@ -789,6 +854,44 @@
     (eest-trie-test-root-json-paths
      (execution-spec-tests-trie-test-root
       "tests/fixtures/geth-spec-tests-root/"))))
+
+(deftest eest-trie-test-file-shape-validation
+  (let* ((cases (load-eest-trie-test-file +eest-trie-test-sample-path+))
+         (case (first cases)))
+    (is (= 1 (length cases)))
+    (is (string= "phase-a-trie-sample"
+                 (fixture-object-field case "name")))
+    (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+                 (fixture-object-field case "root"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "missing-root"
+     nil))
+  (signals error
+    (normalize-eest-trie-test-case
+     "bad-root"
+     (list (cons "root" "0x1234"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "unknown-field"
+     (list (cons "root"
+                 "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "unexpected" t)))))
+
+(deftest eest-trie-test-root-case-loading
+  (let* ((root (execution-spec-tests-trie-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (cases (load-eest-trie-test-root-cases root)))
+    (is (= 1 (length cases)))
+    (is (string= "phase-a-trie-sample.json"
+                 (fixture-object-field (first cases) "name")))
+    (is (string= "phase-a-trie-sample.json/alpha"
+                 (eest-trie-root-case-name root
+                                           (first
+                                            (eest-trie-test-root-json-paths
+                                             root))
+                                           "alpha"
+                                           nil)))))
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json

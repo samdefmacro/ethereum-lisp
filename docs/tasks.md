@@ -791,6 +791,12 @@ splits can land after the Phase A smoke path closes.
     Added recursive JSON discovery for EEST trie-test roots, including stable
     source-style relative filenames and a loud error for empty roots. This
     prepares the next adapter slice to consume pinned trie files deterministically.
+    Added a minimal EEST trie-test file adapter. It now loads JSON files keyed
+    by case name, validates the thin root-only case shape, normalizes unprefixed
+    root hashes, and preserves source-style root case names for deterministic
+    pinned-subset selection in follow-up slices. Reference availability for
+    this adapter check: geth `8a0223e`, Nethermind `1c72a72`; local Reth clone
+    absent.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
