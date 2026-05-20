@@ -66,5 +66,36 @@
         "intrinsicGas": "0x5228"
       }
     }
+  },
+  "typed-eip1559-dynamic-fee-sample": {
+    "txbytes": "02f864010180820fa08284d09411111111111111111111111111111111111111118080c001a0b7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0a06261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904",
+    "result": {
+      "Frontier": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Berlin": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "London": {
+        "hash": "a98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476",
+        "sender": "d02d72e067e77158444ef2020ff2d325f929b363",
+        "intrinsicGas": "0x5208"
+      },
+      "Shanghai": {
+        "hash": "a98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476",
+        "sender": "d02d72e067e77158444ef2020ff2d325f929b363",
+        "intrinsicGas": "0x5208"
+      },
+      "Cancun": {
+        "hash": "a98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476",
+        "sender": "d02d72e067e77158444ef2020ff2d325f929b363",
+        "intrinsicGas": "0x5208"
+      },
+      "Prague": {
+        "hash": "a98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476",
+        "sender": "d02d72e067e77158444ef2020ff2d325f929b363",
+        "intrinsicGas": "0x5208"
+      }
+    }
   }
 }

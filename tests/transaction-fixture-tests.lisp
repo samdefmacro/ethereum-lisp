@@ -8,7 +8,8 @@
 
 (defparameter +phase-a-eest-transaction-test-case-names+
   '("phase-a-sample.json/legacy-eip155-sample"
-    "phase-a-sample.json/typed-eip2930-access-list-sample"))
+    "phase-a-sample.json/typed-eip2930-access-list-sample"
+    "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"))
 
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
@@ -1099,12 +1100,18 @@
                  :test #'string=
                  :key (lambda (candidate)
                         (fixture-object-field candidate "name"))))
+         (dynamic-fee-vector
+           (find "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 1 (length paths)))
-    (is (= 2 (length cases)))
-    (is (= 2 (length selected-cases)))
-    (is (= 2 (length vectors)))
-    (is (= 2 (length selected-vectors)))
+    (is (= 3 (length cases)))
+    (is (= 3 (length selected-cases)))
+    (is (= 3 (length vectors)))
+    (is (= 3 (length selected-vectors)))
     (is (string= "phase-a-sample.json/legacy-eip155-sample"
                  (fixture-object-field (first cases) "name")))
     (is (string= "phase-a-sample.json/legacy-eip155-sample"
@@ -1114,10 +1121,14 @@
     (is typed-vector)
     (is (string= "access-list"
                  (fixture-object-field typed-vector "type")))
-    (is (= 2 (fixture-object-field summary "count")))
-    (is (equal '((:legacy . 1) (:access-list . 1))
+    (is dynamic-fee-vector)
+    (is (string= "dynamic-fee"
+                 (fixture-object-field dynamic-fee-vector "type")))
+    (is (= 3 (fixture-object-field summary "count")))
+    (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
     (is (equal '("phase-a-sample.json/legacy-eip155-sample"
+                 "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
                  "phase-a-sample.json/typed-eip2930-access-list-sample")
                (fixture-object-field summary "names")))
     (is (equal summary

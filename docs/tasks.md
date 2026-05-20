@@ -356,6 +356,11 @@ ones.
     transactions. The root loader now exercises geth-style multi-case naming
     and typed transaction conversion directly before real pinned cases are
     swapped in.
+  - Progress: added an EIP-1559 dynamic-fee case to the Phase A EEST
+    transaction-test sample and selector list. The sample subset now covers
+    legacy EIP-155 plus the two typed transaction families active at the
+    Shanghai Phase A target, while still asserting pre-fork rejection on
+    Frontier/Berlin where appropriate.
 
 ## P0: Module Boundaries
 
