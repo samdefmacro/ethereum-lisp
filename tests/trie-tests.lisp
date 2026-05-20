@@ -813,6 +813,8 @@
       (error "Phase A EEST trie subset must include secure trie write entries"))
     (when (zerop (fixture-object-field summary "secureDeleteEntryCount"))
       (error "Phase A EEST trie subset must include secure trie delete entries"))
+    (when (zerop (fixture-object-field summary "plainWriteEntryCount"))
+      (error "Phase A EEST trie subset must include plain trie write entries"))
     (when (zerop (fixture-object-field summary "plainDeleteEntryCount"))
       (error "Phase A EEST trie subset must include plain trie delete entries"))))
 
@@ -1628,6 +1630,16 @@
                (cons "root"
                      "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")))
         (fifth cases))))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (list
+        (first cases)
+        (second cases)
+        (normalize-eest-trie-test-case
+         "plain-delete-only"
+         (list (cons "in" (list (list "dog" nil)))
+               (cons "root"
+                     "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))))
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (list
