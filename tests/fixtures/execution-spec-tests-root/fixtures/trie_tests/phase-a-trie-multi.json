@@ -26,6 +26,14 @@
     ],
     "root": "322d957ebcabf5ba295218b9b8920a905f7da6078010c2228989ebcf004e43d8"
   },
+  "delete-branch-value": {
+    "in": [
+      ["0x", "root"],
+      ["0x10", "child"],
+      ["0x", null]
+    ],
+    "root": "ae9b7371f5ef144daa2780a50feb85d5918708e10357eb25c275cc2562f219d4"
+  },
   "delete-collapse": {
     "in": [
       ["do", "verb"],
