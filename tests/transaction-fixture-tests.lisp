@@ -714,6 +714,49 @@
     (validate-phase-a-eest-transaction-summary-types types)
     summary))
 
+(defun phase-a-eest-transaction-vectors-by-type (vectors label)
+  (unless (listp vectors)
+    (error "~A vectors must be a list" label))
+  (let ((by-type (make-hash-table :test 'eq)))
+    (dolist (vector vectors)
+      (unless (listp vector)
+        (error "~A vector must be a JSON object" label))
+      (let ((type (transaction-fixture-type-keyword
+                   (fixture-required-field vector "type"))))
+        (when (member type +phase-a-eest-transaction-required-types+
+                      :test #'eq)
+          (when (gethash type by-type)
+            (error "~A has duplicate Phase A transaction type ~A"
+                   label
+                   type))
+          (setf (gethash type by-type) vector))))
+    by-type))
+
+(defun validate-phase-a-eest-transaction-seed-alignment
+    (phase-a-vectors seed-vectors)
+  (let ((phase-a-by-type
+          (phase-a-eest-transaction-vectors-by-type
+           phase-a-vectors
+           "Phase A EEST transaction subset"))
+        (seed-by-type
+          (phase-a-eest-transaction-vectors-by-type
+           seed-vectors
+           "Seed transaction fixture")))
+    (dolist (type +phase-a-eest-transaction-required-types+)
+      (let ((phase-a-vector (gethash type phase-a-by-type))
+            (seed-vector (gethash type seed-by-type)))
+        (unless phase-a-vector
+          (error "Phase A EEST transaction subset is missing type ~A" type))
+        (unless seed-vector
+          (error "Seed transaction fixture is missing Phase A type ~A" type))
+        (dolist (field '("type" "chainId" "txbytes" "hash" "sender" "result"))
+          (unless (equal (fixture-required-field phase-a-vector field)
+                         (fixture-required-field seed-vector field))
+            (error "Phase A EEST transaction type ~A field ~A does not match seed fixture"
+                   type
+                   field))))))
+  phase-a-vectors)
+
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
    vector
@@ -1931,6 +1974,9 @@
          (vectors (load-eest-transaction-test-root-vectors root))
          (selected-vectors
            (load-phase-a-eest-transaction-test-root-vectors root))
+         (seed-vectors
+           (load-transaction-envelope-vectors
+            +transaction-envelope-fixture-path+))
          (vector (first vectors))
          (typed-vector
            (find "phase-a-sample.json/typed-eip2930-access-list-sample"
@@ -1977,6 +2023,10 @@
     (is (equal summary
                (validate-phase-a-eest-transaction-vector-summary
                 selected-vectors)))
+    (is (equal selected-vectors
+               (validate-phase-a-eest-transaction-seed-alignment
+                selected-vectors
+                seed-vectors)))
     (signals error
       (transaction-fixture-vector-summary "phase-a-vectors"))
     (signals error
@@ -2001,6 +2051,21 @@
                       (list
                        (cons "exception"
                              "TransactionException.TYPE_2_TX_PRE_FORK")))))))))
+    (signals error
+      (validate-phase-a-eest-transaction-seed-alignment
+       selected-vectors
+       (remove typed-vector seed-vectors
+               :key (lambda (candidate)
+                      (fixture-object-field candidate "txbytes"))
+               :test #'string=)))
+    (signals error
+      (validate-phase-a-eest-transaction-seed-alignment
+       "phase-a-vectors"
+       seed-vectors))
+    (signals error
+      (validate-phase-a-eest-transaction-seed-alignment
+       (append selected-vectors (list (first selected-vectors)))
+       seed-vectors))
     (signals error
       (validate-phase-a-eest-transaction-summary-types
        '((:legacy . 1)

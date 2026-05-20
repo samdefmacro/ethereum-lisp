@@ -501,6 +501,12 @@ ones.
   - Progress: tightened optional transaction fixture `referenceClients.reth`
     validation so the absent local Reth reference remains `null`, but provided
     values must be non-empty strings.
+  - Progress: added an alignment check between the Phase A EEST transaction
+    subset and the current seed transaction fixture. The harness now requires
+    the Shanghai-active legacy, EIP-2930 access-list, and EIP-1559 dynamic-fee
+    sample vectors to match the seed fixture on `txbytes`, hash, sender, chain
+    id, and per-fork result matrix, creating a stronger bridge before the seed
+    vectors are replaced by real pinned EEST cases.
 
 ## P0: Module Boundaries
 
