@@ -1496,3 +1496,266 @@
 (defun engine-rpc-handle-eth-get-block-receipts (params store)
   (let ((block (eth-rpc-block-param params store "eth_getBlockReceipts")))
     (eth-rpc-block-receipts-object block)))
+
+(defun eth-rpc-address= (left right)
+  (and left
+       right
+       (bytes= (address-bytes left) (address-bytes right))))
+
+(defun eth-rpc-log-address-match-p (log addresses)
+  (or (null addresses)
+      (some (lambda (address)
+              (eth-rpc-address= (log-entry-address log) address))
+            addresses)))
+
+(defun eth-rpc-log-topics-match-p (log topic-filters)
+  (let ((topics (log-entry-topics log)))
+    (loop for slot in topic-filters
+          for index from 0
+          always (or (null slot)
+                     (and (< index (length topics))
+                          (some (lambda (topic)
+                                  (hash32= (nth index topics) topic))
+                                slot))))))
+
+(defun eth-rpc-log-filter-object (params method)
+  (unless (= 1 (length params))
+    (block-validation-fail "~A params must contain exactly one filter"
+                           method))
+  (let ((filter (first params)))
+    (unless (or (null filter) (json-object-p filter))
+      (block-validation-fail "~A filter must be an object" method))
+    filter))
+
+(defun eth-rpc-log-filter-addresses (filter method)
+  (let ((value (genesis-object-field filter "address")))
+    (cond
+      ((null value) nil)
+      ((stringp value)
+       (list (eth-rpc-address-param value method "address")))
+      ((listp value)
+       (mapcar (lambda (address)
+                 (unless (stringp address)
+                   (block-validation-fail
+                    "~A address filter entries must be addresses" method))
+                 (eth-rpc-address-param address method "address"))
+               value))
+      (t
+       (block-validation-fail
+        "~A address filter must be an address or address array" method)))))
+
+(defun eth-rpc-log-filter-topic (value method)
+  (cond
+    ((null value) nil)
+    ((stringp value)
+     (list (eth-rpc-hash-param (list value) method "topic")))
+    ((listp value)
+     (mapcar (lambda (topic)
+               (unless (stringp topic)
+                 (block-validation-fail
+                  "~A topic filter entries must be topics" method))
+               (eth-rpc-hash-param (list topic) method "topic"))
+             value))
+    (t
+     (block-validation-fail
+      "~A topic filter slots must be null, a topic, or topic array" method))))
+
+(defun eth-rpc-log-filter-topics (filter method)
+  (let ((topics (genesis-object-field filter "topics")))
+    (cond
+      ((null topics) nil)
+      ((listp topics)
+       (mapcar (lambda (topic)
+                 (eth-rpc-log-filter-topic topic method))
+               topics))
+      (t
+       (block-validation-fail
+        "~A topics filter must be an array" method)))))
+
+(defun eth-rpc-log-filter-blocks (filter store method)
+  (if (genesis-object-field-present-p filter "blockHash")
+      (progn
+        (when (or (genesis-object-field-present-p filter "fromBlock")
+                  (genesis-object-field-present-p filter "toBlock"))
+          (block-validation-fail
+           "~A blockHash cannot be combined with fromBlock or toBlock"
+           method))
+        (let ((block-hash (eth-rpc-hash-param
+                           (list (genesis-object-field filter "blockHash"))
+                           method
+                           "block hash")))
+          (let ((block (chain-store-known-block store block-hash)))
+            (if block
+                (list block)
+                '()))))
+      (let* ((from-number (eth-rpc-block-number-param
+                           (list (or (genesis-object-field filter "fromBlock")
+                                     "earliest"))
+                           store
+                           method))
+             (to-number (eth-rpc-block-number-param
+                         (list (or (genesis-object-field filter "toBlock")
+                                   "latest"))
+                         store
+                         method)))
+        (when (> from-number to-number)
+          (block-validation-fail
+           "~A fromBlock must be less than or equal to toBlock" method))
+        (loop for number from from-number to to-number
+              for block = (chain-store-block-by-number store number)
+              when block
+                collect block))))
+
+(defun eth-rpc-block-logs-object (block addresses topic-filters)
+  (when (and block
+             (= (length (block-transactions block))
+                (length (block-receipts block))))
+    (loop with log-index-start = 0
+          for transaction in (block-transactions block)
+          for receipt in (block-receipts block)
+          for transaction-index from 0
+          append (loop for log in (receipt-logs receipt)
+                       for log-index from log-index-start
+                       when (and (eth-rpc-log-address-match-p log addresses)
+                                 (eth-rpc-log-topics-match-p
+                                  log topic-filters))
+                         collect (eth-rpc-log-object
+                                  log
+                                  block
+                                  transaction
+                                  transaction-index
+                                  log-index))
+          do (incf log-index-start (length (receipt-logs receipt))))))
+
+(defun eth-rpc-filter-logs (filter store method)
+  (let* ((addresses (eth-rpc-log-filter-addresses filter method))
+         (topic-filters (eth-rpc-log-filter-topics filter method))
+         (blocks (eth-rpc-log-filter-blocks filter store method))
+         (logs (loop for block in blocks
+                     append (eth-rpc-block-logs-object
+                             block addresses topic-filters))))
+    (eth-rpc-json-array logs)))
+
+(defun eth-rpc-log-filter-range-bounds (filter store method)
+  (unless (genesis-object-field-present-p filter "blockHash")
+    (values
+     (eth-rpc-block-number-param
+      (list (or (genesis-object-field filter "fromBlock") "earliest"))
+      store
+      method)
+     (eth-rpc-block-number-param
+      (list (or (genesis-object-field filter "toBlock") "latest"))
+      store
+      method))))
+
+(defun eth-rpc-log-filter-with-range (filter from-number to-number)
+  (append
+   (remove-if (lambda (entry)
+                (member (car entry) '("fromBlock" "toBlock" "blockHash")
+                        :test #'string=))
+              filter)
+   (list (cons "fromBlock" (quantity-to-hex from-number))
+         (cons "toBlock" (quantity-to-hex to-number)))))
+
+(defun engine-log-filter-changes (log-filter store method)
+  (let ((criteria (engine-log-filter-criteria log-filter)))
+    (if (genesis-object-field-present-p criteria "blockHash")
+        (if (engine-log-filter-block-hash-consumed-p log-filter)
+            (eth-rpc-json-array '())
+            (prog1 (eth-rpc-filter-logs criteria store method)
+              (setf (engine-log-filter-block-hash-consumed-p log-filter) t)))
+        (multiple-value-bind (from-number to-number)
+            (eth-rpc-log-filter-range-bounds criteria store method)
+          (let* ((cursor (engine-log-filter-last-block-number log-filter))
+                 (change-from (if cursor
+                                  (max from-number (1+ cursor))
+                                  from-number)))
+            (prog1
+                (if (> change-from to-number)
+                    (eth-rpc-json-array '())
+                    (eth-rpc-filter-logs
+                     (eth-rpc-log-filter-with-range
+                      criteria change-from to-number)
+                     store
+                     method))
+              (setf (engine-log-filter-last-block-number log-filter)
+                    (max (or cursor 0) to-number))))))))
+
+(defun engine-block-filter-changes (block-filter store)
+  (let* ((cursor (engine-block-filter-last-block-number block-filter))
+         (latest (chain-store-head-number store))
+         (hashes (loop for number from (1+ cursor) to latest
+                       for block =
+                         (chain-store-block-by-number store number)
+                       when block
+                         collect (hash32-to-hex (block-hash block)))))
+    (prog1 (eth-rpc-json-array hashes)
+      (setf (engine-block-filter-last-block-number block-filter) latest))))
+
+(defun engine-pending-transaction-filter-changes (pending-filter)
+  (let ((hashes (engine-pending-transaction-filter-hashes pending-filter)))
+    (prog1 (eth-rpc-json-array (mapcar #'hash32-to-hex hashes))
+      (setf (engine-pending-transaction-filter-hashes pending-filter) nil))))
+
+(defun engine-rpc-handle-eth-get-logs (params store)
+  (let* ((method "eth_getLogs")
+         (filter (eth-rpc-log-filter-object params method)))
+    (eth-rpc-filter-logs filter store method)))
+
+(defun engine-rpc-handle-eth-new-filter (params store)
+  (let* ((method "eth_newFilter")
+         (filter (eth-rpc-log-filter-object params method)))
+    (eth-rpc-log-filter-addresses filter method)
+    (eth-rpc-log-filter-topics filter method)
+    (eth-rpc-log-filter-blocks filter store method)
+    (quantity-to-hex
+     (engine-payload-store-put-log-filter store filter))))
+
+(defun engine-rpc-handle-eth-new-block-filter (params store)
+  (when params
+    (block-validation-fail "eth_newBlockFilter params must be empty"))
+  (quantity-to-hex
+   (engine-payload-store-put-block-filter store)))
+
+(defun engine-rpc-handle-eth-new-pending-transaction-filter (params store)
+  (when params
+    (block-validation-fail
+     "eth_newPendingTransactionFilter params must be empty"))
+  (quantity-to-hex
+   (engine-payload-store-put-pending-transaction-filter store)))
+
+(defun eth-rpc-filter-id-param (params method)
+  (unless (= 1 (length params))
+    (block-validation-fail "~A params must contain exactly one filter id"
+                           method))
+  (engine-rpc-quantity-param params 0 "filter id" method))
+
+(defun engine-rpc-handle-eth-get-filter-logs (params store)
+  (let* ((method "eth_getFilterLogs")
+         (id (eth-rpc-filter-id-param params method))
+         (log-filter (engine-payload-store-log-filter store id)))
+    (unless (typep log-filter 'engine-log-filter)
+      (block-validation-fail "~A filter not found" method))
+    (eth-rpc-filter-logs
+     (engine-log-filter-criteria log-filter) store method)))
+
+(defun engine-rpc-handle-eth-get-filter-changes (params store)
+  (let* ((method "eth_getFilterChanges")
+         (id (eth-rpc-filter-id-param params method))
+         (filter (engine-payload-store-log-filter store id)))
+    (cond
+      ((typep filter 'engine-log-filter)
+       (engine-log-filter-changes filter store method))
+      ((typep filter 'engine-block-filter)
+       (engine-block-filter-changes filter store))
+      ((typep filter 'engine-pending-transaction-filter)
+       (engine-pending-transaction-filter-changes filter))
+      (t
+       (block-validation-fail "~A filter not found" method)))))
+
+(defun engine-rpc-handle-eth-uninstall-filter (params store)
+  (let* ((method "eth_uninstallFilter")
+         (id (eth-rpc-filter-id-param params method)))
+    (if (engine-payload-store-uninstall-log-filter store id)
+        t
+        :false)))

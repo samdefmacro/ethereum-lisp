@@ -664,6 +664,9 @@ splits can land after the Phase A smoke path closes.
     receipt, and block receipt helpers/handlers into `src/public-rpc.lisp`.
   - Progress: moved `eth_pendingTransactions` and `txpool_*` placeholder
     helpers/handlers into `src/public-rpc.lisp`.
+  - Progress: moved log query and filter helpers/handlers into
+    `src/public-rpc.lisp`, covering `eth_getLogs`, filter installation,
+    filter changes/log retrieval, and filter uninstall.
 
 ## P0: Chain Store And Canonical Indexes
 
