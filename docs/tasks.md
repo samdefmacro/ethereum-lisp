@@ -1167,6 +1167,9 @@ splits can land after the Phase A smoke path closes.
     `CALL`s an account containing a delegation designator, executes target code,
     and asserts that storage writes happen at the delegated callee rather than
     the target account.
+  - Slice: extended the EVM state fixture runner to support type-1 access-list
+    transactions and added a fixture-backed `CALL` case that prewarms the callee
+    address plus parent storage slot through the transaction access list.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4

@@ -19,7 +19,11 @@
   '("nonce" "balance" "code" "storage"))
 
 (defparameter +evm-state-fixture-transaction-fields+
-  '("from" "to" "nonce" "gasPrice" "gasLimit" "value" "data"))
+  '("from" "to" "nonce" "gasPrice" "gasLimit" "value" "data"
+    "type" "chainId" "accessList"))
+
+(defparameter +evm-state-fixture-access-list-entry-fields+
+  '("address" "storageKeys"))
 
 (defparameter +evm-state-fixture-expect-fields+
   '("stateRoot" "post" "receipt"))
@@ -33,7 +37,7 @@
 (defparameter +evm-state-fixture-known-tags+
   '("legacy-call" "nested-call" "revert" "returndata" "code-resolution"
     "delegated-code"
-    "staticcall" "read-only" "value-transfer" "sstore" "log"
+    "staticcall" "read-only" "value-transfer" "access-list" "sstore" "log"
     "post-state-root"))
 
 (defparameter +evm-state-fixture-required-tags+
@@ -111,7 +115,32 @@
   (address-from-hex (fixture-required-field transaction "to"))
   (dolist (field '("nonce" "gasPrice" "gasLimit" "value"))
     (evm-state-fixture-quantity transaction field))
-  (hex-to-bytes (fixture-required-field transaction "data")))
+  (hex-to-bytes (fixture-required-field transaction "data"))
+  (let ((type (or (fixture-object-field transaction "type") "legacy")))
+    (unless (member type '("legacy" "access-list") :test #'string=)
+      (error "EVM state fixture transaction has unsupported type ~A" type))
+    (if (string= type "access-list")
+        (progn
+          (evm-state-fixture-quantity transaction "chainId")
+          (validate-evm-state-fixture-access-list-shape
+           (fixture-required-field transaction "accessList")))
+        (when (fixture-field-present-p transaction "accessList")
+          (error "EVM state fixture legacy transaction must not include accessList")))))
+
+(defun validate-evm-state-fixture-access-list-shape (access-list)
+  (unless (listp access-list)
+    (error "EVM state fixture accessList must be a JSON array"))
+  (dolist (entry access-list)
+    (validate-fixture-object-fields
+     entry
+     +evm-state-fixture-access-list-entry-fields+
+     "EVM state fixture access list entry")
+    (address-from-hex (fixture-required-field entry "address"))
+    (let ((keys (fixture-required-field entry "storageKeys")))
+      (unless (listp keys)
+        (error "EVM state fixture access list storageKeys must be a JSON array"))
+      (dolist (key keys)
+        (hash32-from-hex key)))))
 
 (defun validate-evm-state-fixture-log-shape (log)
   (validate-fixture-object-fields
@@ -240,14 +269,39 @@
                     :berlin-p t
                     :london-p t))
 
+(defun evm-state-fixture-access-list (object)
+  (mapcar
+   (lambda (entry)
+     (make-access-list-entry
+      :address (address-from-hex (fixture-object-field entry "address"))
+      :storage-keys
+      (mapcar #'hash32-from-hex
+              (fixture-object-field entry "storageKeys"))))
+   (fixture-object-field object "accessList")))
+
 (defun evm-state-fixture-transaction (object)
-  (make-legacy-transaction
-   :nonce (evm-state-fixture-quantity object "nonce")
-   :gas-price (evm-state-fixture-quantity object "gasPrice")
-   :gas-limit (evm-state-fixture-quantity object "gasLimit")
-   :to (address-from-hex (fixture-object-field object "to"))
-   :value (evm-state-fixture-quantity object "value")
-   :data (hex-to-bytes (fixture-object-field object "data"))))
+  (let ((type (or (fixture-object-field object "type") "legacy")))
+    (cond
+      ((string= type "legacy")
+       (make-legacy-transaction
+        :nonce (evm-state-fixture-quantity object "nonce")
+        :gas-price (evm-state-fixture-quantity object "gasPrice")
+        :gas-limit (evm-state-fixture-quantity object "gasLimit")
+        :to (address-from-hex (fixture-object-field object "to"))
+        :value (evm-state-fixture-quantity object "value")
+        :data (hex-to-bytes (fixture-object-field object "data"))))
+      ((string= type "access-list")
+       (make-access-list-transaction
+        :chain-id (evm-state-fixture-quantity object "chainId")
+        :nonce (evm-state-fixture-quantity object "nonce")
+        :gas-price (evm-state-fixture-quantity object "gasPrice")
+        :gas-limit (evm-state-fixture-quantity object "gasLimit")
+        :to (address-from-hex (fixture-object-field object "to"))
+        :value (evm-state-fixture-quantity object "value")
+        :data (hex-to-bytes (fixture-object-field object "data"))
+        :access-list (evm-state-fixture-access-list object)))
+      (t
+       (error "Unsupported EVM state fixture transaction type ~A" type)))))
 
 (defun execute-evm-state-fixture-case (case)
   (let* ((state (evm-state-fixture-pre-state case))
