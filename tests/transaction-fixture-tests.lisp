@@ -732,6 +732,23 @@
           (setf (gethash type by-type) vector))))
     by-type))
 
+(defun transaction-fixture-required-vectors-by-type (vectors label)
+  (unless (listp vectors)
+    (error "~A vectors must be a list" label))
+  (let ((by-type (make-hash-table :test 'eq)))
+    (dolist (vector vectors)
+      (unless (listp vector)
+        (error "~A vector must be a JSON object" label))
+      (let ((type (transaction-fixture-type-keyword
+                   (fixture-required-field vector "type"))))
+        (when (member type +transaction-fixture-required-types+ :test #'eq)
+          (when (gethash type by-type)
+            (error "~A has duplicate required transaction type ~A"
+                   label
+                   type))
+          (setf (gethash type by-type) vector))))
+    by-type))
+
 (defun validate-phase-a-eest-transaction-seed-alignment
     (phase-a-vectors seed-vectors)
   (let ((phase-a-by-type
@@ -756,6 +773,31 @@
                    type
                    field))))))
   phase-a-vectors)
+
+(defun validate-eest-transaction-seed-alignment
+    (eest-vectors seed-vectors)
+  (let ((eest-by-type
+          (transaction-fixture-required-vectors-by-type
+           eest-vectors
+           "EEST transaction subset"))
+        (seed-by-type
+          (transaction-fixture-required-vectors-by-type
+           seed-vectors
+           "Seed transaction fixture")))
+    (dolist (type +transaction-fixture-required-types+)
+      (let ((eest-vector (gethash type eest-by-type))
+            (seed-vector (gethash type seed-by-type)))
+        (unless eest-vector
+          (error "EEST transaction subset is missing required type ~A" type))
+        (unless seed-vector
+          (error "Seed transaction fixture is missing required type ~A" type))
+        (dolist (field '("type" "chainId" "txbytes" "hash" "sender" "result"))
+          (unless (equal (fixture-required-field eest-vector field)
+                         (fixture-required-field seed-vector field))
+            (error "EEST transaction type ~A field ~A does not match seed fixture"
+                   type
+                   field))))))
+  eest-vectors)
 
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
@@ -2050,6 +2092,10 @@
     (is (equal summary
                (validate-phase-a-eest-transaction-vector-summary
                 selected-vectors)))
+    (is (equal vectors
+               (validate-eest-transaction-seed-alignment
+                vectors
+                seed-vectors)))
     (is (equal selected-vectors
                (validate-phase-a-eest-transaction-seed-alignment
                 selected-vectors
@@ -2085,6 +2131,21 @@
                :key (lambda (candidate)
                       (fixture-object-field candidate "txbytes"))
                :test #'string=)))
+    (signals error
+      (validate-eest-transaction-seed-alignment
+       vectors
+       (remove blob-vector seed-vectors
+               :key (lambda (candidate)
+                      (fixture-object-field candidate "txbytes"))
+               :test #'string=)))
+    (signals error
+      (validate-eest-transaction-seed-alignment
+       "eest-vectors"
+       seed-vectors))
+    (signals error
+      (validate-eest-transaction-seed-alignment
+       (append vectors (list (first vectors)))
+       seed-vectors))
     (signals error
       (validate-phase-a-eest-transaction-seed-alignment
        "phase-a-vectors"

@@ -235,6 +235,11 @@ ones.
     loading now decodes legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702
     `txbytes` / per-fork `result` cases, while the Phase A selector still
     gates its smoke subset to legacy, access-list, and dynamic-fee cases.
+  - Progress: added all-family EEST/seed alignment checks for transaction
+    vectors. The external-style transaction-test adapter now compares decoded
+    legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702 vectors against the
+    seed envelope fixture by type, chain id, `txbytes`, hash, sender, and
+    per-fork result matrix.
   - Progress: added transaction fixture result-shape validation. Per-fork
     `result` entries now reject unknown exception tokens, valid entries without
     `intrinsicGas`, invalid entries that carry an `intrinsicGas` field even
