@@ -1152,6 +1152,10 @@ splits can land after the Phase A smoke path closes.
     context, revert, and code-resolution cases are fixture-backed beyond the
     current hand-written tests.
   - Validation: targeted CALL fixtures plus `sbcl --script tests/run-tests.lisp`.
+  - Slice: added a fixture-backed London nested `CALL` revert/returndata case.
+    The fixture asserts that child `SSTORE` changes roll back on `REVERT`, the
+    parent can copy reverted returndata and persist it, post-state storage is
+    exact for expected accounts, and the transaction receipt remains successful.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4

@@ -31,7 +31,8 @@
   '("address" "topics" "data"))
 
 (defparameter +evm-state-fixture-known-tags+
-  '("legacy-call" "sstore" "log" "post-state-root"))
+  '("legacy-call" "nested-call" "revert" "returndata"
+    "sstore" "log" "post-state-root"))
 
 (defparameter +evm-state-fixture-required-tags+
   '("legacy-call" "sstore" "log" "post-state-root"))
@@ -264,7 +265,9 @@
 
 (defun assert-evm-state-fixture-account (state address-hex expected)
   (let* ((address (address-from-hex address-hex))
-         (account (state-db-get-account state address)))
+         (account (state-db-get-account state address))
+         (expected-storage (fixture-object-field expected "storage"))
+         (actual-storage '()))
     (is account)
     (is (= (evm-state-fixture-quantity expected "nonce")
            (state-account-nonce account)))
@@ -272,7 +275,14 @@
            (state-account-balance account)))
     (is (bytes= (hex-to-bytes (fixture-object-field expected "code"))
                 (state-db-get-code state address)))
-    (dolist (entry (fixture-object-field expected "storage"))
+    (state-db-for-each-account
+     state
+     (lambda (actual-address actual-account actual-code storage-entries)
+       (declare (ignore actual-account actual-code))
+       (when (bytes= (address-bytes address) (address-bytes actual-address))
+         (setf actual-storage storage-entries))))
+    (is (= (length expected-storage) (length actual-storage)))
+    (dolist (entry expected-storage)
       (is (= (hex-to-quantity (cdr entry))
              (state-db-get-storage
               state
