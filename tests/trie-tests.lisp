@@ -635,18 +635,21 @@
    :names +phase-a-eest-trie-test-case-names+))
 
 (defun eest-trie-test-case-summary (cases)
-  (list
-   (cons "count" (length cases))
-   (cons "names" (mapcar (lambda (case)
-                           (fixture-required-field case "name"))
-                         cases))
-   (cons "entryCounts" (mapcar (lambda (case)
-                                 (length
-                                  (fixture-required-field case "entries")))
-                               cases))
-   (cons "roots" (mapcar (lambda (case)
-                           (fixture-required-field case "root"))
-                         cases))))
+  (let ((entry-counts
+          (mapcar (lambda (case)
+                    (length
+                     (fixture-required-field case "entries")))
+                  cases)))
+    (list
+     (cons "count" (length cases))
+     (cons "names" (mapcar (lambda (case)
+                             (fixture-required-field case "name"))
+                           cases))
+     (cons "entryCounts" entry-counts)
+     (cons "totalEntryCount" (reduce #'+ entry-counts :initial-value 0))
+     (cons "roots" (mapcar (lambda (case)
+                             (fixture-required-field case "root"))
+                           cases)))))
 
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
@@ -1264,6 +1267,7 @@
                (fixture-object-field summary "names")))
     (is (equal '(4)
                (fixture-object-field summary "entryCounts")))
+    (is (= 4 (fixture-object-field summary "totalEntryCount")))
     (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-multi.json/alpha"

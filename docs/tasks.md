@@ -856,6 +856,8 @@ splits can land after the Phase A smoke path closes.
     Extended EEST trie-test subset summaries with per-case entry counts, making
     it visible whether selected pinned cases are empty roots or replay actual
     `in` operations.
+    Added aggregate entry counts to EEST trie-test subset summaries, so selected
+    pinned subsets report both per-case operation counts and total replay volume.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
