@@ -258,6 +258,119 @@
                      "receiptStatus"))
       (validate-engine-fixture-quantity-field expect field label))))
 
+(defun fixture-account-balance (state address)
+  (let ((account (state-db-get-account state address)))
+    (if account
+        (state-account-balance account)
+        0)))
+
+(defun fixture-account-nonce (state address)
+  (let ((account (state-db-get-account state address)))
+    (if account
+        (state-account-nonce account)
+        0)))
+
+(defun assert-engine-fixture-address=
+    (actual expected label field)
+  (unless (bytes= (address-bytes actual) (address-bytes expected))
+    (error "~A ~A mismatch: expected ~A, got ~A"
+           label
+           field
+           (address-to-hex expected)
+           (address-to-hex actual))))
+
+(defun assert-engine-fixture-quantity=
+    (actual expected label field)
+  (unless (= actual expected)
+    (error "~A ~A mismatch: expected ~A, got ~A"
+           label
+           field
+           (quantity-to-hex expected)
+           (quantity-to-hex actual))))
+
+(defun validate-engine-fixture-expect-coherence
+    (case parent payload expect case-name)
+  (let* ((label (format nil
+                        "Engine newPayloadV2 fixture case ~A expect"
+                        case-name))
+         (chain-id (fixture-quantity-field case "chainId"))
+         (base-fee (fixture-quantity-field payload "baseFeePerGas"))
+         (raw-transactions (fixture-object-field payload "transactions"))
+         (withdrawals (fixture-object-field payload "withdrawals")))
+    (unless (= 1 (length raw-transactions))
+      (error "~A currently requires exactly one transaction" label))
+    (unless (= 1 (length withdrawals))
+      (error "~A currently requires exactly one withdrawal" label))
+    (let* ((transaction (transaction-from-encoding
+                         (hex-to-bytes (first raw-transactions))))
+           (withdrawal (first withdrawals))
+           (sender (transaction-sender transaction :expected-chain-id chain-id))
+           (recipient (transaction-to transaction))
+           (parent-state (engine-fixture-parent-state parent)))
+      (unless sender
+        (error "~A sender recovery failed" label))
+      (unless recipient
+        (error "~A transaction recipient must be present" label))
+      (assert-engine-fixture-address=
+       (fixture-address-field expect "sender")
+       sender
+       label
+       "sender")
+      (assert-engine-fixture-address=
+       (fixture-address-field expect "recipient")
+       recipient
+       label
+       "recipient")
+      (assert-engine-fixture-address=
+       (fixture-address-field expect "withdrawalRecipient")
+       (fixture-address-field withdrawal "address")
+       label
+       "withdrawalRecipient")
+      (let ((parent-sender-nonce (fixture-account-nonce parent-state sender)))
+        (assert-engine-fixture-quantity=
+         (transaction-nonce transaction)
+         parent-sender-nonce
+         label
+         "transactionNonce")
+        (assert-engine-fixture-quantity=
+         (fixture-quantity-field expect "senderNonce")
+         (1+ parent-sender-nonce)
+         label
+         "senderNonce"))
+      (assert-engine-fixture-quantity=
+       (fixture-quantity-field expect "recipientBalance")
+       (+ (fixture-account-balance parent-state recipient)
+          (transaction-value transaction))
+       label
+       "recipientBalance")
+      (assert-engine-fixture-quantity=
+       (fixture-quantity-field expect "withdrawalBalance")
+       (+ (fixture-account-balance
+           parent-state
+           (fixture-address-field withdrawal "address"))
+          (* (fixture-quantity-field withdrawal "amount") +wei-per-gwei+))
+       label
+       "withdrawalBalance")
+      (assert-engine-fixture-quantity=
+       (fixture-quantity-field expect "senderBalance")
+       (- (fixture-account-balance parent-state sender)
+          (transaction-value transaction)
+          (* (transaction-intrinsic-gas transaction)
+             (transaction-effective-gas-price transaction
+                                              :base-fee base-fee)))
+       label
+       "senderBalance")
+      (assert-engine-fixture-quantity=
+       (fixture-quantity-field expect "receiptType")
+       (transaction-type transaction)
+       label
+       "receiptType")
+      (assert-engine-fixture-quantity=
+       (fixture-quantity-field expect "receiptStatus")
+       1
+       label
+       "receiptStatus"))))
+
 (defun validate-engine-newpayload-v2-fixture-case-shape (case)
   (validate-fixture-object-fields
    case
@@ -286,9 +399,14 @@
        parent
        payload
        name))
-    (validate-engine-fixture-expect-shape
-     (fixture-required-field case "expect")
-     name)))
+    (let ((expect (fixture-required-field case "expect")))
+      (validate-engine-fixture-expect-shape expect name)
+      (validate-engine-fixture-expect-coherence
+       case
+       (fixture-required-field case "parent")
+       (fixture-required-field case "payload")
+       expect
+       name))))
 
 (defun validate-engine-newpayload-v2-fixture-cases (cases)
   (unless (and (listp cases) cases)
@@ -587,7 +705,31 @@
                 (replace-field
                  (fixture-required-field case "expect")
                  "status"
-                 "INVALID"))))))))
+                 "INVALID")))))
+      (signals error
+        (let ((expect (fixture-required-field case "expect")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "expect"
+                  (replace-field
+                   expect
+                   "sender"
+                   "0x0000000000000000000000000000000000000001"))))))
+      (signals error
+        (let ((expect (fixture-required-field case "expect")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "expect"
+                  (replace-field expect "senderNonce" "0xb"))))))
+      (signals error
+        (let ((expect (fixture-required-field case "expect")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "expect"
+                  (replace-field expect "withdrawalBalance" "0x1")))))))))
 
 (deftest engine-newpayload-v2-fixture-executes-and-becomes-canonical
   (labels ((field (object name)

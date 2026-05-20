@@ -652,6 +652,10 @@ splits can land after the Phase A smoke path closes.
     `newPayloadV2` fixture gate. Fixture cases now reject non-contiguous child
     block numbers, non-increasing timestamps, invalid parent-relative gas
     limit changes, and payload base-fee values that do not match the parent.
+  - Progress: added expectation coherence checks for the one-transfer Engine
+    smoke fixture. Expected sender, nonce, recipient, balances, withdrawal
+    credit, and typed receipt fields are now derived from the decoded
+    transaction, parent state, and withdrawal entry before replay.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
