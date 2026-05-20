@@ -3347,6 +3347,16 @@
          base-transaction)
       (is (eq base-transaction stored))
       (is inserted-p))
+    (is (= 1
+           (ethereum-lisp.core::engine-pending-txpool-pending-count
+            txpool)))
+    (is (eq base-transaction
+            (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+             txpool
+             (transaction-hash base-transaction))))
+    (is (equal (list base-transaction)
+               (ethereum-lisp.core::engine-pending-txpool-pending-transactions
+                txpool)))
     (multiple-value-bind (stored inserted-p)
         (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
          txpool
@@ -3368,14 +3378,16 @@
               txpool))
            (sender-transactions (gethash sender-key sender-index)))
       (is (= 1
-             (hash-table-count
-              (ethereum-lisp.core::engine-pending-txpool-transactions
-               txpool))))
+             (ethereum-lisp.core::engine-pending-txpool-pending-count
+              txpool)))
       (is (null
-           (gethash
-            (ethereum-lisp.core::engine-payload-store-key
-             (transaction-hash base-transaction))
-            (ethereum-lisp.core::engine-pending-txpool-transactions txpool))))
+           (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+            txpool
+            (transaction-hash base-transaction))))
+      (is (eq replacement-transaction
+              (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+               txpool
+               (transaction-hash replacement-transaction))))
       (is (eq replacement-transaction
               (gethash nonce-key sender-transactions))))))
 

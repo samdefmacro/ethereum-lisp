@@ -2866,6 +2866,32 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            transaction)
           (values transaction t)))))
 
+(defun engine-pending-txpool-pending-transaction (txpool hash)
+  (gethash (engine-payload-store-key hash)
+           (engine-pending-txpool-transactions txpool)))
+
+(defun engine-pending-txpool-pending-transactions (txpool)
+  (sort
+   (loop for transaction
+           being the hash-values of
+             (engine-pending-txpool-transactions txpool)
+         collect transaction)
+   #'string<
+   :key (lambda (transaction)
+          (hash32-to-hex (transaction-hash transaction)))))
+
+(defun engine-pending-txpool-pending-count (txpool)
+  (hash-table-count (engine-pending-txpool-transactions txpool)))
+
+(defun engine-pending-txpool-queued-count (txpool)
+  (hash-table-count (engine-pending-txpool-queued-transactions txpool)))
+
+(defun engine-pending-txpool-basefee-count (txpool)
+  (hash-table-count (engine-pending-txpool-basefee-transactions txpool)))
+
+(defun engine-pending-txpool-blob-count (txpool)
+  (hash-table-count (engine-pending-txpool-blob-transactions txpool)))
+
 (defun engine-payload-store-txpool (store)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
@@ -2961,37 +2987,32 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     transaction))
 
 (defun engine-payload-store-pending-transaction (store hash)
-  (gethash (engine-payload-store-key hash)
-           (engine-payload-store-pending-transaction-table store)))
+  (engine-pending-txpool-pending-transaction
+   (engine-payload-store-txpool store)
+   hash))
 
 (defun engine-payload-store-pending-transactions (store)
-  (sort
-   (loop for transaction
-           being the hash-values of
-             (engine-payload-store-pending-transaction-table store)
-         collect transaction)
-   #'string<
-   :key (lambda (transaction)
-          (hash32-to-hex (transaction-hash transaction)))))
+  (engine-pending-txpool-pending-transactions
+   (engine-payload-store-txpool store)))
 
 (defun engine-payload-store-pending-transactions-by-sender (store)
   (engine-payload-store-pending-sender-index store))
 
 (defun engine-payload-store-pending-transaction-count (store)
-  (hash-table-count
-   (engine-payload-store-pending-transaction-table store)))
+  (engine-pending-txpool-pending-count
+   (engine-payload-store-txpool store)))
 
 (defun engine-payload-store-queued-transaction-count (store)
-  (hash-table-count
-   (engine-payload-store-queued-transaction-table store)))
+  (engine-pending-txpool-queued-count
+   (engine-payload-store-txpool store)))
 
 (defun engine-payload-store-basefee-transaction-count (store)
-  (hash-table-count
-   (engine-payload-store-basefee-transaction-table store)))
+  (engine-pending-txpool-basefee-count
+   (engine-payload-store-txpool store)))
 
 (defun engine-payload-store-blob-transaction-count (store)
-  (hash-table-count
-   (engine-payload-store-blob-transaction-table store)))
+  (engine-pending-txpool-blob-count
+   (engine-payload-store-txpool store)))
 
 (defun engine-payload-store-put-log-filter (store filter)
   (unless (typep store 'engine-payload-memory-store)
