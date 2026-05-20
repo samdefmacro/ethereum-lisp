@@ -113,6 +113,54 @@
       }
     },
     {
+      "name": "present-account-deleted-storage-proof",
+      "tags": ["present-account", "storage-missing", "storage-deleted-missing", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000304",
+          "nonce": 5,
+          "balance": 6
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000304",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 7
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000304",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 0
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000304",
+        "storageKeys": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001"
+        ]
+      },
+      "expectedRoot": "0xc6d8e573c14bc6087a6c086706c8480a052ec735f7e42295d344428233341209",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000304",
+        "accountProof": [
+          "0xf86aa120571e81ff84733eaf11fd56dff49276f2ac3f5496bd18ddc0a0b7263cc6bc83aeb846f8440506a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x6",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x5",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": [
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "value": "0x0",
+            "proof": null
+          }
+        ]
+      }
+    },
+    {
       "name": "present-account-with-multiple-present-storage-proofs",
       "tags": ["present-account", "storage-present", "storage-missing", "multi-storage-present", "geth-shaped-result"],
       "operations": [

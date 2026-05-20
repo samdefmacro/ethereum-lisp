@@ -1051,7 +1051,10 @@ splits can land after the Phase A smoke path closes.
     rejects tampered storage values or account-bound storage roots. Tightened
     state-proof fixture shape validation so each expected proof address,
     storage proof count, and storage proof key order must match the original
-    request. Remaining work: replace the seed proof vectors with transcribed
+    request. Added a deleted-storage proof fixture case for a present account
+    whose storage trie returns to the empty root, and made that missing-after-
+    delete proof coverage a required state-proof fixture tag. Remaining work:
+    replace the seed proof vectors with transcribed
     geth proof workload output or pinned execution-spec-tests proof fixtures
     once available.
 

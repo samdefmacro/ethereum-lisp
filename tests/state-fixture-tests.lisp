@@ -97,6 +97,7 @@
     "missing-account"
     "storage-present"
     "storage-missing"
+    "storage-deleted-missing"
     "multi-storage-present"
     "geth-shaped-result"))
 
@@ -105,6 +106,7 @@
     "missing-account"
     "storage-present"
     "storage-missing"
+    "storage-deleted-missing"
     "multi-storage-present"
     "geth-shaped-result"))
 
