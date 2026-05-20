@@ -1230,6 +1230,9 @@ splits can land after the Phase A smoke path closes.
     non-string selector names, doubled path separators, and nested case suffix
     paths, matching the stricter transaction selector boundary before pinned
     trie subset selection.
+    Aligned trie source-style selector validation with transaction-test
+    selector rules by rejecting `.json` names without a real file stem,
+    including nested `dir/.json/case` selectors.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

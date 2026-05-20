@@ -818,16 +818,18 @@
        (not (char= (char name 0) #\/))
        (null (search ".." name))
        (null (search "//" name))
-       (let ((json-position (search ".json" name :test #'char-equal)))
+       (let* ((json-position (search ".json" name :test #'char-equal))
+              (after-json (and json-position (+ json-position 5))))
          (and json-position
-              (let ((after-json (+ json-position 5)))
-                (or (= after-json (length name))
-                    (and (< after-json (length name))
-                         (char= (char name after-json) #\/)
-                         (< (1+ after-json) (length name))
-                         (not (char= (char name (1+ after-json)) #\/))
-                         (null (position #\/ name
-                                         :start (1+ after-json))))))))))
+              (plusp json-position)
+              (not (char= (char name (1- json-position)) #\/))
+              (or (= after-json (length name))
+                  (and (< after-json (length name))
+                       (char= (char name after-json) #\/)
+                       (< (1+ after-json) (length name))
+                       (not (char= (char name (1+ after-json)) #\/))
+                       (null (position #\/ name
+                                       :start (1+ after-json)))))))))
 
 (defun validate-eest-trie-test-root-case-names (cases)
   (let ((seen (make-hash-table :test 'equal)))
@@ -2111,6 +2113,10 @@
       (validate-eest-trie-selector-list '("/absolute.json")))
     (signals error
       (validate-eest-trie-selector-list '("dir//case.json")))
+    (signals error
+      (validate-eest-trie-selector-list '(".json/case")))
+    (signals error
+      (validate-eest-trie-selector-list '("dir/.json/case")))
     (signals error
       (validate-eest-trie-selector-list '("case.jsonx/name")))
     (signals error
