@@ -1159,6 +1159,10 @@ splits can land after the Phase A smoke path closes.
   - Slice: added a fixture-backed London `STATICCALL` read-only case. The child
     attempts `SSTORE`, fails under the static context, leaves callee storage
     empty, and the parent continues to persist its own success marker.
+  - Slice: added a fixture-backed London nested value-transfer case. The parent
+    contract receives transaction value, forwards part of it with `CALL`, keeps
+    the remainder, persists the child success flag, and the callee balance is
+    asserted in post-state.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4
