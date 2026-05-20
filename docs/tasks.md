@@ -1596,6 +1596,10 @@ splits can land after the Phase A smoke path closes.
   - Slice: added a fixture-backed London value-transfer stipend case. The parent
     supplies zero stack gas with non-zero call value, asserts the stipend lets
     the child return `GAS`, and checks both value movement and persisted gas.
+  - Slice: added a fixture-backed London `STATICCALL` memory-expansion case.
+    The parent expands argument/output memory before the child gas calculation,
+    then persists the success flag and final `MSIZE` so the ordering is checked
+    through post-state, not only a direct interpreter test.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4

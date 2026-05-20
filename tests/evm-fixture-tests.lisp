@@ -38,7 +38,7 @@
   '("legacy-call" "nested-call" "revert" "returndata" "code-resolution"
     "delegated-code"
     "staticcall" "read-only" "value-transfer" "access-list"
-    "gas-forwarding" "sstore" "log" "post-state-root"))
+    "gas-forwarding" "memory-expansion" "sstore" "log" "post-state-root"))
 
 (defparameter +evm-state-fixture-required-tags+
   '("legacy-call" "sstore" "log" "post-state-root"))
@@ -51,7 +51,8 @@
     "call-resolves-delegated-code-london"
     "access-list-call-prewarms-callee-london"
     "call-forwards-stack-gas-london"
-    "call-value-stipend-gas-london"))
+    "call-value-stipend-gas-london"
+    "staticcall-memory-expansion-before-child-gas-london"))
 
 (defun validate-evm-state-fixture-metadata (fixture)
   (validate-fixture-object-fields
