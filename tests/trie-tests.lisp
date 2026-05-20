@@ -751,7 +751,27 @@
                                entries))
                    entries-by-case))
          (write-counts
-           (mapcar #'- entry-counts delete-counts)))
+           (mapcar #'- entry-counts delete-counts))
+         (secure-write-counts
+           (loop for secure-p in secure-flags
+                 for count in write-counts
+                 when secure-p
+                   collect count))
+         (plain-write-counts
+           (loop for secure-p in secure-flags
+                 for count in write-counts
+                 unless secure-p
+                   collect count))
+         (secure-delete-counts
+           (loop for secure-p in secure-flags
+                 for count in delete-counts
+                 when secure-p
+                   collect count))
+         (plain-delete-counts
+           (loop for secure-p in secure-flags
+                 for count in delete-counts
+                 unless secure-p
+                   collect count)))
     (list
      (cons "count" (length cases))
      (cons "names" (mapcar (lambda (case)
@@ -764,8 +784,16 @@
      (cons "totalEntryCount" (reduce #'+ entry-counts :initial-value 0))
      (cons "writeEntryCounts" write-counts)
      (cons "totalWriteEntryCount" (reduce #'+ write-counts :initial-value 0))
+     (cons "secureWriteEntryCount"
+           (reduce #'+ secure-write-counts :initial-value 0))
+     (cons "plainWriteEntryCount"
+           (reduce #'+ plain-write-counts :initial-value 0))
      (cons "deleteEntryCounts" delete-counts)
      (cons "totalDeleteEntryCount" (reduce #'+ delete-counts :initial-value 0))
+     (cons "secureDeleteEntryCount"
+           (reduce #'+ secure-delete-counts :initial-value 0))
+     (cons "plainDeleteEntryCount"
+           (reduce #'+ plain-delete-counts :initial-value 0))
      (cons "roots" (mapcar (lambda (case)
                              (fixture-required-field case "root"))
                            cases)))))
@@ -779,7 +807,11 @@
     (when (zerop (fixture-object-field summary "totalWriteEntryCount"))
       (error "Phase A EEST trie subset must include write entries"))
     (when (zerop (fixture-object-field summary "totalDeleteEntryCount"))
-      (error "Phase A EEST trie subset must include delete entries"))))
+      (error "Phase A EEST trie subset must include delete entries"))
+    (when (zerop (fixture-object-field summary "secureWriteEntryCount"))
+      (error "Phase A EEST trie subset must include secure trie write entries"))
+    (when (zerop (fixture-object-field summary "plainDeleteEntryCount"))
+      (error "Phase A EEST trie subset must include plain trie delete entries"))))
 
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
@@ -1526,9 +1558,13 @@
     (is (equal '(1 2)
                (fixture-object-field summary "writeEntryCounts")))
     (is (= 3 (fixture-object-field summary "totalWriteEntryCount")))
+    (is (= 1 (fixture-object-field summary "secureWriteEntryCount")))
+    (is (= 2 (fixture-object-field summary "plainWriteEntryCount")))
     (is (equal '(0 2)
                (fixture-object-field summary "deleteEntryCounts")))
     (is (= 2 (fixture-object-field summary "totalDeleteEntryCount")))
+    (is (= 0 (fixture-object-field summary "secureDeleteEntryCount")))
+    (is (= 2 (fixture-object-field summary "plainDeleteEntryCount")))
     (is (equal '("0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
@@ -1569,6 +1605,16 @@
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (list (first cases))))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (list
+        (normalize-eest-trie-test-case
+         "secure-empty"
+         (list (cons "in" nil)
+               (cons "secure" t)
+               (cons "root"
+                     "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")))
+        (fourth cases))))
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (list

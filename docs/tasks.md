@@ -903,6 +903,10 @@ splits can land after the Phase A smoke path closes.
     Added null-valued object-form `in` support to the EEST trie-test adapter,
     so JSON object entries can express deletes just like array-form
     `[key, null]` pairs.
+    Tightened Phase A EEST trie subset summaries with secure/plain write and
+    delete counters, and made coverage validation require secure trie writes
+    plus plain trie deletes explicitly instead of only aggregate write/delete
+    activity.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
