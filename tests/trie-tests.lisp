@@ -421,14 +421,19 @@
     (unless (stringp key)
       (error "EEST trie test case ~A in entry key must be a string"
              case-name))
-    (when (blank-string-p value)
-      (error "EEST trie test case ~A in entry value must be present"
-             case-name))
-    (unless (stringp value)
-      (error "EEST trie test case ~A in entry value must be a string"
-             case-name))
-    (list (cons "key" key)
-          (cons "value" value))))
+    (cond
+      ((null value)
+       (list (cons "key" key)
+             (cons "delete" t)))
+      ((not (stringp value))
+       (error "EEST trie test case ~A in entry value must be a string or null"
+              case-name))
+      ((blank-string-p value)
+       (error "EEST trie test case ~A in entry value must be present"
+              case-name))
+      (t
+       (list (cons "key" key)
+             (cons "value" value))))))
 
 (defun normalize-eest-trie-test-entries (case-name entries)
   (unless (listp entries)
@@ -440,9 +445,13 @@
 (defun run-eest-trie-test-case (case)
   (let ((trie (make-mpt)))
     (dolist (entry (fixture-required-field case "entries"))
-      (mpt-put trie
-               (ascii-to-bytes (fixture-required-field entry "key"))
-               (ascii-to-bytes (fixture-required-field entry "value"))))
+      (let ((key (ascii-to-bytes (fixture-required-field entry "key"))))
+        (if (fixture-field-present-p entry "delete")
+            (mpt-delete trie key)
+            (mpt-put trie
+                     key
+                     (ascii-to-bytes
+                      (fixture-required-field entry "value"))))))
     trie))
 
 (defun load-eest-trie-test-file (path)
@@ -954,16 +963,22 @@
 (deftest eest-trie-test-file-shape-validation
   (let* ((cases (load-eest-trie-test-file +eest-trie-test-sample-path+))
          (case (first cases))
-         (entry (first (fixture-required-field case "entries")))
+         (entries (fixture-required-field case "entries"))
+         (entry (first entries))
+         (delete-entry (second entries))
          (trie (run-eest-trie-test-case case)))
     (is (= 1 (length cases)))
     (is (string= "phase-a-trie-sample"
                  (fixture-object-field case "name")))
+    (is (= 2 (length entries)))
     (is (string= "dog"
                  (fixture-object-field entry "key")))
     (is (string= "puppy"
                  (fixture-object-field entry "value")))
-    (is (string= "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
+    (is (string= "dog"
+                 (fixture-object-field delete-entry "key")))
+    (is (fixture-object-field delete-entry "delete"))
+    (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (fixture-object-field case "root")))
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
@@ -980,6 +995,12 @@
     (normalize-eest-trie-test-case
      "bad-entry"
      (list (cons "in" (list (list "dog")))
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "bad-entry-value"
+     (list (cons "in" (list (list "dog" 1)))
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
@@ -1011,7 +1032,7 @@
     (is (= 1 (fixture-object-field summary "count")))
     (is (equal '("phase-a-trie-sample.json")
                (fixture-object-field summary "names")))
-    (is (equal '("0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+    (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-sample.json/alpha"
                  (eest-trie-root-case-name root

@@ -1,8 +1,9 @@
 {
   "phase-a-trie-sample": {
     "in": [
-      ["dog", "puppy"]
+      ["dog", "puppy"],
+      ["dog", null]
     ],
-    "root": "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
+    "root": "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
   }
 }

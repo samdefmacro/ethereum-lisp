@@ -812,6 +812,10 @@ splits can land after the Phase A smoke path closes.
     cases now carry key/value pairs that can be replayed into the local MPT and
     checked against the expected root, starting with a `dog` -> `puppy` sample
     vector.
+    Added delete/null entry support to the EEST trie-test adapter. JSON `null`
+    values in `in` entries now normalize to delete operations and replay
+    through `mpt-delete`, with the sample vector covering `dog` -> `puppy`
+    followed by delete back to the empty trie root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
