@@ -414,6 +414,10 @@ ones.
     transaction JSON files now reject blank, non-string, or duplicate top-level
     case names before normalization, so source-style selectors cannot be
     polluted by malformed fixture keys.
+  - Progress: made EEST transaction-test selector filtering preserve selector
+    order and reject duplicate loaded source-style case names, so Phase A
+    subset summaries now fail if selected vector names do not exactly match
+    the pinned selector list order.
 
 ## P0: Module Boundaries
 

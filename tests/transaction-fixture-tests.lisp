@@ -358,20 +358,21 @@
        entries))))
 
 (defun filter-eest-transaction-test-root-cases (cases names)
-  (if names
-      (let ((selected nil)
-            (seen (make-hash-table :test 'equal)))
-        (dolist (case cases)
-          (let ((name (fixture-object-field case "name")))
-            (when (member name names :test #'string=)
-              (push case selected)
-              (setf (gethash name seen) t))))
-        (dolist (name names)
-          (unless (gethash name seen)
-            (error "EEST transaction selector ~A did not match any loaded case"
-                   name)))
-        (nreverse selected))
-      cases))
+  (let ((case-index (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (let ((name (fixture-required-field case "name")))
+        (when (gethash name case-index)
+          (error "EEST transaction test root has duplicate case name ~A"
+                 name))
+        (setf (gethash name case-index) case)))
+    (if names
+        (mapcar
+         (lambda (name)
+           (or (gethash name case-index)
+               (error "EEST transaction selector ~A did not match any loaded case"
+                      name)))
+         names)
+        cases)))
 
 (defun validate-eest-transaction-selector-list (names)
   (unless names
@@ -531,15 +532,6 @@
                            (fixture-required-field vector "name"))
                          vectors))))
 
-(defun transaction-fixture-string-list-set-equal-p (left right)
-  (and (= (length left) (length right))
-       (every (lambda (value)
-                (member value right :test #'string=))
-              left)
-       (every (lambda (value)
-                (member value left :test #'string=))
-              right)))
-
 (defun validate-phase-a-eest-transaction-summary-types (types)
   (unless types
     (error "Phase A EEST transaction summary must include at least one transaction type"))
@@ -605,9 +597,7 @@
       (error "Phase A EEST transaction selector count ~A loaded ~A vectors"
              (length +phase-a-eest-transaction-test-case-names+)
              count))
-    (unless (transaction-fixture-string-list-set-equal-p
-             names
-             +phase-a-eest-transaction-test-case-names+)
+    (unless (equal names +phase-a-eest-transaction-test-case-names+)
       (error "Phase A EEST transaction summary names ~S do not match selectors ~S"
              names
              +phase-a-eest-transaction-test-case-names+))
@@ -1559,6 +1549,11 @@
     (is (= 3 (length selected-cases)))
     (is (= 3 (length vectors)))
     (is (= 3 (length selected-vectors)))
+    (is (equal +phase-a-eest-transaction-test-case-names+
+               (mapcar
+                (lambda (case)
+                  (fixture-object-field case "name"))
+                selected-cases)))
     (is (string= "phase-a-sample.json/legacy-eip155-sample"
                  (fixture-object-field (first cases) "name")))
     (is (string= "phase-a-sample.json/legacy-eip155-sample"
@@ -1575,12 +1570,15 @@
     (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
     (is (equal '("phase-a-sample.json/legacy-eip155-sample"
-                 "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
-                 "phase-a-sample.json/typed-eip2930-access-list-sample")
+                 "phase-a-sample.json/typed-eip2930-access-list-sample"
+                 "phase-a-sample.json/typed-eip1559-dynamic-fee-sample")
                (fixture-object-field summary "names")))
     (is (equal summary
                (validate-phase-a-eest-transaction-vector-summary
                 selected-vectors)))
+    (signals error
+      (validate-phase-a-eest-transaction-vector-summary
+       (reverse selected-vectors)))
     (signals error
       (validate-phase-a-eest-transaction-vector-summary
        (remove dynamic-fee-vector selected-vectors)))
@@ -1644,6 +1642,12 @@
       (load-eest-transaction-test-root-cases
        root
        :names '("phase-a-sample.json" "phase-a-sample.json")))
+    (signals error
+      (filter-eest-transaction-test-root-cases
+       (list
+        (list (cons "name" "duplicate-source-name"))
+        (list (cons "name" "duplicate-source-name")))
+       nil))
     (validate-eest-transaction-selector-list
      +phase-a-eest-transaction-test-case-names+)
     (signals error
