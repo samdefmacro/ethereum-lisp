@@ -2533,7 +2533,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :label (chain-store-checkpoint-label checkpoint)
      :block-hash (chain-store-checkpoint-block-hash checkpoint))))
 
-(defun engine-payload-store-copy-pending-sender-index (table)
+(defun engine-pending-txpool-copy-sender-index (table)
   (let ((copy (make-hash-table :test (hash-table-test table))))
     (maphash (lambda (sender nonce-table)
                (setf (gethash sender copy)
@@ -2541,19 +2541,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              table)
     copy))
 
-(defun engine-payload-store-copy-pending-txpool (txpool)
+(defun engine-pending-txpool-copy (txpool)
   (make-engine-pending-txpool
    :transactions
    (engine-payload-store-copy-table
     (engine-pending-txpool-transactions txpool))
    :transactions-by-sender
-   (engine-payload-store-copy-pending-sender-index
+   (engine-pending-txpool-copy-sender-index
     (engine-pending-txpool-transactions-by-sender txpool))
    :queued-transactions
    (engine-payload-store-copy-table
     (engine-pending-txpool-queued-transactions txpool))
    :queued-transactions-by-sender
-   (engine-payload-store-copy-pending-sender-index
+   (engine-pending-txpool-copy-sender-index
     (engine-pending-txpool-queued-transactions-by-sender txpool))
    :basefee-transactions
    (engine-payload-store-copy-table
@@ -2605,7 +2605,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-copy-blob-sidecar-table
     (engine-payload-memory-store-blob-sidecars store))
    :txpool
-   (engine-payload-store-copy-pending-txpool
+   (engine-pending-txpool-copy
     (engine-payload-memory-store-txpool store))
    :log-filters
    (engine-payload-store-copy-filter-table

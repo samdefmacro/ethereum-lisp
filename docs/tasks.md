@@ -1925,6 +1925,10 @@ splits can land after the Phase A smoke path closes.
     RPC/filter notification wrapper around txpool mutation, giving the txpool
     state an independently tested mutation boundary before a later file-level
     module split.
+  - Progress: moved pending txpool snapshot copying behind a direct
+    `engine-pending-txpool-copy` helper, including deep copies of nested
+    sender/nonce indexes. Atomic store snapshots now call the txpool copy
+    boundary instead of rebuilding txpool internals themselves.
 
 - [~] Add sender/nonce keyed txpool indexing.
   - Milestone: 7

@@ -3379,6 +3379,60 @@
       (is (eq replacement-transaction
               (gethash nonce-key sender-transactions))))))
 
+(deftest engine-pending-txpool-copy-isolates-sender-indexes
+  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 7
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (sender-key
+           (address-to-hex
+            (or (transaction-sender transaction)
+                (zero-address))))
+         (nonce-key (write-to-string
+                     (transaction-nonce transaction)
+                     :base 10)))
+    (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+     txpool
+     transaction)
+    (let* ((copy (ethereum-lisp.core::engine-pending-txpool-copy txpool))
+           (sender-transactions
+             (gethash
+              sender-key
+              (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
+               txpool)))
+           (copy-sender-transactions
+             (gethash
+              sender-key
+              (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
+               copy))))
+      (is (not (eq txpool copy)))
+      (is (not (eq
+                (ethereum-lisp.core::engine-pending-txpool-transactions
+                 txpool)
+                (ethereum-lisp.core::engine-pending-txpool-transactions
+                 copy))))
+      (is (not (eq sender-transactions copy-sender-transactions)))
+      (ethereum-lisp.core::engine-pending-txpool-remove-pending-transaction
+       txpool
+       (transaction-hash transaction))
+      (is (= 0
+             (hash-table-count
+              (ethereum-lisp.core::engine-pending-txpool-transactions
+               txpool))))
+      (is (= 1
+             (hash-table-count
+              (ethereum-lisp.core::engine-pending-txpool-transactions
+               copy))))
+      (is (eq transaction (gethash nonce-key copy-sender-transactions))))))
+
 (deftest execute-and-commit-block-stores-only-after-execution-success
   (let* ((store (make-engine-payload-memory-store))
          (state (make-state-db))
