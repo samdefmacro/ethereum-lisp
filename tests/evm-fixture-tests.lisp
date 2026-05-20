@@ -1,0 +1,344 @@
+(in-package #:ethereum-lisp.test)
+
+(defparameter +evm-state-fixture-path+
+  "tests/fixtures/execution-spec-tests/evm-state.json")
+
+(defparameter +evm-state-fixture-format+
+  "ethereum-lisp/evm-state-fixture-v1")
+
+(defparameter +evm-state-fixture-top-level-fields+
+  '("format" "source" "executionSpecTests" "cases"))
+
+(defparameter +evm-state-fixture-case-fields+
+  '("name" "tags" "env" "pre" "transaction" "expect"))
+
+(defparameter +evm-state-fixture-env-fields+
+  '("fork" "chainId" "number" "timestamp" "coinbase"))
+
+(defparameter +evm-state-fixture-account-fields+
+  '("nonce" "balance" "code" "storage"))
+
+(defparameter +evm-state-fixture-transaction-fields+
+  '("from" "to" "nonce" "gasPrice" "gasLimit" "value" "data"))
+
+(defparameter +evm-state-fixture-expect-fields+
+  '("stateRoot" "post" "receipt"))
+
+(defparameter +evm-state-fixture-receipt-fields+
+  '("status" "cumulativeGasUsed" "logsBloom" "logs"))
+
+(defparameter +evm-state-fixture-log-fields+
+  '("address" "topics" "data"))
+
+(defparameter +evm-state-fixture-known-tags+
+  '("legacy-call" "sstore" "log" "post-state-root"))
+
+(defparameter +evm-state-fixture-required-tags+
+  '("legacy-call" "sstore" "log" "post-state-root"))
+
+(defun validate-evm-state-fixture-metadata (fixture)
+  (validate-fixture-object-fields
+   fixture
+   +evm-state-fixture-top-level-fields+
+   "EVM state fixture")
+  (validate-fixture-format fixture +evm-state-fixture-format+)
+  (when (blank-string-p (fixture-required-field fixture "source"))
+    (error "EVM state fixture source must be present"))
+  (validate-fixture-pinned-eest-source fixture))
+
+(defun evm-state-fixture-quantity (object name)
+  (hex-to-quantity (fixture-required-field object name)))
+
+(defun validate-evm-state-fixture-storage-shape (storage label)
+  (unless (listp storage)
+    (error "~A storage must be a JSON object" label))
+  (let ((seen-slots (make-hash-table :test 'equal)))
+    (dolist (entry storage)
+      (let ((slot (car entry)))
+        (when (gethash slot seen-slots)
+          (error "~A storage has duplicate slot ~A" label slot))
+        (setf (gethash slot seen-slots) t)
+        (hash32-from-hex slot)
+        (hex-to-quantity (cdr entry))))))
+
+(defun validate-evm-state-fixture-account-shape (address account label)
+  (address-from-hex address)
+  (validate-fixture-object-fields
+   account
+   +evm-state-fixture-account-fields+
+   label)
+  (evm-state-fixture-quantity account "nonce")
+  (evm-state-fixture-quantity account "balance")
+  (hex-to-bytes (fixture-required-field account "code"))
+  (validate-evm-state-fixture-storage-shape
+   (fixture-required-field account "storage")
+   label))
+
+(defun validate-evm-state-fixture-accounts-shape (accounts label)
+  (unless (listp accounts)
+    (error "~A must be a JSON object" label))
+  (let ((seen-addresses (make-hash-table :test 'equal)))
+    (dolist (entry accounts)
+      (let ((address (car entry)))
+        (when (gethash address seen-addresses)
+          (error "~A has duplicate address ~A" label address))
+        (setf (gethash address seen-addresses) t)
+        (validate-evm-state-fixture-account-shape
+         address
+         (cdr entry)
+         (format nil "~A account ~A" label address))))))
+
+(defun validate-evm-state-fixture-env-shape (env)
+  (validate-fixture-object-fields
+   env
+   +evm-state-fixture-env-fields+
+   "EVM state fixture env")
+  (unless (string= "London" (fixture-required-field env "fork"))
+    (error "EVM state fixture currently supports only London fork vectors"))
+  (dolist (field '("chainId" "number" "timestamp"))
+    (evm-state-fixture-quantity env field))
+  (address-from-hex (fixture-required-field env "coinbase")))
+
+(defun validate-evm-state-fixture-transaction-shape (transaction)
+  (validate-fixture-object-fields
+   transaction
+   +evm-state-fixture-transaction-fields+
+   "EVM state fixture transaction")
+  (address-from-hex (fixture-required-field transaction "from"))
+  (address-from-hex (fixture-required-field transaction "to"))
+  (dolist (field '("nonce" "gasPrice" "gasLimit" "value"))
+    (evm-state-fixture-quantity transaction field))
+  (hex-to-bytes (fixture-required-field transaction "data")))
+
+(defun validate-evm-state-fixture-log-shape (log)
+  (validate-fixture-object-fields
+   log
+   +evm-state-fixture-log-fields+
+   "EVM state fixture expected log")
+  (address-from-hex (fixture-required-field log "address"))
+  (let ((topics (fixture-required-field log "topics")))
+    (unless (listp topics)
+      (error "EVM state fixture expected log topics must be a JSON array"))
+    (dolist (topic topics)
+      (hash32-from-hex topic)))
+  (hex-to-bytes (fixture-required-field log "data")))
+
+(defun validate-evm-state-fixture-receipt-shape (receipt)
+  (validate-fixture-object-fields
+   receipt
+   +evm-state-fixture-receipt-fields+
+   "EVM state fixture expected receipt")
+  (evm-state-fixture-quantity receipt "status")
+  (evm-state-fixture-quantity receipt "cumulativeGasUsed")
+  (hex-to-bytes (fixture-required-field receipt "logsBloom"))
+  (let ((logs (fixture-required-field receipt "logs")))
+    (unless (listp logs)
+      (error "EVM state fixture expected receipt logs must be a JSON array"))
+    (dolist (log logs)
+      (validate-evm-state-fixture-log-shape log))))
+
+(defun validate-evm-state-fixture-expect-shape (expect)
+  (validate-fixture-object-fields
+   expect
+   +evm-state-fixture-expect-fields+
+   "EVM state fixture expect")
+  (hash32-from-hex (fixture-required-field expect "stateRoot"))
+  (validate-evm-state-fixture-accounts-shape
+   (fixture-required-field expect "post")
+   "EVM state fixture expected post")
+  (validate-evm-state-fixture-receipt-shape
+   (fixture-required-field expect "receipt")))
+
+(defun validate-evm-state-fixture-case-tags (case seen-tags)
+  (let ((name (fixture-object-field case "name"))
+        (tags (fixture-object-field case "tags")))
+    (unless (and (listp tags) tags)
+      (error "EVM state fixture case ~A must include non-empty tags" name))
+    (let ((case-tags (make-hash-table :test 'equal)))
+      (dolist (tag tags)
+        (when (gethash tag case-tags)
+          (error "EVM state fixture case ~A has duplicate tag ~A" name tag))
+        (setf (gethash tag case-tags) t)
+        (unless (and (stringp tag)
+                     (member tag +evm-state-fixture-known-tags+
+                             :test #'string=))
+          (error "EVM state fixture case ~A has unknown tag ~A" name tag))
+        (setf (gethash tag seen-tags) t)))))
+
+(defun validate-evm-state-fixture-case-shape (case)
+  (validate-fixture-object-fields
+   case
+   +evm-state-fixture-case-fields+
+   "EVM state fixture case")
+  (when (blank-string-p (fixture-required-field case "name"))
+    (error "EVM state fixture case name must be present"))
+  (validate-evm-state-fixture-case-tags case (make-hash-table :test 'equal))
+  (validate-evm-state-fixture-env-shape
+   (fixture-required-field case "env"))
+  (validate-evm-state-fixture-accounts-shape
+   (fixture-required-field case "pre")
+   "EVM state fixture pre")
+  (validate-evm-state-fixture-transaction-shape
+   (fixture-required-field case "transaction"))
+  (validate-evm-state-fixture-expect-shape
+   (fixture-required-field case "expect")))
+
+(defun validate-evm-state-fixture-cases (cases)
+  (unless (listp cases)
+    (error "EVM state fixture cases must be a JSON array"))
+  (let ((seen-names (make-hash-table :test 'equal))
+        (seen-tags (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (let ((name (fixture-object-field case "name")))
+        (when (blank-string-p name)
+          (error "EVM state fixture case name must be present"))
+        (when (gethash name seen-names)
+          (error "Duplicate EVM state fixture case name: ~A" name))
+        (setf (gethash name seen-names) t))
+      (validate-evm-state-fixture-case-tags case seen-tags)
+      (validate-evm-state-fixture-case-shape case))
+    (dolist (tag +evm-state-fixture-required-tags+)
+      (unless (gethash tag seen-tags)
+        (error "EVM state fixture is missing required coverage tag ~A" tag)))))
+
+(defun apply-evm-state-fixture-account (state address-hex account)
+  (let ((address (address-from-hex address-hex)))
+    (state-db-set-account
+     state
+     address
+     (make-state-account
+      :nonce (evm-state-fixture-quantity account "nonce")
+      :balance (evm-state-fixture-quantity account "balance")))
+    (state-db-set-code state address (hex-to-bytes (fixture-object-field account "code")))
+    (dolist (entry (fixture-object-field account "storage"))
+      (state-db-set-storage
+       state
+       address
+       (hash32-from-hex (car entry))
+       (hex-to-quantity (cdr entry))))))
+
+(defun evm-state-fixture-pre-state (case)
+  (let ((state (make-state-db)))
+    (dolist (entry (fixture-object-field case "pre"))
+      (apply-evm-state-fixture-account state (car entry) (cdr entry)))
+    state))
+
+(defun evm-state-fixture-chain-rules (env)
+  (declare (ignore env))
+  (make-chain-rules :chain-id 1
+                    :homestead-p t
+                    :eip150-p t
+                    :eip155-p t
+                    :eip158-p t
+                    :byzantium-p t
+                    :constantinople-p t
+                    :petersburg-p t
+                    :istanbul-p t
+                    :berlin-p t
+                    :london-p t))
+
+(defun evm-state-fixture-transaction (object)
+  (make-legacy-transaction
+   :nonce (evm-state-fixture-quantity object "nonce")
+   :gas-price (evm-state-fixture-quantity object "gasPrice")
+   :gas-limit (evm-state-fixture-quantity object "gasLimit")
+   :to (address-from-hex (fixture-object-field object "to"))
+   :value (evm-state-fixture-quantity object "value")
+   :data (hex-to-bytes (fixture-object-field object "data"))))
+
+(defun execute-evm-state-fixture-case (case)
+  (let* ((state (evm-state-fixture-pre-state case))
+         (env (fixture-object-field case "env"))
+         (tx-object (fixture-object-field case "transaction"))
+         (sender (address-from-hex (fixture-object-field tx-object "from")))
+         (tx (evm-state-fixture-transaction tx-object))
+         (receipt
+           (apply-message
+            state sender tx
+            :chain-id (evm-state-fixture-quantity env "chainId")
+            :chain-rules (evm-state-fixture-chain-rules env)
+            :coinbase (address-from-hex (fixture-object-field env "coinbase"))
+            :block-number (evm-state-fixture-quantity env "number")
+            :timestamp (evm-state-fixture-quantity env "timestamp"))))
+    (values state receipt)))
+
+(defun assert-evm-state-fixture-account (state address-hex expected)
+  (let* ((address (address-from-hex address-hex))
+         (account (state-db-get-account state address)))
+    (is account)
+    (is (= (evm-state-fixture-quantity expected "nonce")
+           (state-account-nonce account)))
+    (is (= (evm-state-fixture-quantity expected "balance")
+           (state-account-balance account)))
+    (is (bytes= (hex-to-bytes (fixture-object-field expected "code"))
+                (state-db-get-code state address)))
+    (dolist (entry (fixture-object-field expected "storage"))
+      (is (= (hex-to-quantity (cdr entry))
+             (state-db-get-storage
+              state
+              address
+              (hash32-from-hex (car entry))))))))
+
+(defun assert-evm-state-fixture-log (actual expected)
+  (is (string= (fixture-object-field expected "address")
+               (address-to-hex (log-entry-address actual))))
+  (let ((expected-topics (fixture-object-field expected "topics"))
+        (actual-topics (log-entry-topics actual)))
+    (is (= (length expected-topics) (length actual-topics)))
+    (loop for expected-topic in expected-topics
+          for actual-topic in actual-topics
+          do (is (string= expected-topic (hash32-to-hex actual-topic)))))
+  (is (string= (fixture-object-field expected "data")
+               (bytes-to-hex (log-entry-data actual)))))
+
+(defun assert-evm-state-fixture-receipt (receipt expected)
+  (is (= (evm-state-fixture-quantity expected "status")
+         (receipt-status receipt)))
+  (is (= (evm-state-fixture-quantity expected "cumulativeGasUsed")
+         (receipt-cumulative-gas-used receipt)))
+  (is (string= (fixture-object-field expected "logsBloom")
+               (bytes-to-hex (bloom-bytes (receipt-bloom (receipt-logs receipt))))))
+  (let ((expected-logs (fixture-object-field expected "logs"))
+        (actual-logs (receipt-logs receipt)))
+    (is (= (length expected-logs) (length actual-logs)))
+    (loop for expected-log in expected-logs
+          for actual-log in actual-logs
+          do (assert-evm-state-fixture-log actual-log expected-log))))
+
+(deftest evm-state-fixture-shape-validation
+  (signals error
+    (validate-evm-state-fixture-metadata
+     (list (cons "format" +evm-state-fixture-format+)
+           (cons "source" "seed")
+           (cons "source" "duplicate seed")
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-evm-state-fixture-case-shape
+     (list (cons "name" "unknown-case-field")
+           (cons "tags" +evm-state-fixture-required-tags+)
+           (cons "env" nil)
+           (cons "pre" nil)
+           (cons "transaction" nil)
+           (cons "expect" nil)
+           (cons "unexpected" t)))))
+
+(deftest evm-state-fixture-vectors
+  (let* ((fixture (load-handwritten-fixture-file +evm-state-fixture-path+))
+         (cases (fixture-object-field fixture "cases")))
+    (validate-evm-state-fixture-metadata fixture)
+    (validate-evm-state-fixture-cases cases)
+    (dolist (case cases)
+      (multiple-value-bind (state receipt)
+          (execute-evm-state-fixture-case case)
+        (let ((expect (fixture-object-field case "expect")))
+          (is (string= (fixture-object-field expect "stateRoot")
+                       (state-db-root-hex state)))
+          (dolist (entry (fixture-object-field expect "post"))
+            (assert-evm-state-fixture-account state (car entry) (cdr entry)))
+          (assert-evm-state-fixture-receipt
+           receipt
+           (fixture-object-field expect "receipt")))))))

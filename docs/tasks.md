@@ -1130,13 +1130,20 @@ splits can land after the Phase A smoke path closes.
 
 ## P0: EVM Correctness Gaps
 
-- [ ] Add an EVM state-test fixture runner.
+- [x] Add an EVM state-test fixture runner.
   - Milestone: 4 / 8
   - References: Ethereum execution-spec-tests, geth state tests, Nethermind EVM
     test runners, Reth/revm fixtures.
   - Acceptance: at least one external-style EVM state fixture can drive the
     Common Lisp EVM and compare post-state/root/logs.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added `tests/fixtures/execution-spec-tests/evm-state.json`, an
+    external-style London EVM state fixture with pinned EEST source metadata.
+    The new fixture runner builds pre-state accounts/code/storage, executes a
+    legacy message call, and asserts post-state root, account balances, nonce,
+    code, storage, receipt status, cumulative gas, logs bloom, and emitted log
+    address/topic/data. Shape validation locks the wrapper, env, pre/post
+    account, transaction, receipt, and coverage-tag fields.
 
 - [ ] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
