@@ -1565,7 +1565,7 @@ splits can land after the Phase A smoke path closes.
     and access-list cases so the London state-test seed set cannot silently
     shrink while retaining generic tag coverage.
 
-- [ ] Expand CALL-family semantics toward spec completeness.
+- [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
   - References: geth `core/vm`, Nethermind EVM, revm behavior.
   - Acceptance: nested value transfer, returndata, gas, access-list, static
@@ -1603,6 +1603,11 @@ splits can land after the Phase A smoke path closes.
   - Slice: added a fixture-backed London `CALL` error case. The callee writes
     storage then hits `INVALID`; the fixture asserts child storage rolls back
     while the parent observes call failure and cleared returndata size.
+  - Result: the fixture-backed London EVM state set now covers the acceptance
+    matrix for nested value transfer, returndata, gas forwarding/stipend/memory
+    expansion, access-list prewarming, static context, revert/error rollback,
+    and delegated-code resolution. Broader CALLCODE/DELEGATECALL expansion can
+    be tracked as separate follow-up tasks if needed.
 
 - [ ] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4
