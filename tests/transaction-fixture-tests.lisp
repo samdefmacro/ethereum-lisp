@@ -582,6 +582,11 @@
             collect (cons type count))))
 
 (defun transaction-fixture-vector-summary (vectors)
+  (unless (listp vectors)
+    (error "Transaction fixture summary vectors must be a list"))
+  (dolist (vector vectors)
+    (unless (listp vector)
+      (error "Transaction fixture summary vector must be a JSON object")))
   (list
    (cons "count" (length vectors))
    (cons "types" (transaction-fixture-vector-type-counts vectors))
@@ -1691,6 +1696,10 @@
     (is (equal summary
                (validate-phase-a-eest-transaction-vector-summary
                 selected-vectors)))
+    (signals error
+      (transaction-fixture-vector-summary "phase-a-vectors"))
+    (signals error
+      (transaction-fixture-vector-summary (list "phase-a-vector")))
     (signals error
       (validate-phase-a-eest-transaction-vector-summary
        (reverse selected-vectors)))

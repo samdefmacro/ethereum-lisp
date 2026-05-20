@@ -471,6 +471,9 @@ ones.
   - Progress: moved EEST transaction selector-list validation into the root
     case filter itself, so direct filter calls reject malformed selector
     inputs before matching against loaded cases.
+  - Progress: tightened the transaction vector summary helper so direct calls
+    reject non-list vector sets and non-object vector entries before counting
+    names or envelope types.
 
 ## P0: Module Boundaries
 
