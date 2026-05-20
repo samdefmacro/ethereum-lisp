@@ -326,7 +326,7 @@
     },
     {
       "name": "root-branch-value-for-prefix-key",
-      "tags": ["branch-root", "branch-children", "branch-value", "hex-key"],
+      "tags": ["branch-root", "branch-children", "branch-value", "hex-key", "lookup-assertions"],
       "operations": [
         { "op": "put", "keyHex": "0x", "valueAscii": "root" },
         { "op": "put", "keyHex": "0x10", "valueAscii": "child" }
@@ -334,7 +334,11 @@
       "expectedRoot": "0x322d957ebcabf5ba295218b9b8920a905f7da6078010c2228989ebcf004e43d8",
       "expectedShape": "branch",
       "expectedRootChildren": [1],
-      "expectedRootValueAscii": "root"
+      "expectedRootValueAscii": "root",
+      "expectedGets": [
+        { "keyHex": "0x", "valueAscii": "root" },
+        { "keyHex": "0x10", "valueAscii": "child" }
+      ]
     },
     {
       "name": "root-branch-value-with-zero-child",
@@ -372,7 +376,13 @@
       ],
       "expectedRoot": "0xae9b7371f5ef144daa2780a50feb85d5918708e10357eb25c275cc2562f219d4",
       "expectedShape": "leaf",
-      "expectedRootPathNibbles": [1, 0, 16]
+      "expectedRootPathNibbles": [1, 0, 16],
+      "expectedGets": [
+        { "keyHex": "0x10", "valueAscii": "child" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0x" }
+      ]
     },
     {
       "name": "delete-root-branch-child-collapses-to-root-value-leaf",
@@ -385,7 +395,13 @@
       "expectedRoot": "0xdecd353bef3878c819cdb73943e0a744d14551d9626f656c4baca465e5db165c",
       "expectedShape": "leaf",
       "expectedRootPathNibbles": [16],
-      "expectedRootValueAscii": "root"
+      "expectedRootValueAscii": "root",
+      "expectedGets": [
+        { "keyHex": "0x", "valueAscii": "root" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0x10" }
+      ]
     }
   ]
 }

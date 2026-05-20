@@ -1073,6 +1073,9 @@ splits can land after the Phase A smoke path closes.
     Added fixture assertions for compressed root path nibbles on leaf and
     extension roots, locking the path-compression shape in addition to root
     hashes and node kinds.
+    Added final lookup/proof assertions to the root branch-value trie vectors,
+    covering empty-key value retention, empty-key deletion, and branch-child
+    deletion after collapse to a leaf.
     Added a multi-account secure state-root fixture that asserts account nonce,
     balance, storage root, code hash, and account RLP projections alongside the
     final root.
