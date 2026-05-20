@@ -888,8 +888,10 @@ HTTP request from an input stream and writes the response to an output stream,
 and an Engine HTTP service configuration object now bundles the authenticated
 endpoint defaults, payload store, chain config, JWT secret, and clock provider,
 while a small listener/connection accept loop can now serve repeated stream
-connections and close them deterministically, leaving a concrete socket backend
-as the next outer shell.
+connections and close them deterministically. The outer local transport shell is
+now present for SBCL: a `sb-bsd-sockets` TCP listener adapts localhost socket
+connections into the same stream service and is covered by an end-to-end
+JSON-RPC socket test.
 
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.

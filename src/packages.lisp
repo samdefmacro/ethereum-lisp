@@ -643,6 +643,7 @@
    #:engine-rpc-http-connection-close
    #:engine-rpc-http-listener
    #:make-engine-rpc-http-listener
+   #:make-engine-rpc-http-socket-listener
    #:engine-rpc-http-listener-endpoint
    #:engine-rpc-http-listener-accept-function
    #:engine-rpc-http-listener-close-function
@@ -1523,6 +1524,7 @@
    #:engine-rpc-http-connection-close
    #:engine-rpc-http-listener
    #:make-engine-rpc-http-listener
+   #:make-engine-rpc-http-socket-listener
    #:engine-rpc-http-listener-endpoint
    #:engine-rpc-http-listener-accept-function
    #:engine-rpc-http-listener-close-function
@@ -2363,6 +2365,7 @@
    #:engine-rpc-http-connection-close
    #:engine-rpc-http-listener
    #:make-engine-rpc-http-listener
+   #:make-engine-rpc-http-socket-listener
    #:engine-rpc-http-listener-endpoint
    #:engine-rpc-http-listener-accept-function
    #:engine-rpc-http-listener-close-function

@@ -1905,12 +1905,18 @@ splits can land after the Phase A smoke path closes.
 
 ## P1: Networking And Sync Shell
 
-- [ ] Add a concrete local socket backend for the HTTP service.
+- [x] Add a concrete local socket backend for the HTTP service.
   - Milestone: 7
   - Dependencies: current stream service.
   - Acceptance: a local process can serve JSON-RPC over a TCP port in tests or
     a small dev command.
   - Validation: service test plus `sbcl --script tests/run-tests.lisp`.
+  - Completed: added an SBCL `sb-bsd-sockets` listener that adapts local TCP
+    sockets into the existing HTTP connection/listener abstraction, including
+    port `0` binding for tests and deterministic listener/stream cleanup. The
+    service test posts `engine_getClientVersionV1` over a real localhost socket;
+    restricted sandboxes skip the bind path explicitly, while the unrestricted
+    validation run exercised the socket path end-to-end.
 
 - [ ] Add devp2p/discovery architecture notes.
   - Milestone: 6 / future networking

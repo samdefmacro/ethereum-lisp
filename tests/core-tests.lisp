@@ -10590,6 +10590,93 @@ Content-Length: 4
         (engine-rpc-http-service-serve-listener
          service listener :max-connections -1)))))
 
+#+sbcl
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :sb-bsd-sockets))
+
+#+sbcl
+(deftest engine-rpc-http-service-serves-local-socket
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (http-body (response)
+             (let ((boundary (search (format nil "~C~C~C~C"
+                                             #\Return #\Newline
+                                             #\Return #\Newline)
+                                     response)))
+               (subseq response (+ boundary 4))))
+           (http-status (response)
+             (let* ((line-end (position #\Return response))
+                    (status-line (subseq response 0 line-end)))
+               (parse-integer status-line :start 9 :end 12)))
+           (endpoint-port (endpoint)
+             (parse-integer
+              endpoint
+              :start (1+ (position #\: endpoint :from-end t))))
+           (read-stream-string (stream)
+             (with-output-to-string (out)
+               (loop for char = (read-char stream nil nil)
+                     while char
+                     do (write-char char out))))
+           (connect-stream (host port)
+             (let ((socket (make-instance 'sb-bsd-sockets:inet-socket
+                                          :type :stream
+                                          :protocol :tcp)))
+               (sb-bsd-sockets:socket-connect
+                socket
+                (sb-bsd-sockets:make-inet-address host)
+                port)
+               (sb-bsd-sockets:socket-make-stream
+                socket
+                :input t
+                :output t
+                :element-type 'character
+                :external-format :utf-8
+                :buffering :none))))
+    (let* ((service (make-engine-rpc-http-service
+                     :host "127.0.0.1"
+                     :port 0))
+           (listener
+             (handler-case
+                 (make-engine-rpc-http-socket-listener service)
+               (sb-bsd-sockets:operation-not-permitted-error ()
+                 (skip-test
+                  "Local socket bind is not permitted in this sandbox"))))
+           (port (endpoint-port
+                  (engine-rpc-http-listener-endpoint listener)))
+           (server-thread
+             (sb-thread:make-thread
+              (lambda ()
+                (engine-rpc-http-service-serve-listener
+                 service listener :max-connections 1)))))
+      (unwind-protect
+           (let* ((body
+                    (concatenate
+                     'string
+                     "{\"jsonrpc\":\"2.0\",\"id\":23,"
+                     "\"method\":\"engine_getClientVersionV1\","
+                     "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+                     "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+                  (request
+                    (format nil
+                            "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                            (length body)
+                            body))
+                  (stream (connect-stream "127.0.0.1" port)))
+             (unwind-protect
+                  (progn
+                    (write-string request stream)
+                    (finish-output stream)
+                    (let* ((response (read-stream-string stream))
+                           (rpc-response (parse-json (http-body response)))
+                           (local (first (field rpc-response "result"))))
+                      (is (= 200 (http-status response)))
+                      (is (= 23 (field rpc-response "id")))
+                      (is (string= "ethereum-lisp"
+                                   (field local "name")))))
+               (close stream))
+             (sb-thread:join-thread server-thread))
+        (ignore-errors (engine-rpc-http-listener-close listener))))))
+
 (deftest block-body-root-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (transaction (make-legacy-transaction :nonce 1
