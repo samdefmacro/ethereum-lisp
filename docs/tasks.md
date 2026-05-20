@@ -1006,6 +1006,9 @@ splits can land after the Phase A smoke path closes.
     Added a selected secureTrie delete-branch-child case whose final root
     remains non-empty, and tightened the Phase A subset summary/gate to require
     secure delete replay that preserves a non-empty final root.
+    Added secure-key replay support to the seed trie-vector fixture runner
+    itself, plus a secure delete-collapse vector that hashes logical keys before
+    MPT replay and checks final secure-key lookups.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

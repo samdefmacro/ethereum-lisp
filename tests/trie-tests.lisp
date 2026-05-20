@@ -50,6 +50,7 @@
     "missing-delete-noop"
     "duplicate-overwrite"
     "hex-key"
+    "secure-key"
     "lookup-assertions"))
 
 (defparameter +trie-fixture-required-tags+
@@ -65,6 +66,7 @@
     "missing-delete-noop"
     "duplicate-overwrite"
     "hex-key"
+    "secure-key"
     "lookup-assertions"))
 
 (defparameter +trie-fixture-root-shapes+
@@ -75,6 +77,7 @@
 
 (defparameter +trie-fixture-case-fields+
   '("name"
+    "secure"
     "tags"
     "operations"
     "expectedRoot"
@@ -346,6 +349,10 @@
      case
      +trie-fixture-case-fields+
      (format nil "Trie fixture case ~A" name))
+    (when (fixture-field-present-p case "secure")
+      (let ((secure (fixture-object-field case "secure")))
+        (unless (or (eq secure t) (null secure))
+          (error "Trie fixture case ~A secure must be a boolean" name))))
     (unless (and (listp operations) operations)
       (error "Trie fixture case ~A must include non-empty operations" name))
     (validate-trie-fixture-expected-fields case)
@@ -1080,9 +1087,18 @@
         (when hex (hex-to-bytes hex)))
       (ascii-to-bytes (fixture-object-field object "keyAscii"))))
 
-(defun apply-trie-fixture-operation (trie operation)
+(defun trie-fixture-secure-key-p (case)
+  (not (null (fixture-object-field case "secure"))))
+
+(defun trie-fixture-trie-key (case object)
+  (let ((key (trie-fixture-key object)))
+    (if (trie-fixture-secure-key-p case)
+        (keccak-256 key)
+        key)))
+
+(defun apply-trie-fixture-operation (trie case operation)
   (let ((op (fixture-object-field operation "op"))
-        (key (trie-fixture-key operation)))
+        (key (trie-fixture-trie-key case operation)))
     (cond
       ((string= op "put")
        (mpt-put trie key
@@ -1095,13 +1111,13 @@
 (defun run-trie-fixture-case (case)
   (let ((trie (make-mpt)))
     (dolist (operation (fixture-object-field case "operations"))
-      (apply-trie-fixture-operation trie operation))
+      (apply-trie-fixture-operation trie case operation))
     trie))
 
 (defun trie-fixture-final-operation-state (case)
   (let ((entries '()))
     (dolist (operation (fixture-object-field case "operations"))
-      (let ((key (trie-fixture-key operation))
+      (let ((key (trie-fixture-trie-key case operation))
             (op (fixture-object-field operation "op")))
         (setf entries (remove key entries :key #'car :test #'bytes=))
         (cond
@@ -1126,9 +1142,9 @@
 (defun assert-trie-fixture-lookups (trie case)
   (dolist (expected (fixture-object-field case "expectedGets"))
     (is (bytes= (ascii-to-bytes (fixture-object-field expected "valueAscii"))
-                (mpt-get trie (trie-fixture-key expected)))))
+                (mpt-get trie (trie-fixture-trie-key case expected)))))
   (dolist (expected (fixture-object-field case "expectedMissing"))
-    (is (null (mpt-get trie (trie-fixture-key expected))))))
+    (is (null (mpt-get trie (trie-fixture-trie-key case expected))))))
 
 (deftest trie-empty-root
   (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
@@ -1288,6 +1304,16 @@
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
            (cons "expectedShape" "short")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "bad-secure")
+           (cons "secure" "yes")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
            (cons "operations"
                  (list (list (cons "op" "delete")
                              (cons "keyAscii" "dog")))))))

@@ -118,6 +118,25 @@
       "expectedShape": "empty"
     },
     {
+      "name": "secure-delete-branch-child-collapses-to-leaf",
+      "secure": true,
+      "tags": ["secure-key", "leaf-root", "path-compression", "delete-collapse", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "left" },
+        { "op": "put", "keyAscii": "beam", "valueAscii": "right" },
+        { "op": "delete", "keyAscii": "beam" }
+      ],
+      "expectedRoot": "0xc8fb1ca12e912e15bb7db6d06ae4967dd3b59a5903f0306dd797dcaab6afcb3b",
+      "expectedShape": "leaf",
+      "expectedRootValueAscii": "left",
+      "expectedGets": [
+        { "keyAscii": "dog", "valueAscii": "left" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "beam" }
+      ]
+    },
+    {
       "name": "root-branch-sparse-children",
       "tags": ["branch-root", "branch-children", "hex-key"],
       "operations": [
