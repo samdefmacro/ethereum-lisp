@@ -867,6 +867,9 @@ splits can land after the Phase A smoke path closes.
     Added optional secure-key replay for EEST trie-test cases, hashing keys
     with Keccak before MPT insertion/deletion to match geth StateTrie /
     Nethermind secure trie fixture semantics for secure trie vectors.
+    Added operation-derived final lookup checks to EEST trie-test replay, so
+    each touched plain or secure key is verified for final value/missing status
+    in addition to the expected root hash.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

@@ -549,13 +549,7 @@
 (defun run-eest-trie-test-case (case)
   (let ((trie (make-mpt)))
     (dolist (entry (fixture-required-field case "entries"))
-      (let* ((key (eest-trie-test-byte-string
-                   (fixture-required-field entry "key")
-                   (format nil "EEST trie test case ~A in entry key"
-                           (fixture-required-field case "name"))))
-             (trie-key (if (fixture-object-field case "secure")
-                           (keccak-256 key)
-                           key)))
+      (let ((trie-key (eest-trie-test-entry-trie-key case entry)))
         (if (fixture-field-present-p entry "delete")
             (mpt-delete trie trie-key)
             (mpt-put trie
@@ -565,6 +559,47 @@
                       (format nil "EEST trie test case ~A in entry value"
                               (fixture-required-field case "name")))))))
     trie))
+
+(defun eest-trie-test-entry-trie-key (case entry)
+  (let ((key (eest-trie-test-byte-string
+              (fixture-required-field entry "key")
+              (format nil "EEST trie test case ~A in entry key"
+                      (fixture-required-field case "name")))))
+    (if (fixture-object-field case "secure")
+        (keccak-256 key)
+        key)))
+
+(defun eest-trie-test-final-entry-map (case)
+  (let ((final (make-hash-table :test 'equal)))
+    (dolist (entry (fixture-required-field case "entries"))
+      (let ((key-id (bytes-to-hex
+                     (eest-trie-test-entry-trie-key case entry)
+                     :prefix nil)))
+        (if (fixture-field-present-p entry "delete")
+            (setf (gethash key-id final) nil)
+            (setf (gethash key-id final)
+                  (eest-trie-test-byte-string
+                   (fixture-required-field entry "value")
+                   (format nil "EEST trie test case ~A in entry value"
+                           (fixture-required-field case "name")))))))
+    final))
+
+(defun assert-eest-trie-test-case-lookups (case trie)
+  (let ((name (fixture-required-field case "name"))
+        (final (eest-trie-test-final-entry-map case)))
+    (maphash
+     (lambda (key-id expected)
+       (let ((actual (mpt-get trie (hex-to-bytes key-id))))
+         (if expected
+             (unless (bytes= expected actual)
+               (error "EEST trie test case ~A lookup mismatch for key ~A"
+                      name
+                      key-id))
+             (when actual
+               (error "EEST trie test case ~A expected missing key ~A"
+                      name
+                      key-id)))))
+     final)))
 
 (defun assert-eest-trie-test-case-root (case)
   (let* ((trie (run-eest-trie-test-case case))
@@ -576,6 +611,7 @@
              name
              expected-root
              actual-root))
+    (assert-eest-trie-test-case-lookups case trie)
     trie))
 
 (defun validate-eest-trie-test-file-case-names (cases source)
