@@ -57,6 +57,13 @@
     ],
     "root": "83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5"
   },
+  "duplicate-overwrite": {
+    "in": [
+      ["dog", "puppy"],
+      ["dog", "hound"]
+    ],
+    "root": "1b8a768e0c5ca7d00a88b634464e25599c849977aefed10eb514fc03a9c4c2eb"
+  },
   "delete-collapse": {
     "in": [
       ["do", "verb"],
