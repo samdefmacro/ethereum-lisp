@@ -116,8 +116,11 @@
     (:set-code "set-code")))
 
 (defun validate-transaction-fixture-string-field (vector field)
-  (when (blank-string-p (fixture-required-field vector field))
-    (error "Transaction fixture ~A must be present" field)))
+  (let ((value (fixture-required-field vector field)))
+    (unless (stringp value)
+      (error "Transaction fixture ~A must be a string" field))
+    (when (blank-string-p value)
+      (error "Transaction fixture ~A must be present" field))))
 
 (defun validate-transaction-fixture-unique-field
     (seen vector field)
@@ -1219,6 +1222,20 @@
                 (cons "sender" "0x0000000000000000000000000000000000000001")
                 (cons "result" nil))))
     (validate-transaction-fixture-vector-shape valid-vector))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" 42)
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "name must be a string" (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
      (list (cons "name" "missing-result")

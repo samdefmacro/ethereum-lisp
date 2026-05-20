@@ -488,6 +488,9 @@ ones.
   - Progress: tightened transaction fixture type validation so non-string
     vector `type` values fail with a harness-level shape error before
     transaction type matching calls into `string=`.
+  - Progress: tightened transaction fixture required string-field validation so
+    non-string vector names fail with a harness-level shape error before blank
+    string checks call into `length`.
 
 ## P0: Module Boundaries
 
