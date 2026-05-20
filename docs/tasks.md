@@ -623,6 +623,9 @@ splits can land after the Phase A smoke path closes.
     range/hash lookup, forkchoice-updated handlers, and Engine-specific RPC
     error conditions into `src/engine-rpc.lisp`. JSON-RPC dispatch and HTTP
     serving remain in `src/core.lisp` for follow-up slices.
+  - Progress: moved the `engine_*` method dispatch table into
+    `src/engine-rpc.lisp` behind `engine-rpc-handle-engine-method`, leaving the
+    mixed public-RPC JSON-RPC envelope in `src/core.lisp`.
 
 - [ ] `MOD-PUBLIC-RPC-TXPOOL`: Split public JSON-RPC and txpool placeholder
   handlers out of `src/core.lisp`.

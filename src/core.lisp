@@ -5171,131 +5171,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (unless (listp request)
             (block-validation-fail "JSON-RPC request must be an object"))
           (let* ((method (engine-rpc-required-field request "method"))
-                 (params (or (genesis-object-field request "params") '()))
-                 (version (and (stringp method)
-                               (engine-rpc-new-payload-version method))))
+                 (params (or (genesis-object-field request "params") '())))
             (unless (stringp method)
               (block-validation-fail "JSON-RPC method must be a string"))
             (unless (listp params)
               (block-validation-fail "JSON-RPC params must be a list"))
-            (cond
-              (version
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-new-payload
-                 version params store config
-                 :import-function import-function)))
-              ((string= method "engine_exchangeCapabilities")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-exchange-capabilities params)))
-              ((string= method "engine_forkchoiceUpdatedV1")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-forkchoice-updated-v1 params store)))
-              ((string= method "engine_forkchoiceUpdatedV2")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-forkchoice-updated-v2 params store)))
-              ((string= method "engine_forkchoiceUpdatedV3")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-forkchoice-updated-v3 params store)))
-              ((string= method "engine_forkchoiceUpdatedV4")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-forkchoice-updated-v4 params store)))
-              ((string= method "engine_getPayloadV1")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-v1 params store)))
-              ((string= method "engine_getPayloadV2")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-v2 params store)))
-              ((string= method "engine_getPayloadV3")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-v3 params store)))
-              ((string= method "engine_getPayloadV4")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-v4 params store)))
-              ((string= method "engine_getPayloadV5")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-v5 params store)))
-              ((string= method "engine_getPayloadV6")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-v6 params store)))
-              ((string= method "engine_getPayloadBodiesByHashV1")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-bodies-by-hash-v1
-                 params store)))
-              ((string= method "engine_getPayloadBodiesByHashV2")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-bodies-by-hash-v2
-                 params store)))
-              ((string= method "engine_getPayloadBodiesByRangeV1")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-bodies-by-range-v1
-                 params store)))
-              ((string= method "engine_getPayloadBodiesByRangeV2")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-payload-bodies-by-range-v2
-                 params store)))
-              ((string= method "engine_getBlobsV1")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-blobs-v1 params store)))
-              ((string= method "engine_getBlobsV2")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-blobs-v2 params store)))
-              ((string= method "engine_getBlobsV3")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-blobs-v3 params store)))
-              ((string= method "engine_getClientVersionV1")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-get-client-version params)))
-              ((string= method "engine_exchangeTransitionConfigurationV1")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-exchange-transition-configuration
-                 params config)))
-              ((string= method "web3_clientVersion")
-               (engine-rpc-response
-                id
-                :result
-                (engine-rpc-handle-web3-client-version params)))
+            (or
+             (engine-rpc-handle-engine-method
+              id method params store config
+              :import-function import-function)
+             (cond
+               ((string= method "web3_clientVersion")
+                (engine-rpc-response
+                 id
+                 :result
+                 (engine-rpc-handle-web3-client-version params)))
               ((string= method "web3_sha3")
                (engine-rpc-response
                 id
@@ -5587,7 +5477,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (engine-rpc-response
                 id
                 :error
-                (engine-rpc-error-object -32601 "Method not found"))))))
+                (engine-rpc-error-object -32601 "Method not found")))))))
       (engine-rpc-error (condition)
         (engine-rpc-response
          id
