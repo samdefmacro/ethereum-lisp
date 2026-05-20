@@ -908,6 +908,49 @@ JSON-RPC socket test.
 Networking, discovery, and txpool sophistication are intentionally later than
 deterministic execution correctness.
 
+Future node shell and network work should start from a narrow architecture
+slice rather than a full peer-to-peer client. The first devp2p milestone is to
+model identities and advertised capabilities: local node key, ENR fields,
+listening endpoints, fork id, supported `eth`/`snap` protocol versions, and
+chain identity. Discovery should come next as an isolated table/update path
+that can parse and persist candidate ENRs before any RLPx session is trusted.
+Only after that should RLPx handshakes, `eth` status exchange, block/header
+requests, transaction propagation, `snap` state range requests, and peer
+scoring be wired into sync or txpool code. Peer scoring should begin with
+small deterministic penalties for bad status, invalid responses, timeout, and
+duplicate useless data, leaving reputation persistence and DoS policy for a
+later production-storage slice.
+
+The first sync design should follow a staged pipeline with explicit unwind
+boundaries. A minimal full/snap-compatible plan is: header download and
+validation; canonical header selection; body download; sender recovery;
+execution into an isolated state batch; receipt/log derivation; canonical
+transaction/receipt/log indexes; and final forkchoice checkpoint publication.
+Each stage needs a persisted progress marker and an unwind function that can
+roll back to a parent block when forkchoice changes or execution fails. Snap
+sync can later replace the early execution-state population with account and
+storage range ingestion, but it should still feed the same execution,
+receipt, and index stages once state is available.
+
+Hive compatibility should be treated as a runner contract around the local
+node shell. The client needs a command that loads a supplied genesis, starts
+authenticated Engine API and public JSON-RPC listeners on requested ports,
+prints machine-readable endpoint/JWT/log locations, and shuts down cleanly on
+process termination. Hive-facing logs should include startup config, fork
+activation, Engine payload status, JSON-RPC method errors, and final shutdown
+state without requiring interactive REPL access.
+
+History retention should be explicit before any pruning implementation. Archive
+mode keeps all historical state, receipts, bodies, logs, and indexes. Full mode
+keeps all canonical block bodies and receipts but may keep only recent state
+snapshots plus enough trie/storage history for configured reorg depth. Pruned
+mode may drop historical state and old receipts/log indexes beyond a retention
+window, but public RPC methods that depend on dropped data must return the same
+class of missing-data/null/error responses consistently. `eth_getProof`,
+historical `eth_call`, historical balance/storage/code reads, log scans,
+receipts, and transaction lookups must each declare which retention modes they
+support before pruning is enabled.
+
 ## 8. Compatibility Harness
 
 - Ethereum execution-spec-tests fixture runner

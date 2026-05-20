@@ -2123,20 +2123,30 @@ splits can land after the Phase A smoke path closes.
     restricted sandboxes skip the bind path explicitly, while the unrestricted
     validation run exercised the socket path end-to-end.
 
-- [ ] Add devp2p/discovery architecture notes.
+- [x] Add devp2p/discovery architecture notes.
   - Milestone: 6 / future networking
   - References: geth `p2p`, `p2p/discover`, Reth networking crates,
     Nethermind networking.
   - Acceptance: document the minimal pieces required before implementation:
     ENR, discovery, RLPx, eth protocol, snap protocol, peer scoring.
   - Validation: docs-only diff.
+  - Result: `docs/roadmap.md` now stages future networking through local node
+    identity/ENR capability modeling, isolated discovery table updates, RLPx
+    handshakes, `eth`/`snap` protocol wiring, and deterministic first-pass
+    peer scoring penalties before txpool/sync integration.
 
-- [ ] Add staged-sync pipeline planning notes.
+- [x] Add staged-sync pipeline planning notes.
   - Milestone: 6 / future sync
   - References: Reth staged sync, geth downloader/snap sync, Nethermind sync.
   - Acceptance: identify initial stages for headers, bodies, senders,
     execution, receipts, indexes, and unwind.
   - Validation: docs-only diff.
+  - Result: `docs/roadmap.md` now defines a staged sync outline covering
+    header download/validation, canonical header selection, body download,
+    sender recovery, isolated execution batches, receipt/log derivation,
+    canonical indexes, checkpoint publication, per-stage progress markers, and
+    unwind functions. Snap state ingestion is documented as a later replacement
+    for early state population that still feeds the same downstream stages.
 
 ## P2: Production Depth
 
@@ -2153,18 +2163,26 @@ splits can land after the Phase A smoke path closes.
     chain id/head.
   - Validation: smoke test or documented manual command.
 
-- [ ] Add Hive compatibility plan.
+- [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
     startup, Engine API auth, JSON-RPC ports, genesis loading, and logs.
   - Validation: docs-only diff.
+  - Result: `docs/roadmap.md` now records the Hive runner contract: load a
+    supplied genesis, start authenticated Engine API and public JSON-RPC
+    listeners on requested ports, print machine-readable endpoint/JWT/log
+    locations, emit startup/method/status/shutdown logs, and exit cleanly.
 
-- [ ] Add pruning/history retention strategy.
+- [x] Add pruning/history retention strategy.
   - Milestone: 6 / production storage
   - Dependencies: persistence backend.
   - Acceptance: document archive/full/pruned modes and which RPC methods depend
     on retained historical state.
   - Validation: docs-only diff.
+  - Result: `docs/roadmap.md` now distinguishes archive, full, and pruned
+    retention modes and calls out RPC surfaces that depend on retained history,
+    including `eth_getProof`, historical call/state reads, logs, receipts, and
+    transaction lookup.
 
 ## Recently Completed
 
