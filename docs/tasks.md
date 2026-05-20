@@ -783,6 +783,11 @@ splits can land after the Phase A smoke path closes.
     projection validation, including numeric aliases such as `1` and `01`.
     Added duplicate lookup-key rejection across trie fixture `expectedGets`
     and `expectedMissing`, including equivalent `keyAscii` / `keyHex` forms.
+    Added trie-test root discovery for pinned EEST layouts. The harness now
+    detects both unpacked EEST archive roots (`fixtures/trie_tests`) and
+    geth-style checked-out spec-test roots (`spec-tests/fixtures/trie_tests`),
+    and optional external trie tests skip cleanly when no configured root is
+    present.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

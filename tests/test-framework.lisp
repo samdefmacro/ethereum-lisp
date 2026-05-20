@@ -12,8 +12,10 @@
    #:skip-test
    #:execution-spec-tests-fixture-root
    #:execution-spec-tests-transaction-test-root
+   #:execution-spec-tests-trie-test-root
    #:with-execution-spec-tests-fixture-root
-   #:with-execution-spec-tests-transaction-test-root))
+   #:with-execution-spec-tests-transaction-test-root
+   #:with-execution-spec-tests-trie-test-root))
 
 (in-package #:ethereum-lisp.test)
 
@@ -32,6 +34,10 @@
 (defparameter +execution-spec-tests-transaction-test-subdirs+
   '("fixtures/transaction_tests/"
     "spec-tests/fixtures/transaction_tests/"))
+
+(defparameter +execution-spec-tests-trie-test-subdirs+
+  '("fixtures/trie_tests/"
+    "spec-tests/fixtures/trie_tests/"))
 
 (defun default-environment-reader (name)
   #+sbcl (sb-ext:posix-getenv name)
@@ -132,6 +138,14 @@
           (when candidate
             (return candidate)))))))
 
+(defun execution-spec-tests-trie-test-root (&optional root)
+  (let ((base (or root (execution-spec-tests-fixture-root))))
+    (when base
+      (dolist (subdir +execution-spec-tests-trie-test-subdirs+)
+        (let ((candidate (execution-spec-tests-subdirectory base subdir)))
+          (when candidate
+            (return candidate)))))))
+
 (defmacro with-execution-spec-tests-fixture-root ((root) &body body)
   `(let ((,root (execution-spec-tests-fixture-root)))
      (unless ,root
@@ -147,6 +161,15 @@
        (skip-test
         (format nil
                 "Set ~A to an execution-spec-tests fixture root containing transaction_tests to run this test"
+                +execution-spec-tests-fixture-root-env+)))
+     ,@body))
+
+(defmacro with-execution-spec-tests-trie-test-root ((root) &body body)
+  `(let ((,root (execution-spec-tests-trie-test-root)))
+     (unless ,root
+       (skip-test
+        (format nil
+                "Set ~A to an execution-spec-tests fixture root containing trie_tests to run this test"
                 +execution-spec-tests-fixture-root-env+)))
      ,@body))
 

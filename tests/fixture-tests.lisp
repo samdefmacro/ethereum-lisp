@@ -41,6 +41,26 @@
   (is (null (execution-spec-tests-transaction-test-root
              (probe-file "tests/fixtures/execution-spec-tests/")))))
 
+(deftest execution-spec-tests-trie-root-discovers-known-layouts
+  (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
+        (geth-root (probe-file "tests/fixtures/geth-spec-tests-root/")))
+    (is (execution-spec-tests-trie-test-root direct-root))
+    (is (execution-spec-tests-trie-test-root geth-root))))
+
+(deftest execution-spec-tests-trie-root-ignores-missing-layout
+  (is (null (execution-spec-tests-trie-test-root
+             (probe-file "tests/fixtures/execution-spec-tests/")))))
+
+(deftest optional-execution-spec-tests-trie-fixtures-skip-cleanly
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (declare (ignore name))
+            nil)))
+    (signals test-skipped
+      (with-execution-spec-tests-trie-test-root (root)
+        (error "Trie fixture body should not run when the root is absent: ~S"
+               root)))))
+
 (deftest pinned-execution-spec-tests-source-validation
   (flet ((fixture (source)
            (list (cons "executionSpecTests" source))))

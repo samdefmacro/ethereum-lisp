@@ -745,6 +745,10 @@
            (cons "tags" (list "leaf-root" "leaf-root")))
      (make-hash-table :test 'equal))))
 
+(deftest optional-eest-trie-test-root-discovery
+  (with-execution-spec-tests-trie-test-root (root)
+    (is (probe-file root))))
+
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json
                    (fixture-file-string +trie-vector-fixture-path+)))
