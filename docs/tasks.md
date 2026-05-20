@@ -853,6 +853,9 @@ splits can land after the Phase A smoke path closes.
     assertion failure.
     Moved EEST trie-test selector validation into the generic root loader so
     direct `:names` usage rejects blank or duplicate selectors before loading.
+    Extended EEST trie-test subset summaries with per-case entry counts, making
+    it visible whether selected pinned cases are empty roots or replay actual
+    `in` operations.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

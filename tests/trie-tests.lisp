@@ -640,6 +640,10 @@
    (cons "names" (mapcar (lambda (case)
                            (fixture-required-field case "name"))
                          cases))
+   (cons "entryCounts" (mapcar (lambda (case)
+                                 (length
+                                  (fixture-required-field case "entries")))
+                               cases))
    (cons "roots" (mapcar (lambda (case)
                            (fixture-required-field case "root"))
                          cases))))
@@ -1258,6 +1262,8 @@
     (is (= 1 (fixture-object-field summary "count")))
     (is (equal '("phase-a-trie-sample.json")
                (fixture-object-field summary "names")))
+    (is (equal '(4)
+               (fixture-object-field summary "entryCounts")))
     (is (equal '("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
                (fixture-object-field summary "roots")))
     (is (string= "phase-a-trie-multi.json/alpha"
