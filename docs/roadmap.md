@@ -635,7 +635,8 @@ code/hash itself rather than the resolved target code.
 
 - pluggable key-value database: first-pass protocol and in-memory backend are
   present, covering byte-vector put/get/delete, ordered write batches, and
-  sorted range iteration
+  sorted range iteration; a simple S-expression file-backed development
+  backend now persists records across process restarts
 - freezer/history abstractions
 - canonical chain indexes
 - snapshot/trie node access APIs

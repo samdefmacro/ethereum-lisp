@@ -25,7 +25,9 @@
   (:export
    #:key-value-database
    #:memory-key-value-database
+   #:file-key-value-database
    #:make-memory-key-value-database
+   #:make-file-key-value-database
    #:kv-get
    #:kv-put
    #:kv-delete
@@ -933,7 +935,9 @@
   (:import-from #:ethereum-lisp.database
    #:key-value-database
    #:memory-key-value-database
+   #:file-key-value-database
    #:make-memory-key-value-database
+   #:make-file-key-value-database
    #:kv-get
    #:kv-put
    #:kv-delete
@@ -1777,7 +1781,9 @@
    #:hex-to-quantity
    #:key-value-database
    #:memory-key-value-database
+   #:file-key-value-database
    #:make-memory-key-value-database
+   #:make-file-key-value-database
    #:kv-get
    #:kv-put
    #:kv-delete

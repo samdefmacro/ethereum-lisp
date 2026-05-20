@@ -1880,13 +1880,17 @@ splits can land after the Phase A smoke path closes.
     `kv-delete`, ordered write batches, and sorted inclusive-start /
     exclusive-end range iterators backed by an in-memory database.
 
-- [ ] Add a file-backed development database backend.
+- [x] Add a file-backed development database backend.
   - Milestone: 6
   - Dependencies: key-value protocol.
   - Acceptance: blocks/headers/receipts can survive process restart in a simple
     non-production backend.
   - Validation: round-trip persistence tests plus
     `sbcl --script tests/run-tests.lisp`.
+  - Completed: added a simple S-expression file-backed development backend
+    that persists the key-value table after puts, deletes, and ordered write
+    batches. Tests verify block/header/receipt-style byte records survive
+    reopening the database and remain visible through range iteration.
 
 - [ ] Add freezer/static-history planning notes.
   - Milestone: 6
