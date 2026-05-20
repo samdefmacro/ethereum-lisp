@@ -161,6 +161,12 @@
       value
       (concatenate 'string "0x" value)))
 
+(defun transaction-fixture-canonical-quantity (value label)
+  (let ((canonical (quantity-to-hex (hex-to-quantity value))))
+    (unless (string= value canonical)
+      (error "~A must be a canonical quantity" label))
+    canonical))
+
 (defun normalize-eest-transaction-result-entry (case-name fork result)
   (unless (listp result)
     (error "EEST transaction case ~A result for fork ~A must be a JSON object"
@@ -214,7 +220,9 @@
           (push (cons "hash" hash) normalized)
           (push (cons "sender" sender) normalized)
           (push (cons "intrinsicGas"
-                      (quantity-to-hex (hex-to-quantity intrinsic-gas)))
+                      (transaction-fixture-canonical-quantity
+                       intrinsic-gas
+                       "EEST transaction intrinsicGas"))
                 normalized)))
       (unless (blank-string-p exception)
         (push (cons "exception" exception) normalized))
@@ -1346,6 +1354,32 @@
                          (cons "intrinsicGas" "0x5208")
                          (cons "exception"
                                "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "success-prefixless-gas"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "hash"
+                               "0x0000000000000000000000000000000000000000000000000000000000000001")
+                         (cons "sender"
+                               "0x0000000000000000000000000000000000000001")
+                         (cons "intrinsicGas" "5208"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "success-leading-zero-gas"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "hash"
+                               "0x0000000000000000000000000000000000000000000000000000000000000001")
+                         (cons "sender"
+                               "0x0000000000000000000000000000000000000001")
+                         (cons "intrinsicGas" "0x05208"))))))))
   (signals error
     (normalize-eest-transaction-test-case
      "exception-with-sender"

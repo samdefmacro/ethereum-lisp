@@ -258,6 +258,10 @@ ones.
   - Progress: tightened EEST transaction-test conversion so every successful
     fork entry's `intrinsicGas` must match the decoded transaction before the
     local vector is built.
+  - Progress: tightened EEST transaction-test result normalization so
+    successful fork entries must provide canonical hex quantity `intrinsicGas`
+    values instead of relying on the importer to normalize prefixless or
+    leading-zero gas strings.
   - Progress: added canonical quantity validation for valid per-fork
     `intrinsicGas` expectations. Fixture results now reject missing, prefixless,
     or leading-zero gas quantities before comparing against locally derived
