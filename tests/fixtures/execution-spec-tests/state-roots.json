@@ -370,7 +370,12 @@
     },
     {
       "name": "code-delete-keeps-funded-account-root",
-      "tags": ["account-root", "code-root", "code-delete"],
+      "tags": [
+        "account-root",
+        "code-root",
+        "code-delete",
+        "account-projection"
+      ],
       "operations": [
         {
           "op": "setAccount",
@@ -386,6 +391,16 @@
           "op": "setCode",
           "address": "0x0000000000000000000000000000000000000106",
           "code": "0x"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000106",
+          "nonce": 0,
+          "balance": 1,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448001a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
         }
       ],
       "expectedRoot": "0x0806aaf085b38f009b4f642a66abf73bd831eeb255f5e5b223836a893cb2b433"

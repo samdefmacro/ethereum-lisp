@@ -1241,6 +1241,9 @@ splits can land after the Phase A smoke path closes.
     state-root vector, locking that zeroing the last storage slot restores the
     account storage root to the empty trie without pruning the non-empty
     account itself.
+    Added matching account projection assertions to the funded-account
+    code-delete state-root vector, locking that clearing code restores the empty
+    code hash without pruning the non-empty account itself.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
