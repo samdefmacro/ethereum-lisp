@@ -797,6 +797,10 @@ splits can land after the Phase A smoke path closes.
     pinned-subset selection in follow-up slices. Reference availability for
     this adapter check: geth `8a0223e`, Nethermind `1c72a72`; local Reth clone
     absent.
+    Added source-name selectors for EEST trie-test root loading. Phase A now
+    has a centralized trie selector list and a dedicated loader that rejects
+    empty, blank, duplicate, or missing source-style case names before a pinned
+    trie subset can be consumed silently.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

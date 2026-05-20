@@ -9,6 +9,9 @@
 (defparameter +eest-trie-test-sample-path+
   "tests/fixtures/execution-spec-tests-root/fixtures/trie_tests/phase-a-trie-sample.json")
 
+(defparameter +phase-a-eest-trie-test-case-names+
+  '("phase-a-trie-sample.json"))
+
 (defparameter +trie-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "cases"))
 
@@ -433,9 +436,46 @@
           (cdr entry)))
        entries))))
 
-(defun load-eest-trie-test-root-cases (root)
-  (loop for path in (eest-trie-test-root-json-paths root)
-        append (load-eest-trie-test-root-file-cases root path)))
+(defun filter-eest-trie-test-root-cases (cases names)
+  (if names
+      (let ((selected nil)
+            (seen (make-hash-table :test 'equal)))
+        (dolist (case cases)
+          (let ((name (fixture-object-field case "name")))
+            (when (member name names :test #'string=)
+              (push case selected)
+              (setf (gethash name seen) t))))
+        (dolist (name names)
+          (unless (gethash name seen)
+            (error "EEST trie selector ~A did not match any loaded case"
+                   name)))
+        (nreverse selected))
+      cases))
+
+(defun validate-eest-trie-selector-list (names)
+  (unless names
+    (error "EEST trie selector list must not be empty"))
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (name names)
+      (when (blank-string-p name)
+        (error "EEST trie selector name must be present"))
+      (when (gethash name seen)
+        (error "EEST trie selector list has duplicate name ~A"
+               name))
+      (setf (gethash name seen) t))))
+
+(defun load-eest-trie-test-root-cases (root &key names)
+  (filter-eest-trie-test-root-cases
+   (loop for path in (eest-trie-test-root-json-paths root)
+         append (load-eest-trie-test-root-file-cases root path))
+   names))
+
+(defun load-phase-a-eest-trie-test-root-cases (root)
+  (validate-eest-trie-selector-list
+   +phase-a-eest-trie-test-case-names+)
+  (load-eest-trie-test-root-cases
+   root
+   :names +phase-a-eest-trie-test-case-names+))
 
 (defun trie-fixture-root-shape (trie)
   (let ((root (mpt-root-node trie)))
@@ -881,17 +921,35 @@
 (deftest eest-trie-test-root-case-loading
   (let* ((root (execution-spec-tests-trie-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
-         (cases (load-eest-trie-test-root-cases root)))
+         (cases (load-eest-trie-test-root-cases root))
+         (selected-cases
+           (load-phase-a-eest-trie-test-root-cases root)))
     (is (= 1 (length cases)))
+    (is (= 1 (length selected-cases)))
     (is (string= "phase-a-trie-sample.json"
                  (fixture-object-field (first cases) "name")))
+    (is (string= "phase-a-trie-sample.json"
+                 (fixture-object-field (first selected-cases) "name")))
     (is (string= "phase-a-trie-sample.json/alpha"
                  (eest-trie-root-case-name root
                                            (first
                                             (eest-trie-test-root-json-paths
                                              root))
                                            "alpha"
-                                           nil)))))
+                                           nil)))
+    (signals error
+      (load-eest-trie-test-root-cases
+       root
+       :names '("missing-trie.json")))
+    (validate-eest-trie-selector-list
+     +phase-a-eest-trie-test-case-names+)
+    (signals error
+      (validate-eest-trie-selector-list nil))
+    (signals error
+      (validate-eest-trie-selector-list '("")))
+    (signals error
+      (validate-eest-trie-selector-list
+       '("phase-a-trie-sample.json" "phase-a-trie-sample.json")))))
 
 (deftest trie-fixture-vectors
   (let* ((fixture (parse-json
