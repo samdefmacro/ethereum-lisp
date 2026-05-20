@@ -820,6 +820,9 @@ splits can land after the Phase A smoke path closes.
     keys and values now decode as hex bytes while unprefixed strings continue
     to replay as ASCII, and malformed hex is rejected during fixture
     normalization.
+    Added geth/Nethermind-aligned empty-value delete handling for EEST
+    trie-test entries. Zero-length byte strings, including `""` and `"0x"`,
+    now normalize to delete operations instead of value inserts.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

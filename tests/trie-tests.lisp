@@ -447,15 +447,17 @@
       ((not (stringp value))
        (error "EEST trie test case ~A in entry value must be a string or null"
               case-name))
-      ((blank-string-p value)
-       (error "EEST trie test case ~A in entry value must be present"
-              case-name))
       (t
-       (eest-trie-test-byte-string
-        value
-        (format nil "EEST trie test case ~A in entry value" case-name))
-       (list (cons "key" key)
-             (cons "value" value))))))
+       (let ((bytes
+               (eest-trie-test-byte-string
+                value
+                (format nil "EEST trie test case ~A in entry value"
+                        case-name))))
+         (if (zerop (length bytes))
+             (list (cons "key" key)
+                   (cons "delete" t))
+             (list (cons "key" key)
+                   (cons "value" value))))))))
 
 (defun normalize-eest-trie-test-entries (case-name entries)
   (unless (listp entries)
@@ -1024,6 +1026,15 @@
                  (fixture-object-field case "root")))
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
+  (let* ((case (normalize-eest-trie-test-case
+                "empty-value-delete"
+                (list (cons "in" (list (list "dog" "")))
+                      (cons "root"
+                            "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+         (entry (first (fixture-required-field case "entries"))))
+    (is (string= "dog"
+                 (fixture-object-field entry "key")))
+    (is (fixture-object-field entry "delete")))
   (signals error
     (normalize-eest-trie-test-case
      "missing-root"
