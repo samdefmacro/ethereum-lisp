@@ -7,6 +7,7 @@
 (load "src/trie-encoding.lisp")
 (load "src/trie.lisp")
 (load "src/chain-config.lisp")
+(load "src/genesis.lisp")
 (load "src/core.lisp")
 (load "src/state.lisp")
 (load "src/evm.lisp")

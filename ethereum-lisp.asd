@@ -17,6 +17,7 @@
      (:file "trie-encoding")
      (:file "trie")
      (:file "chain-config")
+     (:file "genesis")
      (:file "core")
      (:file "state")
      (:file "evm")

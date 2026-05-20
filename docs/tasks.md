@@ -536,7 +536,7 @@ required by the current vertical slice (e.g. just the chain-rules entry points
 used by Engine import) over a full behavior-preserving file move; full module
 splits can land after the Phase A smoke path closes.
 
-- [~] `MOD-CHAIN-CONFIG`: Split chain configuration and fork rules out of
+- [x] `MOD-CHAIN-CONFIG`: Split chain configuration and fork rules out of
   `src/core.lisp`.
   - Milestone: 5
   - References: geth `params`, Nethermind chain spec/config modules, Reth chain
@@ -569,6 +569,13 @@ splits can land after the Phase A smoke path closes.
     block validation error helper into `src/chain-config.lisp`, so the
     chain-config module now owns both default and custom blob schedule
     derivation. Genesis config parsing remains in `core.lisp`.
+  - Progress: moved genesis config parsing, shared genesis account/allocation
+    parsers, and local JSON helpers into `src/genesis.lisp`, leaving
+    `src/core.lisp` to consume the dedicated genesis/chain-config entry points.
+  - Result: complete. `src/core.lisp` no longer defines the chain-config,
+    chain-rules, fork activation, blob schedule, or genesis config parsing
+    surface; those boundaries now live in `src/chain-config.lisp` and
+    `src/genesis.lisp`.
 
 - [ ] `MOD-BLOCK-VALIDATION`: Split block/header/body validation out of
   `src/core.lisp`.
