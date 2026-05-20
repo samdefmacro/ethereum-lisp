@@ -363,6 +363,26 @@
    root
    :names +phase-a-eest-transaction-test-case-names+))
 
+(defun transaction-fixture-vector-type-counts (vectors)
+  (let ((counts (make-hash-table :test 'eq)))
+    (dolist (vector vectors)
+      (let ((type (transaction-fixture-type-keyword
+                   (fixture-required-field vector "type"))))
+        (setf (gethash type counts)
+              (1+ (gethash type counts 0)))))
+    (loop for type in +transaction-fixture-required-types+
+          for count = (gethash type counts)
+          when count
+            collect (cons type count))))
+
+(defun transaction-fixture-vector-summary (vectors)
+  (list
+   (cons "count" (length vectors))
+   (cons "types" (transaction-fixture-vector-type-counts vectors))
+   (cons "names" (mapcar (lambda (vector)
+                           (fixture-required-field vector "name"))
+                         vectors))))
+
 (defun validate-transaction-fixture-vector-shape (vector)
   (validate-transaction-fixture-object-fields
    vector
@@ -1038,7 +1058,8 @@
          (vectors (load-eest-transaction-test-root-vectors root))
          (selected-vectors
            (load-phase-a-eest-transaction-test-root-vectors root))
-         (vector (first vectors)))
+         (vector (first vectors))
+         (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 1 (length paths)))
     (is (= 1 (length cases)))
     (is (= 1 (length selected-cases)))
@@ -1050,6 +1071,11 @@
                  (fixture-object-field vector "name")))
     (is (string= "legacy"
                  (fixture-object-field vector "type")))
+    (is (= 1 (fixture-object-field summary "count")))
+    (is (equal '((:legacy . 1))
+               (fixture-object-field summary "types")))
+    (is (equal '("phase-a-sample.json")
+               (fixture-object-field summary "names")))
     (is (string= "phase-a-sample.json/alpha"
                  (eest-transaction-root-case-name root
                                                   (first paths)
@@ -1077,8 +1103,10 @@
 
 (deftest optional-eest-transaction-test-root-vectors
   (with-execution-spec-tests-transaction-test-root (root)
-    (let ((vectors (load-phase-a-eest-transaction-test-root-vectors root)))
-      (is (< 0 (length vectors))))))
+    (let* ((vectors (load-phase-a-eest-transaction-test-root-vectors root))
+           (summary (transaction-fixture-vector-summary vectors)))
+      (is (< 0 (fixture-object-field summary "count")))
+      (is (< 0 (length (fixture-object-field summary "types")))))))
 
 (deftest transaction-envelope-fixture-vectors
   (dolist (vector (load-transaction-envelope-vectors

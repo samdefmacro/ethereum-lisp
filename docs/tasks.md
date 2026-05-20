@@ -341,6 +341,10 @@ ones.
     The dedicated Phase A loader now rejects an empty list, blank selector
     names, and duplicate source-style names before attempting external fixture
     discovery.
+  - Progress: added a transaction vector summary helper for pinned EEST
+    subsets. The harness can now report the selected vector count, source-style
+    names, and per-envelope-type counts, giving Phase A fixture expansion a
+    stable coverage summary instead of only pass/fail validation.
 
 ## P0: Module Boundaries
 
