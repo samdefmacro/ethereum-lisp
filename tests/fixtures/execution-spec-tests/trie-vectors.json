@@ -149,6 +149,28 @@
       ]
     },
     {
+      "name": "delete-missing-extension-child-keeps-extension",
+      "tags": ["extension-root", "hashed-child-reference", "missing-delete-noop", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "delete", "keyAscii": "doom" }
+      ],
+      "expectedRoot": "0xef7b2fe20f5d2c30c46ad4d83c39811bcbf1721aef2e805c0e107947320888b6",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [6, 4, 6, 15],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "doge", "valueAscii": "coin" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "doom" }
+      ]
+    },
+    {
       "name": "delete-last-entry-empty-root",
       "tags": ["delete-to-empty"],
       "operations": [

@@ -1050,12 +1050,18 @@ splits can land after the Phase A smoke path closes.
     extension root: deleting `do` from `do` / `dog` / `doge` preserves the two
     longer keys, removes the prefix branch value, and locks the remaining
     embedded-extension compression shape.
+    Added extension-subtree missing-delete coverage: deleting `doom` from
+    `do` / `dog` / `doge` keeps the original hashed extension root and
+    verifies the missing lookup alongside the retained keys.
     Added the same nested branch-value deletion shape to the selected Phase A
     EEST trie subset so the external-style trie adapter exercises that
     non-root deletion boundary too.
     Added the same prefix branch-value deletion shape to the selected Phase A
     EEST trie subset and updated the summary gate so this embedded extension
     delete boundary cannot be dropped silently.
+    Added the same extension-subtree missing-delete shape to the selected
+    Phase A EEST trie subset and tightened the summary counts so hashed
+    extension no-op deletion remains represented.
     Added the same branch-child deletion shape to the selected Phase A EEST
     trie subset, with a summary gate that fails if the root-value-preserving
     branch child delete case is dropped.

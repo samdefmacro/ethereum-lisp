@@ -76,6 +76,15 @@
     ],
     "root": "c7615a9d094af6bb896a53d59877b9aa6db39b5f2184582aebda3c7dff53d843"
   },
+  "delete-missing-extension-child": {
+    "in": [
+      ["do", "verb"],
+      ["dog", "puppy"],
+      ["doge", "coin"],
+      ["doom", null]
+    ],
+    "root": "ef7b2fe20f5d2c30c46ad4d83c39811bcbf1721aef2e805c0e107947320888b6"
+  },
   "embedded-extension": {
     "in": [
       ["do", "v"],
