@@ -532,21 +532,23 @@
    case
    +eest-trie-test-case-fields+
    (format nil "EEST trie test case ~A" name))
-  (list
-   (cons "name" name)
-   (cons "entries"
-         (normalize-eest-trie-test-entries
-          name
-          (fixture-required-field case "in")))
-   (cons "secure"
-         (eest-trie-test-normalized-secure-p
-          name
-          case
-          default-secure-p))
-   (cons "root"
-         (eest-trie-test-normalized-root
-          (fixture-required-field case "root")
-          name))))
+  (let* ((input (fixture-required-field case "in"))
+         (object-form-p (and (listp input)
+                             (eest-trie-test-object-entries-p input))))
+    (list
+     (cons "name" name)
+     (cons "entries"
+           (normalize-eest-trie-test-entries name input))
+     (cons "inputForm" (if object-form-p "object" "array"))
+     (cons "secure"
+           (eest-trie-test-normalized-secure-p
+            name
+            case
+            default-secure-p))
+     (cons "root"
+           (eest-trie-test-normalized-root
+            (fixture-required-field case "root")
+            name)))))
 
 (defun eest-trie-test-normalized-secure-p
     (case-name case &optional default-secure-p)
@@ -1823,6 +1825,8 @@
     (is (string= "phase-a-trie-sample"
                  (fixture-object-field case "name")))
     (is (= 4 (length entries)))
+    (is (string= "array"
+                 (fixture-object-field case "inputForm")))
     (is (string= "dog"
                  (fixture-object-field entry "key")))
     (is (string= "puppy"
@@ -1886,6 +1890,8 @@
                       (cons "root"
                             "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
          (entry (first (fixture-required-field case "entries"))))
+    (is (string= "array"
+                 (fixture-object-field case "inputForm")))
     (is (string= "dog"
                  (fixture-object-field entry "key")))
     (is (fixture-object-field entry "delete")))
@@ -1896,6 +1902,8 @@
                             "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
          (entry (first (fixture-required-field case "entries")))
          (trie (assert-eest-trie-test-case-root case)))
+    (is (string= "object"
+                 (fixture-object-field case "inputForm")))
     (is (string= "dog"
                  (fixture-object-field entry "key")))
     (is (string= "puppy"
@@ -1912,6 +1920,8 @@
          (delete-entry (first entries))
          (put-entry (second entries))
          (trie (assert-eest-trie-test-case-root case)))
+    (is (string= "object"
+                 (fixture-object-field case "inputForm")))
     (is (string= "cat"
                  (fixture-object-field delete-entry "key")))
     (is (fixture-object-field delete-entry "delete"))

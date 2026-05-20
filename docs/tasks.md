@@ -1331,6 +1331,9 @@ splits can land after the Phase A smoke path closes.
     and added a summary gate requiring an empty string / `0x` value delete,
     locking the geth/Nethermind-compatible delete interpretation separately
     from ordinary JSON null deletes.
+    Preserved the normalized EEST trie `in` input form (`array` versus
+    `object`) on each loaded case, making object-form fixture coverage
+    inspectable before selector-level gates are added.
     Added normalized duplicate-key rejection for EEST trie object-form `in`
     entries, so ASCII/hex aliases such as `dog` and `0x646f67` cannot replay
     as ambiguous duplicate keys.
