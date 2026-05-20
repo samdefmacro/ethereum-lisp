@@ -28,6 +28,13 @@
     ],
     "root": "779db3986dd4f38416bfde49750ef7b13c6ecb3e2221620bcad9267e94604d36"
   },
+  "embedded-extension": {
+    "in": [
+      ["do", "v"],
+      ["dog", "p"]
+    ],
+    "root": "1da465b71da985f1e07e3ed8dcd9e678546164ef2b17fb5c46c678fd91429de3"
+  },
   "extension": {
     "in": [
       ["do", "verb"],

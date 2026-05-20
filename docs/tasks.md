@@ -924,6 +924,10 @@ splits can land after the Phase A smoke path closes.
     non-empty, then tightened the Phase A subset gate to require deletion
     replay that exercises path compression instead of only delete-to-empty
     roots.
+    Added a selected embedded-extension EEST-style case and tightened the
+    Phase A subset summary/gate to require both embedded and hashed extension
+    child references after replay, covering the MPT child-reference threshold
+    explicitly in the selected external-style trie set.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
