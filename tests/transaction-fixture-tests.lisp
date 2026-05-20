@@ -633,6 +633,7 @@
            (fixture-object-field vector "name")
            fork))
   (let ((exception-present-p (fixture-field-present-p result "exception"))
+        (intrinsic-gas-present-p (fixture-field-present-p result "intrinsicGas"))
         (exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
     (when (and exception-present-p (blank-string-p exception))
@@ -648,7 +649,7 @@
                    (fixture-object-field vector "name")
                    fork
                    exception))
-          (when intrinsic-gas
+          (when intrinsic-gas-present-p
             (error "Transaction fixture ~A invalid result for fork ~A must not include intrinsicGas"
                    (fixture-object-field vector "name")
                    fork))))
@@ -954,6 +955,13 @@
        "Berlin"
        (list (cons "exception" "TransactionException.TYPE_2_TX_PRE_FORK")
              (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "Berlin"
+       (list (cons "exception" "TransactionException.TYPE_2_TX_PRE_FORK")
+             (cons "intrinsicGas" nil))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector

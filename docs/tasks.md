@@ -232,8 +232,8 @@ ones.
     invalid chain ids before running per-fork checks.
   - Progress: added transaction fixture result-shape validation. Per-fork
     `result` entries now reject unknown exception tokens, valid entries without
-    `intrinsicGas`, invalid entries that also carry `intrinsicGas`, and
-    malformed result objects before transaction decoding begins.
+    `intrinsicGas`, invalid entries that carry an `intrinsicGas` field even
+    when null, and malformed result objects before transaction decoding begins.
   - Progress: added transaction fixture vector-shape validation. Vectors now
     reject ambiguous `txbytes` / `raw` usage, empty encoded transaction bytes,
     malformed transaction hashes, and malformed sender addresses before the
