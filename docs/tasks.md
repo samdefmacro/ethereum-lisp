@@ -1490,6 +1490,8 @@ splits can land after the Phase A smoke path closes.
     Added shared pinned EEST source scalar guards, so fixture wrappers reject
     non-string release, tag target, archive, and status metadata before
     comparing Phase A fixture provenance.
+    Added a shared fixture format scalar guard so wrappers reject non-string
+    format values before comparing expected fixture schema ids.
     Added matching field-name and alloc-address type guards to the Phase A
     Shanghai genesis fixture validator, so malformed pinned genesis wrappers
     fail before lower-level field matching or address decoding.

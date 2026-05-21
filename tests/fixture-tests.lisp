@@ -61,6 +61,15 @@
         (error "Trie fixture body should not run when the root is absent: ~S"
                root)))))
 
+(deftest fixture-format-validation-rejects-non-string-values
+  (validate-fixture-format
+   (list (cons "format" "ethereum-lisp:test"))
+   "ethereum-lisp:test")
+  (signals error
+    (validate-fixture-format
+     (list (cons "format" 42))
+     "ethereum-lisp:test")))
+
 (deftest pinned-execution-spec-tests-source-validation
   (flet ((fixture (source)
            (list (cons "executionSpecTests" source))))

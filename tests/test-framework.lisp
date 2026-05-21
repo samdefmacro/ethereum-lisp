@@ -97,7 +97,8 @@
 
 (defun validate-fixture-format (fixture expected-format)
   (unless (string= expected-format
-                   (fixture-required-field fixture "format"))
+                   (validate-fixture-required-string-field
+                    fixture "format" "Fixture"))
     (error "Fixture format must be ~A" expected-format)))
 
 (defun validate-fixture-required-string-field (object field label)
