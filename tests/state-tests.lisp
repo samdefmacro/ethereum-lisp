@@ -98,16 +98,16 @@
   (let ((seen-slots (make-hash-table :test 'equal)))
     (dolist (entry storage)
       (let ((slot (car entry)))
-        (when (gethash slot seen-slots)
-          (error "Phase A Shanghai genesis account ~A storage has duplicate slot ~A"
-                 address
-                 slot))
-        (setf (gethash slot seen-slots) t)
-        (unless (and (stringp slot)
-                     (not (minusp (hex-to-quantity slot))))
+        (unless (stringp slot)
           (error "Phase A Shanghai genesis account ~A has malformed storage slot ~A"
                  address
                  slot))
+        (let ((slot-id (quantity-to-hex (hex-to-quantity slot))))
+          (when (gethash slot-id seen-slots)
+            (error "Phase A Shanghai genesis account ~A storage has duplicate slot ~A"
+                   address
+                   slot))
+          (setf (gethash slot-id seen-slots) t))
         (let ((value (cdr entry)))
           (unless (or (and (integerp value) (not (minusp value)))
                       (and (stringp value)
@@ -151,10 +151,15 @@
       (let ((address (car entry)))
         (unless (stringp address)
           (error "Phase A Shanghai genesis alloc address must be a string"))
-        (when (gethash address seen-addresses)
-          (error "Phase A Shanghai genesis alloc has duplicate address ~A"
-                 address))
-        (setf (gethash address seen-addresses) t)
+        (let ((address-id
+                (address-to-hex
+                 (validate-phase-a-shanghai-genesis-address-string
+                  address
+                  "Phase A Shanghai genesis alloc address"))))
+          (when (gethash address-id seen-addresses)
+            (error "Phase A Shanghai genesis alloc has duplicate address ~A"
+                   address))
+          (setf (gethash address-id seen-addresses) t))
         (validate-phase-a-shanghai-genesis-account-shape
          address
          (cdr entry))))))
@@ -815,8 +820,15 @@
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
+      :alloc-extra
+      (list
+       (cons "0000000000000000000000000000000000001001"
+             (list (cons "balance" "0x1")))))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
       :storage (list (cons "0x00" "0x2a")
-                     (cons "0x00" "0x2b")))))
+                     (cons "0x0" "0x2b")))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture

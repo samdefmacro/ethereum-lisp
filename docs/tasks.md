@@ -1515,6 +1515,9 @@ splits can land after the Phase A smoke path closes.
     Added Shanghai genesis scalar type guards for source notes, extra data,
     mix hash, coinbase, expected state root, account addresses, and account
     code so non-string values fail before hex, hash, or address decoding.
+    Added normalized duplicate checks to the Shanghai genesis alloc and storage
+    maps, so prefixless and padded aliases fail before state import can
+    overwrite entries.
     Added EEST trie-test file entry shape validation, so malformed top-level
     case entries fail as JSON object fields before case-name extraction or
     selector normalization can reach lower-level list operations.
