@@ -92,12 +92,18 @@
 (defun evm-state-fixture-address (value label)
   (unless (stringp value)
     (error "~A must be an address hex string" label))
-  (address-from-hex value))
+  (let ((address (address-from-hex value)))
+    (unless (string= value (address-to-hex address))
+      (error "~A must be canonical lowercase 0x-prefixed address hex" label))
+    address))
 
 (defun evm-state-fixture-hash (value label)
   (unless (stringp value)
     (error "~A must be a hash hex string" label))
-  (hash32-from-hex value))
+  (let ((hash (hash32-from-hex value)))
+    (unless (string= value (hash32-to-hex hash))
+      (error "~A must be canonical lowercase 0x-prefixed hash hex" label))
+    hash))
 
 (defun evm-state-fixture-non-empty-string (value label)
   (unless (stringp value)
@@ -529,7 +535,23 @@
   (signals error
     (evm-state-fixture-address 1 "inline address"))
   (signals error
+    (evm-state-fixture-address
+     "00000000000000000000000000000000000000aa"
+     "inline address"))
+  (signals error
+    (evm-state-fixture-address
+     "0X00000000000000000000000000000000000000AA"
+     "inline address"))
+  (signals error
     (evm-state-fixture-hash 1 "inline hash"))
+  (signals error
+    (evm-state-fixture-hash
+     "00000000000000000000000000000000000000000000000000000000000000aa"
+     "inline hash"))
+  (signals error
+    (evm-state-fixture-hash
+     "0X00000000000000000000000000000000000000000000000000000000000000AA"
+     "inline hash"))
   (signals error
     (evm-state-fixture-hex-bytes 1 "inline bytes"))
   (signals error

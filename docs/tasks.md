@@ -1899,7 +1899,10 @@ splits can land after the Phase A smoke path closes.
     type-1 transactions from fixtures. Expected receipt statuses are locked to
     success/failure values, and `logsBloom` values now reject non-256-byte bloom
     payloads during shape validation. Byte-string fixture fields now reject
-    prefixless or uppercase hex before execution/replay comparisons.
+    prefixless or uppercase hex before execution/replay comparisons. Address
+    and hash fixture fields now require canonical lowercase `0x`-prefixed
+    values before account, storage, transaction, access-list, receipt, and log
+    validation.
 
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
