@@ -262,7 +262,9 @@
    receipt
    +evm-state-fixture-receipt-fields+
    "EVM state fixture expected receipt")
-  (evm-state-fixture-quantity receipt "status")
+  (let ((status (evm-state-fixture-quantity receipt "status")))
+    (unless (or (= status 0) (= status 1))
+      (error "EVM state fixture expected receipt status must be 0x0 or 0x1")))
   (evm-state-fixture-quantity receipt "cumulativeGasUsed")
   (evm-state-fixture-fixed-hex-bytes
    (fixture-required-field receipt "logsBloom")
@@ -579,6 +581,13 @@
      (list (cons "status" "0x1")
            (cons "cumulativeGasUsed" "0x0")
            (cons "logsBloom" "0x00")
+           (cons "logs" nil))))
+  (signals error
+    (validate-evm-state-fixture-receipt-shape
+     (list (cons "status" "0x2")
+           (cons "cumulativeGasUsed" "0x0")
+           (cons "logsBloom"
+                 (bytes-to-hex (make-byte-vector 256)))
            (cons "logs" nil))))
   (signals error
     (validate-evm-state-fixture-cases
