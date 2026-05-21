@@ -1820,7 +1820,9 @@ splits can land after the Phase A smoke path closes.
     gate now locks the fixture-backed CALL/revert/static/value/delegated-code
     and access-list cases so the London state-test seed set cannot silently
     shrink while retaining generic tag coverage. The fixture quantity parser
-    now rejects non-string scalar values before hex quantity decoding.
+    now rejects non-string scalar values before hex quantity decoding. Address,
+    hash, and byte-string fixture decoders now apply the same type guard before
+    account, storage, transaction, access-list, receipt, and log validation.
 
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4

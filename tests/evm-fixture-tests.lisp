@@ -66,10 +66,29 @@
   (validate-fixture-pinned-eest-source fixture))
 
 (defun evm-state-fixture-quantity (object name)
-  (let ((value (fixture-required-field object name)))
-    (unless (stringp value)
-      (error "EVM state fixture ~A must be a hex quantity string" name))
-    (hex-to-quantity value)))
+  (evm-state-fixture-quantity-string
+   (fixture-required-field object name)
+   (format nil "EVM state fixture ~A" name)))
+
+(defun evm-state-fixture-quantity-string (value label)
+  (unless (stringp value)
+    (error "~A must be a hex quantity string" label))
+  (hex-to-quantity value))
+
+(defun evm-state-fixture-hex-bytes (value label)
+  (unless (stringp value)
+    (error "~A must be a hex string" label))
+  (hex-to-bytes value))
+
+(defun evm-state-fixture-address (value label)
+  (unless (stringp value)
+    (error "~A must be an address hex string" label))
+  (address-from-hex value))
+
+(defun evm-state-fixture-hash (value label)
+  (unless (stringp value)
+    (error "~A must be a hash hex string" label))
+  (hash32-from-hex value))
 
 (defun validate-evm-state-fixture-storage-shape (storage label)
   (unless (listp storage)
@@ -80,18 +99,22 @@
         (when (gethash slot seen-slots)
           (error "~A storage has duplicate slot ~A" label slot))
         (setf (gethash slot seen-slots) t)
-        (hash32-from-hex slot)
-        (hex-to-quantity (cdr entry))))))
+        (evm-state-fixture-hash slot (format nil "~A storage slot" label))
+        (evm-state-fixture-quantity-string
+         (cdr entry)
+         (format nil "~A storage value" label))))))
 
 (defun validate-evm-state-fixture-account-shape (address account label)
-  (address-from-hex address)
+  (evm-state-fixture-address address (format nil "~A address" label))
   (validate-fixture-object-fields
    account
    +evm-state-fixture-account-fields+
    label)
   (evm-state-fixture-quantity account "nonce")
   (evm-state-fixture-quantity account "balance")
-  (hex-to-bytes (fixture-required-field account "code"))
+  (evm-state-fixture-hex-bytes
+   (fixture-required-field account "code")
+   (format nil "~A code" label))
   (validate-evm-state-fixture-storage-shape
    (fixture-required-field account "storage")
    label))
@@ -119,18 +142,26 @@
     (error "EVM state fixture currently supports only London fork vectors"))
   (dolist (field '("chainId" "number" "timestamp"))
     (evm-state-fixture-quantity env field))
-  (address-from-hex (fixture-required-field env "coinbase")))
+  (evm-state-fixture-address
+   (fixture-required-field env "coinbase")
+   "EVM state fixture env coinbase"))
 
 (defun validate-evm-state-fixture-transaction-shape (transaction)
   (validate-fixture-object-fields
    transaction
    +evm-state-fixture-transaction-fields+
    "EVM state fixture transaction")
-  (address-from-hex (fixture-required-field transaction "from"))
-  (address-from-hex (fixture-required-field transaction "to"))
+  (evm-state-fixture-address
+   (fixture-required-field transaction "from")
+   "EVM state fixture transaction from")
+  (evm-state-fixture-address
+   (fixture-required-field transaction "to")
+   "EVM state fixture transaction to")
   (dolist (field '("nonce" "gasPrice" "gasLimit" "value"))
     (evm-state-fixture-quantity transaction field))
-  (hex-to-bytes (fixture-required-field transaction "data"))
+  (evm-state-fixture-hex-bytes
+   (fixture-required-field transaction "data")
+   "EVM state fixture transaction data")
   (let ((type (or (fixture-object-field transaction "type") "legacy")))
     (unless (member type '("legacy" "access-list") :test #'string=)
       (error "EVM state fixture transaction has unsupported type ~A" type))
@@ -150,25 +181,35 @@
      entry
      +evm-state-fixture-access-list-entry-fields+
      "EVM state fixture access list entry")
-    (address-from-hex (fixture-required-field entry "address"))
+    (evm-state-fixture-address
+     (fixture-required-field entry "address")
+     "EVM state fixture access list address")
     (let ((keys (fixture-required-field entry "storageKeys")))
       (unless (listp keys)
         (error "EVM state fixture access list storageKeys must be a JSON array"))
       (dolist (key keys)
-        (hash32-from-hex key)))))
+        (evm-state-fixture-hash
+         key
+         "EVM state fixture access list storage key")))))
 
 (defun validate-evm-state-fixture-log-shape (log)
   (validate-fixture-object-fields
    log
    +evm-state-fixture-log-fields+
    "EVM state fixture expected log")
-  (address-from-hex (fixture-required-field log "address"))
+  (evm-state-fixture-address
+   (fixture-required-field log "address")
+   "EVM state fixture expected log address")
   (let ((topics (fixture-required-field log "topics")))
     (unless (listp topics)
       (error "EVM state fixture expected log topics must be a JSON array"))
     (dolist (topic topics)
-      (hash32-from-hex topic)))
-  (hex-to-bytes (fixture-required-field log "data")))
+      (evm-state-fixture-hash
+       topic
+       "EVM state fixture expected log topic")))
+  (evm-state-fixture-hex-bytes
+   (fixture-required-field log "data")
+   "EVM state fixture expected log data"))
 
 (defun validate-evm-state-fixture-receipt-shape (receipt)
   (validate-fixture-object-fields
@@ -177,7 +218,9 @@
    "EVM state fixture expected receipt")
   (evm-state-fixture-quantity receipt "status")
   (evm-state-fixture-quantity receipt "cumulativeGasUsed")
-  (hex-to-bytes (fixture-required-field receipt "logsBloom"))
+  (evm-state-fixture-hex-bytes
+   (fixture-required-field receipt "logsBloom")
+   "EVM state fixture expected receipt logsBloom")
   (let ((logs (fixture-required-field receipt "logs")))
     (unless (listp logs)
       (error "EVM state fixture expected receipt logs must be a JSON array"))
@@ -189,7 +232,9 @@
    expect
    +evm-state-fixture-expect-fields+
    "EVM state fixture expect")
-  (hash32-from-hex (fixture-required-field expect "stateRoot"))
+  (evm-state-fixture-hash
+   (fixture-required-field expect "stateRoot")
+   "EVM state fixture expected stateRoot")
   (validate-evm-state-fixture-accounts-shape
    (fixture-required-field expect "post")
    "EVM state fixture expected post")
@@ -425,6 +470,12 @@
     (evm-state-fixture-quantity (list (cons "nonce" 1)) "nonce"))
   (signals error
     (evm-state-fixture-quantity (list (cons "gasLimit" nil)) "gasLimit"))
+  (signals error
+    (evm-state-fixture-address 1 "inline address"))
+  (signals error
+    (evm-state-fixture-hash 1 "inline hash"))
+  (signals error
+    (evm-state-fixture-hex-bytes 1 "inline bytes"))
   (let ((+evm-state-fixture-required-case-names+ '("present" "missing")))
     (signals error
       (validate-evm-state-fixture-required-case-names
