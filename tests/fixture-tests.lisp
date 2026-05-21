@@ -93,4 +93,32 @@
               (cons "release" "duplicate release")
               (cons "tagTarget" +phase-a-eest-tag-target+)
               (cons "archive" +phase-a-eest-archive+)
-              (cons "status" "seed")))))))
+              (cons "status" "seed")))))
+    (signals error
+      (validate-fixture-pinned-eest-source
+       (fixture
+        (list (cons "release" 42)
+              (cons "tagTarget" +phase-a-eest-tag-target+)
+              (cons "archive" +phase-a-eest-archive+)
+              (cons "status" "seed")))))
+    (signals error
+      (validate-fixture-pinned-eest-source
+       (fixture
+        (list (cons "release" +phase-a-eest-release+)
+              (cons "tagTarget" 42)
+              (cons "archive" +phase-a-eest-archive+)
+              (cons "status" "seed")))))
+    (signals error
+      (validate-fixture-pinned-eest-source
+       (fixture
+        (list (cons "release" +phase-a-eest-release+)
+              (cons "tagTarget" +phase-a-eest-tag-target+)
+              (cons "archive" 42)
+              (cons "status" "seed")))))
+    (signals error
+      (validate-fixture-pinned-eest-source
+       (fixture
+        (list (cons "release" +phase-a-eest-release+)
+              (cons "tagTarget" +phase-a-eest-tag-target+)
+              (cons "archive" +phase-a-eest-archive+)
+              (cons "status" 42)))))))

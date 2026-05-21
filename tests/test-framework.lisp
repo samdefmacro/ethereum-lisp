@@ -100,6 +100,12 @@
                    (fixture-required-field fixture "format"))
     (error "Fixture format must be ~A" expected-format)))
 
+(defun validate-fixture-required-string-field (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A.~A must be a string" label field))
+    value))
+
 (defun validate-fixture-pinned-eest-source (fixture)
   (let ((source (fixture-required-field fixture "executionSpecTests")))
     (unless (listp source)
@@ -109,18 +115,23 @@
      +phase-a-eest-source-fields+
      "Fixture executionSpecTests")
     (unless (string= +phase-a-eest-release+
-                     (fixture-required-field source "release"))
+                     (validate-fixture-required-string-field
+                      source "release" "Fixture executionSpecTests"))
       (error "Fixture executionSpecTests.release must be ~A"
              +phase-a-eest-release+))
     (unless (string= +phase-a-eest-tag-target+
-                     (fixture-required-field source "tagTarget"))
+                     (validate-fixture-required-string-field
+                      source "tagTarget" "Fixture executionSpecTests"))
       (error "Fixture executionSpecTests.tagTarget must be ~A"
              +phase-a-eest-tag-target+))
     (unless (string= +phase-a-eest-archive+
-                     (fixture-required-field source "archive"))
+                     (validate-fixture-required-string-field
+                      source "archive" "Fixture executionSpecTests"))
       (error "Fixture executionSpecTests.archive must be ~A"
              +phase-a-eest-archive+))
-    (when (blank-string-p (fixture-required-field source "status"))
+    (when (blank-string-p
+           (validate-fixture-required-string-field
+            source "status" "Fixture executionSpecTests"))
       (error "Fixture executionSpecTests.status must be present"))))
 
 (defun execution-spec-tests-fixture-root

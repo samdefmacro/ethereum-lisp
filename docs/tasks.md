@@ -1487,6 +1487,9 @@ splits can land after the Phase A smoke path closes.
     operation names, addresses, roots, storage slots, code bytes, and account
     projection encodings reject non-string values before blank, hex, address,
     or hash decoding.
+    Added shared pinned EEST source scalar guards, so fixture wrappers reject
+    non-string release, tag target, archive, and status metadata before
+    comparing Phase A fixture provenance.
     Added matching field-name and alloc-address type guards to the Phase A
     Shanghai genesis fixture validator, so malformed pinned genesis wrappers
     fail before lower-level field matching or address decoding.
