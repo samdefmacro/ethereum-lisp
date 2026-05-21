@@ -45,6 +45,28 @@
         (unless (member name allowed-fields :test #'string=)
           (error "~A has unknown field ~A" label name))))))
 
+(defun validate-phase-a-shanghai-genesis-non-empty-string (value label)
+  (unless (stringp value)
+    (error "~A must be a string" label))
+  (when (blank-string-p value)
+    (error "~A must be present" label))
+  value)
+
+(defun validate-phase-a-shanghai-genesis-hex-string (value label)
+  (unless (stringp value)
+    (error "~A must be a hex string" label))
+  (hex-to-bytes value))
+
+(defun validate-phase-a-shanghai-genesis-hash-string (value label)
+  (unless (stringp value)
+    (error "~A must be a hash hex string" label))
+  (hash32-from-hex value))
+
+(defun validate-phase-a-shanghai-genesis-address-string (value label)
+  (unless (stringp value)
+    (error "~A must be an address hex string" label))
+  (address-from-hex value))
+
 (defun validate-phase-a-shanghai-genesis-non-negative-value
     (object field label &key required-p)
   (let ((present-p (fixture-field-present-p object field))
@@ -96,7 +118,9 @@
                    value)))))))
 
 (defun validate-phase-a-shanghai-genesis-account-shape (address account)
-  (address-from-hex address)
+  (validate-phase-a-shanghai-genesis-address-string
+   address
+   "Phase A Shanghai genesis account address")
   (validate-phase-a-shanghai-genesis-object-fields
    account
    +phase-a-shanghai-genesis-account-fields+
@@ -111,7 +135,9 @@
    "nonce"
    (format nil "Phase A Shanghai genesis account ~A" address))
   (when (fixture-field-present-p account "code")
-    (hex-to-bytes (fixture-required-field account "code")))
+    (validate-phase-a-shanghai-genesis-hex-string
+     (fixture-required-field account "code")
+     (format nil "Phase A Shanghai genesis account ~A code" address)))
   (when (fixture-field-present-p account "storage")
     (validate-phase-a-shanghai-genesis-storage-shape
      (fixture-object-field account "storage")
@@ -141,8 +167,9 @@
   (dolist (field +phase-a-shanghai-genesis-top-level-fields+)
     (fixture-required-field fixture field))
   (validate-fixture-format fixture +phase-a-shanghai-genesis-fixture-format+)
-  (when (blank-string-p (fixture-required-field fixture "source"))
-    (error "Phase A Shanghai genesis fixture source must be present"))
+  (validate-phase-a-shanghai-genesis-non-empty-string
+   (fixture-required-field fixture "source")
+   "Phase A Shanghai genesis fixture source")
   (validate-fixture-pinned-eest-source fixture)
   (validate-phase-a-shanghai-genesis-config-shape
    (fixture-required-field fixture "config"))
@@ -152,10 +179,18 @@
      field
      "Phase A Shanghai genesis fixture"
      :required-p t))
-  (hex-to-bytes (fixture-required-field fixture "extraData"))
-  (hash32-from-hex (fixture-required-field fixture "mixHash"))
-  (address-from-hex (fixture-required-field fixture "coinbase"))
-  (hash32-from-hex (fixture-required-field fixture "stateRoot"))
+  (validate-phase-a-shanghai-genesis-hex-string
+   (fixture-required-field fixture "extraData")
+   "Phase A Shanghai genesis fixture extraData")
+  (validate-phase-a-shanghai-genesis-hash-string
+   (fixture-required-field fixture "mixHash")
+   "Phase A Shanghai genesis fixture mixHash")
+  (validate-phase-a-shanghai-genesis-address-string
+   (fixture-required-field fixture "coinbase")
+   "Phase A Shanghai genesis fixture coinbase")
+  (validate-phase-a-shanghai-genesis-hash-string
+   (fixture-required-field fixture "stateRoot")
+   "Phase A Shanghai genesis fixture stateRoot")
   (validate-phase-a-shanghai-genesis-alloc-shape
    (fixture-required-field fixture "alloc")))
 
@@ -705,6 +740,27 @@
    (phase-a-shanghai-genesis-shape-test-fixture))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
+     (cons (cons "source" 42)
+           (remove "source"
+                   (phase-a-shanghai-genesis-shape-test-fixture)
+                   :key #'car
+                   :test #'string=))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (cons (cons "extraData" 42)
+           (remove "extraData"
+                   (phase-a-shanghai-genesis-shape-test-fixture)
+                   :key #'car
+                   :test #'string=))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (cons (cons "stateRoot" 42)
+           (remove "stateRoot"
+                   (phase-a-shanghai-genesis-shape-test-fixture)
+                   :key #'car
+                   :test #'string=))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
       :top-extra (list (cons "unexpectedTopField" t)))))
   (signals error
@@ -735,6 +791,10 @@
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
       :account-extra (list (cons 42 "0x1")))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :account-extra (list (cons "code" 42)))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
