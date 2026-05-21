@@ -1858,7 +1858,8 @@ splits can land after the Phase A smoke path closes.
     source, vector names, transaction bytes, receipt quantities, expected
     types, encoding prefixes, and root hashes now reject non-string values
     before hex, quantity, or hash decoding. Receipt statuses are now locked to
-    post-Byzantium success/failure values during fixture shape validation.
+    post-Byzantium success/failure values during fixture shape validation, and
+    receipt quantity fields require canonical lowercase RPC quantity form.
     Expected receipt roots now must be canonical lowercase `0x`-prefixed
     hashes, and receipt transaction bytes / encoding prefixes must be non-empty
     canonical lowercase `0x` hex strings.

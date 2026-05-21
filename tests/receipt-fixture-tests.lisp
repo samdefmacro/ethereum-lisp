@@ -63,7 +63,10 @@
 (defun validate-receipt-root-fixture-quantity-string (value label)
   (unless (stringp value)
     (error "~A must be a hex quantity string" label))
-  (hex-to-quantity value))
+  (let ((quantity (hex-to-quantity value)))
+    (unless (string= value (string-downcase (quantity-to-hex quantity)))
+      (error "~A must be a canonical hex quantity" label))
+    quantity))
 
 (defun validate-receipt-root-fixture-hash-string (value label)
   (unless (stringp value)
@@ -267,6 +270,30 @@
             (replace-first
              (fixture-required-field vector "receipts")
              (replace-field receipt "status" "0x2")))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "receipts"
+            (replace-first
+             (fixture-required-field vector "receipts")
+             (replace-field receipt "status" "0X1")))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "receipts"
+            (replace-first
+             (fixture-required-field vector "receipts")
+             (replace-field receipt "cumulativeGasUsed" "1")))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "receipts"
+            (replace-first
+             (fixture-required-field vector "receipts")
+             (replace-field receipt "cumulativeGasUsed" "0x01")))))
         (signals error
           (validate-receipt-root-fixture-vector-shape
            (replace-field
