@@ -1529,6 +1529,10 @@ splits can land after the Phase A smoke path closes.
     overwrite entries.
     Added canonical hex/address/hash checks to the same genesis fixture
     validator, so prefixless or uppercase scalar aliases fail at shape time.
+    Added the same canonical address/hash/byte checks to state-root fixture
+    operation and expectation fields, so expected roots, account addresses,
+    storage slots, code bytes, account RLP, and projected account hashes reject
+    prefixless or uppercase aliases before fixture replay.
     Added EEST trie-test file entry shape validation, so malformed top-level
     case entries fail as JSON object fields before case-name extraction or
     selector normalization can reach lower-level list operations.

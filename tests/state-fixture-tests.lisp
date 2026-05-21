@@ -168,19 +168,28 @@
   (let ((value (fixture-required-field object field)))
     (unless (stringp value)
       (error "~A ~A must be an address hex string" label field))
-    (address-from-hex value)))
+    (let ((address (address-from-hex value)))
+      (unless (string= value (address-to-hex address))
+        (error "~A ~A must be canonical lowercase 0x-prefixed address hex"
+               label field)))))
 
 (defun validate-state-root-fixture-hash-field (object field label)
   (let ((value (fixture-required-field object field)))
     (unless (stringp value)
       (error "~A ~A must be a hash hex string" label field))
-    (hash32-from-hex value)))
+    (let ((hash (hash32-from-hex value)))
+      (unless (string= value (hash32-to-hex hash))
+        (error "~A ~A must be canonical lowercase 0x-prefixed hash hex"
+               label field)))))
 
 (defun validate-state-root-fixture-hex-field (object field label)
   (let ((value (fixture-required-field object field)))
     (unless (stringp value)
       (error "~A ~A must be a hex string" label field))
-    (hex-to-bytes value)))
+    (let ((bytes (hex-to-bytes value)))
+      (unless (string= value (bytes-to-hex bytes))
+        (error "~A ~A must be canonical lowercase 0x-prefixed hex"
+               label field)))))
 
 (defun validate-state-root-fixture-metadata (fixture)
   (validate-state-root-fixture-object-fields
@@ -974,6 +983,20 @@
            (cons "expectedRoot" 42))))
   (signals error
     (validate-state-root-fixture-case-shape
+     (list (cons "name" "prefixless-expected-root")
+           (cons "tags" (list "account-root"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "uppercase-expected-root")
+           (cons "tags" (list "account-root"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0X56E81F171BCC55A6FF8345E692C0F86E5B48E01B996CADC001622FB5E363B421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-case-field")
            (cons "operations" nil)
            (cons "expectedRoot"
@@ -991,6 +1014,41 @@
      (list (cons "name" "duplicate-case-field")
            (cons "name" "duplicate-case-field-shadow")
            (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "prefixless-operation-address")
+           (cons "tags" (list "account-root"))
+           (cons "operations"
+                 (list (list (cons "op" "setAccount")
+                             (cons "address"
+                                   "00000000000000000000000000000000000000aa")
+                             (cons "balance" 1))))
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "uppercase-storage-slot")
+           (cons "tags" (list "storage-root"))
+           (cons "operations"
+                 (list (list (cons "op" "setStorage")
+                             (cons "address"
+                                   "0x00000000000000000000000000000000000000aa")
+                             (cons "slot"
+                                   "0X00000000000000000000000000000000000000000000000000000000000000AA")
+                             (cons "value" 1))))
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "prefixless-code")
+           (cons "tags" (list "code-root"))
+           (cons "operations"
+                 (list (list (cons "op" "setCode")
+                             (cons "address"
+                                   "0x00000000000000000000000000000000000000aa")
+                             (cons "code" "6001"))))
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
   (signals error
