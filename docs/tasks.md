@@ -1473,6 +1473,9 @@ splits can land after the Phase A smoke path closes.
     Added matching field-name and alloc-address type guards to the Phase A
     Shanghai genesis fixture validator, so malformed pinned genesis wrappers
     fail before lower-level field matching or address decoding.
+    Added EEST trie-test file entry shape validation, so malformed top-level
+    case entries fail as JSON object fields before case-name extraction or
+    selector normalization can reach lower-level list operations.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

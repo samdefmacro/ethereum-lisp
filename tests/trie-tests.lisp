@@ -783,6 +783,9 @@
            source))
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (entry cases)
+      (unless (consp entry)
+        (error "EEST trie test file ~A entries must be JSON object fields"
+               source))
       (let ((name (car entry)))
         (unless (stringp name)
           (error "EEST trie test file ~A case name must be a string"
@@ -2201,6 +2204,10 @@
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
     (validate-eest-trie-test-file-case-names nil "inline-empty"))
+  (signals error
+    (validate-eest-trie-test-file-case-names
+     (list "not-a-json-object-field")
+     "inline-entry-shape"))
   (signals error
     (validate-eest-trie-test-file-case-names
      (list (cons "duplicate-case"
