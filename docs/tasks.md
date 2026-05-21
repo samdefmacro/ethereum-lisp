@@ -554,6 +554,9 @@ ones.
   - Progress: tightened optional transaction fixture `referenceClients.reth`
     validation so the absent local Reth reference remains `null`, but provided
     values must be non-empty strings.
+  - Progress: added a direct EEST transaction-test case-name scalar guard so
+    adapter entry points reject non-string source case names before
+    normalization.
   - Progress: added an alignment check between the Phase A EEST transaction
     subset and the current seed transaction fixture. The harness now requires
     the Shanghai-active legacy, EIP-2930 access-list, and EIP-1559 dynamic-fee

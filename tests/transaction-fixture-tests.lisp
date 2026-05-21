@@ -370,6 +370,8 @@
                  fork))))))
 
 (defun normalize-eest-transaction-test-case (name case)
+  (unless (stringp name)
+    (error "EEST transaction case name must be a string"))
   (when (blank-string-p name)
     (error "EEST transaction case name must be present"))
   (unless (listp case)
@@ -2378,6 +2380,11 @@
   (signals error
     (normalize-eest-transaction-test-case
      nil
+     (list (cons "txbytes" "0x01")
+           (cons "result" nil))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     42
      (list (cons "txbytes" "0x01")
            (cons "result" nil))))
   (signals error
