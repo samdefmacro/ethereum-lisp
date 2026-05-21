@@ -900,6 +900,8 @@ splits can land after the Phase A smoke path closes.
     instead of accepting partially parsed or ambiguous integers.
   - Progress: tightened HTTP header parsing so empty header field names are
     rejected as malformed in both request-string and stream paths.
+  - Progress: tightened HTTP request-line parsing so unsupported versions and
+    extra fields are rejected before JSON-RPC dispatch.
   - Progress: lifted the one-transaction Shanghai `engine_newPayloadV2`
     smoke into a pinned `engine-newpayload-v2` fixture. The fixture-driven
     test executes a real EIP-155 legacy transfer plus withdrawal from a

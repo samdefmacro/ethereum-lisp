@@ -4079,11 +4079,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((first-space (position #\Space request-line))
          (second-space
            (and first-space
-                (position #\Space request-line :start (1+ first-space)))))
-    (unless (and first-space second-space)
+                (position #\Space request-line :start (1+ first-space))))
+         (third-space
+           (and second-space
+                (position #\Space request-line :start (1+ second-space)))))
+    (unless (and first-space second-space (not third-space))
       (block-validation-fail "HTTP request line is malformed"))
-    (values (subseq request-line 0 first-space)
-            (subseq request-line (1+ first-space) second-space))))
+    (let ((version (subseq request-line (1+ second-space))))
+      (unless (string= version "HTTP/1.1")
+        (block-validation-fail "HTTP request line is malformed"))
+      (values (subseq request-line 0 first-space)
+              (subseq request-line (1+ first-space) second-space)))))
 
 (defun engine-rpc-http-headers (lines)
   (loop for line in lines
