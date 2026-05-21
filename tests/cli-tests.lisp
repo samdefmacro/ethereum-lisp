@@ -49,3 +49,28 @@
     (is (string= "" (get-output-stream-string output)))
     (is (search "--genesis is required"
                 (get-output-stream-string errors)))))
+
+(deftest devnet-cli-rejects-malformed-options-before-loading-genesis
+  (labels ((run-error (args)
+             (let ((output (make-string-output-stream))
+                   (errors (make-string-output-stream)))
+               (is (= 1
+                      (ethereum-lisp.cli:main
+                       args
+                       :output-stream output
+                       :error-stream errors)))
+               (is (string= "" (get-output-stream-string output)))
+               (get-output-stream-string errors))))
+    (is (search "--port requires an integer value"
+                (run-error (list "devnet" "--port" "abc" "--no-serve"))))
+    (is (search "--port must be between 0 and 65535"
+                (run-error (list "devnet" "--port" "70000" "--no-serve"))))
+    (is (search "--max-connections must be non-negative"
+                (run-error (list "devnet"
+                                 "--max-connections"
+                                 "-1"
+                                 "--no-serve"))))
+    (is (search "--genesis requires a value"
+                (run-error (list "devnet" "--genesis"))))
+    (is (search "Unknown option --wat"
+                (run-error (list "devnet" "--wat"))))))
