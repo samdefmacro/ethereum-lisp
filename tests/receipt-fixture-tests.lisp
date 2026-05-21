@@ -63,7 +63,9 @@
 (defun validate-receipt-root-fixture-hash-string (value label)
   (unless (stringp value)
     (error "~A must be a hash hex string" label))
-  (hash32-from-hex value))
+  (let ((canonical (hash32-to-hex (hash32-from-hex value))))
+    (unless (string= value canonical)
+      (error "~A must be canonical lowercase 0x-prefixed hex" label))))
 
 (defun validate-receipt-root-fixture-metadata (fixture)
   (validate-receipt-root-fixture-object-fields
@@ -270,7 +272,19 @@
              42))))
         (signals error
           (validate-receipt-root-fixture-vector-shape
-           (replace-field vector "expectedRoot" 42))))
+           (replace-field vector "expectedRoot" 42)))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "expectedRoot"
+            "0000000000000000000000000000000000000000000000000000000000000000")))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "legacyOnlyRoot"
+            "0X0000000000000000000000000000000000000000000000000000000000000000"))))
       (signals error
         (validate-receipt-root-fixture-vector-coverage
          (remove "mixed-post-byzantium-typed-receipts"
