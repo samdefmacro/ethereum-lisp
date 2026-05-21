@@ -37,6 +37,8 @@
   (let ((seen-fields (make-hash-table :test 'equal)))
     (dolist (field object)
       (let ((name (car field)))
+        (unless (stringp name)
+          (error "~A field name must be a string" label))
         (when (gethash name seen-fields)
           (error "~A has duplicate field ~A" label name))
         (setf (gethash name seen-fields) t)
@@ -121,6 +123,8 @@
   (let ((seen-addresses (make-hash-table :test 'equal)))
     (dolist (entry alloc)
       (let ((address (car entry)))
+        (unless (stringp address)
+          (error "Phase A Shanghai genesis alloc address must be a string"))
         (when (gethash address seen-addresses)
           (error "Phase A Shanghai genesis alloc has duplicate address ~A"
                  address))
@@ -706,11 +710,19 @@
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
+      :top-extra (list (cons 42 t)))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
       :top-extra (list (cons "source" "duplicate source")))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
       :config-extra (list (cons "unexpectedFork" 0)))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :config-extra (list (cons 42 0)))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
@@ -722,7 +734,17 @@
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
+      :account-extra (list (cons 42 "0x1")))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
       :account-extra (list (cons "balance" "0x2")))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :alloc-extra
+      (list
+       (cons 42 (list (cons "balance" "0x1")))))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture

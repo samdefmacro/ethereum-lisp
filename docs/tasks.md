@@ -1470,6 +1470,9 @@ splits can land after the Phase A smoke path closes.
     Added the same non-string field-name rejection to state-root fixture
     object validators, covering wrappers, cases, operations, storage-root
     projections, and account projections before replay.
+    Added matching field-name and alloc-address type guards to the Phase A
+    Shanghai genesis fixture validator, so malformed pinned genesis wrappers
+    fail before lower-level field matching or address decoding.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
