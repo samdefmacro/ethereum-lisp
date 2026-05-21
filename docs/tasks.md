@@ -1493,6 +1493,8 @@ splits can land after the Phase A smoke path closes.
     lower-level `string=` type errors.
     Added trie fixture scalar type guards for source notes, case names, and
     expected roots so non-string values fail before blank or hash decoding.
+    Expected roots now also require canonical lowercase `0x`-prefixed hash
+    strings, rejecting prefixless or uppercase aliases at the fixture boundary.
     Added trie fixture scalar type guards for operation keys/values, expected
     lookup values, root shapes, child-reference kinds, and root value
     assertions so imported trie vectors reject non-string scalars at the

@@ -163,7 +163,10 @@
   (let ((value (fixture-required-field object field)))
     (unless (stringp value)
       (error "~A ~A must be a hash hex string" label field))
-    (hash32-from-hex value)))
+    (let ((hash (hash32-from-hex value)))
+      (unless (string= value (hash32-to-hex hash))
+        (error "~A ~A must be canonical lowercase 0x-prefixed hash hex"
+               label field)))))
 
 (defun validate-trie-fixture-metadata (fixture)
   (validate-trie-fixture-object-fields
@@ -1726,6 +1729,24 @@
     (validate-trie-fixture-case-shape
      (list (cons "name" "non-string-root")
            (cons "expectedRoot" 42)
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "prefixless-root")
+           (cons "expectedRoot"
+                 "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "uppercase-root")
+           (cons "expectedRoot"
+                 "0X56E81F171BCC55A6FF8345E692C0F86E5B48E01B996CADC001622FB5E363B421")
            (cons "expectedShape" "empty")
            (cons "operations"
                  (list (list (cons "op" "delete")
