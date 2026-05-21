@@ -109,7 +109,10 @@
     (unless (stringp value)
       (error "~A ~A must be a hex quantity string" label field))
     (handler-case
-        (hex-to-quantity value)
+        (let ((quantity (hex-to-quantity value)))
+          (unless (string= value (string-downcase (quantity-to-hex quantity)))
+            (error "~A ~A must be a canonical hex quantity"
+                   label field)))
       (error (condition)
         (error "~A ~A must be a hex quantity: ~A"
                label field condition)))))
@@ -980,6 +983,33 @@
                  (fixture-required-field case "config")
                  "londonBlock"
                  42)))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "config"
+                (replace-field
+                 (fixture-required-field case "config")
+                 "londonBlock"
+                 "0")))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "config"
+                (replace-field
+                 (fixture-required-field case "config")
+                 "londonBlock"
+                 "0X0")))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "config"
+                (replace-field
+                 (fixture-required-field case "config")
+                 "londonBlock"
+                 "0x00")))))
       (signals error
         (validate-engine-newpayload-v2-fixture-cases
          (list (replace-field

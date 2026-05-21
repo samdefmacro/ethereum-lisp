@@ -920,7 +920,8 @@ splits can land after the Phase A smoke path closes.
   - Progress: hardened Engine fixture scalar validators so source/reference
     pins, quantities, addresses, bytecode fields, storage hashes, and storage
     map entries reject non-string or malformed JSON shapes before lower-level
-    hex/address/hash decoders run. Engine address, bytecode, and hash fields
+    hex/address/hash decoders run. Engine quantities now require canonical
+    lowercase RPC quantity form, and Engine address, bytecode, and hash fields
     now reject prefixless or uppercase aliases by requiring canonical lowercase
     `0x`-prefixed values.
   - Progress: tightened Engine fixture payload transaction bytes so signed
