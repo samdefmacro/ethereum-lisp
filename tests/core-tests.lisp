@@ -5635,7 +5635,22 @@
               (field (engine-rpc-handle-request
                       (logs-request 63)
                       store config)
-                     "result"))))))))
+                     "result"))))
+        (is (not
+             (field (engine-rpc-handle-request
+                     (receipt-request 66 (transaction-hash transaction))
+                     store config)
+                    "result")))
+        (is (not
+             (field (engine-rpc-handle-request
+                     (receipt-request 67 (transaction-hash second-transaction))
+                     store config)
+                    "result")))
+        (is (not
+             (field (engine-rpc-handle-request
+                     (block-receipts-request 68)
+                     store config)
+                    "result")))))))
 
 (deftest engine-rpc-forkchoice-updated-v1-reports-memory-status
   (labels ((field (object name)

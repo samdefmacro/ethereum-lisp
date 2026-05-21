@@ -1061,7 +1061,8 @@ splits can land after the Phase A smoke path closes.
     selects that branch, `eth_getLogs` at `latest` returns the emitted log with
     the expected address, topic, data, block hash, and transaction hash. After
     forkchoice switches to the competing sibling, the canonical `latest` log
-    query returns no logs.
+    query returns no logs, transaction receipts disappear, and
+    `eth_getBlockReceipts` reports no canonical receipts for the empty sibling.
 
 ## P0: State, Trie, And Proof Correctness
 
