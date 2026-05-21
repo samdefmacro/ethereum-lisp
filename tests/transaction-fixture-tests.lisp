@@ -1026,6 +1026,11 @@
 (defun validate-transaction-fixture-quantity-field
     (vector fork result field)
   (let ((value (fixture-object-field result field)))
+    (unless (or (null value) (stringp value))
+      (error "Transaction fixture ~A result for fork ~A ~A must be a string"
+             (fixture-object-field vector "name")
+             fork
+             field))
     (when (blank-string-p value)
       (error "Transaction fixture ~A valid result for fork ~A needs ~A"
              (fixture-object-field vector "name")
@@ -1041,6 +1046,10 @@
 (defun validate-transaction-fixture-hash-result-field
     (vector fork result)
   (let ((value (fixture-object-field result "hash")))
+    (unless (or (null value) (stringp value))
+      (error "Transaction fixture ~A result for fork ~A hash must be a string"
+             (fixture-object-field vector "name")
+             fork))
     (when (blank-string-p value)
       (error "Transaction fixture ~A valid result for fork ~A needs hash"
              (fixture-object-field vector "name")
@@ -1056,6 +1065,10 @@
 (defun validate-transaction-fixture-sender-result-field
     (vector fork result)
   (let ((value (fixture-object-field result "sender")))
+    (unless (or (null value) (stringp value))
+      (error "Transaction fixture ~A result for fork ~A sender must be a string"
+             (fixture-object-field vector "name")
+             fork))
     (when (blank-string-p value)
       (error "Transaction fixture ~A valid result for fork ~A needs sender"
              (fixture-object-field vector "name")
@@ -1082,6 +1095,16 @@
         (intrinsic-gas-present-p (fixture-field-present-p result "intrinsicGas"))
         (exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
+    (when (and exception-present-p
+               (not (or (null exception) (stringp exception))))
+      (error "Transaction fixture ~A result for fork ~A exception must be a string"
+             (fixture-object-field vector "name")
+             fork))
+    (when (and intrinsic-gas-present-p
+               (not (stringp intrinsic-gas)))
+      (error "Transaction fixture ~A result for fork ~A intrinsicGas must be a string"
+             (fixture-object-field vector "name")
+             fork))
     (when (and exception-present-p (blank-string-p exception))
       (error "Transaction fixture ~A result for fork ~A has a blank exception"
              (fixture-object-field vector "name")
@@ -1626,6 +1649,15 @@
        vector
        :dynamic-fee
        "London"
+       (list (cons "hash" 42)
+             (cons "sender"
+                   "0xd02d72e067e77158444ef2020ff2d325f929b363")
+             (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
        (list (cons "hash"
                    "0xa98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476")
              (cons "sender"
@@ -1636,8 +1668,20 @@
        vector
        :dynamic-fee
        "London"
+       (list (cons "hash"
+                   "0xa98a24882ea90916c6a86da650fbc6b14238e46f0af04a131ce92be897507476")
+             (cons "sender" 42)
+             (cons "intrinsicGas" "0x5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "London"
        (list (cons "intrinsicGas" "0x5208")
              (cons "intrinsicGas" "0x5209"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector :dynamic-fee "London" (list (cons "intrinsicGas" 42))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" (list (cons "intrinsicGas" "5208"))))
@@ -1650,6 +1694,12 @@
        :dynamic-fee
        "Berlin"
        (list (cons "exception" "TransactionException.UNKNOWN"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector
+       :dynamic-fee
+       "Berlin"
+       (list (cons "exception" 42))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector

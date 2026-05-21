@@ -583,6 +583,10 @@ ones.
     non-string `txbytes`, success `hash` / `sender` / `intrinsicGas`, and
     exception tokens fail inside the adapter with fixture-level errors before
     lower-level hex or sequence operations can surface.
+  - Progress: tightened local transaction fixture per-fork result scalar
+    validation the same way. Seed vector results now reject non-string success
+    `hash` / `sender` / `intrinsicGas` and exception tokens before canonical
+    quantity, hash, address, or activation checks run.
 
 ## P0: Module Boundaries
 
