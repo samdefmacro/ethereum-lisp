@@ -157,14 +157,40 @@
         (unless (member name allowed-fields :test #'string=)
           (error "~A has unknown field ~A" label name))))))
 
+(defun validate-state-root-fixture-non-empty-string (value label)
+  (unless (stringp value)
+    (error "~A must be a string" label))
+  (when (blank-string-p value)
+    (error "~A must be present" label))
+  value)
+
+(defun validate-state-root-fixture-address-field (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be an address hex string" label field))
+    (address-from-hex value)))
+
+(defun validate-state-root-fixture-hash-field (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be a hash hex string" label field))
+    (hash32-from-hex value)))
+
+(defun validate-state-root-fixture-hex-field (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be a hex string" label field))
+    (hex-to-bytes value)))
+
 (defun validate-state-root-fixture-metadata (fixture)
   (validate-state-root-fixture-object-fields
    fixture
    +state-root-fixture-top-level-fields+
    "State root fixture")
   (validate-fixture-format fixture +state-root-fixture-format+)
-  (when (blank-string-p (fixture-required-field fixture "source"))
-    (error "State root fixture source must be present"))
+  (validate-state-root-fixture-non-empty-string
+   (fixture-required-field fixture "source")
+   "State root fixture source")
   (validate-fixture-pinned-eest-source fixture))
 
 (defun state-fixture-number (object name &optional (default 0))
@@ -190,12 +216,16 @@
              field))))
 
 (defun validate-state-root-fixture-address (operation)
-  (address-from-hex (fixture-required-field operation "address")))
+  (validate-state-root-fixture-address-field
+   operation
+   "address"
+   "State root fixture operation"))
 
 (defun validate-state-root-fixture-case-name (case seen-names)
   (let ((name (fixture-object-field case "name")))
-    (when (blank-string-p name)
-      (error "State root fixture case name must be present"))
+    (validate-state-root-fixture-non-empty-string
+     name
+     "State root fixture case name")
     (let ((previous (gethash name seen-names)))
       (when previous
         (error "Duplicate state root fixture case name: ~A" name)))
@@ -225,17 +255,25 @@
    +state-root-fixture-operation-fields+
    "State root fixture operation")
   (let ((op (fixture-required-field operation "op")))
+    (unless (stringp op)
+      (error "State root fixture operation op must be a string"))
     (validate-state-root-fixture-address operation)
     (cond
       ((string= op "setAccount")
        (validate-state-root-fixture-non-negative-integer operation "nonce")
        (validate-state-root-fixture-non-negative-integer operation "balance"))
       ((string= op "setStorage")
-       (hash32-from-hex (fixture-required-field operation "slot"))
+       (validate-state-root-fixture-hash-field
+        operation
+        "slot"
+        "State root fixture operation")
        (validate-state-root-fixture-non-negative-integer
         operation "value" :required-p t))
       ((string= op "setCode")
-       (hex-to-bytes (fixture-required-field operation "code")))
+       (validate-state-root-fixture-hex-field
+        operation
+        "code"
+        "State root fixture operation"))
       ((string= op "clearAccount")
        (validate-state-root-fixture-operation-absent-fields
         operation
@@ -250,8 +288,14 @@
    expected
    +state-root-fixture-storage-root-fields+
    "State root fixture expectedStorageRoots entry")
-  (address-from-hex (fixture-required-field expected "address"))
-  (hash32-from-hex (fixture-required-field expected "root")))
+  (validate-state-root-fixture-address-field
+   expected
+   "address"
+   "State root fixture expectedStorageRoots entry")
+  (validate-state-root-fixture-hash-field
+   expected
+   "root"
+   "State root fixture expectedStorageRoots entry"))
 
 (defun validate-state-root-fixture-account-shape (expected)
   (unless (listp expected)
@@ -260,15 +304,27 @@
    expected
    +state-root-fixture-account-fields+
    "State root fixture expectedAccounts entry")
-  (address-from-hex (fixture-required-field expected "address"))
+  (validate-state-root-fixture-address-field
+   expected
+   "address"
+   "State root fixture expectedAccounts entry")
   (validate-state-root-fixture-non-negative-integer expected "nonce")
   (validate-state-root-fixture-non-negative-integer expected "balance")
   (when (fixture-field-present-p expected "storageRoot")
-    (hash32-from-hex (fixture-required-field expected "storageRoot")))
+    (validate-state-root-fixture-hash-field
+     expected
+     "storageRoot"
+     "State root fixture expectedAccounts entry"))
   (when (fixture-field-present-p expected "codeHash")
-    (hash32-from-hex (fixture-required-field expected "codeHash")))
+    (validate-state-root-fixture-hash-field
+     expected
+     "codeHash"
+     "State root fixture expectedAccounts entry"))
   (when (fixture-field-present-p expected "rlp")
-    (hex-to-bytes (fixture-required-field expected "rlp"))))
+    (validate-state-root-fixture-hex-field
+     expected
+     "rlp"
+     "State root fixture expectedAccounts entry")))
 
 (defun validate-state-root-fixture-case-shape (case)
   (unless (listp case)
@@ -277,15 +333,19 @@
    case
    +state-root-fixture-case-fields+
    "State root fixture case")
-  (when (blank-string-p (fixture-required-field case "name"))
-    (error "State root fixture case name must be present"))
+  (validate-state-root-fixture-non-empty-string
+   (fixture-required-field case "name")
+   "State root fixture case name")
   (validate-state-root-fixture-case-tags case (make-hash-table :test 'equal))
   (let ((operations (fixture-required-field case "operations")))
     (unless (listp operations)
       (error "State root fixture case operations must be a JSON array"))
     (dolist (operation operations)
       (validate-state-root-fixture-operation-shape operation)))
-  (hash32-from-hex (fixture-required-field case "expectedRoot"))
+  (validate-state-root-fixture-hash-field
+   case
+   "expectedRoot"
+   "State root fixture case")
   (when (fixture-field-present-p case "expectedStorageRoots")
     (let ((expected-storage-roots
             (fixture-object-field case "expectedStorageRoots"))
@@ -873,6 +933,28 @@
                        (cons "archive" +phase-a-eest-archive+)
                        (cons "status" "seed"))))))
   (signals error
+    (validate-state-root-fixture-metadata
+     (list (cons "format" +state-root-fixture-format+)
+           (cons "source" 42)
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" 42)
+           (cons "tags" (list "account-root"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "non-string-expected-root")
+           (cons "tags" (list "account-root"))
+           (cons "operations" nil)
+           (cons "expectedRoot" 42))))
+  (signals error
     (validate-state-root-fixture-case-shape
      (list (cons "name" "unknown-case-field")
            (cons "operations" nil)
@@ -1080,6 +1162,15 @@
     (validate-state-root-fixture-operation-shape
      (list (cons "op" "setAccount")
            (cons "address" "0x01")
+           (cons "balance" 1))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" 42)
+           (cons "address" "0x0000000000000000000000000000000000000001"))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "setAccount")
+           (cons "address" 42)
            (cons "balance" 1))))
   (signals error
     (validate-state-root-fixture-operation-shape
