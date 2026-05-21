@@ -913,6 +913,10 @@ splits can land after the Phase A smoke path closes.
     objects now reject unknown fields and malformed quantities, addresses,
     transaction bytes, withdrawal arrays, or non-`VALID` expected statuses
     before the smoke path constructs local blocks from fixture data.
+  - Progress: hardened Engine fixture scalar validators so source/reference
+    pins, quantities, addresses, bytecode fields, storage hashes, and storage
+    map entries reject non-string or malformed JSON shapes before lower-level
+    hex/address/hash decoders run.
   - Progress: tightened Engine fixture body validation against silent
     overwrites. Parent account lists now reject duplicate normalized addresses,
     and withdrawal lists reject duplicate withdrawal indexes before fixture

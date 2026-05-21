@@ -68,14 +68,22 @@
     "receiptType"
     "receiptStatus"))
 
+(defun validate-engine-fixture-non-empty-string (value label)
+  (unless (stringp value)
+    (error "~A must be a string" label))
+  (when (blank-string-p value)
+    (error "~A must be present" label))
+  value)
+
 (defun validate-engine-newpayload-v2-fixture-metadata (fixture)
   (validate-fixture-object-fields
    fixture
    +engine-newpayload-v2-fixture-top-level-fields+
    "Engine newPayloadV2 fixture")
   (validate-fixture-format fixture +engine-newpayload-v2-fixture-format+)
-  (when (blank-string-p (fixture-required-field fixture "source"))
-    (error "Engine newPayloadV2 fixture source must be present"))
+  (validate-engine-fixture-non-empty-string
+   (fixture-required-field fixture "source")
+   "Engine newPayloadV2 fixture source")
   (validate-fixture-pinned-eest-source fixture)
   (let ((references (fixture-required-field fixture "referenceClients")))
     (validate-fixture-object-fields
@@ -87,46 +95,75 @@
         (error "Engine newPayloadV2 fixture referenceClients is missing ~A"
                client)))
     (dolist (client '("geth" "nethermind"))
-      (when (blank-string-p (fixture-object-field references client))
-        (error "Engine newPayloadV2 fixture referenceClients.~A must be present"
+      (validate-engine-fixture-non-empty-string
+       (fixture-object-field references client)
+       (format nil "Engine newPayloadV2 fixture referenceClients.~A"
                client)))))
 
 (defun validate-engine-fixture-quantity-field (object field label)
-  (handler-case
-      (hex-to-quantity (fixture-required-field object field))
-    (error (condition)
-      (error "~A ~A must be a hex quantity: ~A"
-             label field condition))))
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be a hex quantity string" label field))
+    (handler-case
+        (hex-to-quantity value)
+      (error (condition)
+        (error "~A ~A must be a hex quantity: ~A"
+               label field condition)))))
 
 (defun validate-engine-fixture-address-field (object field label)
-  (handler-case
-      (address-from-hex (fixture-required-field object field))
-    (error (condition)
-      (error "~A ~A must be an address: ~A"
-             label field condition))))
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be an address hex string" label field))
+    (handler-case
+        (address-from-hex value)
+      (error (condition)
+        (error "~A ~A must be an address: ~A"
+               label field condition)))))
 
 (defun validate-engine-fixture-optional-code-field (object field label)
   (when (fixture-field-present-p object field)
+    (let ((value (fixture-object-field object field)))
+      (unless (stringp value)
+        (error "~A ~A must be a hex string" label field))
+      (handler-case
+          (hex-to-bytes value)
+        (error (condition)
+          (error "~A ~A must be hex bytes: ~A"
+                 label field condition))))))
+
+(defun validate-engine-fixture-code-field (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be a hex string" label field))
     (handler-case
-        (hex-to-bytes (fixture-object-field object field))
+        (hex-to-bytes value)
       (error (condition)
         (error "~A ~A must be hex bytes: ~A"
                label field condition)))))
 
-(defun validate-engine-fixture-code-field (object field label)
-  (handler-case
-      (hex-to-bytes (fixture-required-field object field))
-    (error (condition)
-      (error "~A ~A must be hex bytes: ~A"
-             label field condition))))
+(defun validate-engine-fixture-hash-field (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be a hash hex string" label field))
+    (handler-case
+        (hash32-from-hex value)
+      (error (condition)
+        (error "~A ~A must be a 32-byte hash: ~A"
+               label field condition)))))
 
 (defun validate-engine-fixture-storage-object (storage label)
   (unless (listp storage)
     (error "~A storage must be a JSON object" label))
   (let ((seen-slots (make-hash-table :test 'equal)))
     (dolist (entry storage)
+      (unless (consp entry)
+        (error "~A storage entries must be JSON object fields" label))
       (let ((slot (car entry))
             (value (cdr entry)))
+        (unless (stringp slot)
+          (error "~A storage key must be a 32-byte hash string" label))
+        (unless (stringp value)
+          (error "~A storage value must be a hex quantity string" label))
         (handler-case
             (hash32-from-hex slot)
           (error (condition)
@@ -322,16 +359,8 @@
       (when (fixture-field-present-p expect field)
         (validate-engine-fixture-quantity-field expect field label)))
     (validate-engine-fixture-code-field expect "code" label)
-    (handler-case
-        (hash32-from-hex (fixture-required-field expect "storageKey"))
-      (error (condition)
-        (error "~A storageKey must be a 32-byte hash: ~A"
-               label condition)))
-    (handler-case
-        (hash32-from-hex (fixture-required-field expect "storageValue"))
-      (error (condition)
-        (error "~A storageValue must be a 32-byte word: ~A"
-               label condition)))))
+    (validate-engine-fixture-hash-field expect "storageKey" label)
+    (validate-engine-fixture-hash-field expect "storageValue" label)))
 
 (defun fixture-account-balance (state address)
   (let ((account (state-db-get-account state address)))
@@ -827,12 +856,31 @@
       :top-extra (list (cons "source" "duplicate source")))))
   (signals error
     (validate-engine-newpayload-v2-fixture-metadata
+     (cons (cons "source" 42)
+           (remove "source"
+                   (engine-newpayload-v2-metadata-shape-test-fixture)
+                   :key #'car
+                   :test #'string=))))
+  (signals error
+    (validate-engine-newpayload-v2-fixture-metadata
      (engine-newpayload-v2-metadata-shape-test-fixture
       :eest-extra (list (cons "unexpectedPinnedField" t)))))
   (signals error
     (validate-engine-newpayload-v2-fixture-metadata
      (engine-newpayload-v2-metadata-shape-test-fixture
-      :reference-extra (list (cons "besu" "test-besu"))))))
+      :reference-extra (list (cons "besu" "test-besu")))))
+  (signals error
+    (let* ((fixture (engine-newpayload-v2-metadata-shape-test-fixture))
+           (references (fixture-required-field fixture "referenceClients")))
+      (validate-engine-newpayload-v2-fixture-metadata
+       (cons (cons "referenceClients"
+                   (cons (cons "geth" 42)
+                         (remove "geth" references
+                                 :key #'car
+                                 :test #'string=)))
+             (remove "referenceClients" fixture
+                     :key #'car
+                     :test #'string=))))))
 
 (deftest engine-newpayload-v2-fixture-case-validation
   (let ((case (engine-newpayload-v2-case-shape-test-case)))
@@ -862,6 +910,24 @@
                 (list (cons "londonBlock" "0x0")
                       (cons "shanghaiTime" "0x0")
                       (cons "unknownFork" "0x0"))))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "config"
+                (replace-field
+                 (fixture-required-field case "config")
+                 "londonBlock"
+                 42)))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "parent"
+                (replace-field
+                 (fixture-required-field case "parent")
+                 "feeRecipient"
+                 42)))))
       (signals error
         (validate-engine-newpayload-v2-fixture-cases
          (list (replace-field
@@ -957,6 +1023,13 @@
                   case
                   "expect"
                   (replace-field expect "senderNonce" "0xb"))))))
+      (signals error
+        (let ((expect (fixture-required-field case "expect")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "expect"
+                  (replace-field expect "storageKey" 42))))))
       (signals error
         (let ((expect (fixture-required-field case "expect")))
           (validate-engine-newpayload-v2-fixture-cases
