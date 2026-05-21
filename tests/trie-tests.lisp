@@ -144,6 +144,8 @@
   (let ((seen-fields (make-hash-table :test 'equal)))
     (dolist (field object)
       (let ((name (car field)))
+        (unless (stringp name)
+          (error "~A field name must be a string" label))
         (when (gethash name seen-fields)
           (error "~A has duplicate field ~A" label name))
         (setf (gethash name seen-fields) t)
@@ -1599,6 +1601,16 @@
   (signals error
     (validate-trie-fixture-metadata
      (list (cons "format" +trie-vector-fixture-format+)
+           (cons "source" "seed")
+           (cons 42 t)
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-trie-fixture-metadata
+     (list (cons "format" +trie-vector-fixture-format+)
            (cons "source" "")
            (cons "executionSpecTests"
                  (list (cons "release" +phase-a-eest-release+)
@@ -1724,6 +1736,16 @@
                              (cons "keyAscii" "dog")))))))
   (signals error
     (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-case-field")
+           (cons 42 t)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
      (list (cons "name" "duplicate-case-field")
            (cons "name" "duplicate-case-field-shadow")
            (cons "expectedRoot"
@@ -1742,6 +1764,16 @@
                  (list (list (cons "op" "delete")
                              (cons "keyAscii" "dog")
                              (cons "valueHex" "0x01")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-operation-field")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")
+                             (cons 42 t)))))))
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "duplicate-operation-field")
@@ -1766,6 +1798,20 @@
                  (list (list (cons "keyAscii" "dog")
                              (cons "valueAscii" "puppy")
                              (cons "root" t)))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-get-field")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedGets"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy")
+                             (cons 42 t)))))))
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "duplicate-get-field")

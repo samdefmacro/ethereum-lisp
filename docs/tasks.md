@@ -1463,6 +1463,10 @@ splits can land after the Phase A smoke path closes.
     and gates. Phase A now requires object-valued secure-key replay for both
     pure writes and `null` deletes, keeping the secure path aligned with
     plain trie object-form coverage.
+    Added non-string field-name rejection to trie fixture object validators, so
+    wrappers, cases, operations, and lookup expectations fail with
+    harness-level shape errors before allowed-field checks can reach
+    lower-level `string=` type errors.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
