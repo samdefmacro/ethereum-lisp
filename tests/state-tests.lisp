@@ -83,7 +83,11 @@
     (when (or present-p required-p)
       (unless (or (and (integerp value) (not (minusp value)))
                   (and (stringp value)
-                       (not (minusp (hex-to-quantity value)))))
+                       (let ((quantity (hex-to-quantity value)))
+                         (and (not (minusp quantity))
+                              (string= value
+                                       (string-downcase
+                                        (quantity-to-hex quantity)))))))
         (error "~A field ~A must be a non-negative integer or hex quantity"
                label
                field)))))
@@ -790,6 +794,20 @@
                    :test #'string=))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
+     (cons (cons "gasLimit" "0X1C9C380")
+           (remove "gasLimit"
+                   (phase-a-shanghai-genesis-shape-test-fixture)
+                   :key #'car
+                   :test #'string=))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (cons (cons "gasLimit" "0x01c9c380")
+           (remove "gasLimit"
+                   (phase-a-shanghai-genesis-shape-test-fixture)
+                   :key #'car
+                   :test #'string=))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
       :top-extra (list (cons "unexpectedTopField" t)))))
   (signals error
@@ -832,6 +850,20 @@
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
       :account-extra (list (cons "balance" "0x2")))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :alloc-extra
+      (list
+       (cons "0x0000000000000000000000000000000000001003"
+             (list (cons "balance" "0X1")))))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :alloc-extra
+      (list
+       (cons "0x0000000000000000000000000000000000001003"
+             (list (cons "balance" "0x01")))))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture

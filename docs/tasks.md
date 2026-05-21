@@ -1530,6 +1530,9 @@ splits can land after the Phase A smoke path closes.
     overwrite entries.
     Added canonical hex/address/hash checks to the same genesis fixture
     validator, so prefixless or uppercase scalar aliases fail at shape time.
+    Added canonical quantity checks to string-valued Shanghai genesis scalar
+    fields, so uppercase-prefix or leading-zero nonce, gas, fork, and balance
+    aliases fail before fixture import.
     Added the same canonical address/hash/byte checks to state-root fixture
     operation and expectation fields, so expected roots, account addresses,
     storage slots, code bytes, account RLP, and projected account hashes reject
