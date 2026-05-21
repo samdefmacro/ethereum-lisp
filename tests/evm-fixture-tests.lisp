@@ -61,8 +61,9 @@
    +evm-state-fixture-top-level-fields+
    "EVM state fixture")
   (validate-fixture-format fixture +evm-state-fixture-format+)
-  (when (blank-string-p (fixture-required-field fixture "source"))
-    (error "EVM state fixture source must be present"))
+  (evm-state-fixture-non-empty-string
+   (fixture-required-field fixture "source")
+   "EVM state fixture source")
   (validate-fixture-pinned-eest-source fixture))
 
 (defun evm-state-fixture-quantity (object name)
@@ -89,6 +90,13 @@
   (unless (stringp value)
     (error "~A must be a hash hex string" label))
   (hash32-from-hex value))
+
+(defun evm-state-fixture-non-empty-string (value label)
+  (unless (stringp value)
+    (error "~A must be a string" label))
+  (when (blank-string-p value)
+    (error "~A must be present" label))
+  value)
 
 (defun validate-evm-state-fixture-storage-shape (storage label)
   (unless (listp storage)
@@ -138,8 +146,11 @@
    env
    +evm-state-fixture-env-fields+
    "EVM state fixture env")
-  (unless (string= "London" (fixture-required-field env "fork"))
-    (error "EVM state fixture currently supports only London fork vectors"))
+  (let ((fork (fixture-required-field env "fork")))
+    (unless (stringp fork)
+      (error "EVM state fixture env fork must be a string"))
+    (unless (string= "London" fork)
+      (error "EVM state fixture currently supports only London fork vectors")))
   (dolist (field '("chainId" "number" "timestamp"))
     (evm-state-fixture-quantity env field))
   (evm-state-fixture-address
@@ -163,6 +174,8 @@
    (fixture-required-field transaction "data")
    "EVM state fixture transaction data")
   (let ((type (or (fixture-object-field transaction "type") "legacy")))
+    (unless (stringp type)
+      (error "EVM state fixture transaction type must be a string"))
     (unless (member type '("legacy" "access-list") :test #'string=)
       (error "EVM state fixture transaction has unsupported type ~A" type))
     (if (string= type "access-list")
@@ -262,8 +275,9 @@
    case
    +evm-state-fixture-case-fields+
    "EVM state fixture case")
-  (when (blank-string-p (fixture-required-field case "name"))
-    (error "EVM state fixture case name must be present"))
+  (evm-state-fixture-non-empty-string
+   (fixture-required-field case "name")
+   "EVM state fixture case name")
   (validate-evm-state-fixture-case-tags case (make-hash-table :test 'equal))
   (validate-evm-state-fixture-env-shape
    (fixture-required-field case "env"))
@@ -282,8 +296,9 @@
         (seen-tags (make-hash-table :test 'equal)))
     (dolist (case cases)
       (let ((name (fixture-object-field case "name")))
-        (when (blank-string-p name)
-          (error "EVM state fixture case name must be present"))
+        (evm-state-fixture-non-empty-string
+         name
+         "EVM state fixture case name")
         (when (gethash name seen-names)
           (error "Duplicate EVM state fixture case name: ~A" name))
         (setf (gethash name seen-names) t))
@@ -476,6 +491,10 @@
     (evm-state-fixture-hash 1 "inline hash"))
   (signals error
     (evm-state-fixture-hex-bytes 1 "inline bytes"))
+  (signals error
+    (evm-state-fixture-non-empty-string 1 "inline string"))
+  (signals error
+    (evm-state-fixture-non-empty-string "" "inline string"))
   (let ((+evm-state-fixture-required-case-names+ '("present" "missing")))
     (signals error
       (validate-evm-state-fixture-required-case-names

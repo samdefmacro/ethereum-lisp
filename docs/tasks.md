@@ -1823,6 +1823,8 @@ splits can land after the Phase A smoke path closes.
     now rejects non-string scalar values before hex quantity decoding. Address,
     hash, and byte-string fixture decoders now apply the same type guard before
     account, storage, transaction, access-list, receipt, and log validation.
+    Plain string fields such as source, case name, fork, and transaction type
+    now reject non-string values before blank or equality checks.
 
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
