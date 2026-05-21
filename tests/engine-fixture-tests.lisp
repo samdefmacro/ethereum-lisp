@@ -168,14 +168,15 @@
           (error "~A storage key must be a 32-byte hash string" label))
         (unless (stringp value)
           (error "~A storage value must be a hex quantity string" label))
-        (handler-case
-            (hash32-from-hex slot)
-          (error (condition)
-            (error "~A storage key must be a 32-byte hash: ~A"
-                   label condition)))
-        (when (gethash (string-downcase slot) seen-slots)
-          (error "~A has duplicate storage slot ~A" label slot))
-        (setf (gethash (string-downcase slot) seen-slots) t)
+        (let ((slot-id
+                (handler-case
+                    (hash32-to-hex (hash32-from-hex slot))
+                  (error (condition)
+                    (error "~A storage key must be a 32-byte hash: ~A"
+                           label condition)))))
+          (when (gethash slot-id seen-slots)
+            (error "~A has duplicate storage slot ~A" label slot))
+          (setf (gethash slot-id seen-slots) t))
         (handler-case
             (hex-to-quantity value)
           (error (condition)
@@ -984,6 +985,26 @@
                   case
                   "parent"
                   (replace-field parent "accounts" duplicate-accounts))))))
+      (signals error
+        (let* ((parent (fixture-required-field case "parent"))
+               (accounts (fixture-required-field parent "accounts"))
+               (account (first accounts))
+               (bad-account
+                 (replace-field
+                  account
+                  "storage"
+                  (list
+                   (cons
+                    "0x00000000000000000000000000000000000000000000000000000000000000aa"
+                    "0x1")
+                   (cons
+                    "00000000000000000000000000000000000000000000000000000000000000AA"
+                    "0x2")))))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "parent"
+                  (replace-field parent "accounts" (list bad-account)))))))
       (signals error
         (validate-engine-newpayload-v2-fixture-cases
          (list (replace-field
