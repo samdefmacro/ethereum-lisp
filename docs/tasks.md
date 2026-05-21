@@ -147,7 +147,8 @@ ones.
   - Result: tests now discover an optional fixture root through
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`; absent, blank, or missing roots
     produce an explicit skip condition for external fixture tests instead of a
-    failure.
+    failure. The fixture-root reader now rejects non-string values explicitly
+    before probing paths.
 
 - [x] `HARNESS-FIXTURE-RUNNER`: Add a small fixture runner skeleton for
   blockchain/state tests.

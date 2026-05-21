@@ -19,7 +19,13 @@
           (lambda (name)
             (declare (ignore name))
             "tests/no-such-fixture-root/")))
-    (is (null (execution-spec-tests-fixture-root)))))
+    (is (null (execution-spec-tests-fixture-root))))
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (declare (ignore name))
+            42)))
+    (signals error
+      (execution-spec-tests-fixture-root))))
 
 (deftest optional-execution-spec-tests-fixtures-skip-cleanly
   (let ((*fixture-root-environment-reader*

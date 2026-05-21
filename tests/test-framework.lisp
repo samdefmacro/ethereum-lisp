@@ -138,6 +138,8 @@
 (defun execution-spec-tests-fixture-root
     (&key (env-var +execution-spec-tests-fixture-root-env+))
   (let ((value (funcall *fixture-root-environment-reader* env-var)))
+    (unless (or (null value) (stringp value))
+      (error "Execution spec tests fixture root must be a string or nil"))
     (unless (blank-string-p value)
       (probe-file value))))
 
