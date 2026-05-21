@@ -98,7 +98,11 @@
       (validate-engine-fixture-non-empty-string
        (fixture-object-field references client)
        (format nil "Engine newPayloadV2 fixture referenceClients.~A"
-               client)))))
+               client)))
+    (let ((reth (fixture-object-field references "reth")))
+      (unless (or (null reth)
+                  (and (stringp reth) (not (blank-string-p reth))))
+        (error "Engine newPayloadV2 fixture referenceClients.reth must be null or a non-empty string")))))
 
 (defun validate-engine-fixture-quantity-field (object field label)
   (let ((value (fixture-required-field object field)))
@@ -882,6 +886,30 @@
        (cons (cons "referenceClients"
                    (cons (cons "geth" 42)
                          (remove "geth" references
+                                 :key #'car
+                                 :test #'string=)))
+             (remove "referenceClients" fixture
+                     :key #'car
+                     :test #'string=)))))
+  (signals error
+    (let* ((fixture (engine-newpayload-v2-metadata-shape-test-fixture))
+           (references (fixture-required-field fixture "referenceClients")))
+      (validate-engine-newpayload-v2-fixture-metadata
+       (cons (cons "referenceClients"
+                   (cons (cons "reth" "")
+                         (remove "reth" references
+                                 :key #'car
+                                 :test #'string=)))
+             (remove "referenceClients" fixture
+                     :key #'car
+                     :test #'string=)))))
+  (signals error
+    (let* ((fixture (engine-newpayload-v2-metadata-shape-test-fixture))
+           (references (fixture-required-field fixture "referenceClients")))
+      (validate-engine-newpayload-v2-fixture-metadata
+       (cons (cons "referenceClients"
+                   (cons (cons "reth" 42)
+                         (remove "reth" references
                                  :key #'car
                                  :test #'string=)))
              (remove "referenceClients" fixture

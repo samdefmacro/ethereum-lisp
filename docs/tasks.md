@@ -917,6 +917,9 @@ splits can land after the Phase A smoke path closes.
     pins, quantities, addresses, bytecode fields, storage hashes, and storage
     map entries reject non-string or malformed JSON shapes before lower-level
     hex/address/hash decoders run.
+  - Progress: tightened optional Engine fixture `referenceClients.reth`
+    validation so the absent local Reth reference remains `null`, but provided
+    values must be non-empty strings.
   - Progress: tightened Engine fixture enum-like string fields so case
     `network` and expected payload `status` reject non-string values before
     comparing against `Shanghai` or `VALID`.
