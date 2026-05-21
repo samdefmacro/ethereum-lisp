@@ -66,7 +66,10 @@
   (validate-fixture-pinned-eest-source fixture))
 
 (defun evm-state-fixture-quantity (object name)
-  (hex-to-quantity (fixture-required-field object name)))
+  (let ((value (fixture-required-field object name)))
+    (unless (stringp value)
+      (error "EVM state fixture ~A must be a hex quantity string" name))
+    (hex-to-quantity value)))
 
 (defun validate-evm-state-fixture-storage-shape (storage label)
   (unless (listp storage)
@@ -418,6 +421,10 @@
            (cons "transaction" nil)
            (cons "expect" nil)
            (cons "unexpected" t))))
+  (signals error
+    (evm-state-fixture-quantity (list (cons "nonce" 1)) "nonce"))
+  (signals error
+    (evm-state-fixture-quantity (list (cons "gasLimit" nil)) "gasLimit"))
   (let ((+evm-state-fixture-required-case-names+ '("present" "missing")))
     (signals error
       (validate-evm-state-fixture-required-case-names

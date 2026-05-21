@@ -1819,7 +1819,8 @@ splits can land after the Phase A smoke path closes.
     account, transaction, receipt, and coverage-tag fields. A named seed-case
     gate now locks the fixture-backed CALL/revert/static/value/delegated-code
     and access-list cases so the London state-test seed set cannot silently
-    shrink while retaining generic tag coverage.
+    shrink while retaining generic tag coverage. The fixture quantity parser
+    now rejects non-string scalar values before hex quantity decoding.
 
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
