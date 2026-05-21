@@ -684,7 +684,7 @@
   (let ((value (fixture-required-field object field)))
     (unless (stringp value)
       (error "~A must be a quantity string" label))
-    (unless (string= value (quantity-to-hex (hex-to-quantity value)))
+    (unless (string= value (string-downcase (quantity-to-hex (hex-to-quantity value))))
       (error "~A must be a canonical quantity" label))))
 
 (defun validate-state-proof-fixture-storage-key-uniqueness (storage-keys)
@@ -1416,6 +1416,11 @@
       (signals error
         (let* ((proof (fixture-required-field valid-case "expectedProof"))
                (bad-proof (replace-field proof "balance" "0x00")))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "expectedProof" bad-proof))))
+      (signals error
+        (let* ((proof (fixture-required-field valid-case "expectedProof"))
+               (bad-proof (replace-field proof "balance" "0X0")))
           (validate-state-proof-fixture-case-shape
            (replace-field valid-case "expectedProof" bad-proof))))
       (signals error

@@ -1634,8 +1634,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: tightened state-proof fixture expected-output validation. The
     `expectedProof` address, balance, nonce, code hash, storage hash, storage
     proof keys, storage proof values, and proof RLP node byte strings must now
-    be canonical JSON-RPC output values, while request-side storage keys still
-    keep the existing geth-compatible prefixless input normalization.
+    be canonical JSON-RPC output values, including lowercase quantity aliases,
+    while request-side storage keys still keep the existing geth-compatible
+    prefixless input normalization.
   - Progress: tightened state-proof fixture scalar type validation. Request
     addresses plus expected proof address/hash/quantity fields now reject
     non-string values before address, hash, or quantity decoding, keeping
