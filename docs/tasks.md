@@ -920,7 +920,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: hardened Engine fixture scalar validators so source/reference
     pins, quantities, addresses, bytecode fields, storage hashes, and storage
     map entries reject non-string or malformed JSON shapes before lower-level
-    hex/address/hash decoders run.
+    hex/address/hash decoders run. Engine address, bytecode, and hash fields
+    now reject prefixless or uppercase aliases by requiring canonical lowercase
+    `0x`-prefixed values.
   - Progress: tightened optional Engine fixture `referenceClients.reth`
     validation so the absent local Reth reference remains `null`, but provided
     values must be non-empty strings.

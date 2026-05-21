@@ -119,7 +119,10 @@
     (unless (stringp value)
       (error "~A ~A must be an address hex string" label field))
     (handler-case
-        (address-from-hex value)
+        (let ((address (address-from-hex value)))
+          (unless (string= value (address-to-hex address))
+            (error "~A ~A must be canonical lowercase 0x-prefixed address hex"
+                   label field)))
       (error (condition)
         (error "~A ~A must be an address: ~A"
                label field condition)))))
@@ -130,7 +133,10 @@
       (unless (stringp value)
         (error "~A ~A must be a hex string" label field))
       (handler-case
-          (hex-to-bytes value)
+          (let ((bytes (hex-to-bytes value)))
+            (unless (string= value (bytes-to-hex bytes))
+              (error "~A ~A must be canonical lowercase 0x-prefixed hex"
+                     label field)))
         (error (condition)
           (error "~A ~A must be hex bytes: ~A"
                  label field condition))))))
@@ -140,7 +146,10 @@
     (unless (stringp value)
       (error "~A ~A must be a hex string" label field))
     (handler-case
-        (hex-to-bytes value)
+        (let ((bytes (hex-to-bytes value)))
+          (unless (string= value (bytes-to-hex bytes))
+            (error "~A ~A must be canonical lowercase 0x-prefixed hex"
+                   label field)))
       (error (condition)
         (error "~A ~A must be hex bytes: ~A"
                label field condition)))))
@@ -150,7 +159,10 @@
     (unless (stringp value)
       (error "~A ~A must be a hash hex string" label field))
     (handler-case
-        (hash32-from-hex value)
+        (let ((hash (hash32-from-hex value)))
+          (unless (string= value (hash32-to-hex hash))
+            (error "~A ~A must be canonical lowercase 0x-prefixed hash hex"
+                   label field)))
       (error (condition)
         (error "~A ~A must be a 32-byte hash: ~A"
                label field condition)))))
@@ -976,6 +988,15 @@
                  "feeRecipient"
                  "0x1234")))))
       (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "parent"
+                (replace-field
+                 (fixture-required-field case "parent")
+                 "feeRecipient"
+                 "0000000000000000000000000000000000000001")))))
+      (signals error
         (let* ((parent (fixture-required-field case "parent"))
                (accounts (fixture-required-field parent "accounts"))
                (duplicate-accounts
@@ -985,6 +1006,26 @@
                   case
                   "parent"
                   (replace-field parent "accounts" duplicate-accounts))))))
+      (signals error
+        (let* ((parent (fixture-required-field case "parent"))
+               (accounts (fixture-required-field parent "accounts"))
+               (account (first accounts))
+               (bad-account (replace-field account "code" "6000")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "parent"
+                  (replace-field parent "accounts" (list bad-account)))))))
+      (signals error
+        (let* ((parent (fixture-required-field case "parent"))
+               (accounts (fixture-required-field parent "accounts"))
+               (account (first accounts))
+               (bad-account (replace-field account "code" "0X6000")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "parent"
+                  (replace-field parent "accounts" (list bad-account)))))))
       (signals error
         (let* ((parent (fixture-required-field case "parent"))
                (accounts (fixture-required-field parent "accounts"))
@@ -1097,6 +1138,23 @@
                   case
                   "expect"
                   (replace-field expect "storageKey" 42))))))
+      (signals error
+        (let ((expect (fixture-required-field case "expect")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "expect"
+                  (replace-field
+                   expect
+                   "storageKey"
+                   "0000000000000000000000000000000000000000000000000000000000000000"))))))
+      (signals error
+        (let ((expect (fixture-required-field case "expect")))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "expect"
+                  (replace-field expect "code" "6001600055"))))))
       (signals error
         (let ((expect (fixture-required-field case "expect")))
           (validate-engine-newpayload-v2-fixture-cases
