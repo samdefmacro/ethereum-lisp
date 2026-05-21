@@ -1866,7 +1866,9 @@ splits can land after the Phase A smoke path closes.
     Plain string fields such as source, case name, fork, and transaction type
     now reject non-string values before blank or equality checks.
     Account maps, storage maps, and case lists now reject malformed collection
-    entries before alist key/value access.
+    entries before alist key/value access. Account and storage maps now reject
+    duplicate normalized addresses and storage slots, including mixed-case
+    aliases, before fixture replay.
 
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4

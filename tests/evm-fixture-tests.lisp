@@ -105,11 +105,15 @@
     (dolist (entry storage)
       (unless (consp entry)
         (error "~A storage entries must be JSON object fields" label))
-      (let ((slot (car entry)))
-        (when (gethash slot seen-slots)
+      (let* ((slot (car entry))
+             (slot-id
+               (hash32-to-hex
+                (evm-state-fixture-hash
+                 slot
+                 (format nil "~A storage slot" label)))))
+        (when (gethash slot-id seen-slots)
           (error "~A storage has duplicate slot ~A" label slot))
-        (setf (gethash slot seen-slots) t)
-        (evm-state-fixture-hash slot (format nil "~A storage slot" label))
+        (setf (gethash slot-id seen-slots) t)
         (evm-state-fixture-quantity-string
          (cdr entry)
          (format nil "~A storage value" label))))))
@@ -136,10 +140,15 @@
     (dolist (entry accounts)
       (unless (consp entry)
         (error "~A entries must be JSON object fields" label))
-      (let ((address (car entry)))
-        (when (gethash address seen-addresses)
+      (let* ((address (car entry))
+             (address-id
+               (address-to-hex
+                (evm-state-fixture-address
+                 address
+                 (format nil "~A account address" label)))))
+        (when (gethash address-id seen-addresses)
           (error "~A has duplicate address ~A" label address))
-        (setf (gethash address seen-addresses) t)
+        (setf (gethash address-id seen-addresses) t)
         (validate-evm-state-fixture-account-shape
          address
          (cdr entry)
@@ -506,9 +515,28 @@
      (list "not-a-storage-field")
      "inline account"))
   (signals error
+    (validate-evm-state-fixture-storage-shape
+     (list (cons "0x00000000000000000000000000000000000000000000000000000000000000aa"
+                 "0x1")
+           (cons "0x00000000000000000000000000000000000000000000000000000000000000AA"
+                 "0x2"))
+     "inline account"))
+  (signals error
     (validate-evm-state-fixture-accounts-shape
      (list "not-an-account-field")
      "inline accounts"))
+  (signals error
+    (let ((account
+            (list (cons "nonce" "0x0")
+                  (cons "balance" "0x0")
+                  (cons "code" "0x")
+                  (cons "storage" nil))))
+      (validate-evm-state-fixture-accounts-shape
+       (list (cons "0x00000000000000000000000000000000000000aa"
+                   account)
+             (cons "0x00000000000000000000000000000000000000AA"
+                   account))
+       "inline accounts")))
   (signals error
     (validate-evm-state-fixture-cases
      (list "not-a-case-object")))
