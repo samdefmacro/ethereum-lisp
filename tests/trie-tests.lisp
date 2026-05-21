@@ -340,6 +340,18 @@
                  child))
         (setf (gethash child seen) t)))))
 
+(defun parse-trie-fixture-child-reference-index (case raw-index)
+  (unless (stringp raw-index)
+    (error "Trie fixture case ~A child reference index must be a string"
+           (fixture-object-field case "name")))
+  (multiple-value-bind (index position)
+      (parse-integer raw-index :junk-allowed t)
+    (unless (and index (= position (length raw-index)) (<= 0 index 15))
+      (error "Trie fixture case ~A has malformed child reference index ~A"
+             (fixture-object-field case "name")
+             raw-index))
+    index))
+
 (defun validate-trie-fixture-root-child-references (case)
   (when (fixture-field-present-p case "expectedRootChildReferences")
     (let ((references
@@ -349,17 +361,18 @@
         (error "Trie fixture case ~A expectedRootChildReferences must be a JSON object"
                (fixture-object-field case "name")))
       (dolist (reference references)
-        (let ((index (parse-integer (car reference)))
+        (let ((index (parse-trie-fixture-child-reference-index
+                      case
+                      (car reference)))
               (kind (cdr reference)))
-          (unless (<= 0 index 15)
-            (error "Trie fixture case ~A has malformed child reference index ~A"
-                   (fixture-object-field case "name")
-                   (car reference)))
           (when (gethash index seen-indexes)
             (error "Trie fixture case ~A has duplicate child reference index ~A"
                    (fixture-object-field case "name")
                    (car reference)))
           (setf (gethash index seen-indexes) t)
+          (unless (stringp kind)
+            (error "Trie fixture case ~A child reference kind must be a string"
+                   (fixture-object-field case "name")))
           (unless (trie-fixture-valid-child-reference-kind-p kind)
             (error "Trie fixture case ~A has unknown child reference kind ~A"
                    (fixture-object-field case "name")
@@ -1783,6 +1796,42 @@
                  "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5")
            (cons "expectedShape" "branch")
            (cons "expectedRootChildren" (list 0 16))
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyHex" "0x00")
+                             (cons "valueAscii" "left")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-child-reference-index")
+           (cons "expectedRoot"
+                 "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5")
+           (cons "expectedShape" "branch")
+           (cons "expectedRootChildReferences"
+                 (list (cons 1 "embedded")))
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyHex" "0x00")
+                             (cons "valueAscii" "left")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "malformed-child-reference-index")
+           (cons "expectedRoot"
+                 "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5")
+           (cons "expectedShape" "branch")
+           (cons "expectedRootChildReferences"
+                 (list (cons "1x" "embedded")))
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyHex" "0x00")
+                             (cons "valueAscii" "left")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-child-reference-kind")
+           (cons "expectedRoot"
+                 "0x83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5")
+           (cons "expectedShape" "branch")
+           (cons "expectedRootChildReferences"
+                 (list (cons "1" 42)))
            (cons "operations"
                  (list (list (cons "op" "put")
                              (cons "keyHex" "0x00")
