@@ -4129,17 +4129,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  +engine-rpc-http-accepted-content-types+
                  :test #'string=))))
 
+(defun engine-rpc-http-decimal-digits-p (string)
+  (and (< 0 (length string))
+       (every #'digit-char-p string)))
+
 (defun engine-rpc-http-parse-content-length (content-length)
-  (let ((length
-          (handler-case
-              (parse-integer
-               (engine-rpc-http-trim content-length)
-               :junk-allowed nil)
-            (error ()
-              nil))))
-    (unless (and length (<= 0 length))
+  (let ((content-length (engine-rpc-http-trim content-length)))
+    (unless (engine-rpc-http-decimal-digits-p content-length)
       (block-validation-fail "HTTP content length is invalid"))
-    length))
+    (parse-integer content-length :junk-allowed nil)))
 
 (defun engine-rpc-http-header-boundary (request)
   (let ((crlf-boundary

@@ -896,8 +896,8 @@ splits can land after the Phase A smoke path closes.
     hatch. The service configuration test now asserts the default importer is
     exactly `execute-and-commit-engine-payload`, not merely any function.
   - Progress: tightened HTTP `Content-Length` parsing so direct request-string
-    and stream handlers reject malformed, negative, or duplicated values
-    instead of accepting partially parsed or ambiguous integers.
+    and stream handlers reject malformed, signed, negative, or duplicated
+    values instead of accepting partially parsed or ambiguous integers.
   - Progress: tightened HTTP header parsing so empty header field names are
     rejected as malformed in both request-string and stream paths.
   - Progress: tightened HTTP request-line parsing so unsupported versions and
