@@ -1467,6 +1467,9 @@ splits can land after the Phase A smoke path closes.
     wrappers, cases, operations, and lookup expectations fail with
     harness-level shape errors before allowed-field checks can reach
     lower-level `string=` type errors.
+    Added the same non-string field-name rejection to state-root fixture
+    object validators, covering wrappers, cases, operations, storage-root
+    projections, and account projections before replay.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

@@ -149,6 +149,8 @@
   (let ((seen-fields (make-hash-table :test 'equal)))
     (dolist (field object)
       (let ((name (car field)))
+        (unless (stringp name)
+          (error "~A field name must be a string" label))
         (when (gethash name seen-fields)
           (error "~A has duplicate field ~A" label name))
         (setf (gethash name seen-fields) t)
@@ -845,6 +847,16 @@
   (signals error
     (validate-state-root-fixture-metadata
      (list (cons "format" +state-root-fixture-format+)
+           (cons "source" "seed")
+           (cons 42 t)
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-state-root-fixture-metadata
+     (list (cons "format" +state-root-fixture-format+)
            (cons "source" "")
            (cons "executionSpecTests"
                  (list (cons "release" +phase-a-eest-release+)
@@ -858,6 +870,13 @@
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
            (cons "root" "unexpected"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "non-string-case-field")
+           (cons 42 t)
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
   (signals error
     (validate-state-root-fixture-case-shape
      (list (cons "name" "duplicate-case-field")
@@ -875,6 +894,18 @@
                                    "0x0000000000000000000000000000000000000001")
                              (cons "balance" 1)
                              (cons "storage" nil))))
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "non-string-operation-field")
+           (cons "tags" (list "account-root"))
+           (cons "operations"
+                 (list (list (cons "op" "setAccount")
+                             (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "balance" 1)
+                             (cons 42 t))))
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
   (signals error
@@ -900,6 +931,19 @@
                  (list (list (cons "address"
                                    "0x0000000000000000000000000000000000000001")
                              (cons "root" "0x01")))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "non-string-storage-root-field")
+           (cons "tags" (list "storage-root-projection"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedStorageRoots"
+                 (list (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "root"
+                                   "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+                             (cons 42 t)))))))
   (signals error
     (validate-state-root-fixture-case-shape
      (list (cons "name" "duplicate-storage-root-field")
@@ -942,6 +986,18 @@
                                    "0x0000000000000000000000000000000000000001")
                              (cons "balance" 1)
                              (cons "storage" nil)))))))
+  (signals error
+    (validate-state-root-fixture-case-shape
+     (list (cons "name" "non-string-account-field")
+           (cons "tags" (list "account-projection"))
+           (cons "operations" nil)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedAccounts"
+                 (list (list (cons "address"
+                                   "0x0000000000000000000000000000000000000001")
+                             (cons "balance" 1)
+                             (cons 42 t)))))))
   (signals error
     (validate-state-root-fixture-case-shape
      (list (cons "name" "duplicate-account-field")
