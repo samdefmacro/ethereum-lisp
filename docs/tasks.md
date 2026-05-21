@@ -923,6 +923,9 @@ splits can land after the Phase A smoke path closes.
     hex/address/hash decoders run. Engine address, bytecode, and hash fields
     now reject prefixless or uppercase aliases by requiring canonical lowercase
     `0x`-prefixed values.
+  - Progress: tightened Engine fixture payload transaction bytes so signed
+    transaction entries must also use canonical lowercase `0x`-prefixed hex
+    before transaction decoding runs.
   - Progress: tightened optional Engine fixture `referenceClients.reth`
     validation so the absent local Reth reference remains `null`, but provided
     values must be non-empty strings.

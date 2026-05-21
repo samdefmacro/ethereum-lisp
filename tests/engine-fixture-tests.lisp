@@ -167,6 +167,19 @@
         (error "~A ~A must be a 32-byte hash: ~A"
                label field condition)))))
 
+(defun validate-engine-fixture-transaction-bytes (value label)
+  (unless (stringp value)
+    (error "~A transactions entries must be hex strings" label))
+  (handler-case
+      (let ((bytes (hex-to-bytes value)))
+        (unless (string= value (bytes-to-hex bytes))
+          (error "~A transactions entries must be canonical lowercase 0x-prefixed hex"
+                 label))
+        (transaction-from-encoding bytes))
+    (error (condition)
+      (error "~A transactions entries must be signed transaction bytes: ~A"
+             label condition))))
+
 (defun validate-engine-fixture-storage-object (storage label)
   (unless (listp storage)
     (error "~A storage must be a JSON object" label))
@@ -296,9 +309,7 @@
       (unless (and (listp transactions) transactions)
         (error "~A transactions must be a non-empty JSON array" label))
       (dolist (raw transactions)
-        (unless (stringp raw)
-          (error "~A transactions entries must be hex strings" label))
-        (transaction-from-encoding (hex-to-bytes raw))))
+        (validate-engine-fixture-transaction-bytes raw label)))
     (let ((withdrawals (fixture-required-field payload "withdrawals")))
       (unless (listp withdrawals)
         (error "~A withdrawals must be a JSON array" label))
@@ -1055,6 +1066,28 @@
                  (fixture-required-field case "payload")
                  "transactions"
                  nil)))))
+      (signals error
+        (let* ((payload (fixture-required-field case "payload"))
+               (raw (first (fixture-required-field payload "transactions"))))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "payload"
+                  (replace-field
+                   payload
+                   "transactions"
+                   (list (subseq raw 2))))))))
+      (signals error
+        (let* ((payload (fixture-required-field case "payload"))
+               (raw (first (fixture-required-field payload "transactions"))))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "payload"
+                  (replace-field
+                   payload
+                   "transactions"
+                   (list (string-upcase raw))))))))
       (signals error
         (let* ((payload (fixture-required-field case "payload"))
                (withdrawals (fixture-required-field payload "withdrawals"))
