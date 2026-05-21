@@ -1836,7 +1836,8 @@ splits can land after the Phase A smoke path closes.
   - Progress: tightened receipt-root fixture scalar type validation. Wrapper
     source, vector names, transaction bytes, receipt quantities, expected
     types, encoding prefixes, and root hashes now reject non-string values
-    before hex, quantity, or hash decoding.
+    before hex, quantity, or hash decoding. Receipt statuses are now locked to
+    post-Byzantium success/failure values during fixture shape validation.
   - Result: added an Engine-imported internal CREATE2 receipt boundary. The
     test imports a signed transaction that calls an existing contract whose
     code performs CREATE2, verifies the internally-created runtime code is

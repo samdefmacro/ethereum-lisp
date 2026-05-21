@@ -99,9 +99,11 @@
    receipt
    +receipt-root-fixture-receipt-fields+
    "Receipt root fixture receipt")
-  (validate-receipt-root-fixture-quantity-string
-   (fixture-required-field receipt "status")
-   "Receipt root fixture receipt status")
+  (let ((status (validate-receipt-root-fixture-quantity-string
+                 (fixture-required-field receipt "status")
+                 "Receipt root fixture receipt status")))
+    (unless (or (= status 0) (= status 1))
+      (error "Receipt root fixture receipt status must be 0x0 or 0x1")))
   (validate-receipt-root-fixture-quantity-string
    (fixture-required-field receipt "cumulativeGasUsed")
    "Receipt root fixture receipt cumulativeGasUsed"))
@@ -242,6 +244,14 @@
             (replace-first
              (fixture-required-field vector "receipts")
              (replace-field receipt "status" 42)))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "receipts"
+            (replace-first
+             (fixture-required-field vector "receipts")
+             (replace-field receipt "status" "0x2")))))
         (signals error
           (validate-receipt-root-fixture-vector-shape
            (replace-field
