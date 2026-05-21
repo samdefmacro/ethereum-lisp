@@ -76,8 +76,14 @@
      :max-connections max-connections
      :stop-p stop-p)))
 
+(defun devnet-cli-option-token-p (value)
+  (and (stringp value)
+       (<= 2 (length value))
+       (string= "--" value :end2 2)))
+
 (defun devnet-cli-next-value (args option)
-  (unless args
+  (unless (and args
+               (not (devnet-cli-option-token-p (first args))))
     (error "~A requires a value" option))
   (values (first args) (rest args)))
 

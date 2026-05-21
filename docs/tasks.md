@@ -2310,7 +2310,7 @@ splits can land after the Phase A smoke path closes.
     socket listener or run in `--no-serve` smoke mode. CLI tests cover genesis
     loading, current head/state visibility, `--no-serve` summary output, and
     missing-genesis validation. CLI option validation now rejects malformed
-    ports, missing option values, negative connection limits, and unknown
+    ports, option-shaped missing values, negative connection limits, and unknown
     options before genesis loading or socket startup.
 
 - [x] Add Hive compatibility plan.

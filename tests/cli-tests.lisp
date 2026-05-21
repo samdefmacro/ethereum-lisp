@@ -72,5 +72,11 @@
                                  "--no-serve"))))
     (is (search "--genesis requires a value"
                 (run-error (list "devnet" "--genesis"))))
+    (is (search "--genesis requires a value"
+                (run-error (list "devnet" "--genesis" "--no-serve"))))
+    (is (search "--host requires a value"
+                (run-error (list "devnet" "--host" "--no-serve"))))
+    (is (search "--port requires a value"
+                (run-error (list "devnet" "--port" "--no-serve"))))
     (is (search "Unknown option --wat"
                 (run-error (list "devnet" "--wat"))))))
