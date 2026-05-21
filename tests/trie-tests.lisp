@@ -168,6 +168,16 @@
         (error "~A ~A must be canonical lowercase 0x-prefixed hash hex"
                label field)))))
 
+(defun validate-trie-fixture-byte-field (value label)
+  (unless (stringp value)
+    (error "~A must be a hex string" label))
+  (handler-case
+      (let ((bytes (hex-to-bytes value)))
+        (unless (string= value (bytes-to-hex bytes))
+          (error "~A must be canonical lowercase 0x-prefixed hex" label)))
+    (error (condition)
+      (error "~A must be hex bytes: ~A" label condition))))
+
 (defun validate-trie-fixture-metadata (fixture)
   (validate-trie-fixture-object-fields
    fixture
@@ -213,8 +223,9 @@
     (when (and has-hex has-ascii)
       (error "~A must not include both keyHex and keyAscii" label))
     (when has-hex
-      (unless (stringp (fixture-object-field object "keyHex"))
-        (error "~A keyHex must be a string" label)))
+      (validate-trie-fixture-byte-field
+       (fixture-object-field object "keyHex")
+       (format nil "~A keyHex" label)))
     (when has-ascii
       (let ((key (fixture-object-field object "keyAscii")))
         (validate-trie-fixture-non-empty-string
@@ -1621,6 +1632,42 @@
            (cons "operations"
                  (list (list (cons "op" "delete")
                              (cons "keyAscii" 42)))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-hex-key")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyHex" 42)))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "odd-hex-key")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyHex" "0x0")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "prefixless-hex-key")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyHex" "00")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "uppercase-hex-key")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyHex" "0X00")))))))
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "non-string-operation-value")

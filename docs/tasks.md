@@ -1499,6 +1499,8 @@ splits can land after the Phase A smoke path closes.
     lookup values, root shapes, child-reference kinds, and root value
     assertions so imported trie vectors reject non-string scalars at the
     harness boundary.
+    Trie fixture `keyHex` scalars now reject malformed, prefixless, or
+    uppercase aliases while still allowing the empty key as canonical `0x`.
     Added trie fixture child-reference map scalar guards so branch child
     reference indexes and kinds reject non-string or malformed values before
     root-shape assertions parse them.
