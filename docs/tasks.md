@@ -1622,6 +1622,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: extended the same type guard to the state-proof wrapper boundary:
     source notes, case names, and expected state roots now reject non-string
     values before blank or hash decoding.
+  - Progress: tightened state-proof expected `storageProof` validation so
+    duplicate canonical storage proof keys fail before request/proof alignment
+    checks run.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

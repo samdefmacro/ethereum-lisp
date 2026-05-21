@@ -738,6 +738,15 @@
        nodes
        "State proof fixture storage proof"))))
 
+(defun validate-state-proof-fixture-storage-proof-uniqueness (storage-proof)
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (entry storage-proof)
+      (let ((key (fixture-required-field entry "key")))
+        (when (gethash key seen)
+          (error "State proof fixture storageProof has duplicate key ~A"
+                 key))
+        (setf (gethash key seen) t)))))
+
 (defun state-proof-fixture-empty-account-fields-p
     (balance nonce storage-hash code-hash)
   (and (zerop balance)
@@ -792,7 +801,8 @@
       (unless (listp storage-proof)
         (error "State proof fixture storageProof must be a JSON array"))
       (dolist (entry storage-proof)
-        (validate-state-proof-fixture-storage-proof-shape entry storage-hash)))))
+        (validate-state-proof-fixture-storage-proof-shape entry storage-hash))
+      (validate-state-proof-fixture-storage-proof-uniqueness storage-proof))))
 
 (defun validate-state-proof-fixture-request-proof-alignment (request proof)
   (unless (bytes= (address-bytes
@@ -1410,6 +1420,24 @@
                   (list
                    (cons "key"
                          "0x0000000000000000000000000000000000000000000000000000000000000002")
+                   (cons "value" "0x0")
+                   (cons "proof" nil))))
+               (bad-proof
+                 (replace-field proof "storageProof" bad-storage-proof)))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "expectedProof" bad-proof))))
+      (signals error
+        (let* ((proof (fixture-required-field valid-case "expectedProof"))
+               (bad-storage-proof
+                 (list
+                  (list
+                   (cons "key"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "value" "0x0")
+                   (cons "proof" nil))
+                  (list
+                   (cons "key"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
                    (cons "value" "0x0")
                    (cons "proof" nil))))
                (bad-proof
