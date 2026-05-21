@@ -1784,6 +1784,10 @@ splits can land after the Phase A smoke path closes.
     transaction, receipt, type, encoding-prefix, and encoding-length arrays to
     have matching cardinality, and the replay test asserts each decoded
     envelope type before checking the typed receipt encoding and root.
+  - Progress: tightened receipt-root fixture scalar type validation. Wrapper
+    source, vector names, transaction bytes, receipt quantities, expected
+    types, encoding prefixes, and root hashes now reject non-string values
+    before hex, quantity, or hash decoding.
   - Result: added an Engine-imported internal CREATE2 receipt boundary. The
     test imports a signed transaction that calls an existing contract whose
     code performs CREATE2, verifies the internally-created runtime code is

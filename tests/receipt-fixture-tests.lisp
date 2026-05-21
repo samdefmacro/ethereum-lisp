@@ -45,8 +45,25 @@
 
 (defun validate-receipt-root-fixture-string-field (object field label)
   (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be a string" label field))
     (when (blank-string-p value)
       (error "~A ~A must be a non-empty string" label field))))
+
+(defun validate-receipt-root-fixture-hex-string (value label)
+  (unless (stringp value)
+    (error "~A must be a hex string" label))
+  (hex-to-bytes value))
+
+(defun validate-receipt-root-fixture-quantity-string (value label)
+  (unless (stringp value)
+    (error "~A must be a hex quantity string" label))
+  (hex-to-quantity value))
+
+(defun validate-receipt-root-fixture-hash-string (value label)
+  (unless (stringp value)
+    (error "~A must be a hash hex string" label))
+  (hash32-from-hex value))
 
 (defun validate-receipt-root-fixture-metadata (fixture)
   (validate-receipt-root-fixture-object-fields
@@ -82,8 +99,12 @@
    receipt
    +receipt-root-fixture-receipt-fields+
    "Receipt root fixture receipt")
-  (hex-to-quantity (fixture-required-field receipt "status"))
-  (hex-to-quantity (fixture-required-field receipt "cumulativeGasUsed")))
+  (validate-receipt-root-fixture-quantity-string
+   (fixture-required-field receipt "status")
+   "Receipt root fixture receipt status")
+  (validate-receipt-root-fixture-quantity-string
+   (fixture-required-field receipt "cumulativeGasUsed")
+   "Receipt root fixture receipt cumulativeGasUsed"))
 
 (defun validate-receipt-root-fixture-vector-shape (vector)
   (validate-receipt-root-fixture-object-fields
@@ -116,20 +137,30 @@
                (length lengths))
       (error "Receipt root fixture vector transaction, receipt, type, prefix, and length counts must match"))
     (dolist (transaction transactions)
-      (hex-to-bytes transaction))
+      (validate-receipt-root-fixture-hex-string
+       transaction
+       "Receipt root fixture vector transaction"))
     (dolist (receipt receipts)
       (validate-receipt-root-fixture-receipt-shape receipt))
     (dolist (expected-type expected-types)
-      (let ((type (hex-to-quantity expected-type)))
+      (let ((type (validate-receipt-root-fixture-quantity-string
+                   expected-type
+                   "Receipt root fixture vector expectedType")))
         (unless (<= 0 type 4)
           (error "Receipt root fixture vector expectedTypes entries must be known transaction types"))))
     (dolist (prefix prefixes)
-      (hex-to-bytes prefix))
+      (validate-receipt-root-fixture-hex-string
+       prefix
+       "Receipt root fixture vector expectedEncodingPrefix"))
     (dolist (length lengths)
       (unless (and (integerp length) (plusp length))
         (error "Receipt root fixture vector expectedEncodingLengths entries must be positive integers"))))
-  (hash32-from-hex (fixture-required-field vector "expectedRoot"))
-  (hash32-from-hex (fixture-required-field vector "legacyOnlyRoot")))
+  (validate-receipt-root-fixture-hash-string
+   (fixture-required-field vector "expectedRoot")
+   "Receipt root fixture vector expectedRoot")
+  (validate-receipt-root-fixture-hash-string
+   (fixture-required-field vector "legacyOnlyRoot")
+   "Receipt root fixture vector legacyOnlyRoot"))
 
 (defun validate-receipt-root-fixture-vector-coverage (vectors)
   (let ((seen-names (make-hash-table :test 'equal)))
@@ -162,33 +193,81 @@
 (deftest receipt-root-fixture-metadata-validation
   (let* ((fixture (load-handwritten-fixture-file +receipt-root-fixture-path+))
          (vectors (fixture-required-field fixture "vectors")))
-    (validate-receipt-root-fixture-metadata fixture)
-    (validate-receipt-root-fixture-vector-coverage vectors)
-    (signals error
-      (validate-receipt-root-fixture-metadata
-       (append fixture (list (cons "unexpected" t)))))
-    (signals error
-      (validate-receipt-root-fixture-metadata
-       (list (cons "format" +receipt-root-fixture-format+)
-             (cons "source" "seed")
-             (cons "source" "duplicate seed")
-             (cons "executionSpecTests"
-                   (list (cons "release" +phase-a-eest-release+)
-                         (cons "tagTarget" +phase-a-eest-tag-target+)
-                         (cons "archive" +phase-a-eest-archive+)
-                         (cons "status" "seed")))
-             (cons "referenceClients"
-                   (list (cons "geth" "8a0223e")
-                         (cons "nethermind" "1c72a72")
-                         (cons "reth" nil)))
-             (cons "vectors" nil))))
-    (signals error
-      (validate-receipt-root-fixture-vector-coverage
-       (remove "mixed-post-byzantium-typed-receipts"
-               vectors
-               :test #'string=
-               :key (lambda (candidate)
-                      (fixture-required-field candidate "name")))))))
+    (labels ((replace-field (object field value)
+               (cons (cons field value)
+                     (remove field object :key #'car :test #'string=)))
+             (replace-first (items value)
+               (cons value (rest items))))
+      (validate-receipt-root-fixture-metadata fixture)
+      (validate-receipt-root-fixture-vector-coverage vectors)
+      (signals error
+        (validate-receipt-root-fixture-metadata
+         (append fixture (list (cons "unexpected" t)))))
+      (signals error
+        (validate-receipt-root-fixture-metadata
+         (replace-field fixture "source" 42)))
+      (signals error
+        (validate-receipt-root-fixture-metadata
+         (list (cons "format" +receipt-root-fixture-format+)
+               (cons "source" "seed")
+               (cons "source" "duplicate seed")
+               (cons "executionSpecTests"
+                     (list (cons "release" +phase-a-eest-release+)
+                           (cons "tagTarget" +phase-a-eest-tag-target+)
+                           (cons "archive" +phase-a-eest-archive+)
+                           (cons "status" "seed")))
+               (cons "referenceClients"
+                     (list (cons "geth" "8a0223e")
+                           (cons "nethermind" "1c72a72")
+                           (cons "reth" nil)))
+               (cons "vectors" nil))))
+      (let* ((vector (first vectors))
+             (receipt (first (fixture-required-field vector "receipts"))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field vector "name" 42)))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "transactions"
+            (replace-first
+             (fixture-required-field vector "transactions")
+             42))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "receipts"
+            (replace-first
+             (fixture-required-field vector "receipts")
+             (replace-field receipt "status" 42)))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "expectedTypes"
+            (replace-first
+             (fixture-required-field vector "expectedTypes")
+             42))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "expectedEncodingPrefixes"
+            (replace-first
+             (fixture-required-field vector "expectedEncodingPrefixes")
+             42))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field vector "expectedRoot" 42))))
+      (signals error
+        (validate-receipt-root-fixture-vector-coverage
+         (remove "mixed-post-byzantium-typed-receipts"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-required-field candidate "name"))))))))
 
 (deftest receipt-root-fixture-vectors
   (dolist (vector (load-receipt-root-vectors +receipt-root-fixture-path+))
