@@ -214,8 +214,9 @@
         (error "~A keyHex must be a string" label)))
     (when has-ascii
       (let ((key (fixture-object-field object "keyAscii")))
-        (when (blank-string-p key)
-          (error "~A keyAscii must be non-empty" label))))))
+        (validate-trie-fixture-non-empty-string
+         key
+         (format nil "~A keyAscii" label))))))
 
 (defun validate-trie-fixture-operation (operation case-name)
   (unless (listp operation)
@@ -228,12 +229,14 @@
                                     (format nil "Trie fixture case ~A operation"
                                             case-name))
   (let ((op (fixture-object-field operation "op")))
+    (unless (stringp op)
+      (error "Trie fixture case ~A operation op must be a string" case-name))
     (cond
-      ((and (stringp op) (string= op "put"))
-       (when (blank-string-p (fixture-object-field operation "valueAscii"))
-         (error "Trie fixture case ~A put operation needs valueAscii"
-                case-name)))
-      ((and (stringp op) (string= op "delete"))
+      ((string= op "put")
+       (validate-trie-fixture-non-empty-string
+        (fixture-object-field operation "valueAscii")
+        (format nil "Trie fixture case ~A put operation valueAscii" case-name)))
+      ((string= op "delete")
        (when (fixture-field-present-p operation "valueAscii")
          (error "Trie fixture case ~A delete operation must not include valueAscii"
                 case-name)))
@@ -255,9 +258,9 @@
                                             case-name field))
   (cond
     ((string= field "expectedGets")
-     (when (blank-string-p (fixture-object-field expected "valueAscii"))
-       (error "Trie fixture case ~A expectedGets entry needs valueAscii"
-              case-name)))
+     (validate-trie-fixture-non-empty-string
+      (fixture-object-field expected "valueAscii")
+      (format nil "Trie fixture case ~A expectedGets entry valueAscii" case-name)))
     ((string= field "expectedMissing")
      (when (fixture-field-present-p expected "valueAscii")
        (error "Trie fixture case ~A expectedMissing entry must not include valueAscii"
@@ -292,6 +295,9 @@
 
 (defun validate-trie-fixture-expected-shape (case)
   (let ((shape (fixture-required-field case "expectedShape")))
+    (unless (stringp shape)
+      (error "Trie fixture case ~A expectedShape must be a string"
+             (fixture-object-field case "name")))
     (unless (member shape +trie-fixture-root-shapes+ :test #'string=)
       (error "Trie fixture case ~A has unknown expectedShape ~A"
              (fixture-object-field case "name")
@@ -368,6 +374,9 @@
              (fixture-object-field case "name")))
     (when (fixture-field-present-p case "expectedChildReference")
       (let ((kind (fixture-object-field case "expectedChildReference")))
+        (unless (stringp kind)
+          (error "Trie fixture case ~A expectedChildReference must be a string"
+                 (fixture-object-field case "name")))
         (unless (trie-fixture-valid-child-reference-kind-p kind)
           (error "Trie fixture case ~A has unknown expectedChildReference ~A"
                  (fixture-object-field case "name")
@@ -392,11 +401,11 @@
       ((fixture-field-present-p case "expectedRootPathNibbles")
        (error "Trie fixture case ~A expectedRootPathNibbles requires a leaf or extension root"
               (fixture-object-field case "name"))))
-    (when (and (fixture-field-present-p case "expectedRootValueAscii")
-               (blank-string-p
-                (fixture-object-field case "expectedRootValueAscii")))
-      (error "Trie fixture case ~A expectedRootValueAscii must be non-empty"
-             (fixture-object-field case "name")))))
+    (when (fixture-field-present-p case "expectedRootValueAscii")
+      (validate-trie-fixture-non-empty-string
+       (fixture-object-field case "expectedRootValueAscii")
+       (format nil "Trie fixture case ~A expectedRootValueAscii"
+               (fixture-object-field case "name"))))))
 
 (defun validate-trie-fixture-case-shape (case)
   (let ((name (fixture-object-field case "name"))
@@ -1587,6 +1596,25 @@
                              (cons "keyAscii" "dog")))))))
   (signals error
     (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-key")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" 42)))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-operation-value")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" 42)))))))
+  (signals error
+    (validate-trie-fixture-case-shape
      (list (cons "name" "missing-entry-with-value")
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
@@ -1596,7 +1624,20 @@
                              (cons "keyAscii" "dog"))))
            (cons "expectedMissing"
                  (list (list (cons "keyAscii" "dog")
-                             (cons "valueAscii" "puppy"))))))))
+                             (cons "valueAscii" "puppy")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-expected-value")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedGets"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "valueAscii" 42))))))))
 
 (deftest trie-fixture-metadata-validation-rejects-wrapper-drift
   (signals error
@@ -1685,6 +1726,26 @@
                              (cons "keyAscii" "dog")))))))
   (signals error
     (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-shape")
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" 42)
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-root-value")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "expectedRootValueAscii" 42)
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
      (list (cons "name" "bad-secure")
            (cons "secure" "yes")
            (cons "expectedRoot"
@@ -1704,6 +1765,17 @@
                  (list (list (cons "op" "put")
                              (cons "keyAscii" "dog")
                              (cons "valueAscii" "puppy")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-child-reference")
+           (cons "expectedRoot"
+                 "0x1da465b71da985f1e07e3ed8dcd9e678546164ef2b17fb5c46c678fd91429de3")
+           (cons "expectedShape" "extension")
+           (cons "expectedChildReference" 42)
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "do")
+                             (cons "valueAscii" "v")))))))
   (signals error
     (validate-trie-fixture-case-shape
      (list (cons "name" "bad-child-index")

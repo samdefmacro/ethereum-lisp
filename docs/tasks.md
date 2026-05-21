@@ -1476,6 +1476,10 @@ splits can land after the Phase A smoke path closes.
     lower-level `string=` type errors.
     Added trie fixture scalar type guards for source notes, case names, and
     expected roots so non-string values fail before blank or hash decoding.
+    Added trie fixture scalar type guards for operation keys/values, expected
+    lookup values, root shapes, child-reference kinds, and root value
+    assertions so imported trie vectors reject non-string scalars at the
+    harness boundary.
     Added the same non-string field-name rejection to state-root fixture
     object validators, covering wrappers, cases, operations, storage-root
     projections, and account projections before replay.
