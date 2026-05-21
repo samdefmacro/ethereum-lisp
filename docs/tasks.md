@@ -1572,6 +1572,10 @@ splits can land after the Phase A smoke path closes.
     proof keys, storage proof values, and proof RLP node byte strings must now
     be canonical JSON-RPC output values, while request-side storage keys still
     keep the existing geth-compatible prefixless input normalization.
+  - Progress: tightened state-proof fixture scalar type validation. Request
+    addresses plus expected proof address/hash/quantity fields now reject
+    non-string values before address, hash, or quantity decoding, keeping
+    malformed pinned proof vectors inside fixture-level errors.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
