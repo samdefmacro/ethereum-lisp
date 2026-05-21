@@ -604,14 +604,16 @@
    +state-proof-fixture-top-level-fields+
    "State proof fixture")
   (validate-fixture-format fixture +state-proof-fixture-format+)
-  (when (blank-string-p (fixture-required-field fixture "source"))
-    (error "State proof fixture source must be present"))
+  (validate-state-root-fixture-non-empty-string
+   (fixture-required-field fixture "source")
+   "State proof fixture source")
   (validate-fixture-pinned-eest-source fixture))
 
 (defun validate-state-proof-fixture-case-name (case seen-names)
   (let ((name (fixture-object-field case "name")))
-    (when (blank-string-p name)
-      (error "State proof fixture case name must be present"))
+    (validate-state-root-fixture-non-empty-string
+     name
+     "State proof fixture case name")
     (when (gethash name seen-names)
       (error "Duplicate state proof fixture case name: ~A" name))
     (setf (gethash name seen-names) t)))
@@ -817,8 +819,9 @@
    case
    +state-proof-fixture-case-fields+
    "State proof fixture case")
-  (when (blank-string-p (fixture-required-field case "name"))
-    (error "State proof fixture case name must be present"))
+  (validate-state-root-fixture-non-empty-string
+   (fixture-required-field case "name")
+   "State proof fixture case name")
   (validate-state-proof-fixture-case-tags case (make-hash-table :test 'equal))
   (let ((operations (fixture-required-field case "operations")))
     (unless (listp operations)
@@ -828,7 +831,10 @@
   (let ((request (fixture-required-field case "request"))
         (proof (fixture-required-field case "expectedProof")))
     (validate-state-proof-fixture-request-shape request)
-    (hash32-from-hex (fixture-required-field case "expectedRoot"))
+    (validate-state-root-fixture-hash-field
+     case
+     "expectedRoot"
+     "State proof fixture case")
     (validate-state-proof-fixture-proof-shape proof)
     (validate-state-proof-fixture-request-proof-alignment request proof)))
 
@@ -1280,6 +1286,12 @@
           (validate-state-proof-fixture-case-shape
            (replace-field valid-case "expectedProof" bad-proof))))
       (signals error
+        (validate-state-proof-fixture-case-shape
+         (replace-field valid-case "name" 42)))
+      (signals error
+        (validate-state-proof-fixture-case-shape
+         (replace-field valid-case "expectedRoot" 42)))
+      (signals error
         (let* ((proof (fixture-required-field valid-case "expectedProof"))
                (bad-proof (replace-field proof "storageProof" nil)))
           (validate-state-proof-fixture-case-shape
@@ -1438,6 +1450,15 @@
      (list (cons "format" +state-proof-fixture-format+)
            (cons "source" "seed")
            (cons "source" "duplicate seed")
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
+                       (cons "status" "seed"))))))
+  (signals error
+    (validate-state-proof-fixture-metadata
+     (list (cons "format" +state-proof-fixture-format+)
+           (cons "source" 42)
            (cons "executionSpecTests"
                  (list (cons "release" +phase-a-eest-release+)
                        (cons "tagTarget" +phase-a-eest-tag-target+)

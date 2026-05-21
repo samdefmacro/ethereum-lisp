@@ -1590,6 +1590,9 @@ splits can land after the Phase A smoke path closes.
     addresses plus expected proof address/hash/quantity fields now reject
     non-string values before address, hash, or quantity decoding, keeping
     malformed pinned proof vectors inside fixture-level errors.
+  - Progress: extended the same type guard to the state-proof wrapper boundary:
+    source notes, case names, and expected state roots now reject non-string
+    values before blank or hash decoding.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
