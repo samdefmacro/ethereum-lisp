@@ -152,20 +152,35 @@
         (unless (member name allowed-fields :test #'string=)
           (error "~A has unknown field ~A" label name))))))
 
+(defun validate-trie-fixture-non-empty-string (value label)
+  (unless (stringp value)
+    (error "~A must be a string" label))
+  (when (blank-string-p value)
+    (error "~A must be present" label))
+  value)
+
+(defun validate-trie-fixture-hash-field (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (stringp value)
+      (error "~A ~A must be a hash hex string" label field))
+    (hash32-from-hex value)))
+
 (defun validate-trie-fixture-metadata (fixture)
   (validate-trie-fixture-object-fields
    fixture
    +trie-fixture-top-level-fields+
    "Trie fixture")
   (validate-fixture-format fixture +trie-vector-fixture-format+)
-  (when (blank-string-p (fixture-required-field fixture "source"))
-    (error "Trie fixture source must be present"))
+  (validate-trie-fixture-non-empty-string
+   (fixture-required-field fixture "source")
+   "Trie fixture source")
   (validate-fixture-pinned-eest-source fixture))
 
 (defun validate-trie-fixture-case-name (case seen-names)
   (let ((name (fixture-object-field case "name")))
-    (when (blank-string-p name)
-      (error "Trie fixture case is missing a non-empty name"))
+    (validate-trie-fixture-non-empty-string
+     name
+     "Trie fixture case name")
     (let ((previous (gethash name seen-names)))
       (when previous
         (error "Duplicate trie fixture case name: ~A" name)))
@@ -270,7 +285,10 @@
   (member kind +trie-fixture-child-reference-kinds+ :test #'string=))
 
 (defun validate-trie-fixture-expected-root (case)
-  (hash32-from-hex (fixture-required-field case "expectedRoot")))
+  (validate-trie-fixture-hash-field
+   case
+   "expectedRoot"
+   "Trie fixture case"))
 
 (defun validate-trie-fixture-expected-shape (case)
   (let ((shape (fixture-required-field case "expectedShape")))
@@ -1619,6 +1637,15 @@
                  (list (cons "release" +phase-a-eest-release+)
                        (cons "tagTarget" +phase-a-eest-tag-target+)
                        (cons "archive" +phase-a-eest-archive+)
+                      (cons "status" "seed"))))))
+  (signals error
+    (validate-trie-fixture-metadata
+     (list (cons "format" +trie-vector-fixture-format+)
+           (cons "source" 42)
+           (cons "executionSpecTests"
+                 (list (cons "release" +phase-a-eest-release+)
+                       (cons "tagTarget" +phase-a-eest-tag-target+)
+                       (cons "archive" +phase-a-eest-archive+)
                        (cons "status" "seed")))))))
 
 (deftest trie-fixture-shape-validation-rejects-malformed-expected-fields
@@ -1626,6 +1653,23 @@
     (validate-trie-fixture-case-shape
      (list (cons "name" "bad-root")
            (cons "expectedRoot" "0x1234")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" 42)
+           (cons "expectedRoot"
+                 "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+           (cons "expectedShape" "empty")
+           (cons "operations"
+                 (list (list (cons "op" "delete")
+                             (cons "keyAscii" "dog")))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-string-root")
+           (cons "expectedRoot" 42)
            (cons "expectedShape" "empty")
            (cons "operations"
                  (list (list (cons "op" "delete")
