@@ -304,8 +304,8 @@ ones.
     leading-zero gas strings.
   - Progress: added canonical quantity validation for valid per-fork
     `intrinsicGas` expectations. Fixture results now reject missing, prefixless,
-    or leading-zero gas quantities before comparing against locally derived
-    intrinsic gas.
+    uppercase-prefix, or leading-zero gas quantities before comparing against
+    locally derived intrinsic gas.
   - Progress: added decoded-envelope consistency validation. Transaction
     fixture vectors now reject cases whose declared type or `chainId` disagrees
     with the decoded raw transaction before hash, sender, and per-fork checks

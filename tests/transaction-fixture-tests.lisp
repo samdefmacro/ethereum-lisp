@@ -240,7 +240,7 @@
 (defun transaction-fixture-canonical-quantity (value label)
   (unless (stringp value)
     (error "~A must be a hex quantity string" label))
-  (let ((canonical (quantity-to-hex (hex-to-quantity value))))
+  (let ((canonical (string-downcase (quantity-to-hex (hex-to-quantity value)))))
     (unless (string= value canonical)
       (error "~A must be a canonical quantity" label))
     canonical))
@@ -1039,7 +1039,8 @@
              fork
              field))
     (unless (string= value
-                     (quantity-to-hex (hex-to-quantity value)))
+                     (string-downcase
+                      (quantity-to-hex (hex-to-quantity value))))
       (error "Transaction fixture ~A result for fork ~A has non-canonical ~A"
              (fixture-object-field vector "name")
              fork
@@ -1687,6 +1688,9 @@
     (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" (list (cons "intrinsicGas" "5208"))))
+    (signals error
+      (validate-transaction-fixture-result-entry
+       vector :dynamic-fee "London" (list (cons "intrinsicGas" "0X5208"))))
     (signals error
       (validate-transaction-fixture-result-entry
        vector :dynamic-fee "London" (list (cons "intrinsicGas" "0x05208"))))
