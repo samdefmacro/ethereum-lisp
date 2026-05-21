@@ -206,7 +206,11 @@
             (error "~A has duplicate storage slot ~A" label slot))
           (setf (gethash slot-id seen-slots) t))
         (handler-case
-            (hex-to-quantity value)
+            (let ((quantity (hex-to-quantity value)))
+              (unless (string= value
+                               (string-downcase (quantity-to-hex quantity)))
+                (error "~A storage value must be a canonical hex quantity"
+                       label)))
           (error (condition)
             (error "~A storage value must be a hex quantity: ~A"
                    label condition)))))))
@@ -1082,6 +1086,40 @@
                    (cons
                     "00000000000000000000000000000000000000000000000000000000000000AA"
                     "0x2")))))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "parent"
+                  (replace-field parent "accounts" (list bad-account)))))))
+      (signals error
+        (let* ((parent (fixture-required-field case "parent"))
+               (accounts (fixture-required-field parent "accounts"))
+               (account (first accounts))
+               (bad-account
+                 (replace-field
+                  account
+                  "storage"
+                  (list
+                   (cons
+                    "0x00000000000000000000000000000000000000000000000000000000000000aa"
+                    "0X1")))))
+          (validate-engine-newpayload-v2-fixture-cases
+           (list (replace-field
+                  case
+                  "parent"
+                  (replace-field parent "accounts" (list bad-account)))))))
+      (signals error
+        (let* ((parent (fixture-required-field case "parent"))
+               (accounts (fixture-required-field parent "accounts"))
+               (account (first accounts))
+               (bad-account
+                 (replace-field
+                  account
+                  "storage"
+                  (list
+                   (cons
+                    "0x00000000000000000000000000000000000000000000000000000000000000aa"
+                    "0x01")))))
           (validate-engine-newpayload-v2-fixture-cases
            (list (replace-field
                   case

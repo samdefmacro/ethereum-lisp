@@ -938,7 +938,9 @@ splits can land after the Phase A smoke path closes.
     and withdrawal lists reject duplicate withdrawal indexes before fixture
     replay can collapse conflicting entries into one local state transition.
     Parent storage maps now compare parsed slot hashes, so prefixed, prefixless,
-    and mixed-case aliases cannot shadow each other.
+    and mixed-case aliases cannot shadow each other. Parent storage values now
+    also require canonical lowercase RPC quantity form, rejecting uppercase
+    prefixes and leading-zero aliases before fixture replay.
   - Progress: added parent/payload coherence checks to the Engine
     `newPayloadV2` fixture gate. Fixture cases now reject non-contiguous child
     block numbers, non-increasing timestamps, invalid parent-relative gas
