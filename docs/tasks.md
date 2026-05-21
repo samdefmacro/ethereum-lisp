@@ -1874,7 +1874,9 @@ splits can land after the Phase A smoke path closes.
     Account maps, storage maps, and case lists now reject malformed collection
     entries before alist key/value access. Account and storage maps now reject
     duplicate normalized addresses and storage slots, including mixed-case
-    aliases, before fixture replay.
+    aliases, before fixture replay. Access-list transactions now reject
+    duplicate normalized addresses and per-entry storage keys before building
+    type-1 transactions from fixtures.
 
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4

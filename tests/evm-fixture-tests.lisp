@@ -202,21 +202,36 @@
 (defun validate-evm-state-fixture-access-list-shape (access-list)
   (unless (listp access-list)
     (error "EVM state fixture accessList must be a JSON array"))
-  (dolist (entry access-list)
-    (validate-fixture-object-fields
-     entry
-     +evm-state-fixture-access-list-entry-fields+
-     "EVM state fixture access list entry")
-    (evm-state-fixture-address
-     (fixture-required-field entry "address")
-     "EVM state fixture access list address")
-    (let ((keys (fixture-required-field entry "storageKeys")))
-      (unless (listp keys)
-        (error "EVM state fixture access list storageKeys must be a JSON array"))
-      (dolist (key keys)
-        (evm-state-fixture-hash
-         key
-         "EVM state fixture access list storage key")))))
+  (let ((seen-addresses (make-hash-table :test 'equal)))
+    (dolist (entry access-list)
+      (validate-fixture-object-fields
+       entry
+       +evm-state-fixture-access-list-entry-fields+
+       "EVM state fixture access list entry")
+      (let* ((address (fixture-required-field entry "address"))
+             (address-id
+               (address-to-hex
+                (evm-state-fixture-address
+                 address
+                 "EVM state fixture access list address"))))
+        (when (gethash address-id seen-addresses)
+          (error "EVM state fixture accessList has duplicate address ~A"
+                 address))
+        (setf (gethash address-id seen-addresses) t))
+      (let ((keys (fixture-required-field entry "storageKeys"))
+            (seen-keys (make-hash-table :test 'equal)))
+        (unless (listp keys)
+          (error "EVM state fixture access list storageKeys must be a JSON array"))
+        (dolist (key keys)
+          (let ((key-id
+                  (hash32-to-hex
+                   (evm-state-fixture-hash
+                    key
+                    "EVM state fixture access list storage key"))))
+            (when (gethash key-id seen-keys)
+              (error "EVM state fixture access list entry has duplicate storage key ~A"
+                     key))
+            (setf (gethash key-id seen-keys) t)))))))
 
 (defun validate-evm-state-fixture-log-shape (log)
   (validate-fixture-object-fields
@@ -537,6 +552,22 @@
              (cons "0x00000000000000000000000000000000000000AA"
                    account))
        "inline accounts")))
+  (signals error
+    (validate-evm-state-fixture-access-list-shape
+     (list
+      (list (cons "address" "0x00000000000000000000000000000000000000aa")
+            (cons "storageKeys" nil))
+      (list (cons "address" "0x00000000000000000000000000000000000000AA")
+            (cons "storageKeys" nil)))))
+  (signals error
+    (validate-evm-state-fixture-access-list-shape
+     (list
+      (list
+       (cons "address" "0x00000000000000000000000000000000000000aa")
+       (cons "storageKeys"
+             (list
+              "0x00000000000000000000000000000000000000000000000000000000000000bb"
+              "0x00000000000000000000000000000000000000000000000000000000000000BB"))))))
   (signals error
     (validate-evm-state-fixture-cases
      (list "not-a-case-object")))
