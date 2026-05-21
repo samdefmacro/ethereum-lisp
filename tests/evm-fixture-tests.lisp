@@ -74,7 +74,10 @@
 (defun evm-state-fixture-quantity-string (value label)
   (unless (stringp value)
     (error "~A must be a hex quantity string" label))
-  (hex-to-quantity value))
+  (let ((quantity (hex-to-quantity value)))
+    (unless (string= value (string-downcase (quantity-to-hex quantity)))
+      (error "~A must be a canonical hex quantity" label))
+    quantity))
 
 (defun evm-state-fixture-hex-bytes (value label)
   (unless (stringp value)
@@ -532,6 +535,12 @@
     (evm-state-fixture-quantity (list (cons "nonce" 1)) "nonce"))
   (signals error
     (evm-state-fixture-quantity (list (cons "gasLimit" nil)) "gasLimit"))
+  (signals error
+    (evm-state-fixture-quantity (list (cons "nonce" "0")) "nonce"))
+  (signals error
+    (evm-state-fixture-quantity (list (cons "nonce" "0X0")) "nonce"))
+  (signals error
+    (evm-state-fixture-quantity (list (cons "nonce" "0x00")) "nonce"))
   (signals error
     (evm-state-fixture-address 1 "inline address"))
   (signals error
