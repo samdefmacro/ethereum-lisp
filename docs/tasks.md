@@ -1885,7 +1885,8 @@ splits can land after the Phase A smoke path closes.
     duplicate normalized addresses and storage slots, including mixed-case
     aliases, before fixture replay. Access-list transactions now reject
     duplicate normalized addresses and per-entry storage keys before building
-    type-1 transactions from fixtures.
+    type-1 transactions from fixtures. Expected receipt `logsBloom` values now
+    reject non-256-byte bloom payloads during shape validation.
 
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4

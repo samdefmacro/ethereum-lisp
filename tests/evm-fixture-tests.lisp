@@ -81,6 +81,11 @@
     (error "~A must be a hex string" label))
   (hex-to-bytes value))
 
+(defun evm-state-fixture-fixed-hex-bytes (value size label)
+  (let ((bytes (evm-state-fixture-hex-bytes value label)))
+    (unless (= (length bytes) size)
+      (error "~A must be exactly ~D bytes" label size))))
+
 (defun evm-state-fixture-address (value label)
   (unless (stringp value)
     (error "~A must be an address hex string" label))
@@ -259,8 +264,9 @@
    "EVM state fixture expected receipt")
   (evm-state-fixture-quantity receipt "status")
   (evm-state-fixture-quantity receipt "cumulativeGasUsed")
-  (evm-state-fixture-hex-bytes
+  (evm-state-fixture-fixed-hex-bytes
    (fixture-required-field receipt "logsBloom")
+   256
    "EVM state fixture expected receipt logsBloom")
   (let ((logs (fixture-required-field receipt "logs")))
     (unless (listp logs)
@@ -568,6 +574,12 @@
              (list
               "0x00000000000000000000000000000000000000000000000000000000000000bb"
               "0x00000000000000000000000000000000000000000000000000000000000000BB"))))))
+  (signals error
+    (validate-evm-state-fixture-receipt-shape
+     (list (cons "status" "0x1")
+           (cons "cumulativeGasUsed" "0x0")
+           (cons "logsBloom" "0x00")
+           (cons "logs" nil))))
   (signals error
     (validate-evm-state-fixture-cases
      (list "not-a-case-object")))
