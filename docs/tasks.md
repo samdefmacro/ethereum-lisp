@@ -1234,6 +1234,9 @@ splits can land after the Phase A smoke path closes.
     Added duplicate address rejection for state-root fixture account and
     storage-root projection lists, so imported fixture expectations cannot
     assert the same account twice with conflicting roots or balances.
+    Tightened the same state-root projection duplicate checks to compare
+    normalized addresses, so mixed-case aliases cannot bypass account or
+    storage-root expectation validation.
     Added duplicate child-reference index rejection to trie fixture branch
     projection validation, including numeric aliases such as `1` and `01`.
     Added duplicate lookup-key rejection across trie fixture `expectedGets`
