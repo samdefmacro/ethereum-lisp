@@ -4115,6 +4115,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  +engine-rpc-http-accepted-content-types+
                  :test #'string=))))
 
+(defun engine-rpc-http-parse-content-length (content-length)
+  (let ((length
+          (handler-case
+              (parse-integer
+               (engine-rpc-http-trim content-length)
+               :junk-allowed nil)
+            (error ()
+              nil))))
+    (unless (and length (<= 0 length))
+      (block-validation-fail "HTTP content length is invalid"))
+    length))
+
 (defun engine-rpc-http-header-boundary (request)
   (let ((crlf-boundary
           (search (format nil "~C~C~C~C"
@@ -4130,8 +4142,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-http-body (body headers)
   (let ((content-length (engine-rpc-http-header headers "content-length")))
     (if content-length
-        (let ((length (parse-integer content-length :junk-allowed t)))
-          (unless (and length (<= 0 length (length body)))
+        (let ((length (engine-rpc-http-parse-content-length content-length)))
+          (unless (<= length (length body))
             (block-validation-fail "HTTP content length is invalid"))
           (subseq body 0 length))
         body)))
@@ -4139,10 +4151,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-http-content-length (headers)
   (let ((content-length (engine-rpc-http-header headers "content-length")))
     (if content-length
-        (let ((length (parse-integer content-length :junk-allowed t)))
-          (unless (and length (<= 0 length))
-            (block-validation-fail "HTTP content length is invalid"))
-          length)
+        (engine-rpc-http-parse-content-length content-length)
         0)))
 
 (defun engine-rpc-read-http-request-string (input-stream)
