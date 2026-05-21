@@ -53,7 +53,12 @@
 (defun validate-receipt-root-fixture-hex-string (value label)
   (unless (stringp value)
     (error "~A must be a hex string" label))
-  (hex-to-bytes value))
+  (let* ((bytes (hex-to-bytes value))
+         (canonical (bytes-to-hex bytes)))
+    (when (zerop (length bytes))
+      (error "~A must encode at least one byte" label))
+    (unless (string= value canonical)
+      (error "~A must be canonical lowercase 0x-prefixed hex" label))))
 
 (defun validate-receipt-root-fixture-quantity-string (value label)
   (unless (stringp value)
@@ -242,6 +247,14 @@
           (validate-receipt-root-fixture-vector-shape
            (replace-field
             vector
+            "transactions"
+            (replace-first
+             (fixture-required-field vector "transactions")
+             "f8"))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
             "receipts"
             (replace-first
              (fixture-required-field vector "receipts")
@@ -270,6 +283,14 @@
             (replace-first
              (fixture-required-field vector "expectedEncodingPrefixes")
              42))))
+        (signals error
+          (validate-receipt-root-fixture-vector-shape
+           (replace-field
+            vector
+            "expectedEncodingPrefixes"
+            (replace-first
+             (fixture-required-field vector "expectedEncodingPrefixes")
+             "0x"))))
         (signals error
           (validate-receipt-root-fixture-vector-shape
            (replace-field vector "expectedRoot" 42)))

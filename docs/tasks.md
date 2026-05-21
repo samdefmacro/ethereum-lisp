@@ -1844,7 +1844,8 @@ splits can land after the Phase A smoke path closes.
     before hex, quantity, or hash decoding. Receipt statuses are now locked to
     post-Byzantium success/failure values during fixture shape validation.
     Expected receipt roots now must be canonical lowercase `0x`-prefixed
-    hashes.
+    hashes, and receipt transaction bytes / encoding prefixes must be non-empty
+    canonical lowercase `0x` hex strings.
   - Result: added an Engine-imported internal CREATE2 receipt boundary. The
     test imports a signed transaction that calls an existing contract whose
     code performs CREATE2, verifies the internally-created runtime code is
