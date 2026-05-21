@@ -10526,6 +10526,17 @@ Content-Length: -1
 {}"
               (make-engine-payload-memory-store)
               (make-chain-config))))
+      (is (= 400 (http-status response))))
+    (let* ((response
+             (engine-rpc-handle-http-request-string
+              "POST / HTTP/1.1
+Content-Type: application/json
+Content-Length: 2
+Content-Length: 2
+
+{}"
+              (make-engine-payload-memory-store)
+              (make-chain-config))))
       (is (= 400 (http-status response))))))
 
 (deftest engine-rpc-http-validates-jwt-bearer-auth
@@ -10667,6 +10678,21 @@ Content-Length: 4
               "POST / HTTP/1.1
 Content-Type: application/json
 Content-Length: 2x
+
+{}"))
+           (output (make-string-output-stream)))
+      (engine-rpc-handle-http-stream
+       input
+       output
+       (make-engine-payload-memory-store)
+       (make-chain-config))
+      (is (= 400 (http-status (get-output-stream-string output)))))
+    (let* ((input
+             (make-string-input-stream
+              "POST / HTTP/1.1
+Content-Type: application/json
+Content-Length: 2
+Content-Length: 2
 
 {}"))
            (output (make-string-output-stream)))

@@ -896,8 +896,8 @@ splits can land after the Phase A smoke path closes.
     hatch. The service configuration test now asserts the default importer is
     exactly `execute-and-commit-engine-payload`, not merely any function.
   - Progress: tightened HTTP `Content-Length` parsing so direct request-string
-    and stream handlers reject malformed or negative values instead of
-    accepting partially parsed integers.
+    and stream handlers reject malformed, negative, or duplicated values
+    instead of accepting partially parsed or ambiguous integers.
   - Progress: lifted the one-transaction Shanghai `engine_newPayloadV2`
     smoke into a pinned `engine-newpayload-v2` fixture. The fixture-driven
     test executes a real EIP-155 legacy transfer plus withdrawal from a

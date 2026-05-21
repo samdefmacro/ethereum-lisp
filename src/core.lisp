@@ -4099,6 +4099,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-http-header (headers name)
   (cdr (assoc (string-downcase name) headers :test #'string=)))
 
+(defun engine-rpc-http-header-values (headers name)
+  (loop with normalized = (string-downcase name)
+        for (header-name . value) in headers
+        when (string= normalized header-name)
+          collect value))
+
 (defun engine-rpc-http-media-type (content-type)
   (when content-type
     (string-downcase
@@ -4140,19 +4146,29 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (t (block-validation-fail "HTTP request is missing header boundary")))))
 
 (defun engine-rpc-http-body (body headers)
-  (let ((content-length (engine-rpc-http-header headers "content-length")))
-    (if content-length
-        (let ((length (engine-rpc-http-parse-content-length content-length)))
+  (let ((content-lengths (engine-rpc-http-header-values headers "content-length")))
+    (cond
+      ((null content-lengths)
+       body)
+      ((rest content-lengths)
+       (block-validation-fail "HTTP content length is duplicated"))
+      (t
+        (let ((length
+                (engine-rpc-http-parse-content-length
+                 (first content-lengths))))
           (unless (<= length (length body))
             (block-validation-fail "HTTP content length is invalid"))
-          (subseq body 0 length))
-        body)))
+          (subseq body 0 length))))))
 
 (defun engine-rpc-http-content-length (headers)
-  (let ((content-length (engine-rpc-http-header headers "content-length")))
-    (if content-length
-        (engine-rpc-http-parse-content-length content-length)
-        0)))
+  (let ((content-lengths (engine-rpc-http-header-values headers "content-length")))
+    (cond
+      ((null content-lengths)
+       0)
+      ((rest content-lengths)
+       (block-validation-fail "HTTP content length is duplicated"))
+      (t
+       (engine-rpc-http-parse-content-length (first content-lengths))))))
 
 (defun engine-rpc-read-http-request-string (input-stream)
   (let ((lines '()))
