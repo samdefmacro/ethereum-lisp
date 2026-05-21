@@ -43,7 +43,7 @@
 
 (defun quantity-to-hex (integer)
   (check-type integer (integer 0 *))
-  (format nil "0x~x" integer))
+  (string-downcase (format nil "0x~x" integer)))
 
 (defun hex-to-quantity (string)
   (check-type string string)

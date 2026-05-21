@@ -8,4 +8,5 @@
 (deftest hex-quantities
   (is (string= "0x0" (quantity-to-hex 0)))
   (is (string= "0x400" (quantity-to-hex 1024)))
+  (is (string= "0x2a" (quantity-to-hex 42)))
   (is (= 1024 (hex-to-quantity "0x400"))))
