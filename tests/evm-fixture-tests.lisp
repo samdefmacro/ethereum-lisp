@@ -103,6 +103,8 @@
     (error "~A storage must be a JSON object" label))
   (let ((seen-slots (make-hash-table :test 'equal)))
     (dolist (entry storage)
+      (unless (consp entry)
+        (error "~A storage entries must be JSON object fields" label))
       (let ((slot (car entry)))
         (when (gethash slot seen-slots)
           (error "~A storage has duplicate slot ~A" label slot))
@@ -132,6 +134,8 @@
     (error "~A must be a JSON object" label))
   (let ((seen-addresses (make-hash-table :test 'equal)))
     (dolist (entry accounts)
+      (unless (consp entry)
+        (error "~A entries must be JSON object fields" label))
       (let ((address (car entry)))
         (when (gethash address seen-addresses)
           (error "~A has duplicate address ~A" label address))
@@ -295,6 +299,8 @@
   (let ((seen-names (make-hash-table :test 'equal))
         (seen-tags (make-hash-table :test 'equal)))
     (dolist (case cases)
+      (unless (listp case)
+        (error "EVM state fixture case must be a JSON object"))
       (let ((name (fixture-object-field case "name")))
         (evm-state-fixture-non-empty-string
          name
@@ -495,6 +501,17 @@
     (evm-state-fixture-non-empty-string 1 "inline string"))
   (signals error
     (evm-state-fixture-non-empty-string "" "inline string"))
+  (signals error
+    (validate-evm-state-fixture-storage-shape
+     (list "not-a-storage-field")
+     "inline account"))
+  (signals error
+    (validate-evm-state-fixture-accounts-shape
+     (list "not-an-account-field")
+     "inline accounts"))
+  (signals error
+    (validate-evm-state-fixture-cases
+     (list "not-a-case-object")))
   (let ((+evm-state-fixture-required-case-names+ '("present" "missing")))
     (signals error
       (validate-evm-state-fixture-required-case-names
