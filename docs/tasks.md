@@ -579,6 +579,10 @@ ones.
     exceptions for inactive forks. Coverage now locks all three sparse-result
     paths used by pinned transaction-test imports: legacy active forks, typed
     active forks, and typed pre-fork exceptions.
+  - Progress: tightened EEST transaction-test scalar result validation so
+    non-string `txbytes`, success `hash` / `sender` / `intrinsicGas`, and
+    exception tokens fail inside the adapter with fixture-level errors before
+    lower-level hex or sequence operations can surface.
 
 ## P0: Module Boundaries
 

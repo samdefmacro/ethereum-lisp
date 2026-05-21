@@ -229,15 +229,17 @@
        (char= #\x (char-downcase (char value 1)))))
 
 (defun transaction-fixture-normalized-hex (value label)
-  (when (blank-string-p value)
-    (error "~A must be present" label))
   (unless (stringp value)
     (error "~A must be a hex string" label))
+  (when (blank-string-p value)
+    (error "~A must be present" label))
   (if (transaction-fixture-hex-prefixed-p value)
       value
       (concatenate 'string "0x" value)))
 
 (defun transaction-fixture-canonical-quantity (value label)
+  (unless (stringp value)
+    (error "~A must be a hex quantity string" label))
   (let ((canonical (quantity-to-hex (hex-to-quantity value))))
     (unless (string= value canonical)
       (error "~A must be a canonical quantity" label))
@@ -274,6 +276,16 @@
         (exception-present-p (fixture-field-present-p result "exception"))
         (exception (fixture-object-field result "exception"))
         (intrinsic-gas (fixture-object-field result "intrinsicGas")))
+    (when (and exception-present-p
+               (not (or (null exception) (stringp exception))))
+      (error "EEST transaction case ~A result for fork ~A exception must be a string"
+             case-name
+             fork))
+    (when (and intrinsic-gas-present-p
+               (not (stringp intrinsic-gas)))
+      (error "EEST transaction case ~A result for fork ~A intrinsicGas must be a string"
+             case-name
+             fork))
     (when (and exception-present-p (blank-string-p exception))
       (error "EEST transaction case ~A result for fork ~A has a blank exception"
              case-name
@@ -2383,6 +2395,16 @@
            (cons 42 t))))
   (signals error
     (normalize-eest-transaction-test-case
+     "non-string-txbytes"
+     (list (cons "txbytes" 42)
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "exception"
+                               "TransactionException.TYPE_2_TX_PRE_FORK"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
      "unknown-result-fork"
      (list (cons "txbytes" "0x01")
            (cons "result"
@@ -2428,6 +2450,15 @@
                                "TransactionException.UNKNOWN"))))))))
   (signals error
     (normalize-eest-transaction-test-case
+     "non-string-exception"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "exception" 42))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
      "duplicate-result-fork"
      (list (cons "txbytes" "0x01")
            (cons "result"
@@ -2451,6 +2482,43 @@
                          (cons "hash"
                                "0x0000000000000000000000000000000000000000000000000000000000000001")
                          (cons "intrinsicGas" "0x5208")))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "success-non-string-hash"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "hash" 42)
+                         (cons "sender"
+                               "0x0000000000000000000000000000000000000001")
+                         (cons "intrinsicGas" "0x5208"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "success-non-string-sender"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "hash"
+                               "0x0000000000000000000000000000000000000000000000000000000000000001")
+                         (cons "sender" 42)
+                         (cons "intrinsicGas" "0x5208"))))))))
+  (signals error
+    (normalize-eest-transaction-test-case
+     "success-non-string-gas"
+     (list (cons "txbytes" "0x01")
+           (cons "result"
+                 (list
+                  (cons "Shanghai"
+                        (list
+                         (cons "hash"
+                               "0x0000000000000000000000000000000000000000000000000000000000000001")
+                         (cons "sender"
+                               "0x0000000000000000000000000000000000000001")
+                         (cons "intrinsicGas" 42))))))))
   (signals error
     (normalize-eest-transaction-test-case
      "success-with-exception"
