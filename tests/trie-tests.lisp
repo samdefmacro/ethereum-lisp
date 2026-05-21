@@ -570,6 +570,8 @@
         value)))
 
 (defun normalize-eest-trie-test-case (name case &optional default-secure-p)
+  (unless (stringp name)
+    (error "EEST trie test case name must be a string"))
   (when (blank-string-p name)
     (error "EEST trie test case name must be present"))
   (unless (listp case)
@@ -2276,6 +2278,12 @@
     (normalize-eest-trie-test-case
      "missing-root"
      (list (cons "in" nil))))
+  (signals error
+    (normalize-eest-trie-test-case
+     42
+     (list (cons "in" nil)
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
     (normalize-eest-trie-test-case
      "missing-in"

@@ -1483,6 +1483,8 @@ splits can land after the Phase A smoke path closes.
     Added trie fixture child-reference map scalar guards so branch child
     reference indexes and kinds reject non-string or malformed values before
     root-shape assertions parse them.
+    Added a direct EEST trie-test case-name scalar guard so adapter entry
+    points reject non-string source case names before normalization.
     Added the same non-string field-name rejection to state-root fixture
     object validators, covering wrappers, cases, operations, storage-root
     projections, and account projections before replay.
