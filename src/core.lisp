@@ -4092,9 +4092,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (let ((colon (position #\: line)))
             (unless colon
               (block-validation-fail "HTTP header is malformed"))
-            (cons (string-downcase
-                   (engine-rpc-http-trim (subseq line 0 colon)))
-                  (engine-rpc-http-trim (subseq line (1+ colon)))))))
+            (let ((name (engine-rpc-http-trim (subseq line 0 colon))))
+              (when (string= name "")
+                (block-validation-fail "HTTP header is malformed"))
+              (cons (string-downcase name)
+                    (engine-rpc-http-trim (subseq line (1+ colon))))))))
 
 (defun engine-rpc-http-header (headers name)
   (cdr (assoc (string-downcase name) headers :test #'string=)))
