@@ -917,6 +917,9 @@ splits can land after the Phase A smoke path closes.
     pins, quantities, addresses, bytecode fields, storage hashes, and storage
     map entries reject non-string or malformed JSON shapes before lower-level
     hex/address/hash decoders run.
+  - Progress: tightened Engine fixture enum-like string fields so case
+    `network` and expected payload `status` reject non-string values before
+    comparing against `Shanghai` or `VALID`.
   - Progress: tightened Engine fixture body validation against silent
     overwrites. Parent account lists now reject duplicate normalized addresses,
     and withdrawal lists reject duplicate withdrawal indexes before fixture

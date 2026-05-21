@@ -338,9 +338,11 @@
      expect
      +engine-newpayload-v2-fixture-expect-fields+
      label)
-    (unless (string= +payload-status-valid+
-                     (fixture-required-field expect "status"))
-      (error "~A status must be VALID" label))
+    (let ((status (fixture-required-field expect "status")))
+      (unless (stringp status)
+        (error "~A status must be a string" label))
+      (unless (string= +payload-status-valid+ status)
+        (error "~A status must be VALID" label)))
     (dolist (field '("sender"
                      "withdrawalRecipient"
                      "codeAddress"
@@ -523,9 +525,13 @@
       (error "Engine newPayloadV2 fixture case name must be a string"))
     (when (blank-string-p name)
       (error "Engine newPayloadV2 fixture case name must be present"))
-    (unless (string= "Shanghai" (fixture-required-field case "network"))
-      (error "Engine newPayloadV2 fixture case ~A network must be Shanghai"
-             name))
+    (let ((network (fixture-required-field case "network")))
+      (unless (stringp network)
+        (error "Engine newPayloadV2 fixture case ~A network must be a string"
+               name))
+      (unless (string= "Shanghai" network)
+        (error "Engine newPayloadV2 fixture case ~A network must be Shanghai"
+               name)))
     (validate-engine-fixture-quantity-field
      case
      "chainId"
@@ -899,6 +905,9 @@
          (list (engine-newpayload-v2-case-shape-test-case :name ""))))
       (signals error
         (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field case "network" 42))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
          (list case
                (engine-newpayload-v2-case-shape-test-case
                 :name "valid-engine-case"))))
@@ -1006,6 +1015,15 @@
                  (fixture-required-field case "expect")
                  "status"
                  "INVALID")))))
+      (signals error
+        (validate-engine-newpayload-v2-fixture-cases
+         (list (replace-field
+                case
+                "expect"
+                (replace-field
+                 (fixture-required-field case "expect")
+                 "status"
+                 42)))))
       (signals error
         (let ((expect (fixture-required-field case "expect")))
           (validate-engine-newpayload-v2-fixture-cases
