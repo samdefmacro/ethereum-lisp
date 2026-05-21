@@ -55,17 +55,26 @@
 (defun validate-phase-a-shanghai-genesis-hex-string (value label)
   (unless (stringp value)
     (error "~A must be a hex string" label))
-  (hex-to-bytes value))
+  (let ((bytes (hex-to-bytes value)))
+    (unless (string= value (bytes-to-hex bytes))
+      (error "~A must be canonical lowercase 0x-prefixed hex" label))
+    bytes))
 
 (defun validate-phase-a-shanghai-genesis-hash-string (value label)
   (unless (stringp value)
     (error "~A must be a hash hex string" label))
-  (hash32-from-hex value))
+  (let ((hash (hash32-from-hex value)))
+    (unless (string= value (hash32-to-hex hash))
+      (error "~A must be canonical lowercase 0x-prefixed hash hex" label))
+    hash))
 
 (defun validate-phase-a-shanghai-genesis-address-string (value label)
   (unless (stringp value)
     (error "~A must be an address hex string" label))
-  (address-from-hex value))
+  (let ((address (address-from-hex value)))
+    (unless (string= value (address-to-hex address))
+      (error "~A must be canonical lowercase 0x-prefixed address hex" label))
+    address))
 
 (defun validate-phase-a-shanghai-genesis-non-negative-value
     (object field label &key required-p)
@@ -759,7 +768,22 @@
                    :test #'string=))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
+     (cons (cons "extraData" "00")
+           (remove "extraData"
+                   (phase-a-shanghai-genesis-shape-test-fixture)
+                   :key #'car
+                   :test #'string=))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
      (cons (cons "stateRoot" 42)
+           (remove "stateRoot"
+                   (phase-a-shanghai-genesis-shape-test-fixture)
+                   :key #'car
+                   :test #'string=))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (cons (cons "stateRoot"
+                 "0X23CC0C47D1238030E9C1EC18013DCB17024D3D42729567ADBB6406A64D3007F3")
            (remove "stateRoot"
                    (phase-a-shanghai-genesis-shape-test-fixture)
                    :key #'car
@@ -800,6 +824,10 @@
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture
       :account-extra (list (cons "code" 42)))))
+  (signals error
+    (validate-phase-a-shanghai-genesis-fixture-shape
+     (phase-a-shanghai-genesis-shape-test-fixture
+      :account-extra (list (cons "code" "6000")))))
   (signals error
     (validate-phase-a-shanghai-genesis-fixture-shape
      (phase-a-shanghai-genesis-shape-test-fixture

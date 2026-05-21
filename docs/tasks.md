@@ -1518,6 +1518,8 @@ splits can land after the Phase A smoke path closes.
     Added normalized duplicate checks to the Shanghai genesis alloc and storage
     maps, so prefixless and padded aliases fail before state import can
     overwrite entries.
+    Added canonical hex/address/hash checks to the same genesis fixture
+    validator, so prefixless or uppercase scalar aliases fail at shape time.
     Added EEST trie-test file entry shape validation, so malformed top-level
     case entries fail as JSON object fields before case-name extraction or
     selector normalization can reach lower-level list operations.
