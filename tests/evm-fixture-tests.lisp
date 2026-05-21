@@ -79,7 +79,10 @@
 (defun evm-state-fixture-hex-bytes (value label)
   (unless (stringp value)
     (error "~A must be a hex string" label))
-  (hex-to-bytes value))
+  (let ((bytes (hex-to-bytes value)))
+    (unless (string= value (bytes-to-hex bytes))
+      (error "~A must be canonical lowercase 0x-prefixed hex" label))
+    bytes))
 
 (defun evm-state-fixture-fixed-hex-bytes (value size label)
   (let ((bytes (evm-state-fixture-hex-bytes value label)))
@@ -529,6 +532,10 @@
     (evm-state-fixture-hash 1 "inline hash"))
   (signals error
     (evm-state-fixture-hex-bytes 1 "inline bytes"))
+  (signals error
+    (evm-state-fixture-hex-bytes "6000" "inline bytes"))
+  (signals error
+    (evm-state-fixture-hex-bytes "0XAB" "inline bytes"))
   (signals error
     (evm-state-fixture-non-empty-string 1 "inline string"))
   (signals error
