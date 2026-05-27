@@ -24,7 +24,11 @@
     "operations"
     "expectedRoot"
     "expectedStorageRoots"
-    "expectedAccounts"))
+    "expectedAccounts"
+    "expectedStateTrieShape"
+    "expectedStateTrieRootPathNibbles"
+    "expectedStateTrieRootChildren"
+    "expectedStateTrieRootChildShapes"))
 
 (defparameter +state-proof-fixture-case-fields+
   '("name"
@@ -73,7 +77,11 @@
     "account-projection"
     "account-update"
     "account-prune"
-    "storage-update"))
+    "storage-update"
+    "state-trie-leaf"
+    "state-trie-branch"
+    "state-trie-extension"
+    "state-trie-branch-extension"))
 
 (defparameter +state-root-fixture-required-case-names+
   '("empty-state-root"
@@ -90,7 +98,11 @@
     "code-update-overwrites-code-hash-root"
     "code-created-account-prunes-to-empty-root"
     "code-delete-keeps-funded-account-root"
-    "multi-account-secure-state-root"))
+    "multi-account-secure-state-root"
+    "nethermind-state-trie-leaf-root"
+    "nethermind-state-trie-branch-root"
+    "nethermind-state-trie-extension-root"
+    "nethermind-state-trie-branch-into-extension-root"))
 
 (defparameter +state-root-fixture-required-tags+
   '("empty-state-root"
@@ -107,7 +119,14 @@
     "account-projection"
     "account-update"
     "account-prune"
-    "storage-update"))
+    "storage-update"
+    "state-trie-leaf"
+    "state-trie-branch"
+    "state-trie-extension"
+    "state-trie-branch-extension"))
+
+(defparameter +state-root-fixture-trie-shapes+
+  '("empty" "leaf" "extension" "branch"))
 
 (defparameter +state-proof-fixture-known-tags+
   '("empty-state-proof"
@@ -335,6 +354,67 @@
      "rlp"
      "State root fixture expectedAccounts entry")))
 
+(defun validate-state-root-fixture-trie-shape-field (case)
+  (when (fixture-field-present-p case "expectedStateTrieShape")
+    (let ((shape (fixture-object-field case "expectedStateTrieShape")))
+      (unless (and (stringp shape)
+                   (member shape +state-root-fixture-trie-shapes+
+                           :test #'string=))
+        (error "State root fixture expectedStateTrieShape is unknown: ~A"
+               shape)))))
+
+(defun validate-state-root-fixture-nibble-list (values label &key child-index-p)
+  (unless (listp values)
+    (error "~A must be a JSON array" label))
+  (let ((seen (make-hash-table :test 'eql)))
+    (dolist (value values)
+      (unless (and (integerp value)
+                   (not (minusp value))
+                   (<= value (if child-index-p 15 16)))
+        (error "~A contains invalid nibble/index ~A" label value))
+      (when child-index-p
+        (when (gethash value seen)
+          (error "~A has duplicate child index ~A" label value))
+        (setf (gethash value seen) t)))))
+
+(defun validate-state-root-fixture-state-trie-child-shapes (value)
+  (unless (listp value)
+    (error "State root fixture expectedStateTrieRootChildShapes must be a JSON object"))
+  (let ((seen (make-hash-table :test 'eql)))
+    (dolist (entry value)
+      (let ((index-text (car entry))
+            (shape (cdr entry)))
+        (unless (stringp index-text)
+          (error "State root fixture state trie child-shape index must be a string"))
+        (let ((index (parse-integer index-text :junk-allowed nil)))
+          (unless (<= 0 index 15)
+            (error "State root fixture state trie child-shape index is out of range: ~A"
+                   index-text))
+          (when (gethash index seen)
+            (error "State root fixture state trie child-shape index is duplicated: ~A"
+                   index-text))
+          (setf (gethash index seen) t))
+        (unless (and (stringp shape)
+                     (member shape +state-root-fixture-trie-shapes+
+                             :test #'string=))
+          (error "State root fixture state trie child-shape is unknown: ~A"
+                 shape))))))
+
+(defun validate-state-root-fixture-state-trie-expectations (case)
+  (validate-state-root-fixture-trie-shape-field case)
+  (when (fixture-field-present-p case "expectedStateTrieRootPathNibbles")
+    (validate-state-root-fixture-nibble-list
+     (fixture-object-field case "expectedStateTrieRootPathNibbles")
+     "State root fixture expectedStateTrieRootPathNibbles"))
+  (when (fixture-field-present-p case "expectedStateTrieRootChildren")
+    (validate-state-root-fixture-nibble-list
+     (fixture-object-field case "expectedStateTrieRootChildren")
+     "State root fixture expectedStateTrieRootChildren"
+     :child-index-p t))
+  (when (fixture-field-present-p case "expectedStateTrieRootChildShapes")
+    (validate-state-root-fixture-state-trie-child-shapes
+     (fixture-object-field case "expectedStateTrieRootChildShapes"))))
+
 (defun validate-state-root-fixture-case-shape (case)
   (unless (listp case)
     (error "State root fixture case must be a JSON object"))
@@ -382,7 +462,8 @@
           (when (gethash address-id seen-addresses)
             (error "State root fixture case has duplicate expectedAccounts address ~A"
                    address))
-          (setf (gethash address-id seen-addresses) t))))))
+          (setf (gethash address-id seen-addresses) t)))))
+  (validate-state-root-fixture-state-trie-expectations case))
 
 (defun validate-state-root-fixture-cases (cases)
   (unless (listp cases)
@@ -608,6 +689,38 @@
         (when rlp
           (is (string= rlp
                        (bytes-to-hex (state-account-rlp account)))))))))
+
+(defun state-root-fixture-state-trie (state)
+  (ethereum-lisp.state::state-db-state-trie state))
+
+(defun state-root-fixture-root-child-shape (trie index)
+  (let ((root (mpt-root-node trie)))
+    (when (typep root 'ethereum-lisp.trie::branch-node)
+      (let ((child (aref (ethereum-lisp.trie::branch-node-children root)
+                         index)))
+        (cond
+          ((null child) nil)
+          ((typep child 'ethereum-lisp.trie::leaf-node) "leaf")
+          ((typep child 'ethereum-lisp.trie::extension-node) "extension")
+          ((typep child 'ethereum-lisp.trie::branch-node) "branch")
+          (t "unknown"))))))
+
+(defun assert-state-root-fixture-state-trie (state case)
+  (let ((trie (state-root-fixture-state-trie state)))
+    (when (fixture-field-present-p case "expectedStateTrieShape")
+      (is (string= (fixture-object-field case "expectedStateTrieShape")
+                   (trie-fixture-root-shape trie))))
+    (when (fixture-field-present-p case "expectedStateTrieRootPathNibbles")
+      (is (equal (fixture-object-field case "expectedStateTrieRootPathNibbles")
+                 (trie-fixture-root-path-nibbles trie))))
+    (when (fixture-field-present-p case "expectedStateTrieRootChildren")
+      (is (equal (fixture-object-field case "expectedStateTrieRootChildren")
+                 (trie-fixture-root-children trie))))
+    (dolist (entry (fixture-object-field case "expectedStateTrieRootChildShapes"))
+      (is (string= (cdr entry)
+                   (state-root-fixture-root-child-shape
+                    trie
+                    (parse-integer (car entry) :junk-allowed nil)))))))
 
 (defun validate-state-proof-fixture-metadata (fixture)
   (validate-fixture-object-fields
@@ -1320,7 +1433,8 @@
                      (state-db-root-hex state)))
         (assert-state-root-fixture-final-operation-state state case)
         (assert-state-root-fixture-storage-roots state case)
-        (assert-state-root-fixture-accounts state case)))))
+        (assert-state-root-fixture-accounts state case)
+        (assert-state-root-fixture-state-trie state case)))))
 
 (deftest state-proof-fixture-shape-validation
   (let ((valid-case

@@ -28,6 +28,103 @@
       "expectedRoot": "0x347c439d44650f6280a9a4c057975292b7bdd604f2ad15d4815355708d8fd449"
     },
     {
+      "name": "nethermind-state-trie-leaf-root",
+      "tags": ["account-root", "state-trie-leaf"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 100
+        }
+      ],
+      "expectedRoot": "0x18742ec02ab527594bc83d163360c5b677ca92e37b5a0d5673920a895645b8a1",
+      "expectedStateTrieShape": "leaf"
+    },
+    {
+      "name": "nethermind-state-trie-branch-root",
+      "tags": ["account-root", "multi-account", "state-trie-branch"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200
+        }
+      ],
+      "expectedRoot": "0xb136a3c02a00f4d91ac42fa9423b8299bfd90892998ce7d8ece5e2f457284a36",
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [11, 13],
+      "expectedStateTrieRootChildShapes": {
+        "11": "leaf",
+        "13": "leaf"
+      }
+    },
+    {
+      "name": "nethermind-state-trie-extension-root",
+      "tags": ["account-root", "multi-account", "state-trie-extension"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        }
+      ],
+      "expectedRoot": "0x107571af3beeb3b5f3d1b49b593066ac344ab7e98f657ee27670315fcbde6509",
+      "expectedStateTrieShape": "extension",
+      "expectedStateTrieRootPathNibbles": [13, 7]
+    },
+    {
+      "name": "nethermind-state-trie-branch-into-extension-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "state-trie-branch",
+        "state-trie-extension",
+        "state-trie-branch-extension"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300
+        }
+      ],
+      "expectedRoot": "0x08767738cc4d52da0973b6f2030046afe8e67bea9da3b1ea31d19aacf59d077b",
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [12, 13],
+      "expectedStateTrieRootChildShapes": {
+        "12": "leaf",
+        "13": "extension"
+      }
+    },
+    {
       "name": "account-update-overwrites-nonce-balance-root",
       "tags": ["account-root", "account-update", "account-projection"],
       "operations": [

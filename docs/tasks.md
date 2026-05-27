@@ -1550,6 +1550,14 @@ splits can land after the Phase A smoke path closes.
     Added EEST trie-test file entry shape validation, so malformed top-level
     case entries fail as JSON object fields before case-name extraction or
     selector normalization can reach lower-level list operations.
+    Added fixture-driven state trie shape assertions to the state-root runner,
+    including expected root node kind, root path nibbles, root child indexes,
+    and root child node kinds. The state-root seed set now includes four
+    Nethermind `trieCases.txt`-guided account-trie layouts: leaf at root,
+    branch at root with two account leaves, extension into branch at root, and
+    branch at root whose child is an extension, locking the structural cases
+    Nethermind calls out for state tries where account leaves are always
+    hashed references.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
