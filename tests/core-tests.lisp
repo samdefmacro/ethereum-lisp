@@ -7745,7 +7745,9 @@
                      for first-p = t then nil
                      unless first-p do (write-char #\, stream)
                      do (format stream "\"~A\"" value))
-               (write-char #\] stream))))
+               (write-char #\] stream)))
+           (proof-node-hex-list (proof)
+             (mapcar #'bytes-to-hex proof)))
     (let* ((store (make-engine-payload-memory-store))
            (address
              (address-from-hex "0x0000000000000000000000000000000000000103"))
@@ -7757,6 +7759,7 @@
            (missing-slot
              (hash32-from-hex
               "0x0000000000000000000000000000000000000000000000000000000000000008"))
+           (state (make-state-db))
            (state-block
              (make-block
               :header (make-block-header :number 28
@@ -7768,15 +7771,14 @@
                                          :timestamp 290
                                          :gas-limit 30000000)))
            (config (make-chain-config)))
-      (engine-payload-store-put-block store state-block)
-      (engine-payload-store-put-account-balance
-       store (block-hash state-block) address 1000)
-      (engine-payload-store-put-account-nonce
-       store (block-hash state-block) address 3)
-      (engine-payload-store-put-account-code
-       store (block-hash state-block) address #(96 1 96 0))
-      (engine-payload-store-put-account-storage
-       store (block-hash state-block) address slot #x2a)
+      (state-db-set-account state address
+                            (make-state-account :nonce 3 :balance 1000))
+      (state-db-set-code state address #(96 1 96 0))
+      (state-db-set-storage state address slot #x2a)
+      (setf (block-header-state-root (block-header state-block))
+            (state-db-root state))
+      (chain-store-put-block store state-block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash state-block) state)
       (engine-payload-store-put-block store missing-state-block)
       (let* ((proof-response
                (parse-json
@@ -7859,6 +7861,11 @@
              (fourth-storage (fourth storage-proofs))
              (fifth-storage (fifth storage-proofs))
              (empty-proof (field empty-account-response "result"))
+             (expected-proof
+               (state-db-get-proof
+                state
+                address
+                (list slot missing-slot slot slot slot)))
              (invalid-storage-keys-error
                (field invalid-storage-keys-response "error"))
              (invalid-params-error (field invalid-params-response "error"))
@@ -7874,15 +7881,26 @@
                      (field proof "codeHash")))
         (is (listp (field proof "accountProof")))
         (is (every #'stringp (field proof "accountProof")))
+        (is (equal (proof-node-hex-list
+                    (state-proof-result-account-proof expected-proof))
+                   (field proof "accountProof")))
         (is (= 5 (length storage-proofs)))
         (is (string= (quantity-to-hex 7) (field first-storage "key")))
         (is (string= "0x2a" (field first-storage "value")))
         (is (every #'stringp (field first-storage "proof")))
+        (is (equal (proof-node-hex-list
+                    (state-storage-proof-proof
+                     (first (state-proof-result-storage-proofs expected-proof))))
+                   (field first-storage "proof")))
         (is (string= (hash32-to-hex missing-slot)
                      (field second-storage "key")))
         (is (string= (quantity-to-hex 0)
                      (field second-storage "value")))
         (is (every #'stringp (field second-storage "proof")))
+        (is (equal (proof-node-hex-list
+                    (state-storage-proof-proof
+                     (second (state-proof-result-storage-proofs expected-proof))))
+                   (field second-storage "proof")))
         (is (string= (quantity-to-hex 7) (field third-storage "key")))
         (is (string= "0x2a" (field third-storage "value")))
         (is (string= (hash32-to-hex slot) (field fourth-storage "key")))

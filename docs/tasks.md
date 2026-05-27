@@ -1660,6 +1660,13 @@ splits can land after the Phase A smoke path closes.
   - Progress: tightened state-proof expected `storageProof` validation so
     duplicate canonical storage proof keys fail before request/proof alignment
     checks run.
+  - Progress: routed retained-state `eth_getProof` RPC responses through the
+    shared `state-db-get-proof` proof primitive by reconstructing a state DB
+    from the chain-store snapshot before formatting the geth-shaped result.
+    The RPC test now commits a real state snapshot, locks the block state root,
+    and checks the returned account and storage proof nodes against the core
+    state proof result while preserving geth-compatible short and prefixless
+    storage-key output normalization.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

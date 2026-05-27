@@ -469,19 +469,6 @@
        (chain-store-account-storage
         store (block-hash block) address slot)))))
 
-(defun eth-rpc-proof-key-for-address (address)
-  (keccak-256 (address-bytes address)))
-
-(defun eth-rpc-proof-key-for-storage-slot (slot)
-  (keccak-256 (hash32-bytes slot)))
-
-(defun eth-rpc-storage-trie-from-entries (storage-entries)
-  (let ((trie (make-mpt)))
-    (dolist (entry storage-entries trie)
-      (mpt-put trie
-               (eth-rpc-proof-key-for-storage-slot (car entry))
-               (rlp-encode (cdr entry))))))
-
 (defconstant +eth-get-proof-max-storage-keys+ 1024)
 
 (defstruct (eth-rpc-proof-storage-slot
@@ -500,15 +487,33 @@
          (hash32-to-hex slot)
          (quantity-to-hex (bytes-to-integer (hash32-bytes slot)))))))
 
-(defun eth-rpc-storage-proof-object (trie proof-slot value)
-  (let ((slot (eth-rpc-proof-storage-slot-slot proof-slot)))
-    (list (cons "key" (eth-rpc-proof-storage-slot-output-key proof-slot))
-          (cons "value" (quantity-to-hex value))
-          (cons "proof"
-                (mapcar #'bytes-to-hex
-                        (mpt-get-proof
-                         trie
-                         (eth-rpc-proof-key-for-storage-slot slot)))))))
+(defun eth-rpc-state-db-from-chain-store (store block-hash)
+  (let ((state (ethereum-lisp.state:make-state-db)))
+    (chain-store-for-each-account
+     store
+     block-hash
+     (lambda (account-address balance nonce code storage-entries)
+       (ethereum-lisp.state:state-db-set-account
+        state
+        account-address
+        (make-state-account :nonce nonce :balance balance))
+       (ethereum-lisp.state:state-db-set-code state account-address code)
+       (dolist (entry storage-entries)
+         (ethereum-lisp.state:state-db-set-storage
+          state account-address (car entry) (cdr entry)))))
+    state))
+
+(defun eth-rpc-proof-node-hex-list (proof)
+  (mapcar #'bytes-to-hex proof))
+
+(defun eth-rpc-storage-proof-object-from-state-proof (proof proof-slot)
+  (list (cons "key" (eth-rpc-proof-storage-slot-output-key proof-slot))
+        (cons "value"
+              (quantity-to-hex
+               (ethereum-lisp.state:state-storage-proof-value proof)))
+        (cons "proof"
+              (eth-rpc-proof-node-hex-list
+               (ethereum-lisp.state:state-storage-proof-proof proof)))))
 
 (defun eth-rpc-proof-storage-slots-param (value method)
   (unless (listp value)
@@ -522,58 +527,37 @@
           value))
 
 (defun eth-rpc-build-proof-object (store block-hash address slots)
-  (let ((state-trie (make-mpt))
-        (target-account nil)
-        (target-storage-trie nil)
-        (target-storage-values (make-hash-table :test #'equal)))
-    (chain-store-for-each-account
-     store
-     block-hash
-     (lambda (account-address balance nonce code storage-entries)
-       (let* ((storage-trie
-                (eth-rpc-storage-trie-from-entries storage-entries))
-              (account
-                (make-state-account
-                 :nonce nonce
-                 :balance balance
-                 :storage-root (make-hash32 (mpt-root-hash storage-trie))
-                 :code-hash (keccak-256-hash code))))
-         (mpt-put state-trie
-                  (eth-rpc-proof-key-for-address account-address)
-                  (state-account-rlp account))
-         (when (bytes= (address-bytes account-address)
-                       (address-bytes address))
-           (setf target-account account
-                 target-storage-trie storage-trie)
-           (dolist (entry storage-entries)
-             (setf (gethash (hash32-to-hex (car entry))
-                            target-storage-values)
-                   (cdr entry)))))))
-    (unless target-account
-      (setf target-account (make-state-account)
-            target-storage-trie (make-mpt)))
+  (let* ((state (eth-rpc-state-db-from-chain-store store block-hash))
+         (proof
+           (ethereum-lisp.state:state-db-get-proof
+            state
+            address
+            (mapcar #'eth-rpc-proof-storage-slot-slot slots))))
     (list
      (cons "address" (address-to-hex address))
      (cons "accountProof"
-           (mapcar #'bytes-to-hex
-                   (mpt-get-proof
-                    state-trie
-                    (eth-rpc-proof-key-for-address address))))
-     (cons "balance" (quantity-to-hex (state-account-balance target-account)))
+           (eth-rpc-proof-node-hex-list
+            (ethereum-lisp.state:state-proof-result-account-proof proof)))
+     (cons "balance"
+           (quantity-to-hex
+            (ethereum-lisp.state:state-proof-result-balance proof)))
      (cons "codeHash"
-           (hash32-to-hex (state-account-code-hash target-account)))
-     (cons "nonce" (quantity-to-hex (state-account-nonce target-account)))
+           (hash32-to-hex
+            (ethereum-lisp.state:state-proof-result-code-hash proof)))
+     (cons "nonce"
+           (quantity-to-hex
+            (ethereum-lisp.state:state-proof-result-nonce proof)))
      (cons "storageHash"
-           (hash32-to-hex (state-account-storage-root target-account)))
+           (hash32-to-hex
+            (ethereum-lisp.state:state-proof-result-storage-root proof)))
      (cons "storageProof"
-           (mapcar
-            (lambda (slot)
-              (let ((slot-hash (eth-rpc-proof-storage-slot-slot slot)))
-                (eth-rpc-storage-proof-object
-                 target-storage-trie
-                 slot
-                 (gethash (hash32-to-hex slot-hash) target-storage-values 0))))
-            slots)))))
+           (loop for storage-proof in
+                 (ethereum-lisp.state:state-proof-result-storage-proofs proof)
+                 for slot in slots
+                 collect
+                 (eth-rpc-storage-proof-object-from-state-proof
+                  storage-proof
+                  slot))))))
 
 (defun engine-rpc-handle-eth-get-proof (params store)
   (unless (= 3 (length params))
