@@ -643,6 +643,13 @@ ones.
     sender recovery, Shanghai intrinsic gas, sparse EEST result expansion,
     seed/EEST alignment, and a dedicated summary gate requiring dynamic-fee
     contract-creation coverage instead of relying on legacy creation alone.
+  - Progress: added EIP-2930 access-list contract-creation coverage to the
+    seed envelope fixture and selected EEST-shaped Phase A/full subsets. The
+    new vector locks `to = null`, initcode payload, non-empty access-list
+    projection, signature projection, sender recovery, Shanghai intrinsic gas,
+    sparse EEST result expansion, seed/EEST alignment, and a dedicated summary
+    gate requiring access-list contract-creation coverage alongside the
+    dynamic-fee gate.
 
 ## P0: Module Boundaries
 

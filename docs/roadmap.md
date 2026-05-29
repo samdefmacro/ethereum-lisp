@@ -102,12 +102,13 @@ fixes in those areas are allowed; expansion is not.
   extension-subtree child deletion that compresses all the way back to a
   single leaf, covering the path-compression boundary beyond root-branch cases
   for both raw and hashed-key replay. The selected Phase A transaction subset
-  now gates dynamic-fee contract creation alongside legacy creation, so typed
-  sender recovery and `to = null` decoding are represented before pinned
-  transaction-test replacement. The Shanghai
-  `engine_newPayloadV2` smoke now covers legacy transfer, access-list transfer,
-  dynamic-fee typed transfer, contract creation, withdrawals, multi-transaction
-  receipt ordering/cumulative gas, safe/finalized checkpoint tags, and
+  now gates access-list and dynamic-fee contract creation alongside legacy
+  creation, so typed sender recovery, access-list projection, and `to = null`
+  decoding are represented before pinned transaction-test replacement. The
+  Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
+  transfer, dynamic-fee typed transfer, contract creation, withdrawals,
+  multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint
+  tags, and
   two-branch canonical switching, with canonical `eth_getProof` replay and
   verification over the imported child state root plus branch-switch proof
   reads that distinguish canonical `latest` from hash-addressed non-canonical
@@ -171,8 +172,9 @@ encoding/hashing, legacy EIP-155 plus unprotected signing hash and sender
 recovery, and EIP-2930/EIP-1559/EIP-4844/EIP-7702 typed signing hash plus
 sender recovery; EIP-7702 authorization tuple authority recovery is also
 present. The Phase A transaction harness now replays protected/unprotected
-transfer and contract-creation legacy txbytes plus access-list and dynamic-fee
-typed txbytes through hash, sender, decoded payload, and intrinsic-gas checks.
+transfer and contract-creation legacy txbytes plus access-list transfer,
+access-list contract creation, and dynamic-fee typed txbytes through hash,
+sender, decoded payload, access-list projection, and intrinsic-gas checks.
 Blob sidecars now have a first-pass data
 shape and commitment-to-versioned-hash
 validation layer; callers that require KZG proof verification now fail
