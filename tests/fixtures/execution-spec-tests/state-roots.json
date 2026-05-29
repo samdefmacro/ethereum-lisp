@@ -43,7 +43,12 @@
     },
     {
       "name": "nethermind-state-trie-branch-root",
-      "tags": ["account-root", "multi-account", "state-trie-branch"],
+      "tags": [
+        "account-root",
+        "multi-account",
+        "state-trie-branch",
+        "state-trie-branch-child-references"
+      ],
       "operations": [
         {
           "op": "setAccount",
@@ -64,11 +69,20 @@
       "expectedStateTrieRootChildShapes": {
         "11": "leaf",
         "13": "leaf"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "11": "hashed",
+        "13": "hashed"
       }
     },
     {
       "name": "nethermind-state-trie-extension-root",
-      "tags": ["account-root", "multi-account", "state-trie-extension"],
+      "tags": [
+        "account-root",
+        "multi-account",
+        "state-trie-extension",
+        "state-trie-extension-child-reference"
+      ],
       "operations": [
         {
           "op": "setAccount",
@@ -85,7 +99,8 @@
       ],
       "expectedRoot": "0x107571af3beeb3b5f3d1b49b593066ac344ab7e98f657ee27670315fcbde6509",
       "expectedStateTrieShape": "extension",
-      "expectedStateTrieRootPathNibbles": [13, 7]
+      "expectedStateTrieRootPathNibbles": [13, 7],
+      "expectedStateTrieChildReference": "hashed"
     },
     {
       "name": "nethermind-state-trie-branch-into-extension-root",
@@ -93,6 +108,7 @@
         "account-root",
         "multi-account",
         "state-trie-branch",
+        "state-trie-branch-child-references",
         "state-trie-extension",
         "state-trie-branch-extension"
       ],
@@ -122,6 +138,10 @@
       "expectedStateTrieRootChildShapes": {
         "12": "leaf",
         "13": "extension"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "12": "hashed",
+        "13": "hashed"
       }
     },
     {

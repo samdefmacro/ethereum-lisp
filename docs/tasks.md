@@ -1592,6 +1592,10 @@ splits can land after the Phase A smoke path closes.
     Added storage trie extension child-reference projections and a required
     coverage gate, so extension-root storage fixtures now lock their compressed
     path and hashed child reference together.
+    Added state trie branch and extension child-reference projections with
+    required coverage gates. The account-trie shape fixtures now lock hashed
+    child references for branch children and extension roots in addition to
+    root paths, child indexes, and child node shapes.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

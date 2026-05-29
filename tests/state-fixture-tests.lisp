@@ -28,8 +28,10 @@
     "expectedStorageTrieShapes"
     "expectedStateTrieShape"
     "expectedStateTrieRootPathNibbles"
+    "expectedStateTrieChildReference"
     "expectedStateTrieRootChildren"
-    "expectedStateTrieRootChildShapes"))
+    "expectedStateTrieRootChildShapes"
+    "expectedStateTrieRootChildReferences"))
 
 (defparameter +state-proof-fixture-case-fields+
   '("name"
@@ -90,7 +92,9 @@
     "storage-update"
     "state-trie-leaf"
     "state-trie-branch"
+    "state-trie-branch-child-references"
     "state-trie-extension"
+    "state-trie-extension-child-reference"
     "state-trie-branch-extension"
     "state-trie-delete-collapse"
     "storage-trie-leaf"
@@ -148,7 +152,9 @@
     "storage-update"
     "state-trie-leaf"
     "state-trie-branch"
+    "state-trie-branch-child-references"
     "state-trie-extension"
+    "state-trie-extension-child-reference"
     "state-trie-branch-extension"
     "state-trie-delete-collapse"
     "storage-trie-leaf"
@@ -525,6 +531,14 @@
     (validate-state-root-fixture-nibble-list
      (fixture-object-field case "expectedStateTrieRootPathNibbles")
      "State root fixture expectedStateTrieRootPathNibbles"))
+  (when (fixture-field-present-p case "expectedStateTrieChildReference")
+    (let ((kind (fixture-object-field case "expectedStateTrieChildReference")))
+      (unless (and (stringp kind)
+                   (member kind
+                           +state-root-fixture-child-reference-kinds+
+                           :test #'string=))
+        (error "State root fixture expectedStateTrieChildReference is unknown: ~A"
+               kind))))
   (when (fixture-field-present-p case "expectedStateTrieRootChildren")
     (validate-state-root-fixture-nibble-list
      (fixture-object-field case "expectedStateTrieRootChildren")
@@ -532,7 +546,11 @@
      :child-index-p t))
   (when (fixture-field-present-p case "expectedStateTrieRootChildShapes")
     (validate-state-root-fixture-state-trie-child-shapes
-     (fixture-object-field case "expectedStateTrieRootChildShapes"))))
+     (fixture-object-field case "expectedStateTrieRootChildShapes")))
+  (when (fixture-field-present-p case "expectedStateTrieRootChildReferences")
+    (validate-state-root-fixture-child-reference-map
+     (fixture-object-field case "expectedStateTrieRootChildReferences")
+     "State root fixture expectedStateTrieRootChildReferences")))
 
 (defun validate-state-root-fixture-case-shape (case)
   (unless (listp case)
@@ -876,12 +894,20 @@
     (when (fixture-field-present-p case "expectedStateTrieRootPathNibbles")
       (is (equal (fixture-object-field case "expectedStateTrieRootPathNibbles")
                  (trie-fixture-root-path-nibbles trie))))
+    (when (fixture-field-present-p case "expectedStateTrieChildReference")
+      (is (string= (fixture-object-field case "expectedStateTrieChildReference")
+                   (trie-fixture-extension-child-reference-kind trie))))
     (when (fixture-field-present-p case "expectedStateTrieRootChildren")
       (is (equal (fixture-object-field case "expectedStateTrieRootChildren")
                  (trie-fixture-root-children trie))))
     (dolist (entry (fixture-object-field case "expectedStateTrieRootChildShapes"))
       (is (string= (cdr entry)
                    (state-root-fixture-root-child-shape
+                    trie
+                    (parse-integer (car entry) :junk-allowed nil)))))
+    (dolist (entry (fixture-object-field case "expectedStateTrieRootChildReferences"))
+      (is (string= (cdr entry)
+                   (trie-fixture-root-child-reference-kind
                     trie
                     (parse-integer (car entry) :junk-allowed nil)))))))
 
