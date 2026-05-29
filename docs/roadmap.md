@@ -130,7 +130,10 @@ fixes in those areas are allowed; expansion is not.
   gas are covered separately from legacy and EIP-1559 calldata. The same
   gate now also requires legacy calldata count explicitly, so the selected
   Shanghai subset keeps legacy, EIP-2930, and EIP-1559 calldata message-call
-  paths distinct before pinned transaction-test replacement. The
+  paths distinct before pinned transaction-test replacement. It now also gates
+  EIP-2930 and EIP-1559 access-list transactions that carry non-empty calldata,
+  so access-list warming costs and calldata intrinsic-gas costs are exercised
+  together instead of only as separate fixture paths. The
   full EEST transaction selector now also gates EIP-4844
   `blobVersionedHashes` payloads and EIP-7702 `authorizationList` payloads,
   so those post-Shanghai typed families cannot degrade to type-only coverage
@@ -207,9 +210,10 @@ recovery, and EIP-2930/EIP-1559/EIP-4844/EIP-7702 typed signing hash plus
 sender recovery; EIP-7702 authorization tuple authority recovery is also
 present. The Phase A transaction harness now replays protected/unprotected
 transfer and contract-creation legacy txbytes plus access-list transfer,
-access-list calldata and contract creation, and dynamic-fee transfer,
-calldata, and contract creation typed txbytes through hash, sender, decoded
-payload, access-list projection, and intrinsic-gas checks.
+access-list calldata, access-list calldata-with-storage-keys, and contract
+creation, and dynamic-fee transfer, calldata, access-list
+calldata-with-storage-keys, and contract creation typed txbytes through hash,
+sender, decoded payload, access-list projection, and intrinsic-gas checks.
 Blob sidecars now have a first-pass data
 shape and commitment-to-versioned-hash
 validation layer; callers that require KZG proof verification now fail

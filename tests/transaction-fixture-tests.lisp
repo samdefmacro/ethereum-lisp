@@ -12,10 +12,12 @@
     "phase-a-sample.json/legacy-contract-creation-sample"
     "phase-a-sample.json/typed-eip2930-access-list-sample"
     "phase-a-sample.json/typed-eip2930-calldata-sample"
+    "phase-a-sample.json/typed-eip2930-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip2930-contract-creation-sample"
     "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
     "phase-a-sample.json/typed-eip1559-calldata-sample"
     "phase-a-sample.json/typed-eip1559-access-list-sample"
+    "phase-a-sample.json/typed-eip1559-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip1559-contract-creation-sample"))
 
 (defparameter +full-eest-transaction-test-case-names+
@@ -24,10 +26,12 @@
     "phase-a-sample.json/legacy-contract-creation-sample"
     "phase-a-sample.json/typed-eip2930-access-list-sample"
     "phase-a-sample.json/typed-eip2930-calldata-sample"
+    "phase-a-sample.json/typed-eip2930-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip2930-contract-creation-sample"
     "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
     "phase-a-sample.json/typed-eip1559-calldata-sample"
     "phase-a-sample.json/typed-eip1559-access-list-sample"
+    "phase-a-sample.json/typed-eip1559-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip1559-contract-creation-sample"
     "phase-a-sample.json/typed-eip4844-blob-sample"
     "phase-a-sample.json/typed-eip7702-set-code-sample"))
@@ -38,10 +42,12 @@
     "legacy-contract-creation"
     "eip2930-access-list"
     "eip2930-calldata"
+    "eip2930-access-list-calldata"
     "eip2930-contract-creation"
     "eip1559-dynamic-fee"
     "eip1559-calldata"
     "eip1559-access-list"
+    "eip1559-access-list-calldata"
     "eip1559-contract-creation"
     "eip4844-blob"
     "eip7702-set-code"))
@@ -1203,7 +1209,9 @@
         (legacy-message-call-data-count 0)
         (typed-message-call-data-count 0)
         (access-list-message-call-data-count 0)
-        (dynamic-fee-message-call-data-count 0))
+        (dynamic-fee-message-call-data-count 0)
+        (access-list-with-call-data-count 0)
+        (dynamic-fee-access-list-with-call-data-count 0))
     (dolist (vector vectors)
       (let ((transaction
               (transaction-from-encoding
@@ -1217,7 +1225,11 @@
           (when (typep transaction 'access-list-transaction)
             (incf access-list-message-call-data-count))
           (when (typep transaction 'dynamic-fee-transaction)
-            (incf dynamic-fee-message-call-data-count)))))
+            (incf dynamic-fee-message-call-data-count))
+          (when (transaction-access-list transaction)
+            (incf access-list-with-call-data-count)
+            (when (typep transaction 'dynamic-fee-transaction)
+              (incf dynamic-fee-access-list-with-call-data-count))))))
     (list
      (cons "messageCallDataVectorCount" message-call-data-count)
      (cons "legacyMessageCallDataVectorCount"
@@ -1227,7 +1239,11 @@
      (cons "accessListMessageCallDataVectorCount"
            access-list-message-call-data-count)
      (cons "dynamicFeeMessageCallDataVectorCount"
-           dynamic-fee-message-call-data-count))))
+           dynamic-fee-message-call-data-count)
+     (cons "accessListWithCallDataVectorCount"
+           access-list-with-call-data-count)
+     (cons "dynamicFeeAccessListWithCallDataVectorCount"
+           dynamic-fee-access-list-with-call-data-count))))
 
 (defun transaction-fixture-blob-summary (vectors)
   (let ((blob-vector-count 0)
@@ -1366,7 +1382,15 @@
         (dynamic-fee-value
           (fixture-required-field
            summary
-           "dynamicFeeMessageCallDataVectorCount")))
+           "dynamicFeeMessageCallDataVectorCount"))
+        (access-list-with-calldata-value
+          (fixture-required-field
+           summary
+           "accessListWithCallDataVectorCount"))
+        (dynamic-fee-access-list-with-calldata-value
+          (fixture-required-field
+           summary
+           "dynamicFeeAccessListWithCallDataVectorCount")))
     (unless (and (integerp value) (not (minusp value)))
       (error "~A summary field messageCallDataVectorCount must be a non-negative integer"
              label))
@@ -1384,6 +1408,14 @@
                  (not (minusp dynamic-fee-value)))
       (error "~A summary field dynamicFeeMessageCallDataVectorCount must be a non-negative integer"
              label))
+    (unless (and (integerp access-list-with-calldata-value)
+                 (not (minusp access-list-with-calldata-value)))
+      (error "~A summary field accessListWithCallDataVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp dynamic-fee-access-list-with-calldata-value)
+                 (not (minusp dynamic-fee-access-list-with-calldata-value)))
+      (error "~A summary field dynamicFeeAccessListWithCallDataVectorCount must be a non-negative integer"
+             label))
     (when (zerop value)
       (error "~A summary is missing calldata message-call transaction coverage"
              label))
@@ -1398,6 +1430,12 @@
              label))
     (when (zerop dynamic-fee-value)
       (error "~A summary is missing dynamic-fee calldata message-call transaction coverage"
+             label))
+    (when (zerop access-list-with-calldata-value)
+      (error "~A summary is missing combined access-list calldata transaction coverage"
+             label))
+    (when (zerop dynamic-fee-access-list-with-calldata-value)
+      (error "~A summary is missing combined dynamic-fee access-list calldata transaction coverage"
              label)))
   summary)
 
@@ -3764,6 +3802,12 @@
                  :test #'string=
                  :key (lambda (candidate)
                         (fixture-object-field candidate "name"))))
+         (typed-access-list-calldata-vector
+           (find "phase-a-sample.json/typed-eip2930-access-list-calldata-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
          (typed-contract-vector
            (find "phase-a-sample.json/typed-eip2930-contract-creation-sample"
                  vectors
@@ -3784,6 +3828,12 @@
                         (fixture-object-field candidate "name"))))
          (dynamic-fee-access-list-vector
            (find "phase-a-sample.json/typed-eip1559-access-list-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
+         (dynamic-fee-access-list-calldata-vector
+           (find "phase-a-sample.json/typed-eip1559-access-list-calldata-sample"
                  vectors
                  :test #'string=
                  :key (lambda (candidate)
@@ -3810,11 +3860,11 @@
          (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 1 (length paths)))
-    (is (= 12 (length cases)))
-    (is (= 10 (length selected-cases)))
-    (is (= 12 (length vectors)))
-    (is (= 10 (length selected-vectors)))
-    (is (= 12 (length full-vectors)))
+    (is (= 14 (length cases)))
+    (is (= 12 (length selected-cases)))
+    (is (= 14 (length vectors)))
+    (is (= 12 (length selected-vectors)))
+    (is (= 14 (length full-vectors)))
     (validate-transaction-fixture-vector-set vectors :require-required-types t)
     (assert-transaction-fixture-vectors-replay vectors)
     (is (equal +phase-a-eest-transaction-test-case-names+
@@ -3905,6 +3955,32 @@
                    (fixture-object-field typed-calldata-vector "result")
                    +phase-a-eest-transaction-target-fork+)
                   "intrinsicGas")))
+    (is typed-access-list-calldata-vector)
+    (is (string= "access-list"
+                 (fixture-object-field typed-access-list-calldata-vector "type")))
+    (is (equal
+         (list
+          (cons "nonce" "0x7")
+          (cons "gasLimit" "0xc350")
+          (cons "to" "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b")
+          (cons "value" "0xa")
+          (cons "input" "0x5544")
+          (cons "gasPrice" "0x1"))
+         (fixture-object-field typed-access-list-calldata-vector "decoded")))
+    (is (equal
+         (list
+          (list
+           (cons "address" "0x0000000000000000000000000000000000000101")
+           (cons "storageKeys"
+                 '("0x0000000000000000000000000000000000000000000000000000000000000001"
+                   "0x0000000000000000000000000000000000000000000000000000000000000002"))))
+         (fixture-object-field typed-access-list-calldata-vector "accessList")))
+    (is (string= "0x6a60"
+                 (fixture-object-field
+                  (fixture-object-field
+                   (fixture-object-field typed-access-list-calldata-vector "result")
+                   +phase-a-eest-transaction-target-fork+)
+                  "intrinsicGas")))
     (is typed-contract-vector)
     (is (string= "access-list"
                  (fixture-object-field typed-contract-vector "type")))
@@ -3962,6 +4038,35 @@
                    (fixture-object-field dynamic-fee-access-list-vector "result")
                    +phase-a-eest-transaction-target-fork+)
                   "intrinsicGas")))
+    (is dynamic-fee-access-list-calldata-vector)
+    (is (string= "dynamic-fee"
+                 (fixture-object-field dynamic-fee-access-list-calldata-vector "type")))
+    (is (equal
+         (list
+          (cons "nonce" "0x8")
+          (cons "gasLimit" "0xc350")
+          (cons "to" "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b")
+          (cons "value" "0xa")
+          (cons "input" "0x5544")
+          (cons "maxPriorityFeePerGas" "0x1")
+          (cons "maxFeePerGas" "0xfa0"))
+         (fixture-object-field dynamic-fee-access-list-calldata-vector "decoded")))
+    (is (equal
+         (list
+          (list
+           (cons "address" "0x0000000000000000000000000000000000000101")
+           (cons "storageKeys"
+                 '("0x0000000000000000000000000000000000000000000000000000000000000001"
+                   "0x0000000000000000000000000000000000000000000000000000000000000002"))))
+         (fixture-object-field dynamic-fee-access-list-calldata-vector
+                               "accessList")))
+    (is (string= "0x6a60"
+                 (fixture-object-field
+                  (fixture-object-field
+                   (fixture-object-field dynamic-fee-access-list-calldata-vector
+                                         "result")
+                   +phase-a-eest-transaction-target-fork+)
+                  "intrinsicGas")))
     (is dynamic-fee-contract-vector)
     (is (string= "dynamic-fee"
                  (fixture-object-field dynamic-fee-contract-vector "type")))
@@ -3986,36 +4091,40 @@
     (is set-code-vector)
     (is (string= "set-code"
                  (fixture-object-field set-code-vector "type")))
-    (is (= 12 (fixture-object-field all-summary "count")))
+    (is (= 14 (fixture-object-field all-summary "count")))
     (is (equal '((:legacy . 3)
-                 (:access-list . 3)
-                 (:dynamic-fee . 4)
+                 (:access-list . 4)
+                 (:dynamic-fee . 5)
                  (:blob . 1)
                  (:set-code . 1))
                (fixture-object-field all-summary "types")))
-    (is (= 12 (fixture-object-field all-summary "decodedVectorCount")))
-    (is (= 12 (fixture-object-field all-summary "signatureVectorCount")))
-    (is (= 3 (fixture-object-field all-summary "accessListVectorCount")))
-    (is (= 1 (fixture-object-field all-summary "dynamicFeeAccessListVectorCount")))
-    (is (= 3 (fixture-object-field all-summary "accessListAddressCount")))
-    (is (= 6 (fixture-object-field all-summary "accessListStorageKeyCount")))
+    (is (= 14 (fixture-object-field all-summary "decodedVectorCount")))
+    (is (= 14 (fixture-object-field all-summary "signatureVectorCount")))
+    (is (= 5 (fixture-object-field all-summary "accessListVectorCount")))
+    (is (= 2 (fixture-object-field all-summary "dynamicFeeAccessListVectorCount")))
+    (is (= 5 (fixture-object-field all-summary "accessListAddressCount")))
+    (is (= 10 (fixture-object-field all-summary "accessListStorageKeyCount")))
     (is (= 3 (fixture-object-field all-summary "contractCreationVectorCount")))
     (is (= 3 (fixture-object-field all-summary "contractCreationAddressVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListContractCreationVectorCount")))
     (is (= 1 (fixture-object-field all-summary "dynamicFeeContractCreationVectorCount")))
-    (is (= 3 (fixture-object-field all-summary "messageCallDataVectorCount")))
+    (is (= 5 (fixture-object-field all-summary "messageCallDataVectorCount")))
     (is (= 1 (fixture-object-field all-summary "legacyMessageCallDataVectorCount")))
-    (is (= 2 (fixture-object-field all-summary "typedMessageCallDataVectorCount")))
-    (is (= 1 (fixture-object-field all-summary "accessListMessageCallDataVectorCount")))
-    (is (= 1 (fixture-object-field all-summary "dynamicFeeMessageCallDataVectorCount")))
+    (is (= 4 (fixture-object-field all-summary "typedMessageCallDataVectorCount")))
+    (is (= 2 (fixture-object-field all-summary "accessListMessageCallDataVectorCount")))
+    (is (= 2 (fixture-object-field all-summary "dynamicFeeMessageCallDataVectorCount")))
+    (is (= 2 (fixture-object-field all-summary "accessListWithCallDataVectorCount")))
+    (is (= 1 (fixture-object-field
+              all-summary
+              "dynamicFeeAccessListWithCallDataVectorCount")))
     (is (= 1 (fixture-object-field all-summary "blobVersionedHashVectorCount")))
     (is (= 2 (fixture-object-field all-summary "blobVersionedHashCount")))
     (is (= 1 (fixture-object-field all-summary "setCodeAuthorizationVectorCount")))
     (is (= 2 (fixture-object-field all-summary "setCodeAuthorizationCount")))
     (is (= 2 (fixture-object-field all-summary "protectedLegacyVectorCount")))
     (is (= 1 (fixture-object-field all-summary "unprotectedLegacyVectorCount")))
-    (is (= 80 (fixture-object-field all-summary "validResultCount")))
-    (is (= 76 (fixture-object-field all-summary "exceptionResultCount")))
+    (is (= 91 (fixture-object-field all-summary "validResultCount")))
+    (is (= 91 (fixture-object-field all-summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 3)
                  ("Homestead" . 3)
                  ("EIP150" . 3)
@@ -4023,13 +4132,70 @@
                  ("Byzantium" . 3)
                  ("Constantinople" . 3)
                  ("Istanbul" . 3)
-                 ("Berlin" . 6)
-                 ("London" . 10)
-                 ("Paris" . 10)
-                 ("Shanghai" . 10)
-                 ("Cancun" . 11)
-                 ("Prague" . 12))
+                 ("Berlin" . 7)
+                 ("London" . 12)
+                 ("Paris" . 12)
+                 ("Shanghai" . 12)
+                 ("Cancun" . 13)
+                 ("Prague" . 14))
                (fixture-object-field all-summary "validForkCounts")))
+    (is (equal '(("Frontier" . 11)
+                 ("Homestead" . 11)
+                 ("EIP150" . 11)
+                 ("EIP158" . 11)
+                 ("Byzantium" . 11)
+                 ("Constantinople" . 11)
+                 ("Istanbul" . 11)
+                 ("Berlin" . 7)
+                 ("London" . 2)
+                 ("Paris" . 2)
+                 ("Shanghai" . 2)
+                 ("Cancun" . 1))
+               (fixture-object-field all-summary "exceptionForkCounts")))
+    (is (= 12 (fixture-object-field summary "count")))
+    (is (equal '((:legacy . 3) (:access-list . 4) (:dynamic-fee . 5))
+               (fixture-object-field summary "types")))
+    (is (= 12 (fixture-object-field summary "decodedVectorCount")))
+    (is (= 12 (fixture-object-field summary "signatureVectorCount")))
+    (is (= 5 (fixture-object-field summary "accessListVectorCount")))
+    (is (= 2 (fixture-object-field summary "dynamicFeeAccessListVectorCount")))
+    (is (= 5 (fixture-object-field summary "accessListAddressCount")))
+    (is (= 10 (fixture-object-field summary "accessListStorageKeyCount")))
+    (is (= 3 (fixture-object-field summary "contractCreationVectorCount")))
+    (is (= 3 (fixture-object-field summary "contractCreationAddressVectorCount")))
+    (is (= 1 (fixture-object-field summary "accessListContractCreationVectorCount")))
+    (is (= 1 (fixture-object-field summary "dynamicFeeContractCreationVectorCount")))
+    (is (= 5 (fixture-object-field summary "messageCallDataVectorCount")))
+    (is (= 1 (fixture-object-field summary "legacyMessageCallDataVectorCount")))
+    (is (= 4 (fixture-object-field summary "typedMessageCallDataVectorCount")))
+    (is (= 2 (fixture-object-field summary "accessListMessageCallDataVectorCount")))
+    (is (= 2 (fixture-object-field summary "dynamicFeeMessageCallDataVectorCount")))
+    (is (= 2 (fixture-object-field summary "accessListWithCallDataVectorCount")))
+    (is (= 1 (fixture-object-field
+              summary
+              "dynamicFeeAccessListWithCallDataVectorCount")))
+    (is (= 0 (fixture-object-field summary "blobVersionedHashVectorCount")))
+    (is (= 0 (fixture-object-field summary "blobVersionedHashCount")))
+    (is (= 0 (fixture-object-field summary "setCodeAuthorizationVectorCount")))
+    (is (= 0 (fixture-object-field summary "setCodeAuthorizationCount")))
+    (is (= 2 (fixture-object-field summary "protectedLegacyVectorCount")))
+    (is (= 1 (fixture-object-field summary "unprotectedLegacyVectorCount")))
+    (is (= 88 (fixture-object-field summary "validResultCount")))
+    (is (= 68 (fixture-object-field summary "exceptionResultCount")))
+    (is (equal '(("Frontier" . 3)
+                 ("Homestead" . 3)
+                 ("EIP150" . 3)
+                 ("EIP158" . 3)
+                 ("Byzantium" . 3)
+                 ("Constantinople" . 3)
+                 ("Istanbul" . 3)
+                 ("Berlin" . 7)
+                 ("London" . 12)
+                 ("Paris" . 12)
+                 ("Shanghai" . 12)
+                 ("Cancun" . 12)
+                 ("Prague" . 12))
+               (fixture-object-field summary "validForkCounts")))
     (is (equal '(("Frontier" . 9)
                  ("Homestead" . 9)
                  ("EIP150" . 9)
@@ -4037,70 +4203,19 @@
                  ("Byzantium" . 9)
                  ("Constantinople" . 9)
                  ("Istanbul" . 9)
-                 ("Berlin" . 6)
-                 ("London" . 2)
-                 ("Paris" . 2)
-                 ("Shanghai" . 2)
-                 ("Cancun" . 1))
-               (fixture-object-field all-summary "exceptionForkCounts")))
-    (is (= 10 (fixture-object-field summary "count")))
-    (is (equal '((:legacy . 3) (:access-list . 3) (:dynamic-fee . 4))
-               (fixture-object-field summary "types")))
-    (is (= 10 (fixture-object-field summary "decodedVectorCount")))
-    (is (= 10 (fixture-object-field summary "signatureVectorCount")))
-    (is (= 3 (fixture-object-field summary "accessListVectorCount")))
-    (is (= 1 (fixture-object-field summary "dynamicFeeAccessListVectorCount")))
-    (is (= 3 (fixture-object-field summary "accessListAddressCount")))
-    (is (= 6 (fixture-object-field summary "accessListStorageKeyCount")))
-    (is (= 3 (fixture-object-field summary "contractCreationVectorCount")))
-    (is (= 3 (fixture-object-field summary "contractCreationAddressVectorCount")))
-    (is (= 1 (fixture-object-field summary "accessListContractCreationVectorCount")))
-    (is (= 1 (fixture-object-field summary "dynamicFeeContractCreationVectorCount")))
-    (is (= 3 (fixture-object-field summary "messageCallDataVectorCount")))
-    (is (= 1 (fixture-object-field summary "legacyMessageCallDataVectorCount")))
-    (is (= 2 (fixture-object-field summary "typedMessageCallDataVectorCount")))
-    (is (= 1 (fixture-object-field summary "accessListMessageCallDataVectorCount")))
-    (is (= 1 (fixture-object-field summary "dynamicFeeMessageCallDataVectorCount")))
-    (is (= 0 (fixture-object-field summary "blobVersionedHashVectorCount")))
-    (is (= 0 (fixture-object-field summary "blobVersionedHashCount")))
-    (is (= 0 (fixture-object-field summary "setCodeAuthorizationVectorCount")))
-    (is (= 0 (fixture-object-field summary "setCodeAuthorizationCount")))
-    (is (= 2 (fixture-object-field summary "protectedLegacyVectorCount")))
-    (is (= 1 (fixture-object-field summary "unprotectedLegacyVectorCount")))
-    (is (= 77 (fixture-object-field summary "validResultCount")))
-    (is (= 53 (fixture-object-field summary "exceptionResultCount")))
-    (is (equal '(("Frontier" . 3)
-                 ("Homestead" . 3)
-                 ("EIP150" . 3)
-                 ("EIP158" . 3)
-                 ("Byzantium" . 3)
-                 ("Constantinople" . 3)
-                 ("Istanbul" . 3)
-                 ("Berlin" . 6)
-                 ("London" . 10)
-                 ("Paris" . 10)
-                 ("Shanghai" . 10)
-                 ("Cancun" . 10)
-                 ("Prague" . 10))
-               (fixture-object-field summary "validForkCounts")))
-    (is (equal '(("Frontier" . 7)
-                 ("Homestead" . 7)
-                 ("EIP150" . 7)
-                 ("EIP158" . 7)
-                 ("Byzantium" . 7)
-                 ("Constantinople" . 7)
-                 ("Istanbul" . 7)
-                 ("Berlin" . 4))
+                 ("Berlin" . 5))
                (fixture-object-field summary "exceptionForkCounts")))
     (is (equal '("phase-a-sample.json/legacy-eip155-sample"
                  "phase-a-sample.json/legacy-unprotected-sample"
                  "phase-a-sample.json/legacy-contract-creation-sample"
                  "phase-a-sample.json/typed-eip2930-access-list-sample"
                  "phase-a-sample.json/typed-eip2930-calldata-sample"
+                 "phase-a-sample.json/typed-eip2930-access-list-calldata-sample"
                  "phase-a-sample.json/typed-eip2930-contract-creation-sample"
                  "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
                  "phase-a-sample.json/typed-eip1559-calldata-sample"
                  "phase-a-sample.json/typed-eip1559-access-list-sample"
+                 "phase-a-sample.json/typed-eip1559-access-list-calldata-sample"
                  "phase-a-sample.json/typed-eip1559-contract-creation-sample")
                (fixture-object-field summary "names")))
     (is (equal summary
@@ -4194,6 +4309,22 @@
       (validate-transaction-fixture-input-coverage
        (cons (cons "dynamicFeeMessageCallDataVectorCount" 0)
              (remove "dynamicFeeMessageCallDataVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-input-coverage
+       (cons (cons "accessListWithCallDataVectorCount" 0)
+             (remove "accessListWithCallDataVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-input-coverage
+       (cons (cons "dynamicFeeAccessListWithCallDataVectorCount" 0)
+             (remove "dynamicFeeAccessListWithCallDataVectorCount"
                      summary
                      :key #'car
                      :test #'string=))

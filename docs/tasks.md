@@ -692,6 +692,13 @@ ones.
     `legacyMessageCallDataVectorCount`, so the Phase A/full selectors must
     keep legacy, EIP-2930 access-list, and EIP-1559 dynamic-fee calldata
     message-call paths distinct before pinned transaction-test replacement.
+  - Progress: added combined access-list plus calldata coverage for both
+    EIP-2930 and EIP-1559 transaction vectors. The seed envelope fixture and
+    EEST-shaped Phase A/full subsets now include non-empty calldata with one
+    warmed address and two storage keys, and the summary reports
+    `accessListWithCallDataVectorCount` plus
+    `dynamicFeeAccessListWithCallDataVectorCount` so access-list intrinsic gas
+    cannot drift independently from calldata intrinsic gas.
 
 ## P0: Module Boundaries
 
