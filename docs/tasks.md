@@ -1682,6 +1682,12 @@ splits can land after the Phase A smoke path closes.
     missing-account proof in a non-empty branch/extension state trie, so
     `state-db-get-proof` / `state-db-verify-proof` coverage is tied to trie
     structure instead of only shallow account/storage examples.
+  - Progress: promoted the Nethermind-guided account trie proof coverage into
+    the state-proof fixture set. The seed proof wrapper now includes exact
+    geth-shaped proof vectors for leaf, branch, extension, and
+    branch/extension account-trie layouts, and the required tag/name gates
+    fail if those layout proofs are dropped before pinned proof vectors
+    replace the in-repo samples.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

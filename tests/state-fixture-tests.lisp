@@ -138,6 +138,10 @@
     "prefixless-storage-key-request"
     "storage-deleted-missing"
     "multi-storage-present"
+    "state-trie-leaf-proof"
+    "state-trie-branch-proof"
+    "state-trie-extension-proof"
+    "state-trie-branch-extension-proof"
     "geth-shaped-result"))
 
 (defparameter +state-proof-fixture-required-case-names+
@@ -147,7 +151,11 @@
     "present-account-with-prefixless-storage-key-request"
     "missing-account-proof"
     "present-account-deleted-storage-proof"
-    "present-account-with-multiple-present-storage-proofs"))
+    "present-account-with-multiple-present-storage-proofs"
+    "nethermind-state-trie-leaf-account-proof"
+    "nethermind-state-trie-branch-account-proof"
+    "nethermind-state-trie-extension-account-proof"
+    "nethermind-state-trie-branch-extension-missing-account-proof"))
 
 (defparameter +state-proof-fixture-required-tags+
   '("empty-state-proof"
@@ -159,6 +167,10 @@
     "prefixless-storage-key-request"
     "storage-deleted-missing"
     "multi-storage-present"
+    "state-trie-leaf-proof"
+    "state-trie-branch-proof"
+    "state-trie-extension-proof"
+    "state-trie-branch-extension-proof"
     "geth-shaped-result"))
 
 (defun validate-state-root-fixture-object-fields
