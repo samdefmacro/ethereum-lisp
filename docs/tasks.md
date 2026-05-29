@@ -1682,6 +1682,10 @@ splits can land after the Phase A smoke path closes.
     cases proving that adding balance creates the expected account root and
     that adding balance to an account with existing code and storage preserves
     its code hash, storage root, account RLP, and final state root.
+    Extended `addBalance` coverage across branch, extension, and branch-into-
+    extension account-trie roots, locking sibling account projections,
+    compressed paths, hashed child references, and final roots after a balance
+    update.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

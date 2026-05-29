@@ -180,7 +180,8 @@ secure state root prototype are implemented. The minimal legacy transfer spine
 now avoids creating empty zero-value recipients and preserves value balance for
 self-transfers. Fixture-driven state-root coverage now locks balance-add
 updates, including withdrawal/reward-style creation of a funded account and
-balance changes that preserve existing code and storage commitments. Proofs,
+balance changes that preserve existing code and storage commitments across
+leaf, branch, extension, and branch-into-extension account trie roots. Proofs,
 persistence integration, deletion edge cases, and fixture compatibility remain.
 
 ## 4. EVM
