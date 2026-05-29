@@ -1676,6 +1676,12 @@ splits can land after the Phase A smoke path closes.
     sibling account projections, compressed extension paths, branch child
     shapes/references, and final roots for all three nontrivial account-update
     trie shapes.
+    Added fixture-driven `addBalance` state-root coverage for withdrawal/reward
+    style balance updates. The state-root runner now replays `addBalance`
+    operations through the real state DB and the final-state model, with seed
+    cases proving that adding balance creates the expected account root and
+    that adding balance to an account with existing code and storage preserves
+    its code hash, storage root, account RLP, and final state root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

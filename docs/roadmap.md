@@ -178,8 +178,10 @@ and `Nethermind.State`, and Reth trie/provider boundaries.
 Status: minimal in-memory root calculation, code storage, snapshot/restore, and
 secure state root prototype are implemented. The minimal legacy transfer spine
 now avoids creating empty zero-value recipients and preserves value balance for
-self-transfers. Proofs, persistence integration, deletion edge cases, and
-fixture compatibility remain.
+self-transfers. Fixture-driven state-root coverage now locks balance-add
+updates, including withdrawal/reward-style creation of a funded account and
+balance changes that preserve existing code and storage commitments. Proofs,
+persistence integration, deletion edge cases, and fixture compatibility remain.
 
 ## 4. EVM
 

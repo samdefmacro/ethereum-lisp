@@ -57,7 +57,7 @@
   '("key" "value" "proof"))
 
 (defparameter +state-root-fixture-operation-fields+
-  '("op" "address" "nonce" "balance" "slot" "value" "code"))
+  '("op" "address" "nonce" "balance" "amount" "slot" "value" "code"))
 
 (defparameter +state-root-fixture-storage-root-fields+
   '("address" "root"))
@@ -88,6 +88,7 @@
     "multi-account"
     "account-projection"
     "account-update"
+    "balance-update"
     "account-prune"
     "account-clear-missing-noop"
     "storage-update"
@@ -115,6 +116,8 @@
     "account-update-overwrites-nonce-balance-root"
     "account-update-preserves-storage-root"
     "account-update-preserves-code-and-storage-root"
+    "balance-add-creates-account-root"
+    "balance-add-preserves-code-and-storage-root"
     "account-clear-prunes-to-empty-root"
     "account-clear-prunes-code-and-storage-root"
     "account-clear-preserves-sibling-account-root"
@@ -164,6 +167,7 @@
     "multi-account"
     "account-projection"
     "account-update"
+    "balance-update"
     "account-prune"
     "account-clear-missing-noop"
     "storage-update"
@@ -387,6 +391,12 @@
       ((string= op "setAccount")
        (validate-state-root-fixture-non-negative-integer operation "nonce")
        (validate-state-root-fixture-non-negative-integer operation "balance"))
+      ((string= op "addBalance")
+       (validate-state-root-fixture-non-negative-integer
+        operation "amount" :required-p t)
+       (validate-state-root-fixture-operation-absent-fields
+        operation
+        '("nonce" "balance" "slot" "value" "code")))
       ((string= op "setStorage")
        (validate-state-root-fixture-hash-field
         operation
@@ -696,6 +706,9 @@
         (make-state-account
          :nonce (state-fixture-number operation "nonce")
          :balance (state-fixture-number operation "balance"))))
+      ((string= op "addBalance")
+       (state-db-add-balance
+        state address (state-fixture-number operation "amount")))
       ((string= op "setStorage")
        (state-db-set-storage
         state address
@@ -762,6 +775,12 @@
              (state-fixture-number operation "nonce")
              (state-root-fixture-account-state-balance account-state)
              (state-fixture-number operation "balance")))
+      ((string= op "addBalance")
+       (setf account-state
+             (state-root-fixture-account-state states address :create-p t)
+             (state-root-fixture-account-state-balance account-state)
+             (+ (state-root-fixture-account-state-balance account-state)
+                (state-fixture-number operation "amount"))))
       ((string= op "setStorage")
        (let* ((slot (fixture-object-field operation "slot"))
               (value (state-fixture-number operation "value"))

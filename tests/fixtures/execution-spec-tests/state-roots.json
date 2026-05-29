@@ -1060,6 +1060,86 @@
       "expectedRoot": "0xb79b5dc841fb11134bd46e03038010008647850605a5bc7e19576344e499c371"
     },
     {
+      "name": "balance-add-creates-account-root",
+      "tags": [
+        "account-root",
+        "balance-update",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000110",
+          "amount": 777
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000110",
+          "nonce": 0,
+          "balance": 777,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf84680820309a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0xc871270608d15a7faf5b5bcef73b9edc45c39bfc61ae794817ca1cd522a9e41f"
+    },
+    {
+      "name": "balance-add-preserves-code-and-storage-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-root-projection",
+        "code-root",
+        "balance-update",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000111",
+          "nonce": 2,
+          "balance": 10
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000111",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 5
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000111",
+          "code": "0x60016002"
+        },
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000111",
+          "amount": 30
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000111",
+          "nonce": 2,
+          "balance": 40,
+          "storageRoot": "0x507dc864c12c35fa19f6a8c824601ce2f1bedd1fdf454c2df2f2a7ce411a6d6f",
+          "codeHash": "0xb19850dcf719b03fe1369d0896d0f58edfad601bcc6f2ad0e248cf3562d4df14",
+          "rlp": "0xf8440228a0507dc864c12c35fa19f6a8c824601ce2f1bedd1fdf454c2df2f2a7ce411a6d6fa0b19850dcf719b03fe1369d0896d0f58edfad601bcc6f2ad0e248cf3562d4df14"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000111",
+          "root": "0x507dc864c12c35fa19f6a8c824601ce2f1bedd1fdf454c2df2f2a7ce411a6d6f"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0xecf2fd9ae584c2eaa6dfda337876bad48f0aff966b721d9c70f3002d676e243a"
+    },
+    {
       "name": "account-clear-prunes-to-empty-root",
       "tags": ["account-root", "account-update", "account-prune"],
       "operations": [
