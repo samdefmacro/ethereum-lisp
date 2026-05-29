@@ -187,6 +187,7 @@
     "multi-storage-present"
     "state-trie-leaf-proof"
     "state-trie-branch-proof"
+    "state-trie-branch-missing-after-clear-proof"
     "state-trie-extension-proof"
     "state-trie-branch-extension-proof"
     "geth-shaped-result"))
@@ -201,6 +202,7 @@
     "present-account-with-multiple-present-storage-proofs"
     "nethermind-state-trie-leaf-account-proof"
     "nethermind-state-trie-branch-account-proof"
+    "state-trie-branch-missing-account-after-clear-proof"
     "nethermind-state-trie-extension-account-proof"
     "nethermind-state-trie-branch-extension-missing-account-proof"))
 
@@ -216,6 +218,7 @@
     "multi-storage-present"
     "state-trie-leaf-proof"
     "state-trie-branch-proof"
+    "state-trie-branch-missing-after-clear-proof"
     "state-trie-extension-proof"
     "state-trie-branch-extension-proof"
     "geth-shaped-result"))
