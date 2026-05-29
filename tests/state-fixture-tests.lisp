@@ -110,6 +110,8 @@
 (defparameter +state-root-fixture-required-case-names+
   '("empty-state-root"
     "single-account-nonce-balance-root"
+    "explicit-empty-account-root"
+    "explicit-empty-account-clear-prunes-to-empty-root"
     "account-update-overwrites-nonce-balance-root"
     "account-update-preserves-storage-root"
     "account-clear-prunes-to-empty-root"

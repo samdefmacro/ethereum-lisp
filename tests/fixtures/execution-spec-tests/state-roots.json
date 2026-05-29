@@ -28,6 +28,43 @@
       "expectedRoot": "0x347c439d44650f6280a9a4c057975292b7bdd604f2ad15d4815355708d8fd449"
     },
     {
+      "name": "explicit-empty-account-root",
+      "tags": ["account-root", "account-projection"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000109"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000109",
+          "nonce": 0,
+          "balance": 0,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448080a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0x111f66bfa9d45667caecfee57636ca200ad1905d9673acbfc833149b3cb215a3"
+    },
+    {
+      "name": "explicit-empty-account-clear-prunes-to-empty-root",
+      "tags": ["account-root", "account-prune"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000109"
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x0000000000000000000000000000000000000109"
+        }
+      ],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    {
       "name": "nethermind-state-trie-leaf-root",
       "tags": ["account-root", "state-trie-leaf"],
       "operations": [

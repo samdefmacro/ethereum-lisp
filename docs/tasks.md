@@ -1648,6 +1648,10 @@ splits can land after the Phase A smoke path closes.
     overwrite one slot while preserving sibling storage slots, storage root
     projections, account RLPs, branch child shapes/references, and extension
     path/reference expectations behind named seed-case gates.
+    Added explicit empty-account state-root fixtures that lock the non-empty
+    trie root/account RLP produced by `setAccount` with zero nonce/balance and
+    the EIP-161-style `clearAccount` transition back to the empty state root
+    behind named seed-case gates.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
