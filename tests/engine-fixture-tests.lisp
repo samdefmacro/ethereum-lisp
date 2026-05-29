@@ -67,8 +67,13 @@
     "storageAddress"
     "storageKey"
     "storageValue"
+    "recipients"
+    "recipientBalances"
     "receiptType"
-    "receiptStatus"))
+    "receiptStatus"
+    "receiptTypes"
+    "receiptStatuses"
+    "cumulativeGasUsed"))
 
 (defun validate-engine-fixture-non-empty-string (value label)
   (unless (stringp value)
@@ -171,6 +176,32 @@
       (error (condition)
         (error "~A ~A must be a 32-byte hash: ~A"
                label field condition)))))
+
+(defun validate-engine-fixture-quantity-array-field
+    (object field label expected-length)
+  (when (fixture-field-present-p object field)
+    (let ((values (fixture-object-field object field)))
+      (unless (and (listp values) (= expected-length (length values)))
+        (error "~A ~A must be a JSON array with ~D entries"
+               label field expected-length))
+      (dolist (value values)
+        (validate-engine-fixture-quantity-field
+         (list (cons field value))
+         field
+         label)))))
+
+(defun validate-engine-fixture-address-array-field
+    (object field label expected-length)
+  (when (fixture-field-present-p object field)
+    (let ((values (fixture-object-field object field)))
+      (unless (and (listp values) (= expected-length (length values)))
+        (error "~A ~A must be a JSON array with ~D entries"
+               label field expected-length))
+      (dolist (value values)
+        (validate-engine-fixture-address-field
+         (list (cons field value))
+         field
+         label)))))
 
 (defun validate-engine-fixture-transaction-bytes (value label)
   (unless (stringp value)
@@ -367,7 +398,8 @@
                (quantity-to-hex expected-base-fee)
                (quantity-to-hex payload-base-fee))))))
 
-(defun validate-engine-fixture-expect-shape (expect case-name)
+(defun validate-engine-fixture-expect-shape
+    (expect case-name transaction-count)
   (let ((label (format nil
                        "Engine newPayloadV2 fixture case ~A expect"
                        case-name)))
@@ -399,7 +431,17 @@
         (validate-engine-fixture-quantity-field expect field label)))
     (validate-engine-fixture-code-field expect "code" label)
     (validate-engine-fixture-hash-field expect "storageKey" label)
-    (validate-engine-fixture-hash-field expect "storageValue" label)))
+    (validate-engine-fixture-hash-field expect "storageValue" label)
+    (validate-engine-fixture-address-array-field
+     expect "recipients" label transaction-count)
+    (validate-engine-fixture-quantity-array-field
+     expect "recipientBalances" label transaction-count)
+    (validate-engine-fixture-quantity-array-field
+     expect "receiptTypes" label transaction-count)
+    (validate-engine-fixture-quantity-array-field
+     expect "receiptStatuses" label transaction-count)
+    (validate-engine-fixture-quantity-array-field
+     expect "cumulativeGasUsed" label transaction-count)))
 
 (defun fixture-account-balance (state address)
   (let ((account (state-db-get-account state address)))
@@ -440,23 +482,86 @@
          (base-fee (fixture-quantity-field payload "baseFeePerGas"))
          (raw-transactions (fixture-object-field payload "transactions"))
          (withdrawals (fixture-object-field payload "withdrawals")))
-    (unless (= 1 (length raw-transactions))
-      (error "~A currently requires exactly one transaction" label))
     (unless (= 1 (length withdrawals))
       (error "~A currently requires exactly one withdrawal" label))
-    (let* ((transaction (transaction-from-encoding
-                         (hex-to-bytes (first raw-transactions))))
+    (let* ((transactions
+             (mapcar (lambda (raw)
+                       (transaction-from-encoding (hex-to-bytes raw)))
+                     raw-transactions))
+           (transaction (first transactions))
            (withdrawal (first withdrawals))
            (sender (transaction-sender transaction :expected-chain-id chain-id))
            (recipient (transaction-to transaction))
            (parent-state (engine-fixture-parent-state parent)))
       (unless sender
         (error "~A sender recovery failed" label))
+      (dolist (tx transactions)
+        (let ((tx-sender (transaction-sender tx :expected-chain-id chain-id)))
+          (unless tx-sender
+            (error "~A sender recovery failed" label))
+          (assert-engine-fixture-address=
+           tx-sender
+           sender
+           label
+           "sender")))
       (assert-engine-fixture-address=
        (fixture-address-field expect "sender")
        sender
        label
        "sender")
+      (when (> (length transactions) 1)
+        (unless (and (fixture-field-present-p expect "recipients")
+                     (fixture-field-present-p expect "recipientBalances")
+                     (fixture-field-present-p expect "receiptTypes")
+                     (fixture-field-present-p expect "receiptStatuses")
+                     (fixture-field-present-p expect "cumulativeGasUsed"))
+          (error "~A multi-transaction cases must provide recipients, recipientBalances, receiptTypes, receiptStatuses, and cumulativeGasUsed"
+                 label))
+        (loop for tx in transactions
+              for index from 0
+              unless (= (transaction-nonce tx)
+                        (+ (fixture-account-nonce parent-state sender)
+                           index))
+                do (error "~A transaction ~D nonce is not consecutive"
+                          label index))
+        (loop for tx in transactions
+              for recipient-hex in (fixture-object-field expect "recipients")
+              for expected-recipient = (address-from-hex recipient-hex)
+              unless (transaction-to tx)
+                do (error "~A multi-transaction case contains contract creation"
+                          label)
+              do (assert-engine-fixture-address=
+                  (transaction-to tx)
+                  expected-recipient
+                  label
+                  "recipients"))
+        (loop for recipient-hex in (fixture-object-field expect "recipients")
+              for balance-hex in (fixture-object-field expect "recipientBalances")
+              for expected-recipient = (address-from-hex recipient-hex)
+              for expected-balance = (hex-to-quantity balance-hex)
+              do (assert-engine-fixture-quantity=
+                  expected-balance
+                  (+ (fixture-account-balance parent-state expected-recipient)
+                     (loop for tx in transactions
+                           when (bytes= (address-bytes (transaction-to tx))
+                                        (address-bytes expected-recipient))
+                             sum (transaction-value tx)))
+                  label
+                  "recipientBalances"))
+        (loop for tx in transactions
+              for receipt-type-hex in (fixture-object-field expect "receiptTypes")
+              for receipt-status-hex in (fixture-object-field expect "receiptStatuses")
+              do (progn
+                   (assert-engine-fixture-quantity=
+                    (hex-to-quantity receipt-type-hex)
+                    (transaction-type tx)
+                    label
+                    "receiptTypes")
+                   (assert-engine-fixture-quantity=
+                    (hex-to-quantity receipt-status-hex)
+                    1
+                    label
+                    "receiptStatuses"))))
       (if recipient
           (progn
             (unless (fixture-field-present-p expect "recipient")
@@ -520,7 +625,7 @@
          "transactionNonce")
         (assert-engine-fixture-quantity=
          (fixture-quantity-field expect "senderNonce")
-         (1+ parent-sender-nonce)
+         (+ parent-sender-nonce (length transactions))
          label
          "senderNonce"))
       (assert-engine-fixture-quantity=
@@ -534,11 +639,15 @@
       (when recipient
         (assert-engine-fixture-quantity=
          (fixture-quantity-field expect "senderBalance")
-         (- (fixture-account-balance parent-state sender)
-            (transaction-value transaction)
-            (* (transaction-intrinsic-gas transaction)
-               (transaction-effective-gas-price transaction
-                                                :base-fee base-fee)))
+         (loop with balance = (fixture-account-balance parent-state sender)
+               for tx in transactions
+               do (decf balance
+                        (+ (transaction-value tx)
+                           (* (transaction-intrinsic-gas tx)
+                              (transaction-effective-gas-price
+                               tx
+                               :base-fee base-fee))))
+               finally (return balance))
          label
          "senderBalance"))
       (assert-engine-fixture-quantity=
@@ -585,7 +694,12 @@
        payload
        name))
     (let ((expect (fixture-required-field case "expect")))
-      (validate-engine-fixture-expect-shape expect name)
+      (validate-engine-fixture-expect-shape
+       expect
+       name
+       (length (fixture-required-field
+                (fixture-required-field case "payload")
+                "transactions")))
       (validate-engine-fixture-expect-coherence
        case
        (fixture-required-field case "parent")
@@ -803,6 +917,12 @@
         (cons "id" id)
         (cons "method" "eth_getTransactionReceipt")
         (cons "params" (list (hash32-to-hex hash)))))
+
+(defun engine-fixture-block-receipts-request (id tag)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getBlockReceipts")
+        (cons "params" (list tag))))
 
 (defun engine-newpayload-v2-metadata-shape-test-fixture
     (&key top-extra eest-extra reference-extra)
@@ -1295,6 +1415,245 @@
                 "shanghai-dynamic-fee-transfer-with-withdrawal"
                 "missing-engine-smoke-case")))
         (validate-engine-newpayload-v2-smoke-coverage cases)))))
+
+(deftest engine-newpayload-v2-fixture-multi-transaction-receipts
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((case
+             (select-engine-newpayload-v2-fixture-case
+              +engine-newpayload-v2-fixture-path+
+              "shanghai-two-legacy-transfers-with-withdrawal"))
+           (store (make-engine-payload-memory-store))
+           (config (engine-fixture-chain-config case))
+           (parent (fixture-object-field case "parent"))
+           (payload-case (fixture-object-field case "payload"))
+           (expect (fixture-object-field case "expect"))
+           (parent-state (engine-fixture-parent-state parent))
+           (fee-recipient (fixture-address-field parent "feeRecipient"))
+           (transactions
+             (mapcar (lambda (raw)
+                       (transaction-from-encoding (hex-to-bytes raw)))
+                     (fixture-object-field payload-case "transactions")))
+           (withdrawals
+             (mapcar #'engine-fixture-withdrawal
+                     (fixture-object-field payload-case "withdrawals")))
+           (transaction-hashes (mapcar #'transaction-hash transactions))
+           (expected-cumulative-gas
+             (fixture-object-field expect "cumulativeGasUsed"))
+           (expected-receipt-types
+             (fixture-object-field expect "receiptTypes"))
+           (expected-receipt-statuses
+             (fixture-object-field expect "receiptStatuses")))
+      (let* ((parent-header
+               (make-block-header
+                :parent-hash (zero-hash32)
+                :beneficiary fee-recipient
+                :state-root (state-db-root parent-state)
+                :mix-hash (zero-hash32)
+                :number (fixture-quantity-field parent "number")
+                :gas-limit (fixture-quantity-field parent "gasLimit")
+                :gas-used (fixture-quantity-field parent "gasUsed")
+                :timestamp (fixture-quantity-field parent "timestamp")
+                :base-fee-per-gas
+                (fixture-quantity-field parent "baseFeePerGas")
+                :withdrawals-root (withdrawal-list-root '())))
+             (parent-block (make-block :header parent-header))
+             (child-state (state-db-copy parent-state))
+             (child-header
+               (make-block-header
+                :parent-hash (block-hash parent-block)
+                :beneficiary fee-recipient
+                :mix-hash (zero-hash32)
+                :number (fixture-quantity-field payload-case "number")
+                :gas-limit (fixture-quantity-field payload-case "gasLimit")
+                :gas-used 0
+                :timestamp (fixture-quantity-field payload-case "timestamp")
+                :base-fee-per-gas
+                (fixture-quantity-field payload-case "baseFeePerGas")))
+             (child-block
+               (execute-signed-block
+                child-state
+                transactions
+                :expected-chain-id (chain-config-chain-id config)
+                :header child-header
+                :chain-config config
+                :withdrawals withdrawals))
+             (side-state (state-db-copy parent-state))
+             (side-header
+               (make-block-header
+                :parent-hash (block-hash parent-block)
+                :beneficiary fee-recipient
+                :mix-hash
+                (hash32-from-hex
+                 "0x0200000000000000000000000000000000000000000000000000000000000000")
+                :number (fixture-quantity-field payload-case "number")
+                :gas-limit (fixture-quantity-field payload-case "gasLimit")
+                :gas-used 0
+                :timestamp
+                (1+ (fixture-quantity-field payload-case "timestamp"))
+                :base-fee-per-gas
+                (fixture-quantity-field payload-case "baseFeePerGas")))
+             (side-block
+               (execute-signed-block
+                side-state
+                '()
+                :expected-chain-id (chain-config-chain-id config)
+                :header side-header
+                :chain-config config
+                :withdrawals withdrawals))
+             (payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data child-block)))
+             (side-payload
+               (execution-payload-envelope-execution-payload
+                (block-to-executable-data side-block))))
+        (engine-payload-store-put-block
+         store parent-block :state-available-p t)
+        (commit-state-db-to-chain-store
+         store (block-hash parent-block) parent-state)
+        (is (string= +payload-status-valid+
+                     (field
+                      (field
+                       (engine-rpc-handle-request
+                        (engine-fixture-payload-request 201 payload)
+                        store config
+                        :import-function #'execute-and-commit-engine-payload)
+                       "result")
+                      "status")))
+        (is (string= +payload-status-valid+
+                     (field
+                      (field
+                       (engine-rpc-handle-request
+                        (engine-fixture-payload-request 202 side-payload)
+                        store config
+                        :import-function #'execute-and-commit-engine-payload)
+                       "result")
+                      "status")))
+        (engine-rpc-handle-request
+         (engine-fixture-forkchoice-request
+          203 (block-hash child-block)
+          :safe (block-hash parent-block)
+          :finalized (block-hash parent-block))
+         store config)
+        (let* ((block-receipts
+                 (field (engine-rpc-handle-request
+                         (engine-fixture-block-receipts-request
+                          204 "latest")
+                         store config)
+                        "result"))
+               (full-block
+                 (field (engine-rpc-handle-request
+                         (engine-fixture-block-by-number-request
+                          205 "latest" t)
+                         store config)
+                        "result"))
+               (full-transactions (field full-block "transactions")))
+          (is (= 2 (length block-receipts)))
+          (is (= 2 (length full-transactions)))
+          (is (string= (quantity-to-hex 2)
+                       (field
+                        (engine-rpc-handle-request
+                         (engine-fixture-transaction-count-by-number-request
+                          206 "latest")
+                         store config)
+                        "result")))
+          (is (string= (quantity-to-hex 2)
+                       (field
+                        (engine-rpc-handle-request
+                         (engine-fixture-transaction-count-by-hash-request
+                          207 (block-hash child-block))
+                         store config)
+                        "result")))
+          (loop for tx in transactions
+                for tx-hash in transaction-hashes
+                for receipt in block-receipts
+                for full-transaction in full-transactions
+                for receipt-type in expected-receipt-types
+                for receipt-status in expected-receipt-statuses
+                for cumulative-gas in expected-cumulative-gas
+                for index from 0
+                do (let* ((receipt-by-hash
+                            (field
+                             (engine-rpc-handle-request
+                              (engine-fixture-receipt-request
+                               (+ 210 index) tx-hash)
+                              store config)
+                             "result"))
+                          (raw-transaction
+                            (field
+                             (engine-rpc-handle-request
+                              (engine-fixture-raw-transaction-by-block-number-request
+                               (+ 220 index) "latest" index)
+                              store config)
+                             "result"))
+                          (transaction-by-block
+                            (field
+                             (engine-rpc-handle-request
+                              (engine-fixture-transaction-by-block-hash-request
+                               (+ 230 index) (block-hash child-block) index)
+                              store config)
+                             "result"))
+                          (transaction-by-hash
+                            (field
+                             (engine-rpc-handle-request
+                              (engine-fixture-transaction-by-hash-request
+                               (+ 240 index) tx-hash)
+                              store config)
+                             "result"))
+                          (previous-cumulative
+                            (if (zerop index)
+                                0
+                                (hex-to-quantity
+                                 (nth (1- index)
+                                      expected-cumulative-gas))))
+                          (gas-used
+                            (- (hex-to-quantity cumulative-gas)
+                               previous-cumulative)))
+                     (is (string= (hash32-to-hex tx-hash)
+                                  (field receipt "transactionHash")))
+                     (is (string= (field receipt "transactionHash")
+                                  (field receipt-by-hash "transactionHash")))
+                     (is (string= receipt-type (field receipt "type")))
+                     (is (string= receipt-status (field receipt "status")))
+                     (is (string= cumulative-gas
+                                  (field receipt "cumulativeGasUsed")))
+                     (is (string= (quantity-to-hex gas-used)
+                                  (field receipt "gasUsed")))
+                     (is (string= (quantity-to-hex index)
+                                  (field receipt "transactionIndex")))
+                     (is (string= (hash32-to-hex tx-hash)
+                                  (field full-transaction "hash")))
+                     (is (string= (quantity-to-hex index)
+                                  (field full-transaction "transactionIndex")))
+                     (is (string= (bytes-to-hex (transaction-encoding tx))
+                                  raw-transaction))
+                     (is (string= (field full-transaction "hash")
+                                  (field transaction-by-block "hash")))
+                     (is (string= (field full-transaction "hash")
+                                  (field transaction-by-hash "hash"))))))
+        (engine-rpc-handle-request
+         (engine-fixture-forkchoice-request
+          250 (block-hash side-block)
+          :safe (block-hash parent-block)
+          :finalized (block-hash parent-block))
+         store config)
+        (is (null
+             (field (engine-rpc-handle-request
+                     (engine-fixture-block-receipts-request 251 "latest")
+                     store config)
+                    "result")))
+        (dolist (tx-hash transaction-hashes)
+          (is (null
+               (field (engine-rpc-handle-request
+                       (engine-fixture-transaction-by-hash-request
+                        252 tx-hash)
+                       store config)
+                      "result")))
+          (is (null
+               (field (engine-rpc-handle-request
+                       (engine-fixture-receipt-request 253 tx-hash)
+                       store config)
+                      "result"))))))))
 
 (deftest engine-newpayload-v2-fixture-executes-and-becomes-canonical
   (labels ((field (object name)

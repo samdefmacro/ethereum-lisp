@@ -1023,6 +1023,13 @@ splits can land after the Phase A smoke path closes.
     transaction families, and the access-list case runs through executable
     import, forkchoice, receipt, transaction lookup, and public RPC visibility
     checks.
+  - Progress: added a two-transaction Shanghai legacy-transfer Engine fixture
+    and replay test. The fixture schema can now express per-transaction
+    recipient balances, receipt types/statuses, and cumulative gas; the test
+    imports both transactions through `engine_newPayloadV2`, verifies ordered
+    block receipts, per-index raw/full transaction lookups, canonical
+    transaction-by-hash visibility, and disappearance after forkchoice selects
+    the empty sibling.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
