@@ -201,7 +201,8 @@ writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.
 Matching state-proof fixtures now cover missing, funded, and code-account
 cases where a zero-value storage write preserves the expected account
-presence/absence while keeping the storage trie empty.
+presence/absence while keeping the storage trie empty, and retained-state
+`eth_getProof` RPC reads verify the same boundaries from committed snapshots.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch

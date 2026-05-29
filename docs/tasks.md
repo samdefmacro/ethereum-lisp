@@ -1958,6 +1958,11 @@ splits can land after the Phase A smoke path closes.
     missing account leaves an empty account proof, while a zero write to a
     funded account preserves the leaf account proof and returns a null proof
     for the absent storage slot.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to the same
+    zero-value storage-write boundaries. The RPC test now commits missing,
+    funded, and code-account state snapshots, reads each proof by block hash,
+    checks the geth-shaped account/storage proof fields, and verifies the
+    decoded proof against the committed state root.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
