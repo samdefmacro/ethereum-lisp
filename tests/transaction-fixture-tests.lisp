@@ -58,8 +58,8 @@
   '("geth" "nethermind" "reth"))
 
 (defparameter +transaction-fixture-vector-fields+
-  '("name" "type" "chainId" "txbytes" "hash" "sender" "result" "decoded"
-    "accessList"))
+  '("name" "type" "chainId" "txbytes" "hash" "sender" "signature"
+    "result" "decoded" "accessList"))
 
 (defparameter +transaction-fixture-required-vector-fields+
   '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
@@ -74,6 +74,9 @@
   '("nonce" "gasLimit" "to" "value" "input" "gasPrice"
     "maxPriorityFeePerGas" "maxFeePerGas" "maxFeePerBlobGas"
     "blobVersionedHashes" "authorizationList"))
+
+(defparameter +transaction-fixture-signature-fields+
+  '("v" "yParity" "r" "s"))
 
 (defparameter +transaction-fixture-authorization-fields+
   '("chainId" "address" "nonce" "yParity" "r" "s"))
@@ -278,6 +281,34 @@
   (when (fixture-field-present-p decoded field)
     (validate-transaction-fixture-decoded-quantity-field decoded field label)))
 
+(defun validate-transaction-fixture-signature-shape (vector)
+  (when (fixture-field-present-p vector "signature")
+    (let ((signature (fixture-object-field vector "signature"))
+          (type (transaction-fixture-type-keyword
+                 (fixture-required-field vector "type")))
+          (label (format nil "Transaction fixture ~A signature"
+                         (fixture-object-field vector "name"))))
+      (validate-transaction-fixture-object-fields
+       signature
+       +transaction-fixture-signature-fields+
+       label)
+      (dolist (field '("yParity" "r" "s"))
+        (validate-transaction-fixture-decoded-quantity-field
+         signature
+         field
+         label))
+      (when (fixture-field-present-p signature "v")
+        (validate-transaction-fixture-decoded-quantity-field
+         signature
+         "v"
+         label))
+      (when (and (eq type :legacy)
+                 (not (fixture-field-present-p signature "v")))
+        (error "~A v must be present for legacy transactions" label))
+      (when (and (not (eq type :legacy))
+                 (fixture-field-present-p signature "v"))
+        (error "~A v is only valid for legacy transactions" label)))))
+
 (defun validate-transaction-fixture-decoded-address-field
     (decoded field label)
   (let ((value (fixture-object-field decoded field)))
@@ -456,6 +487,52 @@
    (cons "s"
          (quantity-to-hex
           (set-code-authorization-s authorization)))))
+
+(defun transaction-fixture-legacy-y-parity (transaction)
+  (let ((v (legacy-transaction-v transaction)))
+    (cond
+      ((or (= v 27) (= v 28)) (- v 27))
+      ((>= v 35) (mod (- v 35) 2))
+      (t nil))))
+
+(defun transaction-fixture-signature-object (transaction)
+  (etypecase transaction
+    (legacy-transaction
+     (list
+      (cons "v" (quantity-to-hex (legacy-transaction-v transaction)))
+      (cons "yParity"
+            (quantity-to-hex
+             (transaction-fixture-legacy-y-parity transaction)))
+      (cons "r" (quantity-to-hex (legacy-transaction-r transaction)))
+      (cons "s" (quantity-to-hex (legacy-transaction-s transaction)))))
+    (access-list-transaction
+     (list
+      (cons "yParity"
+            (quantity-to-hex
+             (access-list-transaction-y-parity transaction)))
+      (cons "r" (quantity-to-hex (access-list-transaction-r transaction)))
+      (cons "s" (quantity-to-hex (access-list-transaction-s transaction)))))
+    (dynamic-fee-transaction
+     (list
+      (cons "yParity"
+            (quantity-to-hex
+             (dynamic-fee-transaction-y-parity transaction)))
+      (cons "r" (quantity-to-hex (dynamic-fee-transaction-r transaction)))
+      (cons "s" (quantity-to-hex (dynamic-fee-transaction-s transaction)))))
+    (blob-transaction
+     (list
+      (cons "yParity"
+            (quantity-to-hex
+             (blob-transaction-y-parity transaction)))
+      (cons "r" (quantity-to-hex (blob-transaction-r transaction)))
+      (cons "s" (quantity-to-hex (blob-transaction-s transaction)))))
+    (set-code-transaction
+     (list
+      (cons "yParity"
+            (quantity-to-hex
+             (set-code-transaction-y-parity transaction)))
+      (cons "r" (quantity-to-hex (set-code-transaction-r transaction)))
+      (cons "s" (quantity-to-hex (set-code-transaction-s transaction)))))))
 
 (defun transaction-fixture-decoded-object (transaction)
   (let ((decoded
@@ -928,6 +1005,8 @@
               (cons "txbytes" txbytes)
               (cons "hash" (fixture-required-field success "hash"))
               (cons "sender" (fixture-required-field success "sender"))
+              (cons "signature"
+                    (transaction-fixture-signature-object transaction))
               (cons "decoded" (transaction-fixture-decoded-object transaction))
               (cons "result"
                     (eest-transaction-result-to-fixture-result
@@ -1038,6 +1117,12 @@
          (loop for vector in vectors
                count (fixture-field-present-p vector "decoded")))))
 
+(defun transaction-fixture-signature-summary (vectors)
+  (list
+   (cons "signatureVectorCount"
+         (loop for vector in vectors
+               count (fixture-field-present-p vector "signature")))))
+
 (defun validate-transaction-fixture-access-list-coverage (summary label)
   (dolist (field '("accessListVectorCount"
                    "accessListAddressCount"
@@ -1062,6 +1147,19 @@
              label))
     (unless (= value (length vectors))
       (error "~A summary has decodedVectorCount ~A but expected ~A"
+             label
+             value
+             (length vectors))))
+  summary)
+
+(defun validate-transaction-fixture-signature-coverage
+    (vectors summary label)
+  (let ((value (fixture-required-field summary "signatureVectorCount")))
+    (unless (and (integerp value) (not (minusp value)))
+      (error "~A summary field signatureVectorCount must be a non-negative integer"
+             label))
+    (unless (= value (length vectors))
+      (error "~A summary has signatureVectorCount ~A but expected ~A"
              label
              value
              (length vectors))))
@@ -1121,6 +1219,7 @@
                             (fixture-required-field vector "name"))
                           vectors)))
    (transaction-fixture-decoded-summary vectors)
+   (transaction-fixture-signature-summary vectors)
    (transaction-fixture-access-list-summary vectors)
    (transaction-fixture-result-count-summary vectors)))
 
@@ -1201,6 +1300,10 @@
      vectors
      summary
      "Phase A EEST transaction")
+    (validate-transaction-fixture-signature-coverage
+     vectors
+     summary
+     "Phase A EEST transaction")
     (validate-transaction-fixture-access-list-coverage
      summary
      "Phase A EEST transaction")
@@ -1233,6 +1336,10 @@
         (error "Full EEST transaction summary is missing required type ~A"
                type)))
     (validate-transaction-fixture-decoded-coverage
+     vectors
+     summary
+     "Full EEST transaction")
+    (validate-transaction-fixture-signature-coverage
      vectors
      summary
      "Full EEST transaction")
@@ -1298,7 +1405,7 @@
         (unless seed-vector
           (error "Seed transaction fixture is missing Phase A type ~A" type))
         (dolist (field '("type" "chainId" "txbytes" "hash" "sender"
-                         "decoded" "result"))
+                         "signature" "decoded" "result"))
           (unless (equal (fixture-required-field phase-a-vector field)
                          (fixture-required-field seed-vector field))
             (error "Phase A EEST transaction type ~A field ~A does not match seed fixture"
@@ -1330,7 +1437,7 @@
         (unless seed-vector
           (error "Seed transaction fixture is missing required type ~A" type))
         (dolist (field '("type" "chainId" "txbytes" "hash" "sender"
-                         "decoded" "result"))
+                         "signature" "decoded" "result"))
           (unless (equal (fixture-required-field eest-vector field)
                          (fixture-required-field seed-vector field))
             (error "EEST transaction type ~A field ~A does not match seed fixture"
@@ -1361,6 +1468,7 @@
   (transaction-fixture-txbytes-value vector)
   (validate-transaction-fixture-hash-field vector)
   (validate-transaction-fixture-address-field vector)
+  (validate-transaction-fixture-signature-shape vector)
   (validate-transaction-fixture-decoded-shape vector)
   (validate-transaction-fixture-access-list-shape vector))
 
@@ -1636,6 +1744,10 @@
    vectors
    (transaction-fixture-vector-summary vectors)
    "Transaction fixture")
+  (validate-transaction-fixture-signature-coverage
+   vectors
+   (transaction-fixture-vector-summary vectors)
+   "Transaction fixture")
   (validate-transaction-fixture-access-list-coverage
    (transaction-fixture-vector-summary vectors)
    "Transaction fixture"))
@@ -1870,6 +1982,15 @@
         (error "Transaction fixture ~A decoded payload does not match txbytes"
                (fixture-object-field vector "name"))))))
 
+(defun validate-transaction-fixture-signature
+    (vector transaction)
+  (when (fixture-field-present-p vector "signature")
+    (let ((expected (fixture-object-field vector "signature"))
+          (actual (transaction-fixture-signature-object transaction)))
+      (unless (equal expected actual)
+        (error "Transaction fixture ~A signature does not match txbytes"
+               (fixture-object-field vector "name"))))))
+
 (defun validate-transaction-fixture-decoded-vector (vector)
   (let* ((raw (transaction-fixture-txbytes-value vector))
          (chain-id (fixture-required-field vector "chainId"))
@@ -1887,6 +2008,7 @@
                      (address-to-hex sender))
       (error "Transaction fixture ~A sender does not match decoded transaction"
              (fixture-object-field vector "name")))
+    (validate-transaction-fixture-signature vector transaction)
     (validate-transaction-fixture-decoded-payload vector transaction)
     (validate-transaction-fixture-decoded-access-list vector transaction)
     (validate-transaction-fixture-derived-results vector transaction)
@@ -2577,6 +2699,16 @@
         (validate-transaction-fixture-decoded-vector
          (replace-field "sender"
                         "0x0000000000000000000000000000000000000000")))
+      (signals error
+        (validate-transaction-fixture-decoded-vector
+         (replace-field
+          "signature"
+          (list (cons "v" "0x25")
+                (cons "yParity" "0x1")
+                (cons "r"
+                      "0x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276")
+                (cons "s"
+                      "0x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83")))))
       (let ((message
               (handler-case
                   (progn
@@ -3153,6 +3285,14 @@
          (fixture-object-field typed-vector "decoded")))
     (is (equal
          (list
+          (cons "yParity" "0x0")
+          (cons "r"
+                "0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
+          (cons "s"
+                "0x1ed995b55ae531ccce7f7355b76d169c08886a437e3932f6f0e79c9dcc297aed"))
+         (fixture-object-field typed-vector "signature")))
+    (is (equal
+         (list
           (list
            (cons "address" "0x0000000000000000000000000000000000000101")
            (cons "storageKeys"
@@ -3176,6 +3316,7 @@
                  (:set-code . 1))
                (fixture-object-field all-summary "types")))
     (is (= 5 (fixture-object-field all-summary "decodedVectorCount")))
+    (is (= 5 (fixture-object-field all-summary "signatureVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListAddressCount")))
     (is (= 2 (fixture-object-field all-summary "accessListStorageKeyCount")))
@@ -3212,6 +3353,7 @@
     (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
     (is (= 3 (fixture-object-field summary "decodedVectorCount")))
+    (is (= 3 (fixture-object-field summary "signatureVectorCount")))
     (is (= 1 (fixture-object-field summary "accessListVectorCount")))
     (is (= 1 (fixture-object-field summary "accessListAddressCount")))
     (is (= 2 (fixture-object-field summary "accessListStorageKeyCount")))
@@ -3276,6 +3418,15 @@
        selected-vectors
        (cons (cons "decodedVectorCount" 0)
              (remove "decodedVectorCount" summary :key #'car :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-signature-coverage
+       selected-vectors
+       (cons (cons "signatureVectorCount" 0)
+             (remove "signatureVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
        "Phase A EEST transaction"))
     (is (equal vectors
                (validate-eest-transaction-seed-alignment

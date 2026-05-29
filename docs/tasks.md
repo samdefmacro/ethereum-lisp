@@ -609,6 +609,11 @@ ones.
     recipient, value, input bytes, fee fields, blob versioned hashes, and
     set-code authorization tuples from `txbytes`; summary gates require every
     selected Phase A/full transaction vector to carry the decoded projection.
+  - Progress: added exact signature projections to transaction vectors. Seed
+    and EEST-style imports now derive `v` (legacy), `yParity`, `r`, and `s`
+    from `txbytes`, compare those values during decoded-vector validation and
+    seed/EEST alignment, and require every selected Phase A/full vector to
+    carry signature coverage before sender-recovery assertions are accepted.
 
 ## P0: Module Boundaries
 
