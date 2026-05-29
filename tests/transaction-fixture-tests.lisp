@@ -1200,6 +1200,7 @@
 
 (defun transaction-fixture-input-summary (vectors)
   (let ((message-call-data-count 0)
+        (legacy-message-call-data-count 0)
         (typed-message-call-data-count 0)
         (access-list-message-call-data-count 0)
         (dynamic-fee-message-call-data-count 0))
@@ -1210,14 +1211,17 @@
         (when (and (transaction-to transaction)
                    (plusp (length (transaction-data transaction))))
           (incf message-call-data-count)
-          (unless (typep transaction 'legacy-transaction)
-            (incf typed-message-call-data-count))
+          (if (typep transaction 'legacy-transaction)
+              (incf legacy-message-call-data-count)
+              (incf typed-message-call-data-count))
           (when (typep transaction 'access-list-transaction)
             (incf access-list-message-call-data-count))
           (when (typep transaction 'dynamic-fee-transaction)
             (incf dynamic-fee-message-call-data-count)))))
     (list
      (cons "messageCallDataVectorCount" message-call-data-count)
+     (cons "legacyMessageCallDataVectorCount"
+           legacy-message-call-data-count)
      (cons "typedMessageCallDataVectorCount"
            typed-message-call-data-count)
      (cons "accessListMessageCallDataVectorCount"
@@ -1351,6 +1355,8 @@
     (summary label)
   (let ((value
           (fixture-required-field summary "messageCallDataVectorCount"))
+        (legacy-value
+          (fixture-required-field summary "legacyMessageCallDataVectorCount"))
         (typed-value
           (fixture-required-field summary "typedMessageCallDataVectorCount"))
         (access-list-value
@@ -1363,6 +1369,9 @@
            "dynamicFeeMessageCallDataVectorCount")))
     (unless (and (integerp value) (not (minusp value)))
       (error "~A summary field messageCallDataVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp legacy-value) (not (minusp legacy-value)))
+      (error "~A summary field legacyMessageCallDataVectorCount must be a non-negative integer"
              label))
     (unless (and (integerp typed-value) (not (minusp typed-value)))
       (error "~A summary field typedMessageCallDataVectorCount must be a non-negative integer"
@@ -1377,6 +1386,9 @@
              label))
     (when (zerop value)
       (error "~A summary is missing calldata message-call transaction coverage"
+             label))
+    (when (zerop legacy-value)
+      (error "~A summary is missing legacy calldata message-call transaction coverage"
              label))
     (when (zerop typed-value)
       (error "~A summary is missing typed calldata message-call transaction coverage"
@@ -3992,6 +4004,7 @@
     (is (= 1 (fixture-object-field all-summary "accessListContractCreationVectorCount")))
     (is (= 1 (fixture-object-field all-summary "dynamicFeeContractCreationVectorCount")))
     (is (= 3 (fixture-object-field all-summary "messageCallDataVectorCount")))
+    (is (= 1 (fixture-object-field all-summary "legacyMessageCallDataVectorCount")))
     (is (= 2 (fixture-object-field all-summary "typedMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field all-summary "dynamicFeeMessageCallDataVectorCount")))
@@ -4044,6 +4057,7 @@
     (is (= 1 (fixture-object-field summary "accessListContractCreationVectorCount")))
     (is (= 1 (fixture-object-field summary "dynamicFeeContractCreationVectorCount")))
     (is (= 3 (fixture-object-field summary "messageCallDataVectorCount")))
+    (is (= 1 (fixture-object-field summary "legacyMessageCallDataVectorCount")))
     (is (= 2 (fixture-object-field summary "typedMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field summary "accessListMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field summary "dynamicFeeMessageCallDataVectorCount")))
@@ -4156,6 +4170,14 @@
       (validate-transaction-fixture-input-coverage
        (cons (cons "typedMessageCallDataVectorCount" 0)
              (remove "typedMessageCallDataVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-input-coverage
+       (cons (cons "legacyMessageCallDataVectorCount" 0)
+             (remove "legacyMessageCallDataVectorCount"
                      summary
                      :key #'car
                      :test #'string=))

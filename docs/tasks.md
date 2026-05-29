@@ -687,6 +687,11 @@ ones.
     summary now reports `accessListMessageCallDataVectorCount`, and regression
     coverage fails if the selected Shanghai subset keeps only legacy or
     EIP-1559 calldata while dropping the access-list calldata vector.
+  - Progress: tightened the same calldata summary gate to require legacy
+    message-call data coverage explicitly. The summary now reports
+    `legacyMessageCallDataVectorCount`, so the Phase A/full selectors must
+    keep legacy, EIP-2930 access-list, and EIP-1559 dynamic-fee calldata
+    message-call paths distinct before pinned transaction-test replacement.
 
 ## P0: Module Boundaries
 
