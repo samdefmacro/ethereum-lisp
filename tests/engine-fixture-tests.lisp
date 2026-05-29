@@ -879,11 +879,15 @@
                     (hash32-to-hex slot)
                     "latest"))))
 
-(defun engine-fixture-proof-request (id address &optional (block-selector "latest"))
+(defun engine-fixture-proof-request
+    (id address &key (storage-keys '()) (block-selector "latest"))
   (list (cons "jsonrpc" "2.0")
         (cons "id" id)
         (cons "method" "eth_getProof")
-        (cons "params" (list (address-to-hex address) '() block-selector))))
+        (cons "params"
+              (list (address-to-hex address)
+                    (mapcar #'hash32-to-hex storage-keys)
+                    block-selector))))
 
 (defun engine-fixture-block-by-number-request (id tag full-transactions-p)
   (list (cons "jsonrpc" "2.0")
@@ -1863,6 +1867,23 @@
                  (state-db-get-proof expected-state value-address nil))
                (decoded-proof
                  (state-proof-result-from-rpc-object proof))
+               (storage-proof-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-proof-request
+                   136 storage-address :storage-keys (list storage-key))
+                  store config))
+               (storage-proof
+                 (field storage-proof-response "result"))
+               (storage-proof-entry
+                 (first (field storage-proof "storageProof")))
+               (expected-storage-proof
+                 (state-db-get-proof expected-state storage-address
+                                     (list storage-key)))
+               (expected-storage-entry
+                 (first (state-proof-result-storage-proofs
+                         expected-storage-proof)))
+               (decoded-storage-proof
+                 (state-proof-result-from-rpc-object storage-proof))
                (block-by-number-response
                  (engine-rpc-handle-request
                   (engine-fixture-block-by-number-request 108 "latest" nil)
@@ -2004,6 +2025,25 @@
           (is (state-db-verify-proof
                (block-header-state-root (block-header child-block))
                decoded-proof))
+          (is (string= (address-to-hex storage-address)
+                       (field storage-proof "address")))
+          (is (equal (mapcar #'bytes-to-hex
+                             (state-proof-result-account-proof
+                              expected-storage-proof))
+                     (field storage-proof "accountProof")))
+          (is (= 1 (length (field storage-proof "storageProof"))))
+          (is (string= (hash32-to-hex storage-key)
+                       (field storage-proof-entry "key")))
+          (is (string= (quantity-to-hex
+                        (state-storage-proof-value expected-storage-entry))
+                       (field storage-proof-entry "value")))
+          (is (equal (mapcar #'bytes-to-hex
+                             (state-storage-proof-proof
+                              expected-storage-entry))
+                     (field storage-proof-entry "proof")))
+          (is (state-db-verify-proof
+               (block-header-state-root (block-header child-block))
+               decoded-storage-proof))
           (is (string= (hash32-to-hex (block-hash child-block))
                        (field block-by-number "hash")))
           (is (string= (hash32-to-hex (block-hash parent-block))
@@ -2116,7 +2156,8 @@
                  (child-proof-by-hash-response
                    (engine-rpc-handle-request
                     (engine-fixture-proof-request
-                     135 value-address (hash32-to-hex (block-hash child-block)))
+                     135 value-address
+                     :block-selector (hash32-to-hex (block-hash child-block)))
                     store config))
                  (child-proof-by-hash
                    (field child-proof-by-hash-response "result"))

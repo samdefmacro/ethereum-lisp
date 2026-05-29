@@ -1059,6 +1059,12 @@ splits can land after the Phase A smoke path closes.
     at `latest` now follows the sibling's retained state root, while
     hash-addressed proof reads for the original child still return the
     non-canonical child proof.
+  - Progress: extended the fixture-driven Engine smoke from account-only
+    proofs to storage proofs. The selected smoke cases now request
+    `eth_getProof` with the retained storage slot from the imported child,
+    compare account and storage proof nodes with `state-db-get-proof`, preserve
+    geth-shaped quantity output for `storageProof.value`, and verify the
+    decoded proof against the child state root.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

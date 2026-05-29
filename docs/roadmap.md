@@ -102,8 +102,10 @@ fixes in those areas are allowed; expansion is not.
   two-branch canonical switching, with canonical `eth_getProof` replay and
   verification over the imported child state root plus branch-switch proof
   reads that distinguish canonical `latest` from hash-addressed non-canonical
-  child state; remaining Engine fixture work is mainly pinned-fixture breadth
-  rather than new smoke-path shape.
+  child state. The same smoke path now exercises retained storage proofs and
+  verifies geth-shaped `storageProof.value` quantities against the imported
+  child state root; remaining Engine fixture work is mainly pinned-fixture
+  breadth rather than new smoke-path shape.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing
