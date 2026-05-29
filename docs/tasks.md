@@ -1901,6 +1901,12 @@ splits can land after the Phase A smoke path closes.
     `addBalance` updates that preserve existing code and storage commitments,
     including exact geth-shaped account proof nodes plus present and missing
     storage proofs.
+  - Progress: extended balance-add proof coverage to zero-amount no-ops. The
+    fixture set now locks empty-state missing-account proof output, a funded
+    leaf-account proof whose root/account fields stay unchanged, and a
+    branch-shaped state trie missing-account proof after a zero-value
+    `addBalance`, with named seed-case gates so these observable RPC
+    boundaries cannot be dropped silently.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
