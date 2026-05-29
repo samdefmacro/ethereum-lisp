@@ -111,7 +111,9 @@
 
 (defparameter +state-root-fixture-required-case-names+
   '("empty-state-root"
+    "storage-zero-write-missing-account-keeps-empty-root"
     "single-account-nonce-balance-root"
+    "storage-zero-write-funded-empty-storage-keeps-account-root"
     "explicit-empty-account-root"
     "explicit-empty-account-clear-prunes-to-empty-root"
     "account-update-overwrites-nonce-balance-root"

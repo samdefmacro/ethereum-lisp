@@ -15,6 +15,24 @@
       "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
     },
     {
+      "name": "storage-zero-write-missing-account-keeps-empty-root",
+      "tags": [
+        "empty-state-root",
+        "storage-delete",
+        "storage-delete-missing-noop",
+        "storage-prune"
+      ],
+      "operations": [
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000402",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 0
+        }
+      ],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    {
       "name": "single-account-nonce-balance-root",
       "tags": ["account-root"],
       "operations": [
@@ -26,6 +44,55 @@
         }
       ],
       "expectedRoot": "0x347c439d44650f6280a9a4c057975292b7bdd604f2ad15d4815355708d8fd449"
+    },
+    {
+      "name": "storage-zero-write-funded-empty-storage-keeps-account-root",
+      "tags": [
+        "account-root",
+        "storage-delete",
+        "storage-delete-missing-noop",
+        "storage-root-projection",
+        "storage-trie-delete-to-empty",
+        "account-projection",
+        "state-trie-leaf"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000402",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000402",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 0
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000402",
+          "nonce": 0,
+          "balance": 1,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448001a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000402",
+          "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000402",
+          "shape": "empty"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0x01e04506ddf6abd9b97312c51143796a4ede43d81d5902fc74e074f45677001f"
     },
     {
       "name": "explicit-empty-account-root",

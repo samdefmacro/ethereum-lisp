@@ -1707,6 +1707,11 @@ splits can land after the Phase A smoke path closes.
     that writing zero to an absent slot preserves the account RLP, storage
     root, storage-trie child references, and final state root while still
     checking the touched slot reads back as zero.
+    Added the matching zero-value storage-write boundaries before a storage
+    trie exists: writing zero to a missing account preserves the empty state
+    root, while writing zero to an absent slot on a funded empty-storage
+    account preserves its empty storage root, account RLP, and leaf-shaped
+    account trie.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
