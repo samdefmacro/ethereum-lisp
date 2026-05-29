@@ -2160,6 +2160,11 @@ splits can land after the Phase A smoke path closes.
     surviving-slot and deleted-slot proof key/value/node-count shape, compares
     the geth-shaped response with `state-db-get-proof`, and verifies the
     decoded proof against the committed state root.
+  - Progress: added state-proof fixture and retained-state `eth_getProof` RPC
+    coverage for overwriting the same storage slot. The new proof vector writes
+    a slot twice, locks the final value proof plus a sibling missing-slot
+    proof, and the RPC regression verifies the same geth-shaped output from a
+    committed block-hash snapshot.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

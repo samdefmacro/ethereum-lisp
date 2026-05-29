@@ -263,6 +263,9 @@ Matching state-proof fixtures now cover missing, funded, and code-account
 cases where a zero-value storage write preserves the expected account
 presence/absence while keeping the storage trie empty, and retained-state
 `eth_getProof` RPC reads verify the same boundaries from committed snapshots.
+State-proof fixtures and retained-state `eth_getProof` RPC reads also cover
+same-slot storage overwrites, proving the final storage value and a sibling
+missing slot from the committed snapshot.
 Code-deletion proof fixtures also lock both pruning of code-created empty
 accounts and preservation of funded accounts after their code hash returns to
 the empty-code hash, with retained-state `eth_getProof` RPC reads now
