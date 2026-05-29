@@ -117,6 +117,56 @@
       "expectedRoot": "0x111f66bfa9d45667caecfee57636ca200ad1905d9673acbfc833149b3cb215a3"
     },
     {
+      "name": "storage-zero-write-code-account-keeps-code-root",
+      "tags": [
+        "account-root",
+        "storage-delete",
+        "storage-delete-missing-noop",
+        "storage-root-projection",
+        "storage-trie-delete-to-empty",
+        "code-root",
+        "account-projection",
+        "state-trie-leaf"
+      ],
+      "operations": [
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000107",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000107",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000000a",
+          "value": 0
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000107",
+          "nonce": 0,
+          "balance": 0,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xcf61a6eb3b9b89e75f1dadf3dcd16509616896cb50eac765a68fa27bbbc6de82",
+          "rlp": "0xf8448080a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0cf61a6eb3b9b89e75f1dadf3dcd16509616896cb50eac765a68fa27bbbc6de82"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000107",
+          "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000107",
+          "shape": "empty"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0x8547027040b88f78d4ea982d95387892c19846e55785e2f7ebf5ae914504a52a"
+    },
+    {
       "name": "explicit-empty-account-clear-prunes-to-empty-root",
       "tags": ["account-root", "account-prune"],
       "operations": [
