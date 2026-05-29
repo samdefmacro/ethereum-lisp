@@ -248,6 +248,81 @@
       }
     },
     {
+      "name": "state-trie-branch-account-update-preserves-code-storage-proof",
+      "tags": [
+        "present-account",
+        "storage-present",
+        "storage-missing",
+        "account-update-proof",
+        "state-trie-branch-proof",
+        "geth-shaped-result"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 1000
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000201",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "value": 42
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000201",
+          "code": "0x6001600201"
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201"
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000201",
+        "storageKeys": [
+          "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "0x000000000000000000000000000000000000000000000000000000000000002b"
+        ]
+      },
+      "expectedRoot": "0xf647e549057117fee3b665e1de6b9870a6cdb7e87d73f430e0eb0bd919991b37",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000201",
+        "accountProof": [
+          "0xf8518080808080808080808080a02479570f580238f2f3693bb82b3a6cfaecfdf6dedbfed5ae46fecf2381fc507d80a02bd5a85a9e4c9013ff0140882384d08862a5844279459baa993bba44cc71a061808080",
+          "0xf869a038537d8c61b5b671c520f767533666ce1cfd1dcbd6513bab30b3af087f68c707b846f8448080a0b9f5fb45a18ed4c29f60de2702492288a7d32c6eab5c2bb35664bbf5fa529fb7a0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d"
+        ],
+        "balance": "0x0",
+        "codeHash": "0xdecae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d",
+        "nonce": "0x0",
+        "storageHash": "0xb9f5fb45a18ed4c29f60de2702492288a7d32c6eab5c2bb35664bbf5fa529fb7",
+        "storageProof": [
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000002a",
+            "value": "0x2a",
+            "proof": [
+              "0xe3a120beced09521047d05b8960b7e7bcc1d1292cf3e4b2a6b63f48335cbde5f7545d22a"
+            ]
+          },
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000002b",
+            "value": "0x0",
+            "proof": [
+              "0xe3a120beced09521047d05b8960b7e7bcc1d1292cf3e4b2a6b63f48335cbde5f7545d22a"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "missing-account-proof",
       "tags": ["missing-account", "geth-shaped-result"],
       "operations": [

@@ -231,6 +231,84 @@
       }
     },
     {
+      "name": "state-trie-branch-account-update-preserves-code-storage-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-root-projection",
+        "code-root",
+        "multi-account",
+        "account-update",
+        "account-projection",
+        "state-trie-branch",
+        "state-trie-branch-child-references"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 1000
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000201",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "value": 42
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000201",
+          "code": "0x6001600201"
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201"
+        }
+      ],
+      "expectedRoot": "0xf647e549057117fee3b665e1de6b9870a6cdb7e87d73f430e0eb0bd919991b37",
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 0,
+          "balance": 0,
+          "storageRoot": "0xb9f5fb45a18ed4c29f60de2702492288a7d32c6eab5c2bb35664bbf5fa529fb7",
+          "codeHash": "0xdecae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d",
+          "rlp": "0xf8448080a0b9f5fb45a18ed4c29f60de2702492288a7d32c6eab5c2bb35664bbf5fa529fb7a0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8450281c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000201",
+          "root": "0xb9f5fb45a18ed4c29f60de2702492288a7d32c6eab5c2bb35664bbf5fa529fb7"
+        }
+      ],
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [11, 13],
+      "expectedStateTrieRootChildShapes": {
+        "11": "leaf",
+        "13": "leaf"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "11": "hashed",
+        "13": "hashed"
+      }
+    },
+    {
       "name": "nethermind-state-trie-extension-root",
       "tags": [
         "account-root",

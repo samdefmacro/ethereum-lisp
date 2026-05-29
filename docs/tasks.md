@@ -1658,6 +1658,10 @@ splits can land after the Phase A smoke path closes.
     state-root fixture set includes a named seed case whose final account RLP,
     code hash, storage root, and trie root remain stable after an explicit
     zero nonce/balance update.
+    Extended that account-update commitment coverage to a branch-shaped state
+    trie with a retained sibling account, locking the updated account RLP,
+    storage root, code hash, branch child indexes/references, and final state
+    root behind the required seed-case gate.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
@@ -1827,6 +1831,11 @@ splits can land after the Phase A smoke path closes.
     and missing storage proof after the update, and retained-state
     `eth_getProof` coverage now commits the same account-update boundary
     through the chain-store snapshot path.
+  - Progress: extended account-update proof coverage to the branch-shaped
+    state-trie case with a sibling account. The fixture now locks the
+    geth-shaped branch account proof, retained code hash, retained storage
+    hash, present storage proof, and missing storage proof after the account
+    fields are reset.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
