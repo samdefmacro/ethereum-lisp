@@ -1777,6 +1777,11 @@ splits can land after the Phase A smoke path closes.
     the retained child indexes/reference kinds, retained lookups, deleted-key
     absence, and a dedicated Phase A summary gate requiring this
     branch-preserving deletion boundary.
+    Added extension-subtree child deletion collapse coverage: a selected
+    EEST-style and seed trie case now insert two hex byte-string keys under a
+    shared extension, delete one child, and lock the final compressed leaf
+    root, retained lookup/proof, deleted-key absence, and a Phase A summary
+    gate requiring extension-to-leaf delete collapse coverage.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

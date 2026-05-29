@@ -185,6 +185,25 @@
       ]
     },
     {
+      "name": "delete-extension-child-collapses-to-leaf",
+      "tags": ["leaf-root", "path-compression", "delete-collapse", "hex-key", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyHex": "0x1234", "valueAscii": "left" },
+        { "op": "put", "keyHex": "0x12f0", "valueAscii": "right" },
+        { "op": "delete", "keyHex": "0x12f0" }
+      ],
+      "expectedRoot": "0xb98a28fb2e4f01824dce8a7a16bc1353724c36f18f090ae77de3245030a6716a",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [1, 2, 3, 4, 16],
+      "expectedRootValueAscii": "left",
+      "expectedGets": [
+        { "keyHex": "0x1234", "valueAscii": "left" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0x12f0" }
+      ]
+    },
+    {
       "name": "delete-last-entry-empty-root",
       "tags": ["delete-to-empty"],
       "operations": [

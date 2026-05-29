@@ -139,6 +139,14 @@
     ],
     "root": "ef7b2fe20f5d2c30c46ad4d83c39811bcbf1721aef2e805c0e107947320888b6"
   },
+  "delete-extension-child-collapses-to-leaf": {
+    "in": [
+      ["0x1234", "left"],
+      ["0x12f0", "right"],
+      ["0x12f0", null]
+    ],
+    "root": "b98a28fb2e4f01824dce8a7a16bc1353724c36f18f090ae77de3245030a6716a"
+  },
   "embedded-extension": {
     "in": [
       ["do", "v"],
