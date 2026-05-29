@@ -682,6 +682,11 @@ ones.
     expansion, seed/EEST alignment, and a dedicated summary gate requiring
     dynamic-fee calldata coverage instead of relying on the EIP-2930 calldata
     vector alone.
+  - Progress: tightened the Phase A/full transaction summary gate to require
+    EIP-2930 access-list calldata message-call coverage explicitly. The
+    summary now reports `accessListMessageCallDataVectorCount`, and regression
+    coverage fails if the selected Shanghai subset keeps only legacy or
+    EIP-1559 calldata while dropping the access-list calldata vector.
 
 ## P0: Module Boundaries
 

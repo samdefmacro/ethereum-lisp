@@ -1201,6 +1201,7 @@
 (defun transaction-fixture-input-summary (vectors)
   (let ((message-call-data-count 0)
         (typed-message-call-data-count 0)
+        (access-list-message-call-data-count 0)
         (dynamic-fee-message-call-data-count 0))
     (dolist (vector vectors)
       (let ((transaction
@@ -1211,12 +1212,16 @@
           (incf message-call-data-count)
           (unless (typep transaction 'legacy-transaction)
             (incf typed-message-call-data-count))
+          (when (typep transaction 'access-list-transaction)
+            (incf access-list-message-call-data-count))
           (when (typep transaction 'dynamic-fee-transaction)
             (incf dynamic-fee-message-call-data-count)))))
     (list
      (cons "messageCallDataVectorCount" message-call-data-count)
      (cons "typedMessageCallDataVectorCount"
            typed-message-call-data-count)
+     (cons "accessListMessageCallDataVectorCount"
+           access-list-message-call-data-count)
      (cons "dynamicFeeMessageCallDataVectorCount"
            dynamic-fee-message-call-data-count))))
 
@@ -1348,6 +1353,10 @@
           (fixture-required-field summary "messageCallDataVectorCount"))
         (typed-value
           (fixture-required-field summary "typedMessageCallDataVectorCount"))
+        (access-list-value
+          (fixture-required-field
+           summary
+           "accessListMessageCallDataVectorCount"))
         (dynamic-fee-value
           (fixture-required-field
            summary
@@ -1358,6 +1367,10 @@
     (unless (and (integerp typed-value) (not (minusp typed-value)))
       (error "~A summary field typedMessageCallDataVectorCount must be a non-negative integer"
              label))
+    (unless (and (integerp access-list-value)
+                 (not (minusp access-list-value)))
+      (error "~A summary field accessListMessageCallDataVectorCount must be a non-negative integer"
+             label))
     (unless (and (integerp dynamic-fee-value)
                  (not (minusp dynamic-fee-value)))
       (error "~A summary field dynamicFeeMessageCallDataVectorCount must be a non-negative integer"
@@ -1367,6 +1380,9 @@
              label))
     (when (zerop typed-value)
       (error "~A summary is missing typed calldata message-call transaction coverage"
+             label))
+    (when (zerop access-list-value)
+      (error "~A summary is missing access-list calldata message-call transaction coverage"
              label))
     (when (zerop dynamic-fee-value)
       (error "~A summary is missing dynamic-fee calldata message-call transaction coverage"
@@ -3977,6 +3993,7 @@
     (is (= 1 (fixture-object-field all-summary "dynamicFeeContractCreationVectorCount")))
     (is (= 3 (fixture-object-field all-summary "messageCallDataVectorCount")))
     (is (= 2 (fixture-object-field all-summary "typedMessageCallDataVectorCount")))
+    (is (= 1 (fixture-object-field all-summary "accessListMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field all-summary "dynamicFeeMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field all-summary "blobVersionedHashVectorCount")))
     (is (= 2 (fixture-object-field all-summary "blobVersionedHashCount")))
@@ -4028,6 +4045,7 @@
     (is (= 1 (fixture-object-field summary "dynamicFeeContractCreationVectorCount")))
     (is (= 3 (fixture-object-field summary "messageCallDataVectorCount")))
     (is (= 2 (fixture-object-field summary "typedMessageCallDataVectorCount")))
+    (is (= 1 (fixture-object-field summary "accessListMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field summary "dynamicFeeMessageCallDataVectorCount")))
     (is (= 0 (fixture-object-field summary "blobVersionedHashVectorCount")))
     (is (= 0 (fixture-object-field summary "blobVersionedHashCount")))
@@ -4138,6 +4156,14 @@
       (validate-transaction-fixture-input-coverage
        (cons (cons "typedMessageCallDataVectorCount" 0)
              (remove "typedMessageCallDataVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-input-coverage
+       (cons (cons "accessListMessageCallDataVectorCount" 0)
+             (remove "accessListMessageCallDataVectorCount"
                      summary
                      :key #'car
                      :test #'string=))

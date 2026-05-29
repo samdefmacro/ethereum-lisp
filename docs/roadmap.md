@@ -125,8 +125,9 @@ fixes in those areas are allowed; expansion is not.
   dynamic-fee transaction with a non-empty access list, keeping EIP-1559
   access-list intrinsic-gas and decoded projection coverage distinct from the
   EIP-2930-only access-list path. It also gates a typed EIP-2930 message-call
-  with non-empty calldata, so typed `input` decoding and calldata intrinsic
-  gas are covered separately from legacy calldata and contract initcode. The
+  with non-empty calldata, and the summary gate now requires that access-list
+  calldata count explicitly so typed `input` decoding and calldata intrinsic
+  gas are covered separately from legacy and EIP-1559 calldata. The
   full EEST transaction selector now also gates EIP-4844
   `blobVersionedHashes` payloads and EIP-7702 `authorizationList` payloads,
   so those post-Shanghai typed families cannot degrade to type-only coverage
