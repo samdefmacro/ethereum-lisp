@@ -1907,6 +1907,11 @@ splits can land after the Phase A smoke path closes.
     branch-shaped state trie missing-account proof after a zero-value
     `addBalance`, with named seed-case gates so these observable RPC
     boundaries cannot be dropped silently.
+  - Progress: extended balance-add proof coverage across branch, extension,
+    and branch-into-extension account tries. The proof fixture now locks exact
+    geth-shaped account proof nodes for the same nontrivial `addBalance`
+    layouts already covered by state-root fixtures, with required seed-case
+    gates for each trie shape.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
