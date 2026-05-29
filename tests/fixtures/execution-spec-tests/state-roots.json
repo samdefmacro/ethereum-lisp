@@ -1154,6 +1154,54 @@
       "expectedRoot": "0xc871270608d15a7faf5b5bcef73b9edc45c39bfc61ae794817ca1cd522a9e41f"
     },
     {
+      "name": "balance-add-zero-missing-account-keeps-empty-root",
+      "tags": [
+        "empty-state-root",
+        "balance-update"
+      ],
+      "operations": [
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000112",
+          "amount": 0
+        }
+      ],
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    {
+      "name": "balance-add-zero-funded-account-keeps-account-root",
+      "tags": [
+        "account-root",
+        "balance-update",
+        "account-projection",
+        "state-trie-leaf"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000402",
+          "balance": 1
+        },
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000402",
+          "amount": 0
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000402",
+          "nonce": 0,
+          "balance": 1,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448001a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0x01e04506ddf6abd9b97312c51143796a4ede43d81d5902fc74e074f45677001f"
+    },
+    {
       "name": "balance-add-preserves-code-and-storage-root",
       "tags": [
         "account-root",
@@ -1244,6 +1292,65 @@
           "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
           "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
           "rlp": "0xf84601820190a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8450281c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [11, 13],
+      "expectedStateTrieRootChildShapes": {
+        "11": "leaf",
+        "13": "leaf"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "11": "hashed",
+        "13": "hashed"
+      }
+    },
+    {
+      "name": "state-trie-branch-balance-add-zero-missing-keeps-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "balance-update",
+        "account-projection",
+        "state-trie-branch",
+        "state-trie-branch-child-references"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "addBalance",
+          "address": "0x00000000000000000000000000000000000002ff",
+          "amount": 0
+        }
+      ],
+      "expectedRoot": "0xb136a3c02a00f4d91ac42fa9423b8299bfd90892998ce7d8ece5e2f457284a36",
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 100,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
         },
         {
           "address": "0x0000000000000000000000000000000000000211",

@@ -120,7 +120,10 @@
     "account-update-preserves-storage-root"
     "account-update-preserves-code-and-storage-root"
     "balance-add-creates-account-root"
+    "balance-add-zero-missing-account-keeps-empty-root"
+    "balance-add-zero-funded-account-keeps-account-root"
     "balance-add-preserves-code-and-storage-root"
+    "state-trie-branch-balance-add-zero-missing-keeps-root"
     "state-trie-branch-balance-add-keeps-sibling-root"
     "state-trie-extension-balance-add-keeps-sibling-root"
     "state-trie-branch-extension-balance-add-keeps-sibling-root"
@@ -790,10 +793,13 @@
              (state-fixture-number operation "balance")))
       ((string= op "addBalance")
        (setf account-state
-             (state-root-fixture-account-state states address :create-p t)
-             (state-root-fixture-account-state-balance account-state)
-             (+ (state-root-fixture-account-state-balance account-state)
-                (state-fixture-number operation "amount"))))
+             (state-root-fixture-account-state
+              states address
+              :create-p (not (zerop (state-fixture-number operation "amount")))))
+       (when account-state
+         (setf (state-root-fixture-account-state-balance account-state)
+               (+ (state-root-fixture-account-state-balance account-state)
+                  (state-fixture-number operation "amount")))))
       ((string= op "setStorage")
        (let* ((slot (fixture-object-field operation "slot"))
               (value (state-fixture-number operation "value"))

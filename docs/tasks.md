@@ -1712,6 +1712,11 @@ splits can land after the Phase A smoke path closes.
     root, while writing zero to an absent slot on a funded empty-storage
     account preserves its empty storage root, account RLP, and leaf-shaped
     account trie.
+    Fixed `addBalance` zero-amount semantics so reward/withdrawal-style
+    balance credits no-op instead of creating an empty missing account. Added
+    state-root fixtures for zero-add over an empty state, a funded leaf account,
+    and a branch-shaped state trie with a missing touched address, locking the
+    unchanged roots/account projections behind required seed-case gates.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

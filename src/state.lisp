@@ -598,12 +598,15 @@
          (state-account-code-hash recipient-account))))))
 
 (defun state-db-add-balance (state address amount)
-  (let ((account (state-db-account-or-empty state address)))
-    (state-db-put-account-values
-     state address
-     (state-account-nonce account)
-     (+ (state-account-balance account) amount)
-     (state-account-code-hash account))))
+  (let ((amount (ensure-state-uint256 amount "Balance amount")))
+    (unless (zerop amount)
+      (let ((account (state-db-account-or-empty state address)))
+        (state-db-put-account-values
+         state address
+         (state-account-nonce account)
+         (+ (state-account-balance account) amount)
+         (state-account-code-hash account)))))
+  state)
 
 (defun apply-withdrawal (state withdrawal)
   (state-db-add-balance

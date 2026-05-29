@@ -185,8 +185,10 @@ self-transfers. Fixture-driven state-root coverage now locks balance-add
 updates, including withdrawal/reward-style creation of a funded account and
 balance changes that preserve existing code and storage commitments across
 leaf, branch, extension, and branch-into-extension account trie roots, with
-matching geth-shaped state proof fixtures for balance-add creation and
-code/storage-preserving updates. Storage-root fixtures now lock zero-value
+zero-amount balance credits locked as root-preserving no-ops for missing and
+existing accounts, plus matching geth-shaped state proof fixtures for
+balance-add creation and code/storage-preserving updates. Storage-root fixtures
+now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.
 The trie harness now covers secure-key branch, extension, delete-collapse,
