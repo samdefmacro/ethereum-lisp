@@ -36,6 +36,15 @@
     ],
     "root": "c8fb1ca12e912e15bb7db6d06ae4967dd3b59a5903f0306dd797dcaab6afcb3b"
   },
+  "phase-a-secure-delete-branch-child-keeps-branch": {
+    "in": [
+      ["dog", "puppy"],
+      ["cat", "kitten"],
+      ["horse", "stallion"],
+      ["cat", null]
+    ],
+    "root": "1d5d556f96abcc20327918d9209473b0709ff666a2723575202cb03388dc0103"
+  },
   "phase-a-secure-delete-extension-child": {
     "in": [
       ["alpha", "left"],

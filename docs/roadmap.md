@@ -97,8 +97,9 @@ fixes in those areas are allowed; expansion is not.
   bounded transcribed subset from the pinned execution-spec-tests release,
   starting with transaction vectors and trie/state-root cases. The selected
   EEST-style trie subset now gates both valueless root-branch child deletion
-  outcomes: two-child delete collapse to a leaf and three-child delete
-  preservation of the branch root. It also gates plain and secure
+  outcomes for both plain and secure replay: two-child delete collapse to a
+  leaf and three-child delete preservation of the branch root. It also gates
+  plain and secure
   extension-subtree child deletion that compresses all the way back to a
   single leaf, covering the path-compression boundary beyond root-branch cases
   for both raw and hashed-key replay. The selected Phase A transaction subset

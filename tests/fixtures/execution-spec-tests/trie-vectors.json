@@ -315,6 +315,31 @@
       ]
     },
     {
+      "name": "secure-delete-branch-child-keeps-branch",
+      "secure": true,
+      "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "delete-collapse", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "cat", "valueAscii": "kitten" },
+        { "op": "put", "keyAscii": "horse", "valueAscii": "stallion" },
+        { "op": "delete", "keyAscii": "cat" }
+      ],
+      "expectedRoot": "0x1d5d556f96abcc20327918d9209473b0709ff666a2723575202cb03388dc0103",
+      "expectedShape": "branch",
+      "expectedRootChildren": [4, 12],
+      "expectedRootChildReferences": {
+        "4": "hashed",
+        "12": "hashed"
+      },
+      "expectedGets": [
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "horse", "valueAscii": "stallion" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "cat" }
+      ]
+    },
+    {
       "name": "secure-delete-extension-child-collapses-to-leaf",
       "secure": true,
       "tags": ["secure-key", "leaf-root", "path-compression", "delete-collapse", "lookup-assertions"],

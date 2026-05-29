@@ -1794,6 +1794,12 @@ splits can land after the Phase A smoke path closes.
     before replay, delete one extension child, lock the compressed secure leaf
     root/path/value, verify retained and missing secure lookups/proofs, and
     gate Phase A summaries on secure extension-to-leaf delete collapse.
+    Added the matching secure-key valueless branch deletion case where
+    deleting one child from a three-child secure root branch preserves the
+    branch root. The selected secureTrie case and seed vector now lock the
+    retained hashed child references, retained secure lookups/proofs,
+    deleted-key absence, and a dedicated Phase A summary gate requiring this
+    branch-preserving secure deletion boundary.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
