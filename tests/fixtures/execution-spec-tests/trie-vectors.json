@@ -444,6 +444,25 @@
       ]
     },
     {
+      "name": "delete-root-branch-child-without-value-collapses-to-leaf",
+      "tags": ["leaf-root", "path-compression", "delete-collapse", "branch-children", "hex-key", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyHex": "0x10", "valueAscii": "left" },
+        { "op": "put", "keyHex": "0x20", "valueAscii": "right" },
+        { "op": "delete", "keyHex": "0x20" }
+      ],
+      "expectedRoot": "0xe460baf0272baa169686e9d5398e3d7249a059b6aa14253088792e2247b47076",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [1, 0, 16],
+      "expectedRootValueAscii": "left",
+      "expectedGets": [
+        { "keyHex": "0x10", "valueAscii": "left" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0x20" }
+      ]
+    },
+    {
       "name": "delete-root-branch-child-collapses-to-root-value-leaf",
       "tags": ["leaf-root", "path-compression", "delete-collapse", "branch-value", "hex-key"],
       "operations": [

@@ -219,7 +219,8 @@ ingestion now exercises byte-oriented secure trie inputs as well as ASCII
 samples. Local trie-vector seeds can now express hex byte values directly,
 including non-text leaf values, and verify those values through root, lookup,
 and proof assertions. The selected EEST-style subset now gates plain hex byte
-values alongside secure hex byte values.
+values alongside secure hex byte values, and covers deletion of a child from a
+valueless plain root branch collapsing back to a leaf.
 
 ## 4. EVM
 

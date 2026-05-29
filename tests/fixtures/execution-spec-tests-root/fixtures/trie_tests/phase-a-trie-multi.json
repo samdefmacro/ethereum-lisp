@@ -56,6 +56,14 @@
     ],
     "root": "decd353bef3878c819cdb73943e0a744d14551d9626f656c4baca465e5db165c"
   },
+  "delete-branch-child-no-value": {
+    "in": [
+      ["0x10", "left"],
+      ["0x20", "right"],
+      ["0x20", null]
+    ],
+    "root": "e460baf0272baa169686e9d5398e3d7249a059b6aa14253088792e2247b47076"
+  },
   "delete-branch-value": {
     "in": [
       ["0x", "root"],
