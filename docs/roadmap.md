@@ -99,8 +99,9 @@ fixes in those areas are allowed; expansion is not.
   `engine_newPayloadV2` smoke now covers legacy transfer, access-list transfer,
   dynamic-fee typed transfer, contract creation, withdrawals, multi-transaction
   receipt ordering/cumulative gas, safe/finalized checkpoint tags, and
-  two-branch canonical switching; remaining Engine fixture work is mainly
-  pinned-fixture breadth rather than new smoke-path shape.
+  two-branch canonical switching, with canonical `eth_getProof` replay and
+  verification over the imported child state root; remaining Engine fixture
+  work is mainly pinned-fixture breadth rather than new smoke-path shape.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing

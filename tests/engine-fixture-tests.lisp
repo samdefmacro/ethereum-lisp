@@ -879,6 +879,12 @@
                     (hash32-to-hex slot)
                     "latest"))))
 
+(defun engine-fixture-proof-request (id address)
+  (list (cons "jsonrpc" "2.0")
+        (cons "id" id)
+        (cons "method" "eth_getProof")
+        (cons "params" (list (address-to-hex address) '() "latest"))))
+
 (defun engine-fixture-block-by-number-request (id tag full-transactions-p)
   (list (cons "jsonrpc" "2.0")
         (cons "id" id)
@@ -1847,6 +1853,16 @@
                   (engine-fixture-storage-request
                    107 storage-address storage-key)
                   store config))
+               (proof-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-proof-request 133 value-address)
+                  store config))
+               (proof
+                 (field proof-response "result"))
+               (expected-proof
+                 (state-db-get-proof expected-state value-address nil))
+               (decoded-proof
+                 (state-proof-result-from-rpc-object proof))
                (block-by-number-response
                  (engine-rpc-handle-request
                   (engine-fixture-block-by-number-request 108 "latest" nil)
@@ -1971,6 +1987,23 @@
                        (field code-response "result")))
           (is (string= (fixture-object-field expect "storageValue")
                        (field storage-response "result")))
+          (is (string= (address-to-hex value-address)
+                       (field proof "address")))
+          (is (string= (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-object-field expect value-balance-field)))
+                       (field proof "balance")))
+          (is (string= (quantity-to-hex
+                        (state-proof-result-nonce expected-proof))
+                       (field proof "nonce")))
+          (is (listp (field proof "accountProof")))
+          (is (equal (mapcar #'bytes-to-hex
+                             (state-proof-result-account-proof expected-proof))
+                     (field proof "accountProof")))
+          (is (null (field proof "storageProof")))
+          (is (state-db-verify-proof
+               (block-header-state-root (block-header child-block))
+               decoded-proof))
           (is (string= (hash32-to-hex (block-hash child-block))
                        (field block-by-number "hash")))
           (is (string= (hash32-to-hex (block-hash parent-block))

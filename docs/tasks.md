@@ -1048,6 +1048,12 @@ splits can land after the Phase A smoke path closes.
     block receipts, per-index raw/full transaction lookups, canonical
     transaction-by-hash visibility, and disappearance after forkchoice selects
     the empty sibling.
+  - Progress: extended the fixture-driven Engine smoke with canonical
+    `eth_getProof` reads after executable import and forkchoice. Each selected
+    smoke case now queries `eth_getProof` at `latest` for the value recipient
+    or created contract, checks the returned balance/nonce/account proof
+    against the post-execution state proof primitive, and verifies the decoded
+    RPC proof against the imported child state root.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
