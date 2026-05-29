@@ -492,6 +492,7 @@
         "storage-root-projection",
         "storage-trie-branch",
         "storage-trie-branch-child-shapes",
+        "storage-trie-branch-child-references",
         "account-projection"
       ],
       "operations": [
@@ -537,6 +538,10 @@
           "rootChildShapes": {
             "4": "leaf",
             "11": "leaf"
+          },
+          "rootChildReferences": {
+            "4": "hashed",
+            "11": "hashed"
           }
         }
       ],
@@ -549,6 +554,7 @@
         "storage-root",
         "storage-root-projection",
         "storage-trie-extension",
+        "storage-trie-extension-child-reference",
         "account-projection"
       ],
       "operations": [
@@ -590,7 +596,8 @@
         {
           "address": "0x0000000000000000000000000000000000000401",
           "shape": "extension",
-          "rootPathNibbles": [11]
+          "rootPathNibbles": [11],
+          "childReference": "hashed"
         }
       ],
       "expectedRoot": "0x17abb55ac4a5d0f71fbf3779a4346b679c6d5d33192329460692f729adcab05a"

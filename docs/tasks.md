@@ -1586,6 +1586,12 @@ splits can land after the Phase A smoke path closes.
     Added storage trie branch child-shape projections and a required coverage
     gate so branch-root storage fixtures lock both populated child indexes and
     the fact that each child resolves to a storage leaf.
+    Added storage trie branch child-reference projections and a required
+    coverage gate, locking the branch children as hashed references in addition
+    to their indexes and node shapes.
+    Added storage trie extension child-reference projections and a required
+    coverage gate, so extension-root storage fixtures now lock their compressed
+    path and hashed child reference together.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
