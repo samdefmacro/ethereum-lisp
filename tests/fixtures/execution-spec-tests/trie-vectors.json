@@ -77,6 +77,31 @@
       ]
     },
     {
+      "name": "branch-child-extension",
+      "tags": ["branch-root", "branch-child-references", "hashed-child-reference", "embedded-child-reference", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "ping", "valueAscii": "pong" }
+      ],
+      "expectedRoot": "0xcb5c47af583796ac381dde0845653c81f97d327bf26404e1477e9f784c352367",
+      "expectedShape": "branch",
+      "expectedRootChildren": [6, 7],
+      "expectedRootChildReferences": {
+        "6": "hashed",
+        "7": "embedded"
+      },
+      "expectedRootChildShapes": {
+        "6": "extension",
+        "7": "leaf"
+      },
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "ping", "valueAscii": "pong" }
+      ]
+    },
+    {
       "name": "extension-embedded-child-reference",
       "tags": ["extension-root", "embedded-child-reference"],
       "operations": [

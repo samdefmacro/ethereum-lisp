@@ -1812,6 +1812,12 @@ splits can land after the Phase A smoke path closes.
     extension root, lock the final root/path and hashed child reference, verify
     retained/deleted lookups and proofs, and gate Phase A summaries on both
     plain and secure delete-to-extension outcomes.
+    Added branch-root child-shape projections to trie fixtures and selected
+    EEST subset coverage for the branch-at-root-with-extension-child path. The
+    seed and EEST-style cases insert `do`, `dog`, and `ping`, locking a root
+    branch with a hashed extension child plus an embedded leaf sibling, with
+    lookup/proof replay and a Phase A summary gate requiring branch-child
+    extension coverage.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
