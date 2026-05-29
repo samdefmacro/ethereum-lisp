@@ -797,7 +797,8 @@
            (if (zerop (length bytes))
                (list (cons "key" normalized-key)
                      (cons "delete" t)
-                     (cons "deleteSource" "empty-value"))
+                     (cons "deleteSource" "empty-value")
+                     (cons "deleteSourceValue" normalized-value))
                (list (cons "key" normalized-key)
                      (cons "value" normalized-value)))))))))
 
@@ -1123,6 +1124,14 @@
 
 (defun eest-trie-test-entry-empty-value-delete-p (entry)
   (string= "empty-value" (fixture-object-field entry "deleteSource")))
+
+(defun eest-trie-test-entry-hex-empty-value-delete-p (entry)
+  (and (eest-trie-test-entry-empty-value-delete-p entry)
+       (string= "0x" (fixture-object-field entry "deleteSourceValue"))))
+
+(defun eest-trie-test-entry-string-empty-value-delete-p (entry)
+  (and (eest-trie-test-entry-empty-value-delete-p entry)
+       (string= "" (fixture-object-field entry "deleteSourceValue"))))
 
 (defun eest-trie-test-case-missing-delete-p (case)
   (let ((present-keys (make-hash-table :test 'equal)))
@@ -1501,6 +1510,16 @@
                  sum (count-if
                       #'eest-trie-test-entry-empty-value-delete-p
                       entries)))
+         (hex-empty-value-delete-entry-count
+           (loop for entries in entries-by-case
+                 sum (count-if
+                      #'eest-trie-test-entry-hex-empty-value-delete-p
+                      entries)))
+         (string-empty-value-delete-entry-count
+           (loop for entries in entries-by-case
+                 sum (count-if
+                      #'eest-trie-test-entry-string-empty-value-delete-p
+                      entries)))
          (object-form-delete-entry-count
            (loop for input-form in input-forms
                  for entries in entries-by-case
@@ -1515,6 +1534,13 @@
                  when (string= "object" input-form)
                    sum (count-if
                         #'eest-trie-test-entry-empty-value-delete-p
+                        entries)))
+         (object-form-string-empty-value-delete-entry-count
+           (loop for input-form in input-forms
+                 for entries in entries-by-case
+                 when (string= "object" input-form)
+                   sum (count-if
+                        #'eest-trie-test-entry-string-empty-value-delete-p
                         entries)))
          (object-form-write-only-case-count
            (loop for input-form in input-forms
@@ -1654,6 +1680,12 @@
      (cons "plainObjectFormHexValueEntryCount"
            plain-object-form-hex-value-entry-count)
      (cons "emptyValueDeleteEntryCount" empty-value-delete-entry-count)
+     (cons "hexEmptyValueDeleteEntryCount"
+           hex-empty-value-delete-entry-count)
+     (cons "stringEmptyValueDeleteEntryCount"
+           string-empty-value-delete-entry-count)
+     (cons "objectFormStringEmptyValueDeleteEntryCount"
+           object-form-string-empty-value-delete-entry-count)
      (cons "extensionRootCount" (count "extension" root-shapes :test #'string=))
      (cons "extensionChildReferenceKinds" extension-child-reference-kinds)
      (cons "secureExtensionChildReferenceKinds"
@@ -1791,6 +1823,12 @@
       (error "Phase A EEST trie subset must include a plain object-form hex byte-string value"))
     (when (zerop (fixture-object-field summary "emptyValueDeleteEntryCount"))
       (error "Phase A EEST trie subset must include an empty-value delete"))
+    (when (zerop (fixture-object-field summary "hexEmptyValueDeleteEntryCount"))
+      (error "Phase A EEST trie subset must include a 0x empty-value delete"))
+    (when (zerop (fixture-object-field summary "stringEmptyValueDeleteEntryCount"))
+      (error "Phase A EEST trie subset must include a string empty-value delete"))
+    (when (zerop (fixture-object-field summary "objectFormStringEmptyValueDeleteEntryCount"))
+      (error "Phase A EEST trie subset must include an object-form string empty-value delete"))
     (when (zerop (fixture-object-field summary "extensionRootCount"))
       (error "Phase A EEST trie subset must include a replayed extension root"))
     (when (zerop (fixture-object-field summary "embeddedExtensionChildReferenceCount"))
@@ -2656,6 +2694,8 @@
     (is (fixture-object-field hex-delete-entry "delete"))
     (is (string= "empty-value"
                  (fixture-object-field hex-delete-entry "deleteSource")))
+    (is (string= "0x"
+                 (fixture-object-field hex-delete-entry "deleteSourceValue")))
     (is (string= "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
                  (fixture-object-field case "root")))
     (is (string= (fixture-object-field case "root")
@@ -2753,8 +2793,11 @@
                                        "inputForm")))
     (is (fixture-object-field object-empty-value-delete-case "secure"))
     (is (find-if (lambda (entry)
-                   (string= "empty-value"
-                            (fixture-object-field entry "deleteSource")))
+                   (and (string= "empty-value"
+                                 (fixture-object-field entry "deleteSource"))
+                        (string= ""
+                                 (fixture-object-field entry
+                                                       "deleteSourceValue"))))
                  (fixture-object-field object-empty-value-delete-case
                                        "entries")))
     (is (string= "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
@@ -2808,7 +2851,9 @@
                  (fixture-object-field case "inputForm")))
     (is (string= "dog"
                  (fixture-object-field entry "key")))
-    (is (fixture-object-field entry "delete")))
+    (is (fixture-object-field entry "delete"))
+    (is (string= ""
+                 (fixture-object-field entry "deleteSourceValue"))))
   (let* ((case (normalize-eest-trie-test-case
                 "object-form-entry"
                 (list (cons "in" (list (cons "dog" "puppy")))
@@ -3226,6 +3271,11 @@
     (is (= 2 (fixture-object-field summary "secureObjectFormHexValueEntryCount")))
     (is (= 1 (fixture-object-field summary "plainObjectFormHexValueEntryCount")))
     (is (= 3 (fixture-object-field summary "emptyValueDeleteEntryCount")))
+    (is (= 1 (fixture-object-field summary "hexEmptyValueDeleteEntryCount")))
+    (is (= 2 (fixture-object-field summary "stringEmptyValueDeleteEntryCount")))
+    (is (= 2 (fixture-object-field
+              summary
+              "objectFormStringEmptyValueDeleteEntryCount")))
     (is (= 10 (fixture-object-field summary "extensionRootCount")))
     (is (equal '("hashed" "hashed" "hashed" "hashed" "embedded" "hashed"
                  "embedded" "embedded" "embedded" "hashed")
@@ -3309,6 +3359,9 @@
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (remove (nth 41 selected-cases) selected-cases)))
+    (signals error
+      (validate-phase-a-eest-trie-test-coverage
+       (remove (nth 44 selected-cases) selected-cases)))
     (is (equal '(2 3 3 2 3 4 4 3 2 1 3 3 2 2 2 3 3 1 2 3 3 2 2 3 4
                  3 5 3 4 3 3 4 2 4 4 2 2 4 1 2 2 2 1 3 4)
                (fixture-object-field summary "entryCounts")))

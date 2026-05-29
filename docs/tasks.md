@@ -1907,6 +1907,11 @@ splits can land after the Phase A smoke path closes.
     empty-value deletes plus secure/plain variants, so `""` / `"0x"` delete
     semantics stay gated on the object-form adapter path as well as the
     array-of-pairs path.
+    Preserved exact empty-value delete provenance in normalized EEST trie
+    entries and split the Phase A summary gate so `0x` hex empty-value deletes,
+    string `""` empty-value deletes, and object-form string empty-value deletes
+    are all represented distinctly before pinned trie vectors replace the
+    in-repo samples.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

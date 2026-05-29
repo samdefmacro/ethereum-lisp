@@ -119,7 +119,10 @@ fixes in those areas are allowed; expansion is not.
   shapes are represented before pinned trie vectors replace the seed set.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
-  semantics covered outside the array-of-pairs adapter path.
+  semantics covered outside the array-of-pairs adapter path. The importer now
+  preserves the exact empty-value source as well, and the Phase A summary
+  gates `0x`, string `""`, and object-form string empty-value deletes
+  separately.
   The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so
