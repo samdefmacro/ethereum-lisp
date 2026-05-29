@@ -1675,6 +1675,13 @@ splits can land after the Phase A smoke path closes.
     and checks the returned account and storage proof nodes against the core
     state proof result while preserving geth-compatible short and prefixless
     storage-key output normalization.
+  - Progress: added direct account-proof regressions over the Nethermind-guided
+    state trie layouts already locked by the state-root fixture set: leaf root,
+    branch root, extension root, and branch child extension. The tests now
+    verify present account proofs against each nontrivial layout, plus a
+    missing-account proof in a non-empty branch/extension state trie, so
+    `state-db-get-proof` / `state-db-verify-proof` coverage is tied to trie
+    structure instead of only shallow account/storage examples.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
