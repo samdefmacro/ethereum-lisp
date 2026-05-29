@@ -1054,6 +1054,11 @@ splits can land after the Phase A smoke path closes.
     or created contract, checks the returned balance/nonce/account proof
     against the post-execution state proof primitive, and verifies the decoded
     RPC proof against the imported child state root.
+  - Progress: extended the same Engine smoke proof checks across a forkchoice
+    branch switch. After the empty sibling becomes canonical, `eth_getProof`
+    at `latest` now follows the sibling's retained state root, while
+    hash-addressed proof reads for the original child still return the
+    non-canonical child proof.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

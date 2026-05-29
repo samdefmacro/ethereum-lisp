@@ -879,11 +879,11 @@
                     (hash32-to-hex slot)
                     "latest"))))
 
-(defun engine-fixture-proof-request (id address)
+(defun engine-fixture-proof-request (id address &optional (block-selector "latest"))
   (list (cons "jsonrpc" "2.0")
         (cons "id" id)
         (cons "method" "eth_getProof")
-        (cons "params" (list (address-to-hex address) '() "latest"))))
+        (cons "params" (list (address-to-hex address) '() block-selector))))
 
 (defun engine-fixture-block-by-number-request (id tag full-transactions-p)
   (list (cons "jsonrpc" "2.0")
@@ -2103,6 +2103,23 @@
                    (engine-rpc-handle-request
                     (engine-fixture-receipt-request 124 transaction-hash)
                     store config))
+                 (side-latest-proof-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-proof-request 134 value-address)
+                    store config))
+                 (side-latest-proof
+                   (field side-latest-proof-response "result"))
+                 (side-expected-proof
+                   (state-db-get-proof side-state value-address nil))
+                 (side-decoded-proof
+                   (state-proof-result-from-rpc-object side-latest-proof))
+                 (child-proof-by-hash-response
+                   (engine-rpc-handle-request
+                    (engine-fixture-proof-request
+                     135 value-address (hash32-to-hex (block-hash child-block)))
+                    store config))
+                 (child-proof-by-hash
+                   (field child-proof-by-hash-response "result"))
                  (child-by-hash-after-side-response
                    (engine-rpc-handle-request
                     (engine-fixture-block-by-hash-request
@@ -2127,6 +2144,20 @@
             (is (null (field side-latest-raw-response "result")))
             (is (null (field side-transaction-by-hash-response "result")))
             (is (null (field side-receipt-response "result")))
+            (is (string= (quantity-to-hex
+                          (state-proof-result-balance side-expected-proof))
+                         (field side-latest-proof "balance")))
+            (is (equal (mapcar #'bytes-to-hex
+                               (state-proof-result-account-proof
+                                side-expected-proof))
+                       (field side-latest-proof "accountProof")))
+            (is (state-db-verify-proof
+                 (block-header-state-root (block-header side-block))
+                 side-decoded-proof))
+            (is (string= (field proof "balance")
+                         (field child-proof-by-hash "balance")))
+            (is (equal (field proof "accountProof")
+                       (field child-proof-by-hash "accountProof")))
             (is (string= (hash32-to-hex (block-hash child-block))
                          (field child-by-hash-after-side "hash"))))
           (let* ((child-forkchoice-response
