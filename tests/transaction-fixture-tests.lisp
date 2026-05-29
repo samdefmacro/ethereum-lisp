@@ -8,11 +8,13 @@
 
 (defparameter +phase-a-eest-transaction-test-case-names+
   '("phase-a-sample.json/legacy-eip155-sample"
+    "phase-a-sample.json/legacy-contract-creation-sample"
     "phase-a-sample.json/typed-eip2930-access-list-sample"
     "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"))
 
 (defparameter +full-eest-transaction-test-case-names+
   '("phase-a-sample.json/legacy-eip155-sample"
+    "phase-a-sample.json/legacy-contract-creation-sample"
     "phase-a-sample.json/typed-eip2930-access-list-sample"
     "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
     "phase-a-sample.json/typed-eip4844-blob-sample"
@@ -20,6 +22,7 @@
 
 (defparameter +transaction-envelope-fixture-required-vector-names+
   '("legacy-eip155"
+    "legacy-contract-creation"
     "eip2930-access-list"
     "eip1559-dynamic-fee"
     "eip4844-blob"
@@ -1111,6 +1114,15 @@
      (cons "accessListAddressCount" address-count)
      (cons "accessListStorageKeyCount" storage-key-count))))
 
+(defun transaction-fixture-contract-creation-summary (vectors)
+  (list
+   (cons "contractCreationVectorCount"
+         (loop for vector in vectors
+               for transaction =
+                 (transaction-from-encoding
+                  (hex-to-bytes (transaction-fixture-txbytes-value vector)))
+               count (null (transaction-to transaction))))))
+
 (defun transaction-fixture-decoded-summary (vectors)
   (list
    (cons "decodedVectorCount"
@@ -1137,6 +1149,17 @@
     (error "~A summary is missing access-list address coverage" label))
   (when (zerop (fixture-required-field summary "accessListStorageKeyCount"))
     (error "~A summary is missing access-list storage-key coverage" label))
+  summary)
+
+(defun validate-transaction-fixture-contract-creation-coverage
+    (summary label)
+  (let ((value (fixture-required-field summary "contractCreationVectorCount")))
+    (unless (and (integerp value) (not (minusp value)))
+      (error "~A summary field contractCreationVectorCount must be a non-negative integer"
+             label))
+    (when (zerop value)
+      (error "~A summary is missing contract-creation transaction coverage"
+             label)))
   summary)
 
 (defun validate-transaction-fixture-decoded-coverage
@@ -1221,6 +1244,7 @@
    (transaction-fixture-decoded-summary vectors)
    (transaction-fixture-signature-summary vectors)
    (transaction-fixture-access-list-summary vectors)
+   (transaction-fixture-contract-creation-summary vectors)
    (transaction-fixture-result-count-summary vectors)))
 
 (defun validate-phase-a-eest-transaction-summary-types (types)
@@ -1307,6 +1331,9 @@
     (validate-transaction-fixture-access-list-coverage
      summary
      "Phase A EEST transaction")
+    (validate-transaction-fixture-contract-creation-coverage
+     summary
+     "Phase A EEST transaction")
     (validate-transaction-fixture-result-count-summary
      vectors
      summary
@@ -1346,109 +1373,109 @@
     (validate-transaction-fixture-access-list-coverage
      summary
      "Full EEST transaction")
+    (validate-transaction-fixture-contract-creation-coverage
+     summary
+     "Full EEST transaction")
     (validate-transaction-fixture-result-count-summary
      vectors
      summary
      "Full EEST transaction")
     summary))
 
-(defun phase-a-eest-transaction-vectors-by-type (vectors label)
+(defun transaction-fixture-require-types-present (vectors types label)
   (unless (listp vectors)
     (error "~A vectors must be a list" label))
-  (let ((by-type (make-hash-table :test 'eq)))
+  (let ((seen-types (make-hash-table :test 'eq)))
     (dolist (vector vectors)
       (unless (listp vector)
         (error "~A vector must be a JSON object" label))
       (let ((type (transaction-fixture-type-keyword
                    (fixture-required-field vector "type"))))
-        (when (member type +phase-a-eest-transaction-required-types+
-                      :test #'eq)
-          (when (gethash type by-type)
-            (error "~A has duplicate Phase A transaction type ~A"
-                   label
-                   type))
-          (setf (gethash type by-type) vector))))
-    by-type))
+        (setf (gethash type seen-types) t)))
+    (dolist (type types)
+      (unless (gethash type seen-types)
+        (error "~A is missing required transaction type ~A"
+               label
+               type)))))
 
-(defun transaction-fixture-required-vectors-by-type (vectors label)
+(defun transaction-fixture-vectors-by-txbytes (vectors label)
   (unless (listp vectors)
     (error "~A vectors must be a list" label))
-  (let ((by-type (make-hash-table :test 'eq)))
+  (let ((by-txbytes (make-hash-table :test 'equal)))
     (dolist (vector vectors)
       (unless (listp vector)
         (error "~A vector must be a JSON object" label))
-      (let ((type (transaction-fixture-type-keyword
-                   (fixture-required-field vector "type"))))
-        (when (member type +transaction-fixture-required-types+ :test #'eq)
-          (when (gethash type by-type)
-            (error "~A has duplicate required transaction type ~A"
-                   label
-                   type))
-          (setf (gethash type by-type) vector))))
-    by-type))
+      (let ((txbytes (fixture-required-field vector "txbytes")))
+        (when (gethash txbytes by-txbytes)
+          (error "~A has duplicate txbytes ~A" label txbytes))
+        (setf (gethash txbytes by-txbytes) vector)))
+    by-txbytes))
+
+(defun transaction-fixture-assert-vector-aligned (vector seed-by-txbytes label)
+  (let* ((type (transaction-fixture-type-keyword
+                (fixture-required-field vector "type")))
+         (txbytes (fixture-required-field vector "txbytes"))
+         (seed-vector (gethash txbytes seed-by-txbytes)))
+    (unless seed-vector
+      (error "~A vector ~A has no matching seed fixture txbytes"
+             label
+             (fixture-required-field vector "name")))
+    (dolist (field '("type" "chainId" "txbytes" "hash" "sender"
+                     "signature" "decoded" "result"))
+      (unless (equal (fixture-required-field vector field)
+                     (fixture-required-field seed-vector field))
+        (error "~A type ~A field ~A does not match seed fixture"
+               label
+               type
+               field)))
+    (when (or (fixture-field-present-p vector "accessList")
+              (fixture-field-present-p seed-vector "accessList"))
+      (unless (equal (fixture-object-field vector "accessList")
+                     (fixture-object-field seed-vector "accessList"))
+        (error "~A type ~A accessList does not match seed fixture"
+               label
+               type)))))
 
 (defun validate-phase-a-eest-transaction-seed-alignment
     (phase-a-vectors seed-vectors)
-  (let ((phase-a-by-type
-          (phase-a-eest-transaction-vectors-by-type
-           phase-a-vectors
-           "Phase A EEST transaction subset"))
-        (seed-by-type
-          (phase-a-eest-transaction-vectors-by-type
+  (transaction-fixture-require-types-present
+   phase-a-vectors
+   +phase-a-eest-transaction-required-types+
+   "Phase A EEST transaction subset")
+  (transaction-fixture-require-types-present
+   seed-vectors
+   +phase-a-eest-transaction-required-types+
+   "Seed transaction fixture")
+  (let ((seed-by-txbytes
+          (transaction-fixture-vectors-by-txbytes
            seed-vectors
            "Seed transaction fixture")))
-    (dolist (type +phase-a-eest-transaction-required-types+)
-      (let ((phase-a-vector (gethash type phase-a-by-type))
-            (seed-vector (gethash type seed-by-type)))
-        (unless phase-a-vector
-          (error "Phase A EEST transaction subset is missing type ~A" type))
-        (unless seed-vector
-          (error "Seed transaction fixture is missing Phase A type ~A" type))
-        (dolist (field '("type" "chainId" "txbytes" "hash" "sender"
-                         "signature" "decoded" "result"))
-          (unless (equal (fixture-required-field phase-a-vector field)
-                         (fixture-required-field seed-vector field))
-            (error "Phase A EEST transaction type ~A field ~A does not match seed fixture"
-                   type
-                   field)))
-        (when (or (fixture-field-present-p phase-a-vector "accessList")
-                  (fixture-field-present-p seed-vector "accessList"))
-          (unless (equal (fixture-object-field phase-a-vector "accessList")
-                         (fixture-object-field seed-vector "accessList"))
-            (error "Phase A EEST transaction type ~A accessList does not match seed fixture"
-                   type))))))
+    (dolist (vector phase-a-vectors)
+      (transaction-fixture-assert-vector-aligned
+       vector
+       seed-by-txbytes
+       "Phase A EEST transaction")))
   phase-a-vectors)
 
 (defun validate-eest-transaction-seed-alignment
     (eest-vectors seed-vectors)
-  (let ((eest-by-type
-          (transaction-fixture-required-vectors-by-type
-           eest-vectors
-           "EEST transaction subset"))
-        (seed-by-type
-          (transaction-fixture-required-vectors-by-type
+  (transaction-fixture-require-types-present
+   eest-vectors
+   +transaction-fixture-required-types+
+   "EEST transaction subset")
+  (transaction-fixture-require-types-present
+   seed-vectors
+   +transaction-fixture-required-types+
+   "Seed transaction fixture")
+  (let ((seed-by-txbytes
+          (transaction-fixture-vectors-by-txbytes
            seed-vectors
            "Seed transaction fixture")))
-    (dolist (type +transaction-fixture-required-types+)
-      (let ((eest-vector (gethash type eest-by-type))
-            (seed-vector (gethash type seed-by-type)))
-        (unless eest-vector
-          (error "EEST transaction subset is missing required type ~A" type))
-        (unless seed-vector
-          (error "Seed transaction fixture is missing required type ~A" type))
-        (dolist (field '("type" "chainId" "txbytes" "hash" "sender"
-                         "signature" "decoded" "result"))
-          (unless (equal (fixture-required-field eest-vector field)
-                         (fixture-required-field seed-vector field))
-            (error "EEST transaction type ~A field ~A does not match seed fixture"
-                   type
-                   field)))
-        (when (or (fixture-field-present-p eest-vector "accessList")
-                  (fixture-field-present-p seed-vector "accessList"))
-          (unless (equal (fixture-object-field eest-vector "accessList")
-                         (fixture-object-field seed-vector "accessList"))
-            (error "EEST transaction type ~A accessList does not match seed fixture"
-                   type))))))
+    (dolist (vector eest-vectors)
+      (transaction-fixture-assert-vector-aligned
+       vector
+       seed-by-txbytes
+       "EEST transaction")))
   eest-vectors)
 
 (defun validate-transaction-fixture-vector-shape (vector)
@@ -2875,8 +2902,12 @@
           (convert-eest-transaction-case-to-vector bad-case))))))
 
 (deftest eest-transaction-test-file-shape-validation
-  (let* ((case (first (load-eest-transaction-test-file
-                       +eest-transaction-test-sample-path+)))
+  (let* ((case (find "legacy-eip155-sample"
+                     (load-eest-transaction-test-file
+                      +eest-transaction-test-sample-path+)
+                     :key (lambda (candidate)
+                            (fixture-required-field candidate "name"))
+                     :test #'string=))
          (result (fixture-object-field case "result"))
          (shanghai (fixture-object-field result "Shanghai"))
          (vector (convert-eest-transaction-case-to-vector case)))
@@ -3267,7 +3298,18 @@
          (seed-vectors
            (load-transaction-envelope-vectors
             +transaction-envelope-fixture-path+))
-         (vector (first vectors))
+         (legacy-vector
+           (find "phase-a-sample.json/legacy-eip155-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
+         (contract-vector
+           (find "phase-a-sample.json/legacy-contract-creation-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
          (typed-vector
            (find "phase-a-sample.json/typed-eip2930-access-list-sample"
                  vectors
@@ -3296,11 +3338,11 @@
          (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 1 (length paths)))
-    (is (= 5 (length cases)))
-    (is (= 3 (length selected-cases)))
-    (is (= 5 (length vectors)))
-    (is (= 3 (length selected-vectors)))
-    (is (= 5 (length full-vectors)))
+    (is (= 6 (length cases)))
+    (is (= 4 (length selected-cases)))
+    (is (= 6 (length vectors)))
+    (is (= 4 (length selected-vectors)))
+    (is (= 6 (length full-vectors)))
     (validate-transaction-fixture-vector-set vectors :require-required-types t)
     (assert-transaction-fixture-vectors-replay vectors)
     (is (equal +phase-a-eest-transaction-test-case-names+
@@ -3313,12 +3355,25 @@
                 (lambda (vector)
                   (fixture-object-field vector "name"))
                 full-vectors)))
+    (is legacy-vector)
     (is (string= "phase-a-sample.json/legacy-eip155-sample"
-                 (fixture-object-field (first cases) "name")))
-    (is (string= "phase-a-sample.json/legacy-eip155-sample"
-                 (fixture-object-field vector "name")))
+                 (fixture-object-field legacy-vector "name")))
     (is (string= "legacy"
-                 (fixture-object-field vector "type")))
+                 (fixture-object-field legacy-vector "type")))
+    (is contract-vector)
+    (is (null (fixture-object-field
+               (fixture-object-field contract-vector "decoded")
+               "to")))
+    (is (string= "0x60006000f3"
+                 (fixture-object-field
+                  (fixture-object-field contract-vector "decoded")
+                  "input")))
+    (is (string= "0xcf42"
+                 (fixture-object-field
+                  (fixture-object-field
+                   (fixture-object-field contract-vector "result")
+                   +phase-a-eest-transaction-target-fork+)
+                  "intrinsicGas")))
     (is typed-vector)
     (is (string= "access-list"
                  (fixture-object-field typed-vector "type")))
@@ -3356,33 +3411,34 @@
     (is set-code-vector)
     (is (string= "set-code"
                  (fixture-object-field set-code-vector "type")))
-    (is (= 5 (fixture-object-field all-summary "count")))
-    (is (equal '((:legacy . 1)
+    (is (= 6 (fixture-object-field all-summary "count")))
+    (is (equal '((:legacy . 2)
                  (:access-list . 1)
                  (:dynamic-fee . 1)
                  (:blob . 1)
                  (:set-code . 1))
                (fixture-object-field all-summary "types")))
-    (is (= 5 (fixture-object-field all-summary "decodedVectorCount")))
-    (is (= 5 (fixture-object-field all-summary "signatureVectorCount")))
+    (is (= 6 (fixture-object-field all-summary "decodedVectorCount")))
+    (is (= 6 (fixture-object-field all-summary "signatureVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListAddressCount")))
     (is (= 2 (fixture-object-field all-summary "accessListStorageKeyCount")))
-    (is (= 27 (fixture-object-field all-summary "validResultCount")))
+    (is (= 1 (fixture-object-field all-summary "contractCreationVectorCount")))
+    (is (= 40 (fixture-object-field all-summary "validResultCount")))
     (is (= 38 (fixture-object-field all-summary "exceptionResultCount")))
-    (is (equal '(("Frontier" . 1)
-                 ("Homestead" . 1)
-                 ("EIP150" . 1)
-                 ("EIP158" . 1)
-                 ("Byzantium" . 1)
-                 ("Constantinople" . 1)
-                 ("Istanbul" . 1)
-                 ("Berlin" . 2)
-                 ("London" . 3)
-                 ("Paris" . 3)
-                 ("Shanghai" . 3)
-                 ("Cancun" . 4)
-                 ("Prague" . 5))
+    (is (equal '(("Frontier" . 2)
+                 ("Homestead" . 2)
+                 ("EIP150" . 2)
+                 ("EIP158" . 2)
+                 ("Byzantium" . 2)
+                 ("Constantinople" . 2)
+                 ("Istanbul" . 2)
+                 ("Berlin" . 3)
+                 ("London" . 4)
+                 ("Paris" . 4)
+                 ("Shanghai" . 4)
+                 ("Cancun" . 5)
+                 ("Prague" . 6))
                (fixture-object-field all-summary "validForkCounts")))
     (is (equal '(("Frontier" . 4)
                  ("Homestead" . 4)
@@ -3397,29 +3453,30 @@
                  ("Shanghai" . 2)
                  ("Cancun" . 1))
                (fixture-object-field all-summary "exceptionForkCounts")))
-    (is (= 3 (fixture-object-field summary "count")))
-    (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
+    (is (= 4 (fixture-object-field summary "count")))
+    (is (equal '((:legacy . 2) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
-    (is (= 3 (fixture-object-field summary "decodedVectorCount")))
-    (is (= 3 (fixture-object-field summary "signatureVectorCount")))
+    (is (= 4 (fixture-object-field summary "decodedVectorCount")))
+    (is (= 4 (fixture-object-field summary "signatureVectorCount")))
     (is (= 1 (fixture-object-field summary "accessListVectorCount")))
     (is (= 1 (fixture-object-field summary "accessListAddressCount")))
     (is (= 2 (fixture-object-field summary "accessListStorageKeyCount")))
-    (is (= 24 (fixture-object-field summary "validResultCount")))
+    (is (= 1 (fixture-object-field summary "contractCreationVectorCount")))
+    (is (= 37 (fixture-object-field summary "validResultCount")))
     (is (= 15 (fixture-object-field summary "exceptionResultCount")))
-    (is (equal '(("Frontier" . 1)
-                 ("Homestead" . 1)
-                 ("EIP150" . 1)
-                 ("EIP158" . 1)
-                 ("Byzantium" . 1)
-                 ("Constantinople" . 1)
-                 ("Istanbul" . 1)
-                 ("Berlin" . 2)
-                 ("London" . 3)
-                 ("Paris" . 3)
-                 ("Shanghai" . 3)
-                 ("Cancun" . 3)
-                 ("Prague" . 3))
+    (is (equal '(("Frontier" . 2)
+                 ("Homestead" . 2)
+                 ("EIP150" . 2)
+                 ("EIP158" . 2)
+                 ("Byzantium" . 2)
+                 ("Constantinople" . 2)
+                 ("Istanbul" . 2)
+                 ("Berlin" . 3)
+                 ("London" . 4)
+                 ("Paris" . 4)
+                 ("Shanghai" . 4)
+                 ("Cancun" . 4)
+                 ("Prague" . 4))
                (fixture-object-field summary "validForkCounts")))
     (is (equal '(("Frontier" . 2)
                  ("Homestead" . 2)
@@ -3431,6 +3488,7 @@
                  ("Berlin" . 1))
                (fixture-object-field summary "exceptionForkCounts")))
     (is (equal '("phase-a-sample.json/legacy-eip155-sample"
+                 "phase-a-sample.json/legacy-contract-creation-sample"
                  "phase-a-sample.json/typed-eip2930-access-list-sample"
                  "phase-a-sample.json/typed-eip1559-dynamic-fee-sample")
                (fixture-object-field summary "names")))
@@ -3460,6 +3518,14 @@
        (list (cons "accessListVectorCount" 0)
              (cons "accessListAddressCount" 0)
              (cons "accessListStorageKeyCount" 0))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-contract-creation-coverage
+       (cons (cons "contractCreationVectorCount" 0)
+             (remove "contractCreationVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
        "Phase A EEST transaction"))
     (signals error
       (validate-transaction-fixture-decoded-coverage
@@ -3626,7 +3692,7 @@
        (first paths)))
     (signals error
       (validate-transaction-fixture-vector-set
-       (append vectors (list vector))))
+       (append vectors (list legacy-vector))))
     (signals error
       (validate-transaction-fixture-vector-set "phase-a-vectors"))
     (signals error

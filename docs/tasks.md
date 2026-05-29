@@ -273,6 +273,11 @@ ones.
     reject ambiguous `txbytes` / `raw` usage, empty encoded transaction bytes,
     malformed transaction hashes, and malformed sender addresses before the
     runner attempts to decode or recover the transaction.
+  - Progress: extended the Phase A EEST transaction selector with a legacy
+    contract-creation vector. The seed fixture and EEST-shaped sample now
+    replay the `to = null` txbytes path, re-derive the transaction hash,
+    sender, decoded initcode payload, and intrinsic gas, and the Phase A/full
+    summary gates now require contract-creation coverage.
   - Progress: added transaction type activation profile validation. The
     fixture runner now checks that legacy vectors are valid on every tracked
     fork, EIP-2930 vectors start at Berlin, EIP-1559 vectors start at London,
