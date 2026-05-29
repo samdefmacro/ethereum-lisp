@@ -1640,6 +1640,10 @@ splits can land after the Phase A smoke path closes.
     account's nonce/balance while preserving its sibling account, root branch
     children, hashed child references, and account RLP projections behind the
     named seed-case gate.
+    Added the matching extension-root and branch-into-extension account-trie
+    update fixtures, locking updated account RLPs, retained sibling account
+    projections, compressed extension paths, branch child shapes, and hashed
+    child references behind named seed-case gates.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

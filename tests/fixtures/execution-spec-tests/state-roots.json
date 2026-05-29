@@ -272,6 +272,59 @@
       "expectedStateTrieChildReference": "hashed"
     },
     {
+      "name": "state-trie-extension-account-update-keeps-sibling-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "account-update",
+        "account-projection",
+        "state-trie-extension",
+        "state-trie-extension-child-reference"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 4,
+          "balance": 400
+        }
+      ],
+      "expectedRoot": "0x54bf86069b3e00e53ff1a69043b1fe95c493fef466f0e6cbc0ca2ced59fb219e",
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 4,
+          "balance": 400,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf84604820190a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8450281c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "extension",
+      "expectedStateTrieRootPathNibbles": [13, 7],
+      "expectedStateTrieChildReference": "hashed"
+    },
+    {
       "name": "nethermind-state-trie-branch-into-extension-root",
       "tags": [
         "account-root",
@@ -358,6 +411,82 @@
           "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
           "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
           "rlp": "0xf8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8450281c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8460382012ca056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [12, 13],
+      "expectedStateTrieRootChildShapes": {
+        "12": "leaf",
+        "13": "extension"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "12": "hashed",
+        "13": "hashed"
+      }
+    },
+    {
+      "name": "state-trie-branch-extension-account-update-keeps-sibling-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "account-update",
+        "account-projection",
+        "state-trie-branch",
+        "state-trie-branch-child-references",
+        "state-trie-extension",
+        "state-trie-branch-extension"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 4,
+          "balance": 400
+        }
+      ],
+      "expectedRoot": "0x9cdf5e1987c2c0cc518470d5dad476cc55414b3d343ac527b38a56d418ec18c7",
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 4,
+          "balance": 400,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf84604820190a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
         },
         {
           "address": "0x0000000000000000000000000000000000000225",
