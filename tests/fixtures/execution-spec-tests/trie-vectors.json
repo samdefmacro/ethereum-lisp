@@ -315,6 +315,26 @@
       ]
     },
     {
+      "name": "secure-delete-extension-child-collapses-to-leaf",
+      "secure": true,
+      "tags": ["secure-key", "leaf-root", "path-compression", "delete-collapse", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "alpha", "valueAscii": "left" },
+        { "op": "put", "keyAscii": "ab", "valueAscii": "right" },
+        { "op": "delete", "keyAscii": "ab" }
+      ],
+      "expectedRoot": "0xc0613970ee4545b8b874a3720590eadfc7258e9232a3edd82d6fef1a86db614f",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [6, 13, 15, 12, 2, 1, 10, 12, 0, 12, 8, 12, 2, 13, 11, 0, 3, 6, 3, 0, 5, 13, 8, 11, 12, 6, 15, 8, 8, 7, 6, 3, 0, 13, 3, 5, 14, 1, 5, 6, 15, 3, 7, 13, 5, 10, 7, 14, 2, 2, 7, 5, 11, 12, 0, 5, 11, 12, 0, 0, 4, 8, 4, 6, 16],
+      "expectedRootValueAscii": "left",
+      "expectedGets": [
+        { "keyAscii": "alpha", "valueAscii": "left" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "ab" }
+      ]
+    },
+    {
       "name": "secure-single-leaf",
       "secure": true,
       "tags": ["secure-key", "leaf-root", "lookup-assertions"],

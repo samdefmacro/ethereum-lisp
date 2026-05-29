@@ -1782,6 +1782,11 @@ splits can land after the Phase A smoke path closes.
     shared extension, delete one child, and lock the final compressed leaf
     root, retained lookup/proof, deleted-key absence, and a Phase A summary
     gate requiring extension-to-leaf delete collapse coverage.
+    Added the matching secure-key extension-subtree child deletion collapse
+    coverage: a selected secureTrie case and seed vector hash logical keys
+    before replay, delete one extension child, lock the compressed secure leaf
+    root/path/value, verify retained and missing secure lookups/proofs, and
+    gate Phase A summaries on secure extension-to-leaf delete collapse.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
