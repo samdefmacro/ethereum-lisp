@@ -1947,6 +1947,11 @@ splits can land after the Phase A smoke path closes.
     snapshot, compares returned account proof nodes with `state-db-get-proof`,
     checks the expected proof depth for each trie shape, and verifies the
     decoded RPC proof against the committed state root.
+  - Progress: added state-proof fixture coverage for a code-created account
+    that receives a zero-value storage write. The proof vector locks the
+    code-only account root, empty storage root, null missing-slot proof, and
+    geth-shaped account proof so zero storage writes cannot accidentally create
+    storage trie entries while preserving the code account.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

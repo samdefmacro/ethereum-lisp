@@ -199,6 +199,8 @@ account-trie layouts.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.
+Matching state-proof fixtures now cover the code-account case where a
+zero-value storage write keeps the account present but its storage trie empty.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch
