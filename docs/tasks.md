@@ -637,6 +637,12 @@ ones.
     `v = 27/28` legacy sender recovery as chain-id independent, while
     Phase A/full summaries require both EIP-155-protected and unprotected
     legacy vectors.
+  - Progress: added EIP-1559 dynamic-fee contract-creation coverage to the
+    seed envelope fixture and selected EEST-shaped Phase A/full subsets. The
+    new vector locks `to = null`, initcode payload, signature projection,
+    sender recovery, Shanghai intrinsic gas, sparse EEST result expansion,
+    seed/EEST alignment, and a dedicated summary gate requiring dynamic-fee
+    contract-creation coverage instead of relying on legacy creation alone.
 
 ## P0: Module Boundaries
 

@@ -98,7 +98,10 @@ fixes in those areas are allowed; expansion is not.
   starting with transaction vectors and trie/state-root cases. The selected
   EEST-style trie subset now gates both valueless root-branch child deletion
   outcomes: two-child delete collapse to a leaf and three-child delete
-  preservation of the branch root. The Shanghai
+  preservation of the branch root. The selected Phase A transaction subset now
+  gates dynamic-fee contract creation alongside legacy creation, so typed
+  sender recovery and `to = null` decoding are represented before pinned
+  transaction-test replacement. The Shanghai
   `engine_newPayloadV2` smoke now covers legacy transfer, access-list transfer,
   dynamic-fee typed transfer, contract creation, withdrawals, multi-transaction
   receipt ordering/cumulative gas, safe/finalized checkpoint tags, and
