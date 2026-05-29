@@ -7919,6 +7919,90 @@
         (is (= -32602 (field invalid-params-error "code")))
         (is (= -32602 (field too-many-storage-keys-error "code")))))))
 
+(deftest eth-rpc-get-proof-missing-clear-nontrivial-state-tries
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (proof-node-hex-list (proof)
+             (mapcar #'bytes-to-hex proof))
+           (add-account (state address nonce balance)
+             (state-db-set-account
+              state
+              (address-from-hex address)
+              (make-state-account :nonce nonce :balance balance)))
+           (commit-state-block (store state number timestamp)
+             (let ((block
+                     (make-block
+                      :header (make-block-header
+                               :number number
+                               :timestamp timestamp
+                               :gas-limit 30000000
+                               :state-root (state-db-root state)))))
+               (chain-store-put-block store block :state-available-p t)
+               (commit-state-db-to-chain-store store (block-hash block) state)
+               block))
+           (assert-missing-clear-proof (store state block missing)
+             (let* ((response
+                      (parse-json
+                       (engine-rpc-handle-request-json
+                        (concatenate
+                         'string
+                         "{\"jsonrpc\":\"2.0\",\"id\":109,"
+                         "\"method\":\"eth_getProof\","
+                         "\"params\":[\"" (address-to-hex missing)
+                         "\",[],\"" (hash32-to-hex (block-hash block))
+                         "\"]}")
+                        store
+                        (make-chain-config))))
+                    (proof (field response "result"))
+                    (expected-proof
+                      (state-db-get-proof state missing nil)))
+               (is (string= (address-to-hex missing)
+                            (field proof "address")))
+               (is (string= (quantity-to-hex 0)
+                            (field proof "balance")))
+               (is (string= (quantity-to-hex 0)
+                            (field proof "nonce")))
+               (is (string= (hash32-to-hex +empty-code-hash+)
+                            (field proof "codeHash")))
+               (is (string= (hash32-to-hex +empty-trie-hash+)
+                            (field proof "storageHash")))
+               (is (null (field proof "storageProof")))
+               (is (equal (proof-node-hex-list
+                           (state-proof-result-account-proof expected-proof))
+                          (field proof "accountProof"))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (missing (address-from-hex
+                     "0x00000000000000000000000000000000000002ff"))
+           (extension-state (make-state-db))
+           (branch-extension-state (make-state-db)))
+      (add-account extension-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 100)
+      (add-account extension-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (state-db-clear-account extension-state missing)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 100)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000203"
+                   3 300)
+      (state-db-clear-account branch-extension-state missing)
+      (assert-missing-clear-proof
+       store
+       extension-state
+       (commit-state-block store extension-state 33 330)
+       missing)
+      (assert-missing-clear-proof
+       store
+       branch-extension-state
+       (commit-state-block store branch-extension-state 34 340)
+       missing))))
+
 (deftest eth-rpc-call-executes-retained-state-without-commit
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

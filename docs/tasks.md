@@ -1784,6 +1784,12 @@ splits can land after the Phase A smoke path closes.
     reuse the missing-clear no-op roots from the state-root fixture set and
     lock the exact geth-shaped account proof nodes for extension-only and
     branch-to-extension absence paths behind required coverage gates.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to the same
+    missing-account-after-`clearAccount` extension and branch/extension
+    account-trie layouts. The RPC test now commits both nontrivial state roots
+    into the chain store, reads proofs by block hash, and compares the returned
+    geth-shaped account proof nodes with the core `state-db-get-proof`
+    primitive.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
