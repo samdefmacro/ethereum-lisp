@@ -1702,6 +1702,11 @@ splits can land after the Phase A smoke path closes.
     extension account-trie roots, locking sibling account projections,
     compressed paths, hashed child references, and final roots after a balance
     update.
+    Added zero-value missing-storage-slot fixtures for branch-shaped and
+    extension-shaped secure storage tries. The state-root runner now locks
+    that writing zero to an absent slot preserves the account RLP, storage
+    root, storage-trie child references, and final state root while still
+    checking the touched slot reads back as zero.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
