@@ -2064,6 +2064,12 @@ splits can land after the Phase A smoke path closes.
     Expected receipt roots now must be canonical lowercase `0x`-prefixed
     hashes, and receipt transaction bytes / encoding prefixes must be non-empty
     canonical lowercase `0x` hex strings.
+  - Progress: promoted the internal CREATE2 receipt boundary into the
+    Engine newPayloadV2 smoke fixture set. The fixture now imports a real
+    signed transaction that calls an existing contract, executes CREATE2
+    internally, locks the created runtime code address/code through RPC/state
+    assertions, and verifies the receipt remains a normal call receipt with a
+    `null` `contractAddress`.
   - Result: added an Engine-imported internal CREATE2 receipt boundary. The
     test imports a signed transaction that calls an existing contract whose
     code performs CREATE2, verifies the internally-created runtime code is

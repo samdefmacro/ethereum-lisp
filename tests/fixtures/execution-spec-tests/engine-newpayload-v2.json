@@ -373,6 +373,71 @@
         "receiptType": "0x0",
         "receiptStatus": "0x1"
       }
+    },
+    {
+      "name": "shanghai-internal-create2-with-withdrawal",
+      "network": "Shanghai",
+      "chainId": "0x1",
+      "config": {
+        "berlinBlock": "0x0",
+        "londonBlock": "0x0",
+        "shanghaiTime": "0x0"
+      },
+      "parent": {
+        "number": "0x29",
+        "gasLimit": "0x30d40",
+        "gasUsed": "0x186a0",
+        "timestamp": "0x62",
+        "baseFeePerGas": "0x64",
+        "feeRecipient": "0x0000000000000000000000000000000000000001",
+        "accounts": [
+          {
+            "address": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+            "nonce": "0x0",
+            "balance": "0x3b9aca00"
+          },
+          {
+            "address": "0x00000000000000000000000000000000000000ce",
+            "nonce": "0x0",
+            "balance": "0x0",
+            "code": "0x600a600e5f396005600a5f5ff500600060005360016000f3"
+          }
+        ]
+      },
+      "payload": {
+        "number": "0x2a",
+        "gasLimit": "0x30d40",
+        "timestamp": "0x63",
+        "baseFeePerGas": "0x64",
+        "transactions": [
+          "0xf86080648302bf209400000000000000000000000000000000000000ce808026a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a07eaf1548a574d362a9ebb722366e6bf9ddc175a44f7476bf0dc64b7bb282193e"
+        ],
+        "withdrawals": [
+          {
+            "index": "0x0",
+            "validatorIndex": "0x1",
+            "address": "0x0000000000000000000000000000000000000002",
+            "amount": "0x1"
+          }
+        ]
+      },
+      "expect": {
+        "status": "VALID",
+        "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "senderNonce": "0x1",
+        "senderBalance": "0x3b49880c",
+        "recipient": "0x00000000000000000000000000000000000000ce",
+        "recipientBalance": "0x0",
+        "withdrawalRecipient": "0x0000000000000000000000000000000000000002",
+        "withdrawalBalance": "0x3b9aca00",
+        "codeAddress": "0x170c3fca0f3950db07c92bdffb78f1ca42bb7671",
+        "code": "0x00",
+        "storageAddress": "0x170c3fca0f3950db07c92bdffb78f1ca42bb7671",
+        "storageKey": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "storageValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "receiptType": "0x0",
+        "receiptStatus": "0x1"
+      }
     }
   ]
 }

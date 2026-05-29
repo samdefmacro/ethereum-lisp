@@ -10,7 +10,8 @@
   '("shanghai-one-transfer-with-withdrawal"
     "shanghai-access-list-transfer-with-withdrawal"
     "shanghai-dynamic-fee-transfer-with-withdrawal"
-    "shanghai-contract-creation-with-withdrawal"))
+    "shanghai-contract-creation-with-withdrawal"
+    "shanghai-internal-create2-with-withdrawal"))
 
 (defparameter +engine-newpayload-v2-smoke-coverage-families+
   '(:legacy-transfer :access-list-transfer :dynamic-fee-transfer
@@ -455,6 +456,9 @@
         (state-account-nonce account)
         0)))
 
+(defun fixture-account-has-code-p (state address)
+  (plusp (length (state-db-get-code state address))))
+
 (defun assert-engine-fixture-address=
     (actual expected label field)
   (unless (bytes= (address-bytes actual) (address-bytes expected))
@@ -636,7 +640,8 @@
           (* (fixture-quantity-field withdrawal "amount") +wei-per-gwei+))
        label
        "withdrawalBalance")
-      (when recipient
+      (when (and recipient
+                 (not (fixture-account-has-code-p parent-state recipient)))
         (assert-engine-fixture-quantity=
          (fixture-quantity-field expect "senderBalance")
          (loop with balance = (fixture-account-balance parent-state sender)
@@ -796,6 +801,10 @@
   (let ((config (fixture-object-field case "config")))
     (make-chain-config
      :chain-id (hex-to-quantity (fixture-object-field case "chainId"))
+     :byzantium-block 0
+     :constantinople-block 0
+     :petersburg-block 0
+     :istanbul-block 0
      :berlin-block (fixture-quantity-field config "berlinBlock")
      :london-block (fixture-quantity-field config "londonBlock")
      :shanghai-time (fixture-quantity-field config "shanghaiTime"))))
