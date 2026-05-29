@@ -8317,7 +8317,7 @@
        slot
        1))))
 
-(deftest eth-rpc-get-proof-storage-delete-preserves-noncollapsed-tries
+(deftest eth-rpc-get-proof-storage-delete-boundaries
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
            (commit-state-block (store state number timestamp)
@@ -8343,7 +8343,7 @@
              (hash32-from-hex
               (format nil
                       "0x~64,'0x"
-                      value)))
+                     value)))
            (make-delete-preservation-state (address slots values delete-slot)
              (let ((state (make-state-db)))
                (state-db-set-account state address
@@ -8353,19 +8353,35 @@
                      do (state-db-set-storage state address slot value))
                (state-db-set-storage state address delete-slot 0)
                state))
-           (assert-proof-roundtrip (store state block address slots)
+           (assert-proof-roundtrip
+               (store state block address slots expected-values
+                expected-node-counts)
              (let* ((response
                       (engine-rpc-handle-request
                        (proof-request 120 address slots block)
                        store
                        (make-chain-config)))
                     (proof (field response "result"))
+                    (storage-proofs (field proof "storageProof"))
                     (expected-proof
                       (state-db-get-proof state address slots))
                     (decoded-proof
                       (state-proof-result-from-rpc-object proof)))
                (is (equal (state-proof-result-rpc-object expected-proof)
                           proof))
+               (is (= (length expected-values)
+                      (length storage-proofs)))
+               (loop for storage-proof in storage-proofs
+                     for slot in slots
+                     for expected-value in expected-values
+                     for expected-node-count in expected-node-counts
+                     do (progn
+                          (is (string= (hash32-to-hex slot)
+                                       (field storage-proof "key")))
+                          (is (string= (quantity-to-hex expected-value)
+                                       (field storage-proof "value")))
+                          (is (= expected-node-count
+                                 (length (field storage-proof "proof"))))))
                (is (state-db-verify-proof (state-db-root state)
                                           decoded-proof)))))
     (let* ((store (make-engine-payload-memory-store))
@@ -8387,19 +8403,37 @@
               address
               (list slot-1 slot-e slot-f)
               '(1 14 15)
-              slot-f)))
+              slot-f))
+           (collapse-state
+             (make-delete-preservation-state
+              address
+              (list slot-1 slot-2)
+              '(1 2)
+              slot-2)))
       (assert-proof-roundtrip
        store
        branch-state
        (commit-state-block store branch-state 43 430)
        address
-       (list slot-1 slot-2 slot-3))
+       (list slot-1 slot-2 slot-3)
+       '(1 2 0)
+       '(2 2 1))
       (assert-proof-roundtrip
        store
        extension-state
        (commit-state-block store extension-state 44 440)
        address
-       (list slot-1 slot-e slot-f)))))
+       (list slot-1 slot-e slot-f)
+       '(1 14 0)
+       '(3 3 1))
+      (assert-proof-roundtrip
+       store
+       collapse-state
+       (commit-state-block store collapse-state 45 450)
+       address
+       (list slot-1 slot-2)
+       '(1 0)
+       '(1 1)))))
 
 (deftest eth-rpc-call-executes-retained-state-without-commit
   (labels ((field (object name)

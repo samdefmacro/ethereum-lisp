@@ -272,7 +272,9 @@ extension-preserving delete boundaries: after deleting one present child from a
 three-slot secure storage trie, geth-shaped proof objects verify retained
 storage roots, present slots, and missing deleted slots against the
 non-collapsed branch/extension outcomes. Retained-state `eth_getProof` RPC
-coverage now verifies those same committed snapshot boundaries by block hash.
+coverage now verifies those same committed snapshot boundaries by block hash,
+and the two-slot delete-collapse boundary now has retained-state RPC proof
+coverage for both the surviving slot and the deleted missing slot.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch

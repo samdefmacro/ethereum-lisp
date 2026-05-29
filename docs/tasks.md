@@ -2150,6 +2150,12 @@ splits can land after the Phase A smoke path closes.
     branch- and extension-preserving storage snapshots, reads proofs by block
     hash, compares the geth-shaped response with `state-db-get-proof`, and
     verifies the decoded proof against the committed state root.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to the
+    storage-trie delete-collapse boundary. The RPC test now commits the
+    two-slot storage snapshot after deleting one populated slot, checks the
+    surviving-slot and deleted-slot proof key/value/node-count shape, compares
+    the geth-shaped response with `state-db-get-proof`, and verifies the
+    decoded proof against the committed state root.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
