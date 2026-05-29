@@ -1952,6 +1952,12 @@ splits can land after the Phase A smoke path closes.
     code-only account root, empty storage root, null missing-slot proof, and
     geth-shaped account proof so zero storage writes cannot accidentally create
     storage trie entries while preserving the code account.
+  - Progress: extended zero-value storage-write state-proof coverage to the
+    missing-account and funded empty-storage-account roots already locked by
+    the state-root fixture set. The new vectors prove that a zero write to a
+    missing account leaves an empty account proof, while a zero write to a
+    funded account preserves the leaf account proof and returns a null proof
+    for the absent storage slot.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

@@ -237,6 +237,8 @@
     "present-account-with-prefixless-storage-key-request"
     "missing-account-proof"
     "present-account-deleted-storage-proof"
+    "storage-zero-write-missing-account-proof"
+    "storage-zero-write-funded-empty-storage-proof"
     "storage-zero-write-code-account-proof"
     "present-account-with-multiple-present-storage-proofs"
     "storage-trie-branch-storage-proof"
