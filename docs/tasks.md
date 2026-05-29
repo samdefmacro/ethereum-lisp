@@ -1644,6 +1644,10 @@ splits can land after the Phase A smoke path closes.
     update fixtures, locking updated account RLPs, retained sibling account
     projections, compressed extension paths, branch child shapes, and hashed
     child references behind named seed-case gates.
+    Added branch-root and extension-root storage-trie update fixtures that
+    overwrite one slot while preserving sibling storage slots, storage root
+    projections, account RLPs, branch child shapes/references, and extension
+    path/reference expectations behind named seed-case gates.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

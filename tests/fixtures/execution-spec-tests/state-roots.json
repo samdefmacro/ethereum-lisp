@@ -988,6 +988,76 @@
       "expectedRoot": "0x8ac741e5470ced73e25461a3ecd9d93899e3e5360dc1e947f5de6b9229746905"
     },
     {
+      "name": "storage-trie-branch-update-keeps-sibling-slot-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-update",
+        "storage-root-projection",
+        "storage-trie-branch",
+        "storage-trie-branch-child-shapes",
+        "storage-trie-branch-child-references",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000401",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "value": 2
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 17
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "nonce": 0,
+          "balance": 1,
+          "storageRoot": "0x41c25f4ae395b42cc238d654e38ee46bd11ca7a982d4aada7ac2dfc3ac6ff4ac",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448001a041c25f4ae395b42cc238d654e38ee46bd11ca7a982d4aada7ac2dfc3ac6ff4aca0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "root": "0x41c25f4ae395b42cc238d654e38ee46bd11ca7a982d4aada7ac2dfc3ac6ff4ac"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "shape": "branch",
+          "rootChildren": [4, 11],
+          "rootChildShapes": {
+            "4": "leaf",
+            "11": "leaf"
+          },
+          "rootChildReferences": {
+            "4": "hashed",
+            "11": "hashed"
+          }
+        }
+      ],
+      "expectedRoot": "0x3f592428192011aaedf1701810428b404b2ac5f5b34b40e761d5c5b4d486d760"
+    },
+    {
       "name": "storage-trie-extension-root",
       "tags": [
         "account-root",
@@ -1041,6 +1111,68 @@
         }
       ],
       "expectedRoot": "0x17abb55ac4a5d0f71fbf3779a4346b679c6d5d33192329460692f729adcab05a"
+    },
+    {
+      "name": "storage-trie-extension-update-keeps-sibling-slot-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-update",
+        "storage-root-projection",
+        "storage-trie-extension",
+        "storage-trie-extension-child-reference",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000401",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000000e",
+          "value": 14
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 17
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "nonce": 0,
+          "balance": 1,
+          "storageRoot": "0x82ab87594e214cd9fbd62d780215324a1cb3b7336d9308299eb88a70dccc59c7",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448001a082ab87594e214cd9fbd62d780215324a1cb3b7336d9308299eb88a70dccc59c7a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "root": "0x82ab87594e214cd9fbd62d780215324a1cb3b7336d9308299eb88a70dccc59c7"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "shape": "extension",
+          "rootPathNibbles": [11],
+          "childReference": "hashed"
+        }
+      ],
+      "expectedRoot": "0xf36cb219fefbf0f87da80c24e9e6b92fa0f051fe2c93f014cdf9d3d59a312f49"
     },
     {
       "name": "storage-trie-branch-delete-collapses-to-leaf-root",
