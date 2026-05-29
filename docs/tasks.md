@@ -1742,6 +1742,12 @@ splits can land after the Phase A smoke path closes.
     collapse vector deletes one populated slot and locks the surviving leaf
     proof plus missing proof for the deleted slot. Both cases now have
     required coverage gates.
+  - Progress: added `state-proof-result-from-rpc-object`, allowing geth-shaped
+    `eth_getProof` objects to be decoded back into local proof structs and
+    verified directly against a state root. State-proof fixtures now verify
+    their transcribed `expectedProof` object before comparing it with locally
+    generated output, so pinned proof vectors can be replayed as external
+    proof data rather than only as serialized equality targets.
   - Progress: added direct account-proof regressions over the Nethermind-guided
     state trie layouts already locked by the state-root fixture set: leaf root,
     branch root, extension root, and branch child extension. The tests now

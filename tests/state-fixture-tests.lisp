@@ -1952,12 +1952,22 @@
     (validate-state-proof-fixture-required-case-names cases)
     (dolist (case cases)
       (let* ((state (run-state-root-fixture-case case))
+             (expected-root
+               (hash32-from-hex
+                (fixture-object-field case "expectedRoot")))
+             (expected-proof-object
+               (fixture-object-field case "expectedProof"))
+             (decoded-expected-proof
+               (state-proof-result-from-rpc-object expected-proof-object))
              (proof
                (run-state-proof-fixture-request
                 state
                 (fixture-object-field case "request"))))
         (is (string= (fixture-object-field case "expectedRoot")
                      (state-db-root-hex state)))
+        (is (state-db-verify-proof expected-root decoded-expected-proof))
+        (is (equal expected-proof-object
+                   (state-proof-result-rpc-object decoded-expected-proof)))
         (is (state-db-verify-proof (state-db-root state) proof))
         (is (equal (fixture-object-field case "expectedProof")
                    (state-proof-result-rpc-object proof)))))))

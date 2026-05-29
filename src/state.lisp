@@ -341,6 +341,71 @@
               (mapcar #'state-storage-proof-rpc-object
                       (state-proof-result-storage-proofs proof)))))
 
+(defun state-proof-rpc-required-field (object field label)
+  (unless (listp object)
+    (error "~A must be a JSON object" label))
+  (let ((entry (assoc field object :test #'string=)))
+    (unless entry
+      (error "~A is missing ~A" label field))
+    (cdr entry)))
+
+(defun state-proof-rpc-string-field (object field label)
+  (let ((value (state-proof-rpc-required-field object field label)))
+    (unless (stringp value)
+      (error "~A.~A must be a string" label field))
+    value))
+
+(defun state-proof-rpc-node-list (object field label)
+  (let ((nodes (state-proof-rpc-required-field object field label)))
+    (unless (listp nodes)
+      (error "~A.~A must be a list" label field))
+    (mapcar (lambda (node)
+              (unless (stringp node)
+                (error "~A.~A entries must be hex strings" label field))
+              (hex-to-bytes node))
+            nodes)))
+
+(defun state-proof-rpc-storage-key (value)
+  (unless (stringp value)
+    (error "Storage proof key must be a string"))
+  (let ((bytes (hex-to-bytes value)))
+    (when (> (length bytes) 32)
+      (error "Storage proof key is wider than 32 bytes"))
+    (let ((padded (make-byte-vector 32)))
+      (replace padded bytes :start1 (- 32 (length bytes)))
+      (make-hash32 padded))))
+
+(defun state-storage-proof-from-rpc-object (object)
+  (make-state-storage-proof
+   :slot (state-proof-rpc-storage-key
+          (state-proof-rpc-string-field object "key" "Storage proof"))
+   :value (hex-to-quantity
+           (state-proof-rpc-string-field object "value" "Storage proof"))
+   :proof (state-proof-rpc-node-list object "proof" "Storage proof")))
+
+(defun state-proof-result-from-rpc-object (object)
+  (make-state-proof-result
+   :address (address-from-hex
+             (state-proof-rpc-string-field object "address" "State proof"))
+   :nonce (hex-to-quantity
+           (state-proof-rpc-string-field object "nonce" "State proof"))
+   :balance (hex-to-quantity
+             (state-proof-rpc-string-field object "balance" "State proof"))
+   :code-hash (hash32-from-hex
+               (state-proof-rpc-string-field object "codeHash" "State proof"))
+   :storage-root
+   (hash32-from-hex
+    (state-proof-rpc-string-field object "storageHash" "State proof"))
+   :account-proof (state-proof-rpc-node-list
+                   object "accountProof" "State proof")
+   :storage-proofs
+   (let ((storage-proofs
+           (state-proof-rpc-required-field
+            object "storageProof" "State proof")))
+     (unless (listp storage-proofs)
+       (error "State proof.storageProof must be a list"))
+     (mapcar #'state-storage-proof-from-rpc-object storage-proofs))))
+
 (defun account-with-storage-root (object)
   (let ((account (or (state-object-account object) (make-state-account))))
     (make-state-account

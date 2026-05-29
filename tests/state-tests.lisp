@@ -579,6 +579,59 @@
       (is (every #'stringp
                  (fixture-object-field storage-entry "proof"))))))
 
+(deftest state-proof-result-rpc-object-round-trips-and-verifies
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x000000000000000000000000000000000000001a"))
+        (slot (hash32-from-hex
+               "0x0000000000000000000000000000000000000000000000000000000000000011"))
+        (missing-slot (hash32-from-hex
+                       "0x0000000000000000000000000000000000000000000000000000000000000012")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 4 :balance 2000))
+    (state-db-set-code state address #(96 2 96 0))
+    (state-db-set-storage state address slot 77)
+    (let* ((proof (state-db-get-proof state address (list slot missing-slot)))
+           (object (state-proof-result-rpc-object proof))
+           (decoded (state-proof-result-from-rpc-object object))
+           (storage-entry (first (fixture-object-field object "storageProof"))))
+      (is (state-db-verify-proof (state-db-root state) decoded))
+      (is (equal object (state-proof-result-rpc-object decoded)))
+      (let* ((short-key-storage-entry
+               (cons (cons "key" "0x11")
+                     (remove "key" storage-entry :key #'car :test #'string=)))
+             (short-key-object
+               (cons
+                (cons "storageProof"
+                      (cons short-key-storage-entry
+                            (rest (fixture-object-field object "storageProof"))))
+                (remove "storageProof" object :key #'car :test #'string=)))
+             (short-key-decoded
+               (state-proof-result-from-rpc-object short-key-object)))
+        (is (state-db-verify-proof (state-db-root state) short-key-decoded))
+        (is (string= (hash32-to-hex slot)
+                     (hash32-to-hex
+                      (state-storage-proof-slot
+                       (first
+                        (state-proof-result-storage-proofs
+                         short-key-decoded)))))))
+      (let* ((tampered-storage-entry
+               (cons (cons "value" "0x4e")
+                     (remove "value" storage-entry :key #'car :test #'string=)))
+             (tampered-object
+               (cons
+                (cons "storageProof"
+                      (cons tampered-storage-entry
+                            (rest (fixture-object-field object "storageProof"))))
+                (remove "storageProof" object :key #'car :test #'string=))))
+        (signals error
+          (state-db-verify-proof
+           (state-db-root state)
+           (state-proof-result-from-rpc-object tampered-object))))
+      (signals error
+        (state-proof-result-from-rpc-object
+         (cons (cons "accountProof" "0x80")
+               (remove "accountProof" object :key #'car :test #'string=)))))))
+
 (deftest state-zero-storage-write-does-not-create-empty-account
   (let* ((state (make-state-db))
          (address (address-from-hex "0x0000000000000000000000000000000000000003"))
