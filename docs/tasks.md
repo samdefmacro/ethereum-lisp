@@ -1746,6 +1746,11 @@ splits can land after the Phase A smoke path closes.
     byte-string keys and values, deletes one secure-hashed key, verifies the
     remaining non-empty root, and gates Phase A coverage on secure hex-value
     replay rather than only plain trie hex inputs.
+    Added local trie-vector `valueHex` support and a seed leaf case with a
+    non-text byte value. The fixture runner now validates mutually exclusive
+    ASCII/hex values, checks hex root values, and proves lookups for byte
+    values so pinned trie vectors with arbitrary byte payloads can be imported
+    without flattening them to ASCII.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

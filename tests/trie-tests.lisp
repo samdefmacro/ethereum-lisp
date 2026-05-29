@@ -65,11 +65,13 @@
     "missing-delete-noop"
     "duplicate-overwrite"
     "hex-key"
+    "hex-value"
     "secure-key"
     "lookup-assertions"))
 
 (defparameter +trie-fixture-required-case-names+
   '("single-leaf"
+    "hex-byte-value-leaf"
     "delete-missing-key-keeps-leaf"
     "duplicate-key-overwrites-leaf-value"
     "branch-extension-shared-prefix"
@@ -108,6 +110,7 @@
     "missing-delete-noop"
     "duplicate-overwrite"
     "hex-key"
+    "hex-value"
     "secure-key"
     "lookup-assertions"))
 
@@ -129,14 +132,15 @@
     "expectedRootChildReferences"
     "expectedRootPathNibbles"
     "expectedRootValueAscii"
+    "expectedRootValueHex"
     "expectedGets"
     "expectedMissing"))
 
 (defparameter +trie-fixture-operation-fields+
-  '("op" "keyHex" "keyAscii" "valueAscii"))
+  '("op" "keyHex" "keyAscii" "valueAscii" "valueHex"))
 
 (defparameter +trie-fixture-expected-get-fields+
-  '("keyHex" "keyAscii" "valueAscii"))
+  '("keyHex" "keyAscii" "valueAscii" "valueHex"))
 
 (defparameter +trie-fixture-expected-missing-fields+
   '("keyHex" "keyAscii"))
@@ -183,6 +187,25 @@
           (error "~A must be canonical lowercase 0x-prefixed hex" label)))
     (error (condition)
       (error "~A must be hex bytes: ~A" label condition))))
+
+(defun validate-trie-fixture-value-fields (object label)
+  (let ((has-hex (fixture-field-present-p object "valueHex"))
+        (has-ascii (fixture-field-present-p object "valueAscii")))
+    (unless (or has-hex has-ascii)
+      (error "~A must include valueAscii or valueHex" label))
+    (when (and has-hex has-ascii)
+      (error "~A must not include both valueAscii and valueHex" label))
+    (when has-ascii
+      (validate-trie-fixture-non-empty-string
+       (fixture-object-field object "valueAscii")
+       (format nil "~A valueAscii" label)))
+    (when has-hex
+      (let ((value (fixture-object-field object "valueHex")))
+        (validate-trie-fixture-byte-field
+         value
+         (format nil "~A valueHex" label))
+        (when (zerop (length (hex-to-bytes value)))
+          (error "~A valueHex must not be empty" label))))))
 
 (defun validate-trie-fixture-metadata (fixture)
   (validate-trie-fixture-object-fields
@@ -253,12 +276,15 @@
       (error "Trie fixture case ~A operation op must be a string" case-name))
     (cond
       ((string= op "put")
-       (validate-trie-fixture-non-empty-string
-        (fixture-object-field operation "valueAscii")
-        (format nil "Trie fixture case ~A put operation valueAscii" case-name)))
+       (validate-trie-fixture-value-fields
+        operation
+        (format nil "Trie fixture case ~A put operation" case-name)))
       ((string= op "delete")
        (when (fixture-field-present-p operation "valueAscii")
          (error "Trie fixture case ~A delete operation must not include valueAscii"
+                case-name))
+       (when (fixture-field-present-p operation "valueHex")
+         (error "Trie fixture case ~A delete operation must not include valueHex"
                 case-name)))
       (t (error "Unknown trie fixture operation in case ~A: ~A"
                 case-name op)))))
@@ -278,12 +304,15 @@
                                             case-name field))
   (cond
     ((string= field "expectedGets")
-     (validate-trie-fixture-non-empty-string
-      (fixture-object-field expected "valueAscii")
-      (format nil "Trie fixture case ~A expectedGets entry valueAscii" case-name)))
+     (validate-trie-fixture-value-fields
+      expected
+      (format nil "Trie fixture case ~A expectedGets entry" case-name)))
     ((string= field "expectedMissing")
      (when (fixture-field-present-p expected "valueAscii")
        (error "Trie fixture case ~A expectedMissing entry must not include valueAscii"
+              case-name))
+     (when (fixture-field-present-p expected "valueHex")
+       (error "Trie fixture case ~A expectedMissing entry must not include valueHex"
               case-name)))))
 
 (defun validate-trie-fixture-expected-lookup-keys (case)
@@ -438,7 +467,20 @@
       (validate-trie-fixture-non-empty-string
        (fixture-object-field case "expectedRootValueAscii")
        (format nil "Trie fixture case ~A expectedRootValueAscii"
-               (fixture-object-field case "name"))))))
+               (fixture-object-field case "name"))))
+    (when (and (fixture-field-present-p case "expectedRootValueAscii")
+               (fixture-field-present-p case "expectedRootValueHex"))
+      (error "Trie fixture case ~A must not include both expectedRootValueAscii and expectedRootValueHex"
+             (fixture-object-field case "name")))
+    (when (fixture-field-present-p case "expectedRootValueHex")
+      (let ((value (fixture-object-field case "expectedRootValueHex")))
+        (validate-trie-fixture-byte-field
+         value
+         (format nil "Trie fixture case ~A expectedRootValueHex"
+                 (fixture-object-field case "name")))
+        (when (zerop (length (hex-to-bytes value)))
+          (error "Trie fixture case ~A expectedRootValueHex must not be empty"
+                 (fixture-object-field case "name")))))))
 
 (defun validate-trie-fixture-case-shape (case)
   (let ((name (fixture-object-field case "name"))
@@ -1479,20 +1521,26 @@
       ((typep root 'ethereum-lisp.trie::extension-node)
        (coerce (ethereum-lisp.trie::extension-node-path root) 'list)))))
 
-(defun trie-fixture-root-value (trie)
+(defun trie-fixture-root-value-bytes (trie)
   (let ((root (mpt-root-node trie)))
     (cond
       ((typep root 'ethereum-lisp.trie::leaf-node)
-       (bytes-to-ascii
-        (ethereum-lisp.trie::leaf-node-value root)))
+       (ethereum-lisp.trie::leaf-node-value root))
       ((typep root 'ethereum-lisp.trie::branch-node)
-       (bytes-to-ascii
-        (ethereum-lisp.trie::branch-node-value root))))))
+       (ethereum-lisp.trie::branch-node-value root)))))
+
+(defun trie-fixture-root-value (trie)
+  (bytes-to-ascii (trie-fixture-root-value-bytes trie)))
 
 (defun trie-fixture-key (object)
   (or (let ((hex (fixture-object-field object "keyHex")))
         (when hex (hex-to-bytes hex)))
       (ascii-to-bytes (fixture-object-field object "keyAscii"))))
+
+(defun trie-fixture-value (object)
+  (or (let ((hex (fixture-object-field object "valueHex")))
+        (when hex (hex-to-bytes hex)))
+      (ascii-to-bytes (fixture-object-field object "valueAscii"))))
 
 (defun trie-fixture-secure-key-p (case)
   (not (null (fixture-object-field case "secure"))))
@@ -1508,9 +1556,7 @@
         (key (trie-fixture-trie-key case operation)))
     (cond
       ((string= op "put")
-       (mpt-put trie key
-                (ascii-to-bytes
-                 (fixture-object-field operation "valueAscii"))))
+       (mpt-put trie key (trie-fixture-value operation)))
       ((string= op "delete")
        (mpt-delete trie key))
       (t (error "Unknown trie fixture operation: ~A" op)))))
@@ -1529,10 +1575,7 @@
         (setf entries (remove key entries :key #'car :test #'bytes=))
         (cond
           ((string= op "put")
-           (push (cons key
-                       (ascii-to-bytes
-                        (fixture-object-field operation "valueAscii")))
-                 entries))
+           (push (cons key (trie-fixture-value operation)) entries))
           ((string= op "delete")
            (push (cons key nil) entries))
           (t (error "Unknown trie fixture operation: ~A" op)))))
@@ -1565,7 +1608,7 @@
 (defun assert-trie-fixture-lookups (trie case)
   (dolist (expected (fixture-object-field case "expectedGets"))
     (let ((key (trie-fixture-trie-key case expected))
-          (value (ascii-to-bytes (fixture-object-field expected "valueAscii"))))
+          (value (trie-fixture-value expected)))
       (is (bytes= value (mpt-get trie key)))
       (assert-trie-fixture-proof-present trie key value)))
   (dolist (expected (fixture-object-field case "expectedMissing"))
@@ -3032,5 +3075,11 @@
           (when branch-value
             (is (string= branch-value
                          (trie-fixture-root-value trie)))))
+        (let ((branch-value
+                (fixture-object-field case "expectedRootValueHex")))
+          (when branch-value
+            (is (string= branch-value
+                         (bytes-to-hex
+                          (trie-fixture-root-value-bytes trie))))))
         (assert-trie-fixture-final-operation-lookups trie case)
         (assert-trie-fixture-lookups trie case)))))

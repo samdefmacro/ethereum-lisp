@@ -215,7 +215,9 @@ integration, deletion edge cases, and broader fixture compatibility remain.
 The selected EEST-style trie subset also covers secure hex byte-string
 key/value replay with deletion to a non-empty secure root, so external fixture
 ingestion now exercises byte-oriented secure trie inputs as well as ASCII
-samples.
+samples. Local trie-vector seeds can now express hex byte values directly,
+including non-text leaf values, and verify those values through root, lookup,
+and proof assertions.
 
 ## 4. EVM
 

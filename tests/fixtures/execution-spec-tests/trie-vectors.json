@@ -19,6 +19,20 @@
       "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7, 16]
     },
     {
+      "name": "hex-byte-value-leaf",
+      "tags": ["leaf-root", "path-compression", "hex-key", "hex-value", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyHex": "0x01", "valueHex": "0x0001ff" }
+      ],
+      "expectedRoot": "0x17f635f78a34a75bdc662b9d717fc0be784fcc725ad4ae34cac40d51baed1813",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [0, 1, 16],
+      "expectedRootValueHex": "0x0001ff",
+      "expectedGets": [
+        { "keyHex": "0x01", "valueHex": "0x0001ff" }
+      ]
+    },
+    {
       "name": "delete-missing-key-keeps-leaf",
       "tags": ["leaf-root", "path-compression", "missing-delete-noop"],
       "operations": [
