@@ -102,7 +102,9 @@ fixes in those areas are allowed; expansion is not.
   plain and secure
   extension-subtree child deletion that compresses all the way back to a
   single leaf, covering the path-compression boundary beyond root-branch cases
-  for both raw and hashed-key replay. The selected Phase A transaction subset
+  for both raw and hashed-key replay. It also gates present sibling deletion
+  that compresses a branch back to an extension root for both raw and
+  hashed-key replay. The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, so typed sender recovery, access-list projection, and `to = null`
   decoding are represented before pinned transaction-test replacement. The

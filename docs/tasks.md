@@ -1800,6 +1800,12 @@ splits can land after the Phase A smoke path closes.
     retained hashed child references, retained secure lookups/proofs,
     deleted-key absence, and a dedicated Phase A summary gate requiring this
     branch-preserving secure deletion boundary.
+    Added sibling-delete extension preservation coverage for both plain and
+    secure trie replay. The selected EEST-style cases and seed vectors now
+    delete a present sibling from a branch that compresses back to an
+    extension root, lock the final root/path and hashed child reference, verify
+    retained/deleted lookups and proofs, and gate Phase A summaries on both
+    plain and secure delete-to-extension outcomes.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

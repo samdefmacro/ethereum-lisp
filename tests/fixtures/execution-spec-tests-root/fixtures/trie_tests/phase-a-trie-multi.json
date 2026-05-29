@@ -73,6 +73,16 @@
     ],
     "root": "1921f6235f65195dd10981ab8812c58701f5c8928e895230577bc1f5de633af0"
   },
+  "delete-branch-sibling-collapses-to-extension": {
+    "in": [
+      ["do", "verb"],
+      ["dog", "puppy"],
+      ["doge", "coin"],
+      ["horse", "stallion"],
+      ["horse", null]
+    ],
+    "root": "ef7b2fe20f5d2c30c46ad4d83c39811bcbf1721aef2e805c0e107947320888b6"
+  },
   "delete-branch-value": {
     "in": [
       ["0x", "root"],

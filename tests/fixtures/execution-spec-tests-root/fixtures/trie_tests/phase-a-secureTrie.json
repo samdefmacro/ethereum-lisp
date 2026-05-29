@@ -45,6 +45,15 @@
     ],
     "root": "1d5d556f96abcc20327918d9209473b0709ff666a2723575202cb03388dc0103"
   },
+  "phase-a-secure-delete-branch-sibling-collapses-to-extension": {
+    "in": [
+      ["dog", "left"],
+      ["beam", "right"],
+      ["horse", "stallion"],
+      ["horse", null]
+    ],
+    "root": "2c6f6489a6626f2f887d76882467e53e711032408473799352c0c2d192db7f80"
+  },
   "phase-a-secure-delete-extension-child": {
     "in": [
       ["alpha", "left"],
