@@ -1779,6 +1779,11 @@ splits can land after the Phase A smoke path closes.
     branch/extension account-trie layouts, and the required tag/name gates
     fail if those layout proofs are dropped before pinned proof vectors
     replace the in-repo samples.
+  - Progress: added missing-account-after-`clearAccount` state-proof fixtures
+    for extension and branch/extension account-trie layouts. These vectors
+    reuse the missing-clear no-op roots from the state-root fixture set and
+    lock the exact geth-shaped account proof nodes for extension-only and
+    branch-to-extension absence paths behind required coverage gates.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

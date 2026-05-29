@@ -194,7 +194,9 @@
     "state-trie-branch-proof"
     "state-trie-branch-missing-after-clear-proof"
     "state-trie-extension-proof"
+    "state-trie-extension-missing-after-clear-proof"
     "state-trie-branch-extension-proof"
+    "state-trie-branch-extension-missing-after-clear-proof"
     "geth-shaped-result"))
 
 (defparameter +state-proof-fixture-required-case-names+
@@ -212,7 +214,9 @@
     "nethermind-state-trie-branch-account-proof"
     "state-trie-branch-missing-account-after-clear-proof"
     "nethermind-state-trie-extension-account-proof"
-    "nethermind-state-trie-branch-extension-missing-account-proof"))
+    "state-trie-extension-missing-account-after-clear-proof"
+    "nethermind-state-trie-branch-extension-missing-account-proof"
+    "state-trie-branch-extension-missing-account-after-clear-proof"))
 
 (defparameter +state-proof-fixture-required-tags+
   '("empty-state-proof"
@@ -231,7 +235,9 @@
     "state-trie-branch-proof"
     "state-trie-branch-missing-after-clear-proof"
     "state-trie-extension-proof"
+    "state-trie-extension-missing-after-clear-proof"
     "state-trie-branch-extension-proof"
+    "state-trie-branch-extension-missing-after-clear-proof"
     "geth-shaped-result"))
 
 (defun validate-state-root-fixture-object-fields

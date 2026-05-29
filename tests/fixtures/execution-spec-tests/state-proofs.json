@@ -681,6 +681,44 @@
       }
     },
     {
+      "name": "state-trie-extension-missing-account-after-clear-proof",
+      "tags": ["missing-account", "state-trie-extension-proof", "state-trie-extension-missing-after-clear-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x00000000000000000000000000000000000002ff"
+        }
+      ],
+      "request": {
+        "address": "0x00000000000000000000000000000000000002ff",
+        "storageKeys": []
+      },
+      "expectedRoot": "0x107571af3beeb3b5f3d1b49b593066ac344ab7e98f657ee27670315fcbde6509",
+      "expectedProof": {
+        "address": "0x00000000000000000000000000000000000002ff",
+        "accountProof": [
+          "0xe48200d7a0f72e069c7b2d8fa747cae704ddbe90e0e120643421a6ea2474a484a28c2af18a"
+        ],
+        "balance": "0x0",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
+    },
+    {
       "name": "nethermind-state-trie-branch-extension-missing-account-proof",
       "tags": ["missing-account", "state-trie-branch-extension-proof", "geth-shaped-result"],
       "operations": [
@@ -712,6 +750,51 @@
         "address": "0x0000000000000000000000000000000000000221",
         "accountProof": [
           "0xf851808080808080808080808080a057643dfbcef0d49a3a8fdb34b9b467d1b877edfc8e7b10550c2d51ef91cc03b4a00164dad070ec6316e694be10f836391e97a5a647c46eb2cdfd0eb3bca2df5463808080"
+        ],
+        "balance": "0x0",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
+    },
+    {
+      "name": "state-trie-branch-extension-missing-account-after-clear-proof",
+      "tags": ["missing-account", "state-trie-branch-extension-proof", "state-trie-branch-extension-missing-after-clear-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x00000000000000000000000000000000000002ff"
+        }
+      ],
+      "request": {
+        "address": "0x00000000000000000000000000000000000002ff",
+        "storageKeys": []
+      },
+      "expectedRoot": "0x08767738cc4d52da0973b6f2030046afe8e67bea9da3b1ea31d19aacf59d077b",
+      "expectedProof": {
+        "address": "0x00000000000000000000000000000000000002ff",
+        "accountProof": [
+          "0xf851808080808080808080808080a057643dfbcef0d49a3a8fdb34b9b467d1b877edfc8e7b10550c2d51ef91cc03b4a00164dad070ec6316e694be10f836391e97a5a647c46eb2cdfd0eb3bca2df5463808080",
+          "0xe217a0f72e069c7b2d8fa747cae704ddbe90e0e120643421a6ea2474a484a28c2af18a"
         ],
         "balance": "0x0",
         "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
