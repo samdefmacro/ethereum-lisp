@@ -159,6 +159,7 @@
     "storage-trie-branch-root"
     "storage-trie-branch-missing-delete-keeps-root"
     "storage-trie-branch-update-keeps-sibling-slot-root"
+    "storage-trie-branch-delete-preserves-branch-root"
     "storage-trie-extension-root"
     "storage-trie-extension-missing-delete-keeps-root"
     "storage-trie-extension-update-keeps-sibling-slot-root"

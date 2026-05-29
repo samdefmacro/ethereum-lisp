@@ -1861,6 +1861,11 @@ splits can land after the Phase A smoke path closes.
     branch whose child at index `0` is a hashed extension while index `3`
     remains a hashed leaf, with lookup/proof replay and a Phase A summary gate
     requiring secure branch-child extension coverage.
+    Added a storage-trie branch deletion fixture where three secure-hashed
+    storage slots are created and one present child is deleted while the final
+    storage trie remains a branch. The state-root seed gate now locks the
+    retained slot indexes, hashed child references, account RLP, storage root,
+    and final state root for this branch-preserving storage cleanup boundary.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
