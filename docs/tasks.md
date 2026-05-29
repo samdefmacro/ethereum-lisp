@@ -243,6 +243,14 @@ ones.
     legacy, EIP-2930, EIP-1559, EIP-4844, or EIP-7702 coverage, duplicate
     names, duplicate `txbytes` / `raw`, duplicate hashes, blank senders, and
     invalid chain ids before running per-fork checks.
+  - Progress: promoted the EEST-style transaction-test root conversion into
+    the same replay path used by the in-repo envelope fixture. Root-derived
+    vectors now decode from `txbytes`, re-derive transaction hash, sender,
+    signature/decoded payload, intrinsic gas, and per-fork type activation
+    results before checking seed alignment, so the external root harness is
+    executable coverage rather than only a loader/shape check.
+    Remaining work: replace/extend the root sample with cases transcribed
+    from the pinned `execution-spec-tests` release.
   - Progress: expanded the local EEST-shaped transaction-test sample root from
     the Phase A three-type subset to all five envelope families. Root vector
     loading now decodes legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702

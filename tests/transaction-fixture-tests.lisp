@@ -2014,6 +2014,53 @@
     (validate-transaction-fixture-derived-results vector transaction)
     transaction))
 
+(defun assert-transaction-fixture-vectors-replay (vectors)
+  (dolist (vector vectors)
+    (let* ((raw (transaction-fixture-txbytes vector))
+           (chain-id (fixture-object-field vector "chainId"))
+           (transaction (validate-transaction-fixture-decoded-vector vector))
+           (sender (transaction-sender transaction
+                                       :expected-chain-id chain-id)))
+      (is (eq (transaction-fixture-type-keyword
+               (fixture-object-field vector "type"))
+              (transaction-vector-type transaction)))
+      (is (string= raw (bytes-to-hex (transaction-encoding transaction))))
+      (is (string= (fixture-object-field vector "hash")
+                   (hash32-to-hex (transaction-hash transaction))))
+      (is sender)
+      (is (string= (fixture-object-field vector "sender")
+                   (address-to-hex sender)))
+      (is (null (transaction-sender transaction
+                                    :expected-chain-id (1+ chain-id))))
+      (dolist (check (transaction-fixture-result-checks vector))
+        (let ((config (transaction-fixture-fork-config (car check)))
+              (result (cdr check)))
+          (if (transaction-fixture-result-valid-p result)
+              (progn
+                (is (validate-transaction-type-for-config
+                     transaction config 0 0))
+                (is (string= (fixture-object-field result "intrinsicGas")
+                             (quantity-to-hex
+                              (transaction-intrinsic-gas transaction))))
+                (when (fixture-field-present-p result "hash")
+                  (is (string= (fixture-object-field result "hash")
+                               (hash32-to-hex
+                                (transaction-hash transaction)))))
+                (when (fixture-field-present-p result "sender")
+                  (is (string= (fixture-object-field result "sender")
+                               (address-to-hex sender)))))
+              (handler-case
+                  (progn
+                    (validate-transaction-type-for-config
+                     transaction config 0 0)
+                    (error "Expected transaction fixture exception ~A"
+                           (fixture-object-field result "exception")))
+                (block-validation-error (condition)
+                  (is (string=
+                       (transaction-fixture-exception-message
+                        (fixture-object-field result "exception"))
+                       (block-validation-error-message condition)))))))))))
+
 (deftest transaction-fixture-result-shape-validation
   (let ((vector (list (cons "name" "shape-test")
                       (cons "type" "dynamic-fee"))))
@@ -3255,6 +3302,7 @@
     (is (= 3 (length selected-vectors)))
     (is (= 5 (length full-vectors)))
     (validate-transaction-fixture-vector-set vectors :require-required-types t)
+    (assert-transaction-fixture-vectors-replay vectors)
     (is (equal +phase-a-eest-transaction-test-case-names+
                (mapcar
                 (lambda (case)
@@ -3667,48 +3715,4 @@
                :test #'string=
                :key (lambda (candidate)
                       (fixture-object-field candidate "name")))))
-    (dolist (vector vectors)
-      (let* ((raw (transaction-fixture-txbytes vector))
-             (chain-id (fixture-object-field vector "chainId"))
-             (transaction (transaction-from-encoding (hex-to-bytes raw)))
-             (sender (transaction-sender transaction :expected-chain-id chain-id)))
-        (validate-transaction-fixture-decoded-envelope vector transaction)
-        (is (eq (transaction-fixture-type-keyword
-                 (fixture-object-field vector "type"))
-                (transaction-vector-type transaction)))
-        (is (string= raw (bytes-to-hex (transaction-encoding transaction))))
-        (is (string= (fixture-object-field vector "hash")
-                     (hash32-to-hex (transaction-hash transaction))))
-        (is sender)
-        (is (string= (fixture-object-field vector "sender")
-                     (address-to-hex sender)))
-        (is (null (transaction-sender transaction
-                                      :expected-chain-id (1+ chain-id))))
-        (dolist (check (transaction-fixture-result-checks vector))
-          (let ((config (transaction-fixture-fork-config (car check)))
-                (result (cdr check)))
-            (if (transaction-fixture-result-valid-p result)
-                (progn
-                  (is (validate-transaction-type-for-config
-                       transaction config 0 0))
-                  (is (string= (fixture-object-field result "intrinsicGas")
-                               (quantity-to-hex
-                                (transaction-intrinsic-gas transaction))))
-                  (when (fixture-field-present-p result "hash")
-                    (is (string= (fixture-object-field result "hash")
-                                 (hash32-to-hex
-                                  (transaction-hash transaction)))))
-                  (when (fixture-field-present-p result "sender")
-                    (is (string= (fixture-object-field result "sender")
-                                 (address-to-hex sender)))))
-                (handler-case
-                    (progn
-                      (validate-transaction-type-for-config
-                       transaction config 0 0)
-                      (error "Expected transaction fixture exception ~A"
-                             (fixture-object-field result "exception")))
-                  (block-validation-error (condition)
-                    (is (string=
-                         (transaction-fixture-exception-message
-                          (fixture-object-field result "exception"))
-                         (block-validation-error-message condition))))))))))))
+    (assert-transaction-fixture-vectors-replay vectors)))
