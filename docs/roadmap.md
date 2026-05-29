@@ -250,6 +250,11 @@ Code-deletion proof fixtures also lock both pruning of code-created empty
 accounts and preservation of funded accounts after their code hash returns to
 the empty-code hash, with retained-state `eth_getProof` RPC reads now
 verifying those same committed snapshot boundaries.
+State-proof fixtures now also cover the storage-trie branch- and
+extension-preserving delete boundaries: after deleting one present child from a
+three-slot secure storage trie, geth-shaped proof objects verify retained
+storage roots, present slots, and missing deleted slots against the
+non-collapsed branch/extension outcomes.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch

@@ -2098,6 +2098,12 @@ splits can land after the Phase A smoke path closes.
     pruning and funded-account preservation snapshots, reads each proof by
     block hash, checks the geth-shaped empty code/storage fields, and verifies
     the decoded proof against the committed state root.
+  - Progress: added state-proof fixtures for the storage-trie branch- and
+    extension-preserving delete boundaries from `TRIE-FIXTURE-GRADE`. The
+    proof vectors create three secure-hashed storage slots, delete one present
+    child while the final trie remains non-collapsed, then lock geth-shaped
+    account proofs, retained storage roots, present slot proofs, and missing
+    deleted-slot proofs behind required seed-case gates.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
