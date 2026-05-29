@@ -1848,6 +1848,12 @@ splits can land after the Phase A smoke path closes.
     root branch whose child at index `3` is itself a hashed branch while index
     `11` remains a hashed leaf, with lookup/proof replay and a Phase A
     summary gate requiring secure branch-child branch coverage.
+    Added secure branch-root child-shape coverage for the matching nested
+    extension path. The selected secureTrie and seed cases replay `secure0`,
+    `secure6`, and `secure61` through secure-key hashing, locking a root
+    branch whose child at index `0` is a hashed extension while index `3`
+    remains a hashed leaf, with lookup/proof replay and a Phase A summary gate
+    requiring secure branch-child extension coverage.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

@@ -114,6 +114,9 @@ fixes in those areas are allowed; expansion is not.
   selected EEST-style trie subset
   now gates the same nested branch-child shape under secure-key hashing,
   keeping account/state-trie-like replay aligned with the plain seed shape.
+  It also gates the secure-key counterpart for a branch root whose child
+  resolves to an extension, so both nested branch and nested extension child
+  shapes are represented before pinned trie vectors replace the seed set.
   The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so

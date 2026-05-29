@@ -333,6 +333,32 @@
       ]
     },
     {
+      "name": "secure-branch-child-extension",
+      "secure": true,
+      "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "secure0", "valueAscii": "left" },
+        { "op": "put", "keyAscii": "secure6", "valueAscii": "middle" },
+        { "op": "put", "keyAscii": "secure61", "valueAscii": "right" }
+      ],
+      "expectedRoot": "0x5f8d3f000e83f459e92adbebecb70ac84fc99fd16ee2e6b5a5b400b7d6e974b4",
+      "expectedShape": "branch",
+      "expectedRootChildren": [0, 3],
+      "expectedRootChildReferences": {
+        "0": "hashed",
+        "3": "hashed"
+      },
+      "expectedRootChildShapes": {
+        "0": "extension",
+        "3": "leaf"
+      },
+      "expectedGets": [
+        { "keyAscii": "secure0", "valueAscii": "left" },
+        { "keyAscii": "secure6", "valueAscii": "middle" },
+        { "keyAscii": "secure61", "valueAscii": "right" }
+      ]
+    },
+    {
       "name": "secure-missing-delete-keeps-branch-root",
       "secure": true,
       "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "missing-delete-noop", "lookup-assertions"],
