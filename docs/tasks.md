@@ -1734,6 +1734,10 @@ splits can land after the Phase A smoke path closes.
     state-root fixtures for zero-add over an empty state, a funded leaf account,
     and a branch-shaped state trie with a missing touched address, locking the
     unchanged roots/account projections behind required seed-case gates.
+    Added a selected EEST-style secureTrie case that replays canonical hex
+    byte-string keys and values, deletes one secure-hashed key, verifies the
+    remaining non-empty root, and gates Phase A coverage on secure hex-value
+    replay rather than only plain trie hex inputs.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

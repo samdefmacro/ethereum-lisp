@@ -63,5 +63,13 @@
       "cat": null
     },
     "root": "ff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
+  },
+  "phase-a-secure-value-hex-byte-delete": {
+    "in": [
+      ["0x00", "0xdeadbeef"],
+      ["0x01", "0xcafe"],
+      ["0x00", null]
+    ],
+    "root": "51601f67f06338ad14e87799781d9eb786daf72d238e3122434a6d7b71900c7f"
   }
 }

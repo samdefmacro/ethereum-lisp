@@ -204,6 +204,10 @@ delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch
 and path-compressed extension roots. Persistence
 integration, deletion edge cases, and broader fixture compatibility remain.
+The selected EEST-style trie subset also covers secure hex byte-string
+key/value replay with deletion to a non-empty secure root, so external fixture
+ingestion now exercises byte-oriented secure trie inputs as well as ASCII
+samples.
 
 ## 4. EVM
 
