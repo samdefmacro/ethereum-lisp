@@ -7775,6 +7775,8 @@
                             (make-state-account :nonce 3 :balance 1000))
       (state-db-set-code state address #(96 1 96 0))
       (state-db-set-storage state address slot #x2a)
+      (state-db-set-account state address
+                            (make-state-account :nonce 3 :balance 1000))
       (setf (block-header-state-root (block-header state-block))
             (state-db-root state))
       (chain-store-put-block store state-block :state-available-p t)

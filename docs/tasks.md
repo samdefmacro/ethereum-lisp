@@ -1821,6 +1821,12 @@ splits can land after the Phase A smoke path closes.
     into the chain store, reads proofs by block hash, and compares the returned
     geth-shaped account proof nodes with the core `state-db-get-proof`
     primitive.
+  - Progress: added state-proof coverage for an account whose nonce/balance are
+    updated after code and storage are present. The fixture now locks the
+    preserved code hash, storage hash, account proof, present storage proof,
+    and missing storage proof after the update, and retained-state
+    `eth_getProof` coverage now commits the same account-update boundary
+    through the chain-store snapshot path.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

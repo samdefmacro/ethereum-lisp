@@ -181,6 +181,73 @@
       }
     },
     {
+      "name": "account-update-preserves-code-and-storage-proof",
+      "tags": [
+        "present-account",
+        "storage-present",
+        "storage-missing",
+        "account-update-proof",
+        "geth-shaped-result"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x000000000000000000000000000000000000030a",
+          "nonce": 1,
+          "balance": 1000
+        },
+        {
+          "op": "setStorage",
+          "address": "0x000000000000000000000000000000000000030a",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000001a",
+          "value": 26
+        },
+        {
+          "op": "setCode",
+          "address": "0x000000000000000000000000000000000000030a",
+          "code": "0x6001600201"
+        },
+        {
+          "op": "setAccount",
+          "address": "0x000000000000000000000000000000000000030a"
+        }
+      ],
+      "request": {
+        "address": "0x000000000000000000000000000000000000030a",
+        "storageKeys": [
+          "0x000000000000000000000000000000000000000000000000000000000000001a",
+          "0x000000000000000000000000000000000000000000000000000000000000001b"
+        ]
+      },
+      "expectedRoot": "0x79e957bdad75e229f7cbbf1397effe0f4390be8375cb713d1a5c64cc3e19e7e1",
+      "expectedProof": {
+        "address": "0x000000000000000000000000000000000000030a",
+        "accountProof": [
+          "0xf86aa12042ac04139899f8672729d16f6e45ea797923ff6b030ffaaba83ec63a24f0724ab846f8448080a0bca1326641ee43e0133453fe7dae60726605fad04578343119ff3a6f4901bc28a0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d"
+        ],
+        "balance": "0x0",
+        "codeHash": "0xdecae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d",
+        "nonce": "0x0",
+        "storageHash": "0xbca1326641ee43e0133453fe7dae60726605fad04578343119ff3a6f4901bc28",
+        "storageProof": [
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000001a",
+            "value": "0x1a",
+            "proof": [
+              "0xe3a120057c384a7d1c54f3a1b2e5e67b2617b8224fdfd1ea7234eea573a6ff665ff63e1a"
+            ]
+          },
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000001b",
+            "value": "0x0",
+            "proof": [
+              "0xe3a120057c384a7d1c54f3a1b2e5e67b2617b8224fdfd1ea7234eea573a6ff665ff63e1a"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "missing-account-proof",
       "tags": ["missing-account", "geth-shaped-result"],
       "operations": [
