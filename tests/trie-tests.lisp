@@ -872,6 +872,18 @@
                            (fixture-required-field case "name")))))))
     final))
 
+(defun eest-trie-test-final-proof-counts (case)
+  (let ((present-count 0)
+        (missing-count 0))
+    (maphash
+     (lambda (key-id expected)
+       (declare (ignore key-id))
+       (if expected
+           (incf present-count)
+           (incf missing-count)))
+     (eest-trie-test-final-entry-map case))
+    (values present-count missing-count)))
+
 (defun assert-eest-trie-test-case-lookups (case trie)
   (let ((name (fixture-required-field case "name"))
         (final (eest-trie-test-final-entry-map case)))
@@ -1269,6 +1281,40 @@
                    entries-by-case))
          (write-counts
            (mapcar #'- entry-counts delete-counts))
+         (proof-present-counts
+           (loop for case in cases
+                 collect
+                 (multiple-value-bind (present-count missing-count)
+                     (eest-trie-test-final-proof-counts case)
+                   (declare (ignore missing-count))
+                   present-count)))
+         (proof-missing-counts
+           (loop for case in cases
+                 collect
+                 (multiple-value-bind (present-count missing-count)
+                     (eest-trie-test-final-proof-counts case)
+                   (declare (ignore present-count))
+                   missing-count)))
+         (secure-proof-present-counts
+           (loop for secure-p in secure-flags
+                 for count in proof-present-counts
+                 when secure-p
+                   collect count))
+         (plain-proof-present-counts
+           (loop for secure-p in secure-flags
+                 for count in proof-present-counts
+                 unless secure-p
+                   collect count))
+         (secure-proof-missing-counts
+           (loop for secure-p in secure-flags
+                 for count in proof-missing-counts
+                 when secure-p
+                   collect count))
+         (plain-proof-missing-counts
+           (loop for secure-p in secure-flags
+                 for count in proof-missing-counts
+                 unless secure-p
+                   collect count))
          (secure-write-counts
            (loop for secure-p in secure-flags
                  for count in write-counts
@@ -1705,6 +1751,20 @@
      (cons "totalEntryCount" (reduce #'+ entry-counts :initial-value 0))
      (cons "writeEntryCounts" write-counts)
      (cons "totalWriteEntryCount" (reduce #'+ write-counts :initial-value 0))
+     (cons "proofPresentKeyCounts" proof-present-counts)
+     (cons "proofPresentKeyCount"
+           (reduce #'+ proof-present-counts :initial-value 0))
+     (cons "secureProofPresentKeyCount"
+           (reduce #'+ secure-proof-present-counts :initial-value 0))
+     (cons "plainProofPresentKeyCount"
+           (reduce #'+ plain-proof-present-counts :initial-value 0))
+     (cons "proofMissingKeyCounts" proof-missing-counts)
+     (cons "proofMissingKeyCount"
+           (reduce #'+ proof-missing-counts :initial-value 0))
+     (cons "secureProofMissingKeyCount"
+           (reduce #'+ secure-proof-missing-counts :initial-value 0))
+     (cons "plainProofMissingKeyCount"
+           (reduce #'+ plain-proof-missing-counts :initial-value 0))
      (cons "secureWriteEntryCount"
            (reduce #'+ secure-write-counts :initial-value 0))
      (cons "plainWriteEntryCount"
@@ -1753,6 +1813,18 @@
       (error "Phase A EEST trie subset must include plain trie write entries"))
     (when (zerop (fixture-object-field summary "plainDeleteEntryCount"))
       (error "Phase A EEST trie subset must include plain trie delete entries"))
+    (when (zerop (fixture-object-field summary "proofPresentKeyCount"))
+      (error "Phase A EEST trie subset must include present-key proof coverage"))
+    (when (zerop (fixture-object-field summary "proofMissingKeyCount"))
+      (error "Phase A EEST trie subset must include missing-key proof coverage"))
+    (when (zerop (fixture-object-field summary "secureProofPresentKeyCount"))
+      (error "Phase A EEST trie subset must include secure present-key proof coverage"))
+    (when (zerop (fixture-object-field summary "secureProofMissingKeyCount"))
+      (error "Phase A EEST trie subset must include secure missing-key proof coverage"))
+    (when (zerop (fixture-object-field summary "plainProofPresentKeyCount"))
+      (error "Phase A EEST trie subset must include plain present-key proof coverage"))
+    (when (zerop (fixture-object-field summary "plainProofMissingKeyCount"))
+      (error "Phase A EEST trie subset must include plain missing-key proof coverage"))
     (when (zerop (fixture-object-field summary "secureNonEmptyRootCount"))
       (error "Phase A EEST trie subset must include a non-empty secure trie root"))
     (when (zerop (fixture-object-field summary "secureBranchRootCount"))
@@ -3370,6 +3442,18 @@
                  2 4 2 3 2 2 3 1 3 3 2 2 4 1 2 2 1 1 2 2)
                (fixture-object-field summary "writeEntryCounts")))
     (is (= 96 (fixture-object-field summary "totalWriteEntryCount")))
+    (is (equal '(2 3 3 0 1 2 2 1 2 1 2 2 2 1 1 2 1 1 2 3 3 2 2 1 2
+                 1 3 1 2 1 2 3 1 2 2 1 2 4 1 2 2 1 1 2 0)
+               (fixture-object-field summary "proofPresentKeyCounts")))
+    (is (= 78 (fixture-object-field summary "proofPresentKeyCount")))
+    (is (= 28 (fixture-object-field summary "secureProofPresentKeyCount")))
+    (is (= 50 (fixture-object-field summary "plainProofPresentKeyCount")))
+    (is (equal '(0 0 0 1 1 1 1 1 0 0 1 1 0 1 1 1 1 0 0 0 0 0 0 1 1
+                 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 1 0 1 1)
+               (fixture-object-field summary "proofMissingKeyCounts")))
+    (is (= 26 (fixture-object-field summary "proofMissingKeyCount")))
+    (is (= 11 (fixture-object-field summary "secureProofMissingKeyCount")))
+    (is (= 15 (fixture-object-field summary "plainProofMissingKeyCount")))
     (is (= 34 (fixture-object-field summary "secureWriteEntryCount")))
     (is (= 62 (fixture-object-field summary "plainWriteEntryCount")))
     (is (equal '(0 0 0 1 1 1 1 1 0 0 1 1 0 1 1 1 1 0 0 0 0 0 0 1 1
