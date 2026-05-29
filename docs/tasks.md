@@ -1968,6 +1968,11 @@ splits can land after the Phase A smoke path closes.
     lock that deleting code from a code-created empty account returns the empty
     state root and missing-account proof, while deleting code from a funded
     account preserves the account leaf with the empty code hash.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to the same
+    code-deletion boundaries. The RPC test now commits both code-created
+    pruning and funded-account preservation snapshots, reads each proof by
+    block hash, checks the geth-shaped empty code/storage fields, and verifies
+    the decoded proof against the committed state root.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

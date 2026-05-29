@@ -8221,6 +8221,102 @@
        0
        (keccak-256-hash code)))))
 
+(deftest eth-rpc-get-proof-code-deletion
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (proof-node-hex-list (proof)
+             (mapcar #'bytes-to-hex proof))
+           (commit-state-block (store state number timestamp)
+             (let ((block
+                     (make-block
+                      :header (make-block-header
+                               :number number
+                               :timestamp timestamp
+                               :gas-limit 30000000
+                               :state-root (state-db-root state)))))
+               (chain-store-put-block store block :state-available-p t)
+               (commit-state-db-to-chain-store store (block-hash block) state)
+               block))
+           (proof-request (id address slot block)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getProof")
+                   (cons "params"
+                         (list (address-to-hex address)
+                               (list (hash32-to-hex slot))
+                               (hash32-to-hex (block-hash block))))))
+           (assert-code-deletion-proof
+               (store state block address slot expected-balance)
+             (let* ((response
+                      (engine-rpc-handle-request
+                       (proof-request 119 address slot block)
+                       store
+                       (make-chain-config)))
+                    (proof (field response "result"))
+                    (storage-proof (first (field proof "storageProof")))
+                    (expected-proof
+                      (state-db-get-proof state address (list slot)))
+                    (expected-storage-proof
+                      (first (state-proof-result-storage-proofs
+                              expected-proof)))
+                    (decoded-proof
+                      (state-proof-result-from-rpc-object proof)))
+               (is (string= (address-to-hex address)
+                            (field proof "address")))
+               (is (string= (quantity-to-hex expected-balance)
+                            (field proof "balance")))
+               (is (string= (quantity-to-hex 0)
+                            (field proof "nonce")))
+               (is (string= (hash32-to-hex +empty-code-hash+)
+                            (field proof "codeHash")))
+               (is (string= (hash32-to-hex +empty-trie-hash+)
+                            (field proof "storageHash")))
+               (is (= 1 (length (field proof "storageProof"))))
+               (is (string= (hash32-to-hex slot)
+                            (field storage-proof "key")))
+               (is (string= (quantity-to-hex 0)
+                            (field storage-proof "value")))
+               (is (null (field storage-proof "proof")))
+               (is (equal (proof-node-hex-list
+                           (state-proof-result-account-proof expected-proof))
+                          (field proof "accountProof")))
+               (is (equal (proof-node-hex-list
+                           (state-storage-proof-proof expected-storage-proof))
+                          (field storage-proof "proof")))
+               (is (state-db-verify-proof (state-db-root state)
+                                          decoded-proof)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (created-address
+             (address-from-hex "0x0000000000000000000000000000000000000105"))
+           (funded-address
+             (address-from-hex "0x0000000000000000000000000000000000000106"))
+           (slot
+             (hash32-from-hex
+              "0x000000000000000000000000000000000000000000000000000000000000000b"))
+           (code #(96 1 96 0))
+           (created-state (make-state-db))
+           (funded-state (make-state-db)))
+      (state-db-set-code created-state created-address code)
+      (state-db-set-code created-state created-address #())
+      (state-db-set-account funded-state funded-address
+                            (make-state-account :balance 1))
+      (state-db-set-code funded-state funded-address code)
+      (state-db-set-code funded-state funded-address #())
+      (assert-code-deletion-proof
+       store
+       created-state
+       (commit-state-block store created-state 41 410)
+       created-address
+       slot
+       0)
+      (assert-code-deletion-proof
+       store
+       funded-state
+       (commit-state-block store funded-state 42 420)
+       funded-address
+       slot
+       1))))
+
 (deftest eth-rpc-call-executes-retained-state-without-commit
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
