@@ -1736,6 +1736,12 @@ splits can land after the Phase A smoke path closes.
     proof, storage root, extension/branch/leaf storage proof nodes, and a
     required coverage gate so nontrivial storage-trie proof paths stay covered
     before pinned proof vectors replace the seed cases.
+  - Progress: added branch-shaped and delete-collapse storage-trie proof
+    fixtures for the same present account. The branch vector proves two
+    present slots plus one missing slot through the branch node, while the
+    collapse vector deletes one populated slot and locks the surviving leaf
+    proof plus missing proof for the deleted slot. Both cases now have
+    required coverage gates.
   - Progress: added direct account-proof regressions over the Nethermind-guided
     state trie layouts already locked by the state-root fixture set: leaf root,
     branch root, extension root, and branch child extension. The tests now

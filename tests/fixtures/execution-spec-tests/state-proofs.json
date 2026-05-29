@@ -344,6 +344,73 @@
       }
     },
     {
+      "name": "storage-trie-branch-storage-proof",
+      "tags": ["present-account", "storage-present", "storage-missing", "multi-storage-present", "storage-trie-branch-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000401",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "value": 2
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000401",
+        "storageKeys": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "0x0000000000000000000000000000000000000000000000000000000000000003"
+        ]
+      },
+      "expectedRoot": "0x8ac741e5470ced73e25461a3ecd9d93899e3e5360dc1e947f5de6b9229746905",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000401",
+        "accountProof": [
+          "0xf86aa120716448df2412de7fcd4085f7efcb0572ae7f5569b611c613906dd447ec696f56b846f8448001a0bf3e65b043d6d870557f8556faf48fd77aecfd8558e3b8087ee399b3a8d62694a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x1",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0xbf3e65b043d6d870557f8556faf48fd77aecfd8558e3b8087ee399b3a8d62694",
+        "storageProof": [
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "value": "0x1",
+            "proof": [
+              "0xf85180808080a09ddd70915eb71e1c868c88a5e19e1b60b8f7c12727c5db3829b5e38d770661ab808080808080a0f4984a11f61a2921456141df88de6e1a710d28681b91af794c5a721e47839cd78080808080",
+              "0xe2a0310e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf601"
+            ]
+          },
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000002",
+            "value": "0x2",
+            "proof": [
+              "0xf85180808080a09ddd70915eb71e1c868c88a5e19e1b60b8f7c12727c5db3829b5e38d770661ab808080808080a0f4984a11f61a2921456141df88de6e1a710d28681b91af794c5a721e47839cd78080808080",
+              "0xe2a0305787fa12a823e0f2b7631cc41b3ba8828b3321ca811111fa75cd3aa3bb5ace02"
+            ]
+          },
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000003",
+            "value": "0x0",
+            "proof": [
+              "0xf85180808080a09ddd70915eb71e1c868c88a5e19e1b60b8f7c12727c5db3829b5e38d770661ab808080808080a0f4984a11f61a2921456141df88de6e1a710d28681b91af794c5a721e47839cd78080808080"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "storage-trie-extension-storage-proof",
       "tags": ["present-account", "storage-present", "storage-missing", "multi-storage-present", "storage-trie-extension-proof", "geth-shaped-result"],
       "operations": [
@@ -407,6 +474,69 @@
             "value": "0x0",
             "proof": [
               "0xe21ba0c97742c4454c2c13b003aa14eaa20956cf04b7c593d3cd415e2c477bd0b9edfb"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "storage-trie-delete-collapse-storage-proof",
+      "tags": ["present-account", "storage-present", "storage-missing", "storage-deleted-missing", "storage-trie-delete-collapse-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000401",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "value": 2
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "value": 0
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000401",
+        "storageKeys": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000000000000000000000000000002"
+        ]
+      },
+      "expectedRoot": "0x39003afddf88656fd38a227be1602663fdc17a4a937d2f5200f4621fb6a3e31e",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000401",
+        "accountProof": [
+          "0xf86aa120716448df2412de7fcd4085f7efcb0572ae7f5569b611c613906dd447ec696f56b846f8448001a0f38f9f63c760d088d7dd04f743619b6291f63beebd8bdf530628f90e9cfa52d7a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x1",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0xf38f9f63c760d088d7dd04f743619b6291f63beebd8bdf530628f90e9cfa52d7",
+        "storageProof": [
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "value": "0x1",
+            "proof": [
+              "0xe3a120b10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf601"
+            ]
+          },
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000002",
+            "value": "0x0",
+            "proof": [
+              "0xe3a120b10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf601"
             ]
           }
         ]
