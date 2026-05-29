@@ -591,6 +591,13 @@ ones.
     validation the same way. Seed vector results now reject non-string success
     `hash` / `sender` / `intrinsicGas` and exception tokens before canonical
     quantity, hash, address, or activation checks run.
+  - Progress: replaced the Phase A EIP-2930 sample/seed vector with a
+    non-empty access-list transaction carrying one warmed address and two
+    storage keys. Transaction fixture summaries now report access-list vector,
+    address, and storage-key counts, and both the seed wrapper and Phase A EEST
+    subset gate require non-empty access-list storage-key coverage so the
+    Berlin/Shanghai intrinsic-gas path cannot silently fall back to empty
+    access lists.
 
 ## P0: Module Boundaries
 

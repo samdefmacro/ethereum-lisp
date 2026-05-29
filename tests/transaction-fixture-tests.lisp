@@ -730,6 +730,41 @@
      (cons "exceptionForkCounts"
            (transaction-fixture-fork-counts-alist exception-fork-counts)))))
 
+(defun transaction-fixture-access-list-summary (vectors)
+  (let ((vector-count 0)
+        (address-count 0)
+        (storage-key-count 0))
+    (dolist (vector vectors)
+      (let* ((transaction
+               (transaction-from-encoding
+                (hex-to-bytes (transaction-fixture-txbytes-value vector))))
+             (access-list (transaction-access-list transaction)))
+        (when access-list
+          (incf vector-count)
+          (incf address-count (length access-list))
+          (incf storage-key-count
+                (access-list-storage-key-count access-list)))))
+    (list
+     (cons "accessListVectorCount" vector-count)
+     (cons "accessListAddressCount" address-count)
+     (cons "accessListStorageKeyCount" storage-key-count))))
+
+(defun validate-transaction-fixture-access-list-coverage (summary label)
+  (dolist (field '("accessListVectorCount"
+                   "accessListAddressCount"
+                   "accessListStorageKeyCount"))
+    (let ((value (fixture-required-field summary field)))
+      (unless (and (integerp value) (not (minusp value)))
+        (error "~A summary field ~A must be a non-negative integer"
+               label field))))
+  (when (zerop (fixture-required-field summary "accessListVectorCount"))
+    (error "~A summary is missing a non-empty access-list transaction" label))
+  (when (zerop (fixture-required-field summary "accessListAddressCount"))
+    (error "~A summary is missing access-list address coverage" label))
+  (when (zerop (fixture-required-field summary "accessListStorageKeyCount"))
+    (error "~A summary is missing access-list storage-key coverage" label))
+  summary)
+
 (defun transaction-fixture-expected-result-count-summary (vectors)
   (let ((valid-count 0)
         (exception-count 0)
@@ -783,6 +818,7 @@
     (cons "names" (mapcar (lambda (vector)
                             (fixture-required-field vector "name"))
                           vectors)))
+   (transaction-fixture-access-list-summary vectors)
    (transaction-fixture-result-count-summary vectors)))
 
 (defun validate-phase-a-eest-transaction-summary-types (types)
@@ -858,6 +894,9 @@
              +phase-a-eest-transaction-test-case-names+))
     (validate-phase-a-eest-transaction-target-fork-results vectors)
     (validate-phase-a-eest-transaction-summary-types types)
+    (validate-transaction-fixture-access-list-coverage
+     summary
+     "Phase A EEST transaction")
     (validate-transaction-fixture-result-count-summary
      vectors
      summary
@@ -886,6 +925,9 @@
       (unless (assoc type types)
         (error "Full EEST transaction summary is missing required type ~A"
                type)))
+    (validate-transaction-fixture-access-list-coverage
+     summary
+     "Full EEST transaction")
     (validate-transaction-fixture-result-count-summary
      vectors
      summary
@@ -1262,7 +1304,10 @@
   (validate-transaction-fixture-vector-set vectors :require-required-types t)
   (validate-transaction-fixture-required-vector-names
    vectors
-   +transaction-envelope-fixture-required-vector-names+))
+   +transaction-envelope-fixture-required-vector-names+)
+  (validate-transaction-fixture-access-list-coverage
+   (transaction-fixture-vector-summary vectors)
+   "Transaction fixture"))
 
 (defun load-transaction-envelope-vectors (path)
   (let* ((fixture (load-handwritten-fixture-file path))
@@ -2760,6 +2805,9 @@
                  (:blob . 1)
                  (:set-code . 1))
                (fixture-object-field all-summary "types")))
+    (is (= 1 (fixture-object-field all-summary "accessListVectorCount")))
+    (is (= 1 (fixture-object-field all-summary "accessListAddressCount")))
+    (is (= 2 (fixture-object-field all-summary "accessListStorageKeyCount")))
     (is (= 27 (fixture-object-field all-summary "validResultCount")))
     (is (= 38 (fixture-object-field all-summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 1)
@@ -2792,6 +2840,9 @@
     (is (= 3 (fixture-object-field summary "count")))
     (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
+    (is (= 1 (fixture-object-field summary "accessListVectorCount")))
+    (is (= 1 (fixture-object-field summary "accessListAddressCount")))
+    (is (= 2 (fixture-object-field summary "accessListStorageKeyCount")))
     (is (= 24 (fixture-object-field summary "validResultCount")))
     (is (= 15 (fixture-object-field summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 1)
@@ -2842,6 +2893,12 @@
                      :key #'car
                      :test #'string=))
        "Full EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-access-list-coverage
+       (list (cons "accessListVectorCount" 0)
+             (cons "accessListAddressCount" 0)
+             (cons "accessListStorageKeyCount" 0))
+       "Phase A EEST transaction"))
     (is (equal vectors
                (validate-eest-transaction-seed-alignment
                 vectors
