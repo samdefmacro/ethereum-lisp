@@ -1606,6 +1606,9 @@ splits can land after the Phase A smoke path closes.
     required coverage gates. The account-trie shape fixtures now lock hashed
     child references for branch children and extension roots in addition to
     root paths, child indexes, and child node shapes.
+    Added a missing-account `clearAccount` no-op state-root fixture that
+    preserves a non-empty branch-shaped account trie, including hashed branch
+    child references and account RLP projections for the retained accounts.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
