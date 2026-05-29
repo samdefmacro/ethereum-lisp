@@ -125,6 +125,140 @@
       }
     },
     {
+      "name": "state-trie-branch-delete-collapses-to-leaf-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "account-prune",
+        "state-trie-branch",
+        "state-trie-leaf",
+        "state-trie-delete-collapse",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x0000000000000000000000000000000000000211"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 100,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedRoot": "0x18742ec02ab527594bc83d163360c5b677ca92e37b5a0d5673920a895645b8a1",
+      "expectedStateTrieShape": "leaf"
+    },
+    {
+      "name": "state-trie-extension-delete-collapses-to-leaf-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "account-prune",
+        "state-trie-extension",
+        "state-trie-leaf",
+        "state-trie-delete-collapse",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x0000000000000000000000000000000000000225"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedRoot": "0x006c6cf2120be53e089f44cb328653de92ca2a9a4970a6a9137148b829c47509",
+      "expectedStateTrieShape": "leaf"
+    },
+    {
+      "name": "state-trie-branch-extension-delete-collapses-to-extension-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "account-prune",
+        "state-trie-branch",
+        "state-trie-extension",
+        "state-trie-branch-extension",
+        "state-trie-delete-collapse",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300
+        },
+        {
+          "op": "clearAccount",
+          "address": "0x0000000000000000000000000000000000000203"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedRoot": "0x107571af3beeb3b5f3d1b49b593066ac344ab7e98f657ee27670315fcbde6509",
+      "expectedStateTrieShape": "extension",
+      "expectedStateTrieRootPathNibbles": [13, 7]
+    },
+    {
       "name": "account-update-overwrites-nonce-balance-root",
       "tags": ["account-root", "account-update", "account-projection"],
       "operations": [

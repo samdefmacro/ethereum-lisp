@@ -81,7 +81,8 @@
     "state-trie-leaf"
     "state-trie-branch"
     "state-trie-extension"
-    "state-trie-branch-extension"))
+    "state-trie-branch-extension"
+    "state-trie-delete-collapse"))
 
 (defparameter +state-root-fixture-required-case-names+
   '("empty-state-root"
@@ -102,7 +103,10 @@
     "nethermind-state-trie-leaf-root"
     "nethermind-state-trie-branch-root"
     "nethermind-state-trie-extension-root"
-    "nethermind-state-trie-branch-into-extension-root"))
+    "nethermind-state-trie-branch-into-extension-root"
+    "state-trie-branch-delete-collapses-to-leaf-root"
+    "state-trie-extension-delete-collapses-to-leaf-root"
+    "state-trie-branch-extension-delete-collapses-to-extension-root"))
 
 (defparameter +state-root-fixture-required-tags+
   '("empty-state-root"
@@ -123,7 +127,8 @@
     "state-trie-leaf"
     "state-trie-branch"
     "state-trie-extension"
-    "state-trie-branch-extension"))
+    "state-trie-branch-extension"
+    "state-trie-delete-collapse"))
 
 (defparameter +state-root-fixture-trie-shapes+
   '("empty" "leaf" "extension" "branch"))

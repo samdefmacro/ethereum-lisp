@@ -1558,6 +1558,10 @@ splits can land after the Phase A smoke path closes.
     branch at root whose child is an extension, locking the structural cases
     Nethermind calls out for state tries where account leaves are always
     hashed references.
+    Added state trie account-deletion collapse fixtures for the same layout
+    family: branch-to-leaf, extension-to-leaf, and branch/extension-to-
+    extension roots after `clearAccount`, with final account RLP projections
+    and required coverage gates.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
