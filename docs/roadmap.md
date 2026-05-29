@@ -254,7 +254,8 @@ State-proof fixtures now also cover the storage-trie branch- and
 extension-preserving delete boundaries: after deleting one present child from a
 three-slot secure storage trie, geth-shaped proof objects verify retained
 storage roots, present slots, and missing deleted slots against the
-non-collapsed branch/extension outcomes.
+non-collapsed branch/extension outcomes. Retained-state `eth_getProof` RPC
+coverage now verifies those same committed snapshot boundaries by block hash.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch

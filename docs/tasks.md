@@ -2104,6 +2104,11 @@ splits can land after the Phase A smoke path closes.
     child while the final trie remains non-collapsed, then lock geth-shaped
     account proofs, retained storage roots, present slot proofs, and missing
     deleted-slot proofs behind required seed-case gates.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to those
+    storage-trie delete-preservation boundaries. The RPC test now commits both
+    branch- and extension-preserving storage snapshots, reads proofs by block
+    hash, compares the geth-shaped response with `state-db-get-proof`, and
+    verifies the decoded proof against the committed state root.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
