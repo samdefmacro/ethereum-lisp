@@ -1888,6 +1888,11 @@ splits can land after the Phase A smoke path closes.
     present child is deleted, and the final fixture locks the retained
     extension path, hashed child reference, account RLP, storage root, and
     state root rather than collapsing to a leaf.
+    Added plain object-form hex byte-value coverage to the selected
+    EEST-style trie subset. The Phase A summary now distinguishes plain
+    object-valued `0x` byte values from secure object-form byte values, so
+    Nethermind/geth-style object-form imports cannot keep only ASCII/plain or
+    secure byte-value paths while dropping plain byte-valued object input.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

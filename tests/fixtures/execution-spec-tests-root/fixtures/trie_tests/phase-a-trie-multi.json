@@ -42,6 +42,12 @@
     },
     "root": "83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5"
   },
+  "object-form-hex-byte-value-leaf": {
+    "in": {
+      "0x01": "0x0001ff"
+    },
+    "root": "17f635f78a34a75bdc662b9d717fc0be784fcc725ad4ae34cac40d51baed1813"
+  },
   "object-form-missing-delete": {
     "in": {
       "0x00": "left",
