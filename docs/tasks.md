@@ -614,6 +614,11 @@ ones.
     from `txbytes`, compare those values during decoded-vector validation and
     seed/EEST alignment, and require every selected Phase A/full vector to
     carry signature coverage before sender-recovery assertions are accepted.
+  - Progress: locked seed/EEST projection alignment with regression coverage.
+    Phase A and full typed-family alignment now have explicit failure checks
+    for tampered `decoded` payload and `signature` projections, so future
+    pinned EEST swaps cannot keep raw bytes, hashes, senders, and fork results
+    green while silently drifting the derived transaction projections.
 
 ## P0: Module Boundaries
 

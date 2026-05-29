@@ -3436,6 +3436,48 @@
                (validate-phase-a-eest-transaction-seed-alignment
                 selected-vectors
                 seed-vectors)))
+    (labels ((replace-field (object field value)
+               (cons (cons field value)
+                     (remove field object :key #'car :test #'string=)))
+             (replace-vector-field (vectors name field value)
+               (mapcar
+                (lambda (candidate)
+                  (if (string= name (fixture-object-field candidate "name"))
+                      (replace-field candidate field value)
+                      candidate))
+                vectors)))
+      (signals error
+        (validate-phase-a-eest-transaction-seed-alignment
+         selected-vectors
+         (replace-vector-field
+          seed-vectors
+          "eip1559-dynamic-fee"
+          "decoded"
+          (list (cons "nonce" "0xdead")))))
+      (signals error
+        (validate-phase-a-eest-transaction-seed-alignment
+         selected-vectors
+         (replace-vector-field
+          seed-vectors
+          "eip2930-access-list"
+          "signature"
+          (list (cons "r" "0xdead")))))
+      (signals error
+        (validate-eest-transaction-seed-alignment
+         vectors
+         (replace-vector-field
+          seed-vectors
+          "eip4844-blob"
+          "decoded"
+          (list (cons "nonce" "0xdead")))))
+      (signals error
+        (validate-eest-transaction-seed-alignment
+         vectors
+         (replace-vector-field
+          seed-vectors
+          "eip7702-set-code"
+          "signature"
+          (list (cons "r" "0xdead"))))))
     (signals error
       (transaction-fixture-vector-summary "phase-a-vectors"))
     (signals error
