@@ -199,8 +199,9 @@ recovery, and EIP-2930/EIP-1559/EIP-4844/EIP-7702 typed signing hash plus
 sender recovery; EIP-7702 authorization tuple authority recovery is also
 present. The Phase A transaction harness now replays protected/unprotected
 transfer and contract-creation legacy txbytes plus access-list transfer,
-access-list contract creation, and dynamic-fee typed txbytes through hash,
-sender, decoded payload, access-list projection, and intrinsic-gas checks.
+access-list calldata and contract creation, and dynamic-fee transfer,
+calldata, and contract creation typed txbytes through hash, sender, decoded
+payload, access-list projection, and intrinsic-gas checks.
 Blob sidecars now have a first-pass data
 shape and commitment-to-versioned-hash
 validation layer; callers that require KZG proof verification now fail

@@ -675,6 +675,13 @@ ones.
     it against `keccak(rlp([sender, nonce]))[12:]`, compare it during
     seed/EEST alignment, and gate Phase A summaries so contract-creation
     vectors cannot omit the derived address.
+  - Progress: added EIP-1559 dynamic-fee calldata message-call coverage to the
+    seed envelope fixture and selected EEST-shaped Phase A/full subsets. The
+    new vector locks non-empty input bytes, value transfer, signature
+    projection, sender recovery, Shanghai intrinsic gas, sparse EEST result
+    expansion, seed/EEST alignment, and a dedicated summary gate requiring
+    dynamic-fee calldata coverage instead of relying on the EIP-2930 calldata
+    vector alone.
 
 ## P0: Module Boundaries
 
