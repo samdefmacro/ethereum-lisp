@@ -188,7 +188,9 @@ leaf, branch, extension, and branch-into-extension account trie roots, with
 zero-amount balance credits locked as root-preserving no-ops for missing and
 existing accounts, plus matching geth-shaped state proof fixtures for
 balance-add creation, zero-amount no-ops, branch/extension/branch-extension
-account-trie updates, and code/storage-preserving updates.
+account-trie updates, and code/storage-preserving updates; retained-state
+`eth_getProof` also covers balance-add proofs across those nontrivial
+account-trie layouts.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.

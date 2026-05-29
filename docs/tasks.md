@@ -1912,6 +1912,12 @@ splits can land after the Phase A smoke path closes.
     geth-shaped account proof nodes for the same nontrivial `addBalance`
     layouts already covered by state-root fixtures, with required seed-case
     gates for each trie shape.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to the same
+    balance-add branch, extension, and branch-into-extension account-trie
+    layouts. The RPC test now commits each mutated state as a block-hash
+    snapshot, compares returned account proof nodes with `state-db-get-proof`,
+    checks the expected proof depth for each trie shape, and verifies the
+    decoded RPC proof against the committed state root.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
