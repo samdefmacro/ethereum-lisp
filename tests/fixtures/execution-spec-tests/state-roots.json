@@ -491,6 +491,7 @@
         "storage-root",
         "storage-root-projection",
         "storage-trie-branch",
+        "storage-trie-branch-child-shapes",
         "account-projection"
       ],
       "operations": [
@@ -532,7 +533,11 @@
         {
           "address": "0x0000000000000000000000000000000000000401",
           "shape": "branch",
-          "rootChildren": [4, 11]
+          "rootChildren": [4, 11],
+          "rootChildShapes": {
+            "4": "leaf",
+            "11": "leaf"
+          }
         }
       ],
       "expectedRoot": "0x8ac741e5470ced73e25461a3ecd9d93899e3e5360dc1e947f5de6b9229746905"

@@ -89,6 +89,7 @@
     "state-trie-delete-collapse"
     "storage-trie-leaf"
     "storage-trie-branch"
+    "storage-trie-branch-child-shapes"
     "storage-trie-extension"
     "storage-trie-delete-to-empty"
     "storage-trie-delete-collapse"))
@@ -144,6 +145,7 @@
     "state-trie-delete-collapse"
     "storage-trie-leaf"
     "storage-trie-branch"
+    "storage-trie-branch-child-shapes"
     "storage-trie-extension"
     "storage-trie-delete-to-empty"
     "storage-trie-delete-collapse"))

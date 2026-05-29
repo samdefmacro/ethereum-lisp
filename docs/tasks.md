@@ -1583,6 +1583,9 @@ splits can land after the Phase A smoke path closes.
     fixture set, locking both the single-slot storage root and the funded
     account case where deleting the final storage slot restores the empty
     storage trie while preserving the account.
+    Added storage trie branch child-shape projections and a required coverage
+    gate so branch-root storage fixtures lock both populated child indexes and
+    the fact that each child resolves to a storage leaf.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
