@@ -219,6 +219,60 @@
       }
     }
   },
+  "typed-eip1559-access-list-sample": {
+    "txbytes": "02f8c0010601820fa082c35094b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a80f85bf859940000000000000000000000000000000000000101f842a00000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000280a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a029df7c9b2304c0caf5dda62fe680677fd3a3354a3671bbd02ee03f5ecb854151",
+    "result": {
+      "Frontier": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Homestead": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "EIP150": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "EIP158": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Byzantium": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Constantinople": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Istanbul": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Berlin": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "London": {
+        "hash": "7a2d42cb1112ef0fabd4af4e167150384ecd8300238d601a59df260cf27c8be0",
+        "sender": "7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intrinsicGas": "0x6a40"
+      },
+      "Paris": {
+        "hash": "7a2d42cb1112ef0fabd4af4e167150384ecd8300238d601a59df260cf27c8be0",
+        "sender": "7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intrinsicGas": "0x6a40"
+      },
+      "Shanghai": {
+        "hash": "7a2d42cb1112ef0fabd4af4e167150384ecd8300238d601a59df260cf27c8be0",
+        "sender": "7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intrinsicGas": "0x6a40"
+      },
+      "Cancun": {
+        "hash": "7a2d42cb1112ef0fabd4af4e167150384ecd8300238d601a59df260cf27c8be0",
+        "sender": "7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intrinsicGas": "0x6a40"
+      },
+      "Prague": {
+        "hash": "7a2d42cb1112ef0fabd4af4e167150384ecd8300238d601a59df260cf27c8be0",
+        "sender": "7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intrinsicGas": "0x6a40"
+      }
+    }
+  },
   "typed-eip4844-blob-sample": {
     "txbytes": "03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675",
     "result": {

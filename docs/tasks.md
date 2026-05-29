@@ -391,6 +391,13 @@ ones.
     seed envelope fixture and EEST-shaped transaction sample now assert that
     legacy, EIP-2930, and EIP-1559 transactions remain valid on Paris, while
     blob and set-code transactions are still rejected before Cancun/Prague.
+  - Progress: added EIP-1559 dynamic-fee access-list coverage to the seed
+    envelope fixture and selected EEST-style sample. The new vector carries a
+    non-empty access list, re-derives hash/sender/signature/decoded payload
+    and intrinsic gas from `txbytes`, checks London-through-Prague validity,
+    and promotes `dynamicFeeAccessListVectorCount` into the Phase A/full
+    summary gates so dynamic-fee access-list support cannot be dropped while
+    retaining only EIP-2930 access-list coverage.
   - Progress: added transaction-test fixture root discovery for pinned EEST
     layouts. The harness now detects both unpacked EEST archive roots
     (`fixtures/transaction_tests`) and geth-style checked-out spec-test roots

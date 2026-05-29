@@ -111,7 +111,10 @@ fixes in those areas are allowed; expansion is not.
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so
   typed sender recovery, access-list projection, and `to = null` decoding are
-  represented before pinned transaction-test replacement. The
+  represented before pinned transaction-test replacement. It also gates a
+  dynamic-fee transaction with a non-empty access list, keeping EIP-1559
+  access-list intrinsic-gas and decoded projection coverage distinct from the
+  EIP-2930-only access-list path. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint
