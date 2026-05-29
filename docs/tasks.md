@@ -1493,6 +1493,12 @@ splits can land after the Phase A smoke path closes.
     fixture, with runner-side coverage guards requiring secure branch and
     secure extension roots so the local seed set stays aligned with the
     selected EEST-style secure trie subset.
+    Added secure missing-delete no-op coverage for branch roots in both the
+    seed trie-vector fixture and the selected EEST-style `secureTrie` sample.
+    The Phase A summary gate now requires a secure branch-root missing-delete
+    case, so account/state trie cleanup cannot silently lose the reference
+    behavior where deleting an absent secure key preserves the existing branch
+    root and proofs for retained keys.
     Added fixture-driven MPT proof assertions to trie vector lookups: every
     explicit `expectedGets` / `expectedMissing` entry now verifies the generated
     proof against the final root in addition to checking `mpt-get`, covering

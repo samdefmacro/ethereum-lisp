@@ -201,6 +201,30 @@
       ]
     },
     {
+      "name": "secure-missing-delete-keeps-branch-root",
+      "secure": true,
+      "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "missing-delete-noop", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "cat", "valueAscii": "kitten" },
+        { "op": "delete", "keyAscii": "horse" }
+      ],
+      "expectedRoot": "0x8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268",
+      "expectedShape": "branch",
+      "expectedRootChildren": [4, 5],
+      "expectedRootChildReferences": {
+        "4": "hashed",
+        "5": "hashed"
+      },
+      "expectedGets": [
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "cat", "valueAscii": "kitten" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "horse" }
+      ]
+    },
+    {
       "name": "secure-extension-root",
       "secure": true,
       "tags": ["secure-key", "extension-root", "path-compression", "hashed-child-reference", "lookup-assertions"],

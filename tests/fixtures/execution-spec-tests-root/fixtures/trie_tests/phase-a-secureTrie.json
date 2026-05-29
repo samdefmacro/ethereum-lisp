@@ -34,6 +34,14 @@
     ],
     "root": "ff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
   },
+  "phase-a-secure-missing-delete-branch": {
+    "in": [
+      ["dog", "puppy"],
+      ["cat", "kitten"],
+      ["horse", null]
+    ],
+    "root": "8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268"
+  },
   "phase-a-secure-object-form-branch": {
     "in": {
       "dog": "puppy",
