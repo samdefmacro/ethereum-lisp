@@ -1893,6 +1893,11 @@ splits can land after the Phase A smoke path closes.
     object-valued `0x` byte values from secure object-form byte values, so
     Nethermind/geth-style object-form imports cannot keep only ASCII/plain or
     secure byte-value paths while dropping plain byte-valued object input.
+    Added object-form empty-value delete coverage for both secure and plain
+    selected EEST-style trie cases. The Phase A summary now tracks object-form
+    empty-value deletes plus secure/plain variants, so `""` / `"0x"` delete
+    semantics stay gated on the object-form adapter path as well as the
+    array-of-pairs path.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

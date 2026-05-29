@@ -42,6 +42,13 @@
     },
     "root": "83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5"
   },
+  "object-form-empty-value-delete": {
+    "in": {
+      "dog": "puppy",
+      "cat": ""
+    },
+    "root": "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
+  },
   "object-form-hex-byte-value-leaf": {
     "in": {
       "0x01": "0x0001ff"
