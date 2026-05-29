@@ -95,7 +95,10 @@ fixes in those areas are allowed; expansion is not.
   Shanghai Engine smoke.
 - **Next checkpoint:** replace the current in-repo seed fixture cases with a
   bounded transcribed subset from the pinned execution-spec-tests release,
-  starting with transaction vectors and trie/state-root cases. The Shanghai
+  starting with transaction vectors and trie/state-root cases. The selected
+  EEST-style trie subset now gates both valueless root-branch child deletion
+  outcomes: two-child delete collapse to a leaf and three-child delete
+  preservation of the branch root. The Shanghai
   `engine_newPayloadV2` smoke now covers legacy transfer, access-list transfer,
   dynamic-fee typed transfer, contract creation, withdrawals, multi-transaction
   receipt ordering/cumulative gas, safe/finalized checkpoint tags, and

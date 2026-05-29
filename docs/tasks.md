@@ -1765,6 +1765,12 @@ splits can land after the Phase A smoke path closes.
     lock that deleting one child from a valueless two-child root branch
     collapses the trie back to a single leaf, with lookup/proof checks and a
     dedicated Phase A summary gate.
+    Added the complementary valueless branch deletion case where deleting one
+    child from a three-child plain root branch leaves a branch root intact.
+    Both the seed trie vectors and selected EEST-style trie subset now lock
+    the retained child indexes/reference kinds, retained lookups, deleted-key
+    absence, and a dedicated Phase A summary gate requiring this
+    branch-preserving deletion boundary.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
