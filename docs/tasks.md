@@ -1963,6 +1963,11 @@ splits can land after the Phase A smoke path closes.
     funded, and code-account state snapshots, reads each proof by block hash,
     checks the geth-shaped account/storage proof fields, and verifies the
     decoded proof against the committed state root.
+  - Progress: added code-deletion state-proof fixture coverage for both
+    EIP-161-style pruning and non-empty-account preservation. The new vectors
+    lock that deleting code from a code-created empty account returns the empty
+    state root and missing-account proof, while deleting code from a funded
+    account preserves the account leaf with the empty code hash.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

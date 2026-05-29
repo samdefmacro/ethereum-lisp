@@ -1066,6 +1066,89 @@
       }
     },
     {
+      "name": "code-created-account-delete-prunes-proof",
+      "tags": ["empty-state-proof", "missing-account", "storage-missing", "code-delete-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000105",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000105",
+          "code": "0x"
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000105",
+        "storageKeys": [
+          "0x000000000000000000000000000000000000000000000000000000000000000b"
+        ]
+      },
+      "expectedRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000105",
+        "accountProof": [],
+        "balance": "0x0",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": [
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000000b",
+            "value": "0x0",
+            "proof": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "code-delete-funded-account-proof",
+      "tags": ["present-account", "storage-missing", "code-delete-proof", "state-trie-leaf-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000106",
+          "balance": 1
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000106",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000106",
+          "code": "0x"
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000106",
+        "storageKeys": [
+          "0x000000000000000000000000000000000000000000000000000000000000000b"
+        ]
+      },
+      "expectedRoot": "0x0806aaf085b38f009b4f642a66abf73bd831eeb255f5e5b223836a893cb2b433",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000106",
+        "accountProof": [
+          "0xf86aa120ad7226bf61275d0628c377c581ea64feef7095001add18ab0102de9a2855db2bb846f8448001a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x1",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": [
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000000b",
+            "value": "0x0",
+            "proof": null
+          }
+        ]
+      }
+    },
+    {
       "name": "present-account-with-multiple-present-storage-proofs",
       "tags": ["present-account", "storage-present", "storage-missing", "multi-storage-present", "geth-shaped-result"],
       "operations": [
