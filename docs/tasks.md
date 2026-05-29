@@ -1831,6 +1831,11 @@ splits can land after the Phase A smoke path closes.
     branch with a hashed extension child plus an embedded leaf sibling, with
     lookup/proof replay and a Phase A summary gate requiring branch-child
     extension coverage.
+    Added branch-root child-shape coverage for a nested branch child. The seed
+    and EEST-style cases insert `0x10`, `0x11`, and `0xf0`, locking a root
+    branch whose child at index `1` is itself a hashed branch while the index
+    `15` sibling remains an embedded leaf, with lookup/proof replay and a
+    Phase A summary gate requiring branch-child branch coverage.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

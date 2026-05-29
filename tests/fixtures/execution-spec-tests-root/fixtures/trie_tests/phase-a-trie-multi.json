@@ -19,6 +19,14 @@
     ],
     "root": "83829cd5772fb13b44be68a75883e4b11b08fe037af8999e7848cfcbd022b8b5"
   },
+  "branch-child-branch": {
+    "in": [
+      ["0x10", "left"],
+      ["0x11", "middle"],
+      ["0xf0", "right"]
+    ],
+    "root": "38cdbe199d200091aa1fa76eb04fc8c26d1ca8d85c9b0f4b4fd73c20574f75a2"
+  },
   "branch-child-extension": {
     "in": [
       ["do", "verb"],

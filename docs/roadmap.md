@@ -107,7 +107,11 @@ fixes in those areas are allowed; expansion is not.
   hashed-key replay. The trie fixture gate now also includes a branch-root
   case whose populated child resolves to an extension, locking child-shape
   projections alongside embedded-vs-hashed child references before pinned
-  trie vectors replace the seed set. The selected Phase A transaction subset
+  trie vectors replace the seed set. The selected EEST-style trie subset
+  now also gates a branch-root case whose populated child resolves to another
+  branch, so nested branch child-shape projection is locked alongside the
+  extension-child path before pinned trie vectors replace the seed set. The
+  selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so
   typed sender recovery, access-list projection, and `to = null` decoding are

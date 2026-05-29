@@ -102,6 +102,31 @@
       ]
     },
     {
+      "name": "branch-child-branch",
+      "tags": ["branch-root", "branch-child-references", "branch-children", "hashed-child-reference", "embedded-child-reference", "hex-key", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyHex": "0x10", "valueAscii": "left" },
+        { "op": "put", "keyHex": "0x11", "valueAscii": "middle" },
+        { "op": "put", "keyHex": "0xf0", "valueAscii": "right" }
+      ],
+      "expectedRoot": "0x38cdbe199d200091aa1fa76eb04fc8c26d1ca8d85c9b0f4b4fd73c20574f75a2",
+      "expectedShape": "branch",
+      "expectedRootChildren": [1, 15],
+      "expectedRootChildReferences": {
+        "1": "hashed",
+        "15": "embedded"
+      },
+      "expectedRootChildShapes": {
+        "1": "branch",
+        "15": "leaf"
+      },
+      "expectedGets": [
+        { "keyHex": "0x10", "valueAscii": "left" },
+        { "keyHex": "0x11", "valueAscii": "middle" },
+        { "keyHex": "0xf0", "valueAscii": "right" }
+      ]
+    },
+    {
       "name": "extension-embedded-child-reference",
       "tags": ["extension-root", "embedded-child-reference"],
       "operations": [
