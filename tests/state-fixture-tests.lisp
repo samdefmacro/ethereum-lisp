@@ -25,6 +25,7 @@
     "expectedRoot"
     "expectedStorageRoots"
     "expectedAccounts"
+    "expectedStorageTrieShapes"
     "expectedStateTrieShape"
     "expectedStateTrieRootPathNibbles"
     "expectedStateTrieRootChildren"
@@ -59,6 +60,9 @@
 (defparameter +state-root-fixture-storage-root-fields+
   '("address" "root"))
 
+(defparameter +state-root-fixture-storage-trie-shape-fields+
+  '("address" "shape" "rootPathNibbles" "rootChildren" "rootChildShapes"))
+
 (defparameter +state-root-fixture-account-fields+
   '("address" "nonce" "balance" "storageRoot" "codeHash" "rlp"))
 
@@ -82,7 +86,10 @@
     "state-trie-branch"
     "state-trie-extension"
     "state-trie-branch-extension"
-    "state-trie-delete-collapse"))
+    "state-trie-delete-collapse"
+    "storage-trie-branch"
+    "storage-trie-extension"
+    "storage-trie-delete-collapse"))
 
 (defparameter +state-root-fixture-required-case-names+
   '("empty-state-root"
@@ -106,7 +113,11 @@
     "nethermind-state-trie-branch-into-extension-root"
     "state-trie-branch-delete-collapses-to-leaf-root"
     "state-trie-extension-delete-collapses-to-leaf-root"
-    "state-trie-branch-extension-delete-collapses-to-extension-root"))
+    "state-trie-branch-extension-delete-collapses-to-extension-root"
+    "storage-trie-branch-root"
+    "storage-trie-extension-root"
+    "storage-trie-branch-delete-collapses-to-leaf-root"
+    "storage-trie-extension-delete-collapses-to-leaf-root"))
 
 (defparameter +state-root-fixture-required-tags+
   '("empty-state-root"
@@ -128,7 +139,10 @@
     "state-trie-branch"
     "state-trie-extension"
     "state-trie-branch-extension"
-    "state-trie-delete-collapse"))
+    "state-trie-delete-collapse"
+    "storage-trie-branch"
+    "storage-trie-extension"
+    "storage-trie-delete-collapse"))
 
 (defparameter +state-root-fixture-trie-shapes+
   '("empty" "leaf" "extension" "branch"))
@@ -342,6 +356,36 @@
    "root"
    "State root fixture expectedStorageRoots entry"))
 
+(defun validate-state-root-fixture-storage-trie-shape (expected)
+  (unless (listp expected)
+    (error "State root fixture expectedStorageTrieShapes entry must be a JSON object"))
+  (validate-state-root-fixture-object-fields
+   expected
+   +state-root-fixture-storage-trie-shape-fields+
+   "State root fixture expectedStorageTrieShapes entry")
+  (validate-state-root-fixture-address-field
+   expected
+   "address"
+   "State root fixture expectedStorageTrieShapes entry")
+  (let ((shape (fixture-required-field expected "shape")))
+    (unless (and (stringp shape)
+                 (member shape +state-root-fixture-trie-shapes+
+                         :test #'string=))
+      (error "State root fixture expectedStorageTrieShapes shape is unknown: ~A"
+             shape)))
+  (when (fixture-field-present-p expected "rootPathNibbles")
+    (validate-state-root-fixture-nibble-list
+     (fixture-object-field expected "rootPathNibbles")
+     "State root fixture expectedStorageTrieShapes rootPathNibbles"))
+  (when (fixture-field-present-p expected "rootChildren")
+    (validate-state-root-fixture-nibble-list
+     (fixture-object-field expected "rootChildren")
+     "State root fixture expectedStorageTrieShapes rootChildren"
+     :child-index-p t))
+  (when (fixture-field-present-p expected "rootChildShapes")
+    (validate-state-root-fixture-state-trie-child-shapes
+     (fixture-object-field expected "rootChildShapes"))))
+
 (defun validate-state-root-fixture-account-shape (expected)
   (unless (listp expected)
     (error "State root fixture expectedAccounts entry must be a JSON object"))
@@ -464,6 +508,20 @@
                (address-id (address-to-hex (address-from-hex address))))
           (when (gethash address-id seen-addresses)
             (error "State root fixture case has duplicate expectedStorageRoots address ~A"
+                   address))
+          (setf (gethash address-id seen-addresses) t)))))
+  (when (fixture-field-present-p case "expectedStorageTrieShapes")
+    (let ((expected-storage-trie-shapes
+            (fixture-object-field case "expectedStorageTrieShapes"))
+          (seen-addresses (make-hash-table :test 'equal)))
+      (unless (listp expected-storage-trie-shapes)
+        (error "State root fixture case expectedStorageTrieShapes must be a JSON array"))
+      (dolist (expected expected-storage-trie-shapes)
+        (validate-state-root-fixture-storage-trie-shape expected)
+        (let* ((address (fixture-required-field expected "address"))
+               (address-id (address-to-hex (address-from-hex address))))
+          (when (gethash address-id seen-addresses)
+            (error "State root fixture case has duplicate expectedStorageTrieShapes address ~A"
                    address))
           (setf (gethash address-id seen-addresses) t)))))
   (when (fixture-field-present-p case "expectedAccounts")
@@ -680,6 +738,28 @@
       (is (string= (fixture-object-field expected "root")
                    (hash32-to-hex
                     (state-db-get-storage-root state address)))))))
+
+(defun state-root-fixture-storage-trie (state address)
+  (ethereum-lisp.state::state-object-storage-trie
+   (ethereum-lisp.state::state-db-get-object state address)))
+
+(defun assert-state-root-fixture-storage-tries (state case)
+  (dolist (expected (fixture-object-field case "expectedStorageTrieShapes"))
+    (let* ((address (address-from-hex (fixture-object-field expected "address")))
+           (trie (state-root-fixture-storage-trie state address)))
+      (is (string= (fixture-object-field expected "shape")
+                   (trie-fixture-root-shape trie)))
+      (when (fixture-field-present-p expected "rootPathNibbles")
+        (is (equal (fixture-object-field expected "rootPathNibbles")
+                   (trie-fixture-root-path-nibbles trie))))
+      (when (fixture-field-present-p expected "rootChildren")
+        (is (equal (fixture-object-field expected "rootChildren")
+                   (trie-fixture-root-children trie))))
+      (dolist (entry (fixture-object-field expected "rootChildShapes"))
+        (is (string= (cdr entry)
+                     (state-root-fixture-root-child-shape
+                      trie
+                      (parse-integer (car entry) :junk-allowed nil))))))))
 
 (defun assert-state-root-fixture-accounts (state case)
   (dolist (expected (fixture-object-field case "expectedAccounts"))
@@ -1450,6 +1530,7 @@
                      (state-db-root-hex state)))
         (assert-state-root-fixture-final-operation-state state case)
         (assert-state-root-fixture-storage-roots state case)
+        (assert-state-root-fixture-storage-tries state case)
         (assert-state-root-fixture-accounts state case)
         (assert-state-root-fixture-state-trie state case)))))
 

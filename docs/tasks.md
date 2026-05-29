@@ -1562,6 +1562,10 @@ splits can land after the Phase A smoke path closes.
     family: branch-to-leaf, extension-to-leaf, and branch/extension-to-
     extension roots after `clearAccount`, with final account RLP projections
     and required coverage gates.
+    Added storage trie shape projections to the state-root fixture runner, then
+    locked secure storage trie branch, extension, and delete-collapse layouts
+    with expected storage roots, account RLP projections, and required coverage
+    gates.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
