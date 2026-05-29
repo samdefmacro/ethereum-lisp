@@ -124,6 +124,10 @@ fixes in those areas are allowed; expansion is not.
   EIP-2930-only access-list path. It also gates a typed EIP-2930 message-call
   with non-empty calldata, so typed `input` decoding and calldata intrinsic
   gas are covered separately from legacy calldata and contract initcode. The
+  full EEST transaction selector now also gates EIP-4844
+  `blobVersionedHashes` payloads and EIP-7702 `authorizationList` payloads,
+  so those post-Shanghai typed families cannot degrade to type-only coverage
+  before pinned transaction-test replacement. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint

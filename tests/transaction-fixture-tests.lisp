@@ -1212,6 +1212,39 @@
      (cons "typedMessageCallDataVectorCount"
            typed-message-call-data-count))))
 
+(defun transaction-fixture-blob-summary (vectors)
+  (let ((blob-vector-count 0)
+        (blob-versioned-hash-count 0))
+    (dolist (vector vectors)
+      (let ((transaction
+              (transaction-from-encoding
+               (hex-to-bytes (transaction-fixture-txbytes-value vector)))))
+        (when (typep transaction 'blob-transaction)
+          (let ((hashes (blob-transaction-blob-versioned-hashes transaction)))
+            (when hashes
+              (incf blob-vector-count)
+              (incf blob-versioned-hash-count (length hashes)))))))
+    (list
+     (cons "blobVersionedHashVectorCount" blob-vector-count)
+     (cons "blobVersionedHashCount" blob-versioned-hash-count))))
+
+(defun transaction-fixture-set-code-summary (vectors)
+  (let ((set-code-vector-count 0)
+        (authorization-count 0))
+    (dolist (vector vectors)
+      (let ((transaction
+              (transaction-from-encoding
+               (hex-to-bytes (transaction-fixture-txbytes-value vector)))))
+        (when (typep transaction 'set-code-transaction)
+          (let ((authorizations
+                  (set-code-transaction-authorization-list transaction)))
+            (when authorizations
+              (incf set-code-vector-count)
+              (incf authorization-count (length authorizations)))))))
+    (list
+     (cons "setCodeAuthorizationVectorCount" set-code-vector-count)
+     (cons "setCodeAuthorizationCount" authorization-count))))
+
 (defun transaction-fixture-legacy-protection-summary (vectors)
   (let ((protected-count 0)
         (unprotected-count 0))
@@ -1321,6 +1354,45 @@
              label)))
   summary)
 
+(defun validate-transaction-fixture-blob-coverage
+    (summary label)
+  (let ((vector-value
+          (fixture-required-field summary "blobVersionedHashVectorCount"))
+        (hash-value
+          (fixture-required-field summary "blobVersionedHashCount")))
+    (unless (and (integerp vector-value) (not (minusp vector-value)))
+      (error "~A summary field blobVersionedHashVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp hash-value) (not (minusp hash-value)))
+      (error "~A summary field blobVersionedHashCount must be a non-negative integer"
+             label))
+    (when (zerop vector-value)
+      (error "~A summary is missing blob versioned-hash transaction coverage"
+             label))
+    (when (zerop hash-value)
+      (error "~A summary is missing blob versioned-hash entries" label)))
+  summary)
+
+(defun validate-transaction-fixture-set-code-coverage
+    (summary label)
+  (let ((vector-value
+          (fixture-required-field summary "setCodeAuthorizationVectorCount"))
+        (authorization-value
+          (fixture-required-field summary "setCodeAuthorizationCount")))
+    (unless (and (integerp vector-value) (not (minusp vector-value)))
+      (error "~A summary field setCodeAuthorizationVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp authorization-value)
+                 (not (minusp authorization-value)))
+      (error "~A summary field setCodeAuthorizationCount must be a non-negative integer"
+             label))
+    (when (zerop vector-value)
+      (error "~A summary is missing set-code authorization-list transaction coverage"
+             label))
+    (when (zerop authorization-value)
+      (error "~A summary is missing set-code authorization entries" label)))
+  summary)
+
 (defun validate-transaction-fixture-legacy-protection-coverage
     (summary label)
   (dolist (field '("protectedLegacyVectorCount"
@@ -1420,6 +1492,8 @@
    (transaction-fixture-access-list-summary vectors)
    (transaction-fixture-contract-creation-summary vectors)
    (transaction-fixture-input-summary vectors)
+   (transaction-fixture-blob-summary vectors)
+   (transaction-fixture-set-code-summary vectors)
    (transaction-fixture-legacy-protection-summary vectors)
    (transaction-fixture-result-count-summary vectors)))
 
@@ -1559,6 +1633,12 @@
      summary
      "Full EEST transaction")
     (validate-transaction-fixture-input-coverage
+     summary
+     "Full EEST transaction")
+    (validate-transaction-fixture-blob-coverage
+     summary
+     "Full EEST transaction")
+    (validate-transaction-fixture-set-code-coverage
      summary
      "Full EEST transaction")
     (validate-transaction-fixture-legacy-protection-coverage
@@ -3853,6 +3933,10 @@
     (is (= 1 (fixture-object-field all-summary "dynamicFeeContractCreationVectorCount")))
     (is (= 2 (fixture-object-field all-summary "messageCallDataVectorCount")))
     (is (= 1 (fixture-object-field all-summary "typedMessageCallDataVectorCount")))
+    (is (= 1 (fixture-object-field all-summary "blobVersionedHashVectorCount")))
+    (is (= 2 (fixture-object-field all-summary "blobVersionedHashCount")))
+    (is (= 1 (fixture-object-field all-summary "setCodeAuthorizationVectorCount")))
+    (is (= 2 (fixture-object-field all-summary "setCodeAuthorizationCount")))
     (is (= 2 (fixture-object-field all-summary "protectedLegacyVectorCount")))
     (is (= 1 (fixture-object-field all-summary "unprotectedLegacyVectorCount")))
     (is (= 75 (fixture-object-field all-summary "validResultCount")))
@@ -3899,6 +3983,10 @@
     (is (= 1 (fixture-object-field summary "dynamicFeeContractCreationVectorCount")))
     (is (= 2 (fixture-object-field summary "messageCallDataVectorCount")))
     (is (= 1 (fixture-object-field summary "typedMessageCallDataVectorCount")))
+    (is (= 0 (fixture-object-field summary "blobVersionedHashVectorCount")))
+    (is (= 0 (fixture-object-field summary "blobVersionedHashCount")))
+    (is (= 0 (fixture-object-field summary "setCodeAuthorizationVectorCount")))
+    (is (= 0 (fixture-object-field summary "setCodeAuthorizationCount")))
     (is (= 2 (fixture-object-field summary "protectedLegacyVectorCount")))
     (is (= 1 (fixture-object-field summary "unprotectedLegacyVectorCount")))
     (is (= 72 (fixture-object-field summary "validResultCount")))
@@ -3942,6 +4030,10 @@
     (is (equal full-summary
                (validate-full-eest-transaction-vector-summary
                 full-vectors)))
+    (is (= 1 (fixture-object-field full-summary "blobVersionedHashVectorCount")))
+    (is (= 2 (fixture-object-field full-summary "blobVersionedHashCount")))
+    (is (= 1 (fixture-object-field full-summary "setCodeAuthorizationVectorCount")))
+    (is (= 2 (fixture-object-field full-summary "setCodeAuthorizationCount")))
     (signals error
       (validate-transaction-fixture-result-count-summary
        selected-vectors
@@ -4003,6 +4095,38 @@
                      :key #'car
                      :test #'string=))
        "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-blob-coverage
+       (cons (cons "blobVersionedHashVectorCount" 0)
+             (remove "blobVersionedHashVectorCount"
+                     full-summary
+                     :key #'car
+                     :test #'string=))
+       "Full EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-blob-coverage
+       (cons (cons "blobVersionedHashCount" 0)
+             (remove "blobVersionedHashCount"
+                     full-summary
+                     :key #'car
+                     :test #'string=))
+       "Full EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-set-code-coverage
+       (cons (cons "setCodeAuthorizationVectorCount" 0)
+             (remove "setCodeAuthorizationVectorCount"
+                     full-summary
+                     :key #'car
+                     :test #'string=))
+       "Full EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-set-code-coverage
+       (cons (cons "setCodeAuthorizationCount" 0)
+             (remove "setCodeAuthorizationCount"
+                     full-summary
+                     :key #'car
+                     :test #'string=))
+       "Full EEST transaction"))
     (signals error
       (validate-transaction-fixture-legacy-protection-coverage
        (cons (cons "unprotectedLegacyVectorCount" 0)

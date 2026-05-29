@@ -258,9 +258,15 @@ ones.
     gates its smoke subset to legacy, access-list, and dynamic-fee cases.
   - Progress: added all-family EEST/seed alignment checks for transaction
     vectors. The external-style transaction-test adapter now compares decoded
-    legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702 vectors against the
-    seed envelope fixture by type, chain id, `txbytes`, hash, sender, and
-    per-fork result matrix.
+    envelope/signature/result payloads for legacy, EIP-2930, EIP-1559,
+    EIP-4844, and EIP-7702 cases against the seed envelope fixture by type,
+    chain id, `txbytes`, hash, sender, and per-fork result matrix.
+  - Progress: added full EEST transaction payload coverage gates for the
+    post-Shanghai typed families. Full transaction summaries now count
+    EIP-4844 `blobVersionedHashes` vectors and entries plus EIP-7702
+    `authorizationList` vectors and entries, and the full selector fails if
+    those payload-specific fields disappear while the transaction types remain
+    present.
   - Progress: added an explicit full-envelope EEST transaction selector and
     summary gate. The harness now has a stable all-family selector contract
     for legacy, EIP-2930, EIP-1559, EIP-4844, and EIP-7702 cases in addition
