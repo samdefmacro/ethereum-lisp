@@ -106,8 +106,9 @@ fixes in those areas are allowed; expansion is not.
   that compresses a branch back to an extension root for both raw and
   hashed-key replay. The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
-  creation, so typed sender recovery, access-list projection, and `to = null`
-  decoding are represented before pinned transaction-test replacement. The
+  creation, including derived `contractAddress` checks from sender/nonce, so
+  typed sender recovery, access-list projection, and `to = null` decoding are
+  represented before pinned transaction-test replacement. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint

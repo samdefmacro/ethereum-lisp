@@ -650,6 +650,12 @@ ones.
     sparse EEST result expansion, seed/EEST alignment, and a dedicated summary
     gate requiring access-list contract-creation coverage alongside the
     dynamic-fee gate.
+  - Progress: added derived contract-address coverage to transaction vectors.
+    Seed and EEST-converted legacy, EIP-2930 access-list, and EIP-1559
+    dynamic-fee contract-creation vectors now carry `contractAddress`, validate
+    it against `keccak(rlp([sender, nonce]))[12:]`, compare it during
+    seed/EEST alignment, and gate Phase A summaries so contract-creation
+    vectors cannot omit the derived address.
 
 ## P0: Module Boundaries
 

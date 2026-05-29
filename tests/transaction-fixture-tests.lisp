@@ -71,7 +71,7 @@
 
 (defparameter +transaction-fixture-vector-fields+
   '("name" "type" "chainId" "txbytes" "hash" "sender" "signature"
-    "result" "decoded" "accessList"))
+    "result" "decoded" "accessList" "contractAddress"))
 
 (defparameter +transaction-fixture-required-vector-fields+
   '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
@@ -248,6 +248,22 @@
                        condition)))))
       (unless (string= value canonical)
         (error "Transaction fixture sender must be canonical lowercase 0x-prefixed hex")))))
+
+(defun validate-transaction-fixture-contract-address-field (vector)
+  (when (fixture-field-present-p vector "contractAddress")
+    (let ((value (fixture-object-field vector "contractAddress")))
+      (unless (stringp value)
+        (error "Transaction fixture contractAddress must be a string"))
+      (let ((canonical
+              (handler-case
+                  (transaction-fixture-canonical-address
+                   value
+                   "Transaction fixture contractAddress")
+                (error (condition)
+                  (error "Transaction fixture contractAddress must be an address hex string: ~A"
+                         condition)))))
+        (unless (string= value canonical)
+          (error "Transaction fixture contractAddress must be canonical lowercase 0x-prefixed hex"))))))
 
 (defun validate-transaction-fixture-access-list-shape (vector)
   (when (fixture-field-present-p vector "accessList")
@@ -478,6 +494,16 @@
 
 (defun transaction-fixture-transaction-to-object (recipient)
   (and recipient (address-to-hex recipient)))
+
+(defun transaction-fixture-created-contract-address (transaction sender)
+  (when (and (null (transaction-to transaction)) sender)
+    (let* ((hash (keccak-256
+                  (rlp-encode
+                   (make-rlp-list (address-bytes sender)
+                                  (transaction-nonce transaction)))))
+           (bytes (make-byte-vector 20)))
+      (replace bytes hash :start2 12)
+      (make-address bytes))))
 
 (defun transaction-fixture-authorization-object (authorization)
   (list
@@ -1000,7 +1026,10 @@
   (let* ((name (fixture-required-field case "name"))
          (txbytes (fixture-required-field case "txbytes"))
          (transaction (transaction-from-encoding (hex-to-bytes txbytes)))
-         (success (eest-transaction-case-success-result case)))
+         (success (eest-transaction-case-success-result case))
+         (sender (and success
+                      (address-from-hex
+                       (fixture-required-field success "sender")))))
     (unless success
       (error "EEST transaction case ~A has no successful tracked fork result"
              name))
@@ -1025,6 +1054,14 @@
                      case
                      transaction
                      success)))
+             (let ((contract-address
+                     (transaction-fixture-created-contract-address
+                      transaction
+                      sender)))
+               (when contract-address
+                 (list
+                  (cons "contractAddress"
+                        (address-to-hex contract-address)))))
              (when (transaction-access-list transaction)
                (list
                 (cons "accessList"
@@ -1126,19 +1163,23 @@
 (defun transaction-fixture-contract-creation-summary (vectors)
   (let ((contract-creation-count 0)
         (access-list-contract-creation-count 0)
-        (dynamic-fee-contract-creation-count 0))
+        (dynamic-fee-contract-creation-count 0)
+        (contract-address-count 0))
     (dolist (vector vectors)
       (let ((transaction
               (transaction-from-encoding
                (hex-to-bytes (transaction-fixture-txbytes-value vector)))))
         (when (null (transaction-to transaction))
           (incf contract-creation-count)
+          (when (fixture-field-present-p vector "contractAddress")
+            (incf contract-address-count))
           (when (typep transaction 'access-list-transaction)
             (incf access-list-contract-creation-count))
           (when (typep transaction 'dynamic-fee-transaction)
             (incf dynamic-fee-contract-creation-count)))))
     (list
      (cons "contractCreationVectorCount" contract-creation-count)
+     (cons "contractCreationAddressVectorCount" contract-address-count)
      (cons "accessListContractCreationVectorCount"
            access-list-contract-creation-count)
      (cons "dynamicFeeContractCreationVectorCount"
@@ -1190,6 +1231,10 @@
 (defun validate-transaction-fixture-contract-creation-coverage
     (summary label)
   (let ((value (fixture-required-field summary "contractCreationVectorCount"))
+        (address-value
+          (fixture-required-field
+           summary
+           "contractCreationAddressVectorCount"))
         (access-list-value
           (fixture-required-field
            summary
@@ -1201,6 +1246,9 @@
     (unless (and (integerp value) (not (minusp value)))
       (error "~A summary field contractCreationVectorCount must be a non-negative integer"
              label))
+    (unless (and (integerp address-value) (not (minusp address-value)))
+      (error "~A summary field contractCreationAddressVectorCount must be a non-negative integer"
+             label))
     (unless (and (integerp dynamic-fee-value)
                  (not (minusp dynamic-fee-value)))
       (error "~A summary field dynamicFeeContractCreationVectorCount must be a non-negative integer"
@@ -1211,6 +1259,9 @@
              label))
     (when (zerop value)
       (error "~A summary is missing contract-creation transaction coverage"
+             label))
+    (unless (= address-value value)
+      (error "~A summary is missing derived contract-address coverage"
              label))
     (when (zerop access-list-value)
       (error "~A summary is missing access-list contract-creation transaction coverage"
@@ -1508,6 +1559,13 @@
                label
                type
                field)))
+    (when (or (fixture-field-present-p vector "contractAddress")
+              (fixture-field-present-p seed-vector "contractAddress"))
+      (unless (equal (fixture-object-field vector "contractAddress")
+                     (fixture-object-field seed-vector "contractAddress"))
+        (error "~A type ~A contractAddress does not match seed fixture"
+               label
+               type)))
     (when (or (fixture-field-present-p vector "accessList")
               (fixture-field-present-p seed-vector "accessList"))
       (unless (equal (fixture-object-field vector "accessList")
@@ -1575,6 +1633,7 @@
   (transaction-fixture-txbytes-value vector)
   (validate-transaction-fixture-hash-field vector)
   (validate-transaction-fixture-address-field vector)
+  (validate-transaction-fixture-contract-address-field vector)
   (validate-transaction-fixture-signature-shape vector)
   (validate-transaction-fixture-decoded-shape vector)
   (validate-transaction-fixture-access-list-shape vector))
@@ -2104,6 +2163,23 @@
         (error "Transaction fixture ~A signature does not match txbytes"
                (fixture-object-field vector "name"))))))
 
+(defun validate-transaction-fixture-contract-address
+    (vector transaction sender)
+  (let ((expected
+          (transaction-fixture-created-contract-address transaction sender))
+        (actual (fixture-object-field vector "contractAddress")))
+    (if expected
+        (progn
+          (unless actual
+            (error "Transaction fixture ~A contractAddress must be present for contract creation"
+                   (fixture-object-field vector "name")))
+          (unless (string= actual (address-to-hex expected))
+            (error "Transaction fixture ~A contractAddress does not match sender and nonce"
+                   (fixture-object-field vector "name"))))
+        (when actual
+          (error "Transaction fixture ~A contractAddress is only valid for contract creation"
+                 (fixture-object-field vector "name"))))))
+
 (defun validate-transaction-fixture-decoded-vector (vector)
   (let* ((raw (transaction-fixture-txbytes-value vector))
          (chain-id (fixture-required-field vector "chainId"))
@@ -2123,6 +2199,7 @@
              (fixture-object-field vector "name")))
     (validate-transaction-fixture-signature vector transaction)
     (validate-transaction-fixture-decoded-payload vector transaction)
+    (validate-transaction-fixture-contract-address vector transaction sender)
     (validate-transaction-fixture-decoded-access-list vector transaction)
     (validate-transaction-fixture-derived-results vector transaction)
     transaction))
@@ -2143,6 +2220,12 @@
       (is sender)
       (is (string= (fixture-object-field vector "sender")
                    (address-to-hex sender)))
+      (let ((contract-address
+              (transaction-fixture-created-contract-address transaction sender)))
+        (if contract-address
+            (is (string= (fixture-object-field vector "contractAddress")
+                         (address-to-hex contract-address)))
+            (is (not (fixture-field-present-p vector "contractAddress")))))
       (let ((wrong-chain-sender
               (transaction-sender transaction
                                   :expected-chain-id (1+ chain-id))))
@@ -2813,6 +2896,50 @@
           (search "sender must be canonical" (princ-to-string condition)))))
   (signals error
     (validate-transaction-fixture-vector-shape
+     (list (cons "name" "bad-contract-address")
+           (cons "type" "legacy")
+           (cons "chainId" 1)
+           (cons "txbytes" "0x01")
+           (cons "hash"
+                 "0x0000000000000000000000000000000000000000000000000000000000000001")
+           (cons "sender" "0x0000000000000000000000000000000000000001")
+           (cons "contractAddress" "0x01")
+           (cons "result" nil))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "non-string-contract-address")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "contractAddress" 42)
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "contractAddress must be a string"
+                  (princ-to-string condition)))))
+  (is (handler-case
+          (progn
+            (validate-transaction-fixture-vector-shape
+             (list (cons "name" "prefixless-contract-address")
+                   (cons "type" "legacy")
+                   (cons "chainId" 1)
+                   (cons "txbytes" "0x01")
+                   (cons "hash"
+                         "0x0000000000000000000000000000000000000000000000000000000000000001")
+                   (cons "sender" "0x0000000000000000000000000000000000000001")
+                   (cons "contractAddress"
+                         "0000000000000000000000000000000000000001")
+                   (cons "result" nil)))
+            nil)
+        (error (condition)
+          (search "contractAddress must be canonical"
+                  (princ-to-string condition)))))
+  (signals error
+    (validate-transaction-fixture-vector-shape
      (list (cons "name" "unknown-vector-field")
            (cons "type" "legacy")
            (cons "chainId" 1)
@@ -2852,11 +2979,25 @@
 
 (deftest transaction-fixture-decoded-vector-validation
   (let ((vector (first (load-transaction-envelope-vectors
-                       +transaction-envelope-fixture-path+))))
+                       +transaction-envelope-fixture-path+)))
+        (contract-vector
+          (find "legacy-contract-creation"
+                (load-transaction-envelope-vectors
+                 +transaction-envelope-fixture-path+)
+                :test #'string=
+                :key (lambda (candidate)
+                       (fixture-object-field candidate "name")))))
     (labels ((replace-field (field value)
                (cons (cons field value)
-                     (remove field vector :key #'car :test #'string=))))
+                     (remove field vector :key #'car :test #'string=)))
+             (replace-contract-field (field value)
+               (cons (cons field value)
+                     (remove field
+                             contract-vector
+                             :key #'car
+                             :test #'string=))))
       (validate-transaction-fixture-decoded-vector vector)
+      (validate-transaction-fixture-decoded-vector contract-vector)
       (signals error
         (validate-transaction-fixture-decoded-vector
          (replace-field
@@ -2866,6 +3007,21 @@
         (validate-transaction-fixture-decoded-vector
          (replace-field "sender"
                         "0x0000000000000000000000000000000000000000")))
+      (signals error
+        (validate-transaction-fixture-decoded-vector
+         (replace-field "contractAddress"
+                        "0x0000000000000000000000000000000000000000")))
+      (signals error
+        (validate-transaction-fixture-decoded-vector
+         (remove "contractAddress"
+                 contract-vector
+                 :key #'car
+                 :test #'string=)))
+      (signals error
+        (validate-transaction-fixture-decoded-vector
+         (replace-contract-field
+          "contractAddress"
+          "0x0000000000000000000000000000000000000000")))
       (signals error
         (validate-transaction-fixture-decoded-vector
          (replace-field
@@ -3483,6 +3639,8 @@
               (fixture-object-field unprotected-vector "txbytes")))))
       (is (not (legacy-transaction-protected-p transaction))))
     (is contract-vector)
+    (is (string= "0x00de48310d77a4d56aa400248b0b1613508f5b73"
+                 (fixture-object-field contract-vector "contractAddress")))
     (is (null (fixture-object-field
                (fixture-object-field contract-vector "decoded")
                "to")))
@@ -3527,6 +3685,8 @@
     (is typed-contract-vector)
     (is (string= "access-list"
                  (fixture-object-field typed-contract-vector "type")))
+    (is (string= "0x4a4be0144ae0ef07ca7b8715b1987d7fc7118961"
+                 (fixture-object-field typed-contract-vector "contractAddress")))
     (is (null (fixture-object-field
                (fixture-object-field typed-contract-vector "decoded")
                "to")))
@@ -3546,6 +3706,8 @@
     (is dynamic-fee-contract-vector)
     (is (string= "dynamic-fee"
                  (fixture-object-field dynamic-fee-contract-vector "type")))
+    (is (string= "0x91ffbaa0e407b3a8386fb0481ba4cb45693fa082"
+                 (fixture-object-field dynamic-fee-contract-vector "contractAddress")))
     (is (null (fixture-object-field
                (fixture-object-field dynamic-fee-contract-vector "decoded")
                "to")))
@@ -3578,6 +3740,7 @@
     (is (= 2 (fixture-object-field all-summary "accessListAddressCount")))
     (is (= 4 (fixture-object-field all-summary "accessListStorageKeyCount")))
     (is (= 3 (fixture-object-field all-summary "contractCreationVectorCount")))
+    (is (= 3 (fixture-object-field all-summary "contractCreationAddressVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListContractCreationVectorCount")))
     (is (= 1 (fixture-object-field all-summary "dynamicFeeContractCreationVectorCount")))
     (is (= 2 (fixture-object-field all-summary "protectedLegacyVectorCount")))
@@ -3620,6 +3783,7 @@
     (is (= 2 (fixture-object-field summary "accessListAddressCount")))
     (is (= 4 (fixture-object-field summary "accessListStorageKeyCount")))
     (is (= 3 (fixture-object-field summary "contractCreationVectorCount")))
+    (is (= 3 (fixture-object-field summary "contractCreationAddressVectorCount")))
     (is (= 1 (fixture-object-field summary "accessListContractCreationVectorCount")))
     (is (= 1 (fixture-object-field summary "dynamicFeeContractCreationVectorCount")))
     (is (= 2 (fixture-object-field summary "protectedLegacyVectorCount")))
@@ -3688,6 +3852,14 @@
       (validate-transaction-fixture-contract-creation-coverage
        (cons (cons "contractCreationVectorCount" 0)
              (remove "contractCreationVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-contract-creation-coverage
+       (cons (cons "contractCreationAddressVectorCount" 0)
+             (remove "contractCreationAddressVectorCount"
                      summary
                      :key #'car
                      :test #'string=))
