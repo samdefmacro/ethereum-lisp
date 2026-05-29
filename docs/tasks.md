@@ -1579,6 +1579,10 @@ splits can land after the Phase A smoke path closes.
     locked secure storage trie branch, extension, and delete-collapse layouts
     with expected storage roots, account RLP projections, and required coverage
     gates.
+    Added storage trie leaf and delete-to-empty shape gates to the state-root
+    fixture set, locking both the single-slot storage root and the funded
+    account case where deleting the final storage slot restores the empty
+    storage trie while preserving the account.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

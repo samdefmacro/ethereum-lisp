@@ -87,8 +87,10 @@
     "state-trie-extension"
     "state-trie-branch-extension"
     "state-trie-delete-collapse"
+    "storage-trie-leaf"
     "storage-trie-branch"
     "storage-trie-extension"
+    "storage-trie-delete-to-empty"
     "storage-trie-delete-collapse"))
 
 (defparameter +state-root-fixture-required-case-names+
@@ -140,8 +142,10 @@
     "state-trie-extension"
     "state-trie-branch-extension"
     "state-trie-delete-collapse"
+    "storage-trie-leaf"
     "storage-trie-branch"
     "storage-trie-extension"
+    "storage-trie-delete-to-empty"
     "storage-trie-delete-collapse"))
 
 (defparameter +state-root-fixture-trie-shapes+
