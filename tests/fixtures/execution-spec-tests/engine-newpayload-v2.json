@@ -18,6 +18,7 @@
       "network": "Shanghai",
       "chainId": "0x1",
       "config": {
+        "berlinBlock": "0x0",
         "londonBlock": "0x0",
         "shanghaiTime": "0x0"
       },
@@ -81,10 +82,79 @@
       }
     },
     {
+      "name": "shanghai-access-list-transfer-with-withdrawal",
+      "network": "Shanghai",
+      "chainId": "0x1",
+      "config": {
+        "berlinBlock": "0x0",
+        "londonBlock": "0x0",
+        "shanghaiTime": "0x0"
+      },
+      "parent": {
+        "number": "0x29",
+        "gasLimit": "0xc350",
+        "gasUsed": "0x61a8",
+        "timestamp": "0x62",
+        "baseFeePerGas": "0x1",
+        "feeRecipient": "0x0000000000000000000000000000000000000001",
+        "accounts": [
+          {
+            "address": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+            "nonce": "0x4",
+            "balance": "0x3b9aca00"
+          },
+          {
+            "address": "0x0000000000000000000000000000000000001002",
+            "nonce": "0x0",
+            "balance": "0x5",
+            "code": "0x6001600055",
+            "storage": {
+              "0x0000000000000000000000000000000000000000000000000000000000000000": "0x2a"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "number": "0x2a",
+        "gasLimit": "0xc350",
+        "timestamp": "0x63",
+        "baseFeePerGas": "0x1",
+        "transactions": [
+          "0x01f8bd01040182c35094b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a80f85bf859940000000000000000000000000000000000000101f842a00000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000280a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a01ed995b55ae531ccce7f7355b76d169c08886a437e3932f6f0e79c9dcc297aed"
+        ],
+        "withdrawals": [
+          {
+            "index": "0x0",
+            "validatorIndex": "0x1",
+            "address": "0x0000000000000000000000000000000000000002",
+            "amount": "0x1"
+          }
+        ]
+      },
+      "expect": {
+        "status": "VALID",
+        "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "senderNonce": "0x5",
+        "senderBalance": "0x3b9a5fb6",
+        "recipient": "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "recipientBalance": "0xa",
+        "withdrawalRecipient": "0x0000000000000000000000000000000000000002",
+        "withdrawalBalance": "0x3b9aca00",
+        "codeAddress": "0x0000000000000000000000000000000000001002",
+        "code": "0x6001600055",
+        "storageAddress": "0x0000000000000000000000000000000000001002",
+        "storageKey": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "storageValue": "0x000000000000000000000000000000000000000000000000000000000000002a",
+        "receiptType": "0x1",
+        "receiptStatus": "0x1"
+      }
+    },
+    {
       "name": "shanghai-dynamic-fee-transfer-with-withdrawal",
       "network": "Shanghai",
       "chainId": "0x1",
       "config": {
+        "berlinBlock": "0x0",
         "londonBlock": "0x0",
         "shanghaiTime": "0x0"
       },
@@ -152,6 +222,7 @@
       "network": "Shanghai",
       "chainId": "0x1",
       "config": {
+        "berlinBlock": "0x0",
         "londonBlock": "0x0",
         "shanghaiTime": "0x0"
       },

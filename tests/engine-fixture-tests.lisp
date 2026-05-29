@@ -8,11 +8,13 @@
 
 (defparameter +engine-newpayload-v2-smoke-case-names+
   '("shanghai-one-transfer-with-withdrawal"
+    "shanghai-access-list-transfer-with-withdrawal"
     "shanghai-dynamic-fee-transfer-with-withdrawal"
     "shanghai-contract-creation-with-withdrawal"))
 
 (defparameter +engine-newpayload-v2-smoke-coverage-families+
-  '(:legacy-transfer :dynamic-fee-transfer :contract-creation))
+  '(:legacy-transfer :access-list-transfer :dynamic-fee-transfer
+    :contract-creation))
 
 (defparameter +engine-newpayload-v2-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "referenceClients" "cases"))
@@ -24,7 +26,7 @@
   '("name" "network" "chainId" "config" "parent" "payload" "expect"))
 
 (defparameter +engine-newpayload-v2-fixture-config-fields+
-  '("londonBlock" "shanghaiTime"))
+  '("berlinBlock" "londonBlock" "shanghaiTime"))
 
 (defparameter +engine-newpayload-v2-fixture-parent-fields+
   '("number"
@@ -616,6 +618,8 @@
          :contract-creation)
         ((zerop (transaction-type transaction))
          :legacy-transfer)
+        ((= 1 (transaction-type transaction))
+         :access-list-transfer)
         ((= 2 (transaction-type transaction))
          :dynamic-fee-transfer)
         (t
@@ -678,6 +682,7 @@
   (let ((config (fixture-object-field case "config")))
     (make-chain-config
      :chain-id (hex-to-quantity (fixture-object-field case "chainId"))
+     :berlin-block (fixture-quantity-field config "berlinBlock")
      :london-block (fixture-quantity-field config "londonBlock")
      :shanghai-time (fixture-quantity-field config "shanghaiTime"))))
 
@@ -828,7 +833,8 @@
     (cons "network" "Shanghai")
     (cons "chainId" "0x1")
     (cons "config"
-          (list (cons "londonBlock" "0x0")
+          (list (cons "berlinBlock" "0x0")
+                (cons "londonBlock" "0x0")
                 (cons "shanghaiTime" "0x0")))
     (cons "parent"
           (list
@@ -975,7 +981,8 @@
          (list (replace-field
                 case
                 "config"
-                (list (cons "londonBlock" "0x0")
+                (list (cons "berlinBlock" "0x0")
+                      (cons "londonBlock" "0x0")
                       (cons "shanghaiTime" "0x0")
                       (cons "unknownFork" "0x0"))))))
       (signals error

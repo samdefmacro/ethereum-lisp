@@ -1017,6 +1017,12 @@ splits can land after the Phase A smoke path closes.
     requires the selected smoke cases to include legacy transfer, dynamic-fee
     typed transfer, and contract-creation families, and rejects duplicate or
     missing smoke case selectors before replay.
+  - Progress: expanded the Engine `newPayloadV2` fixture smoke with a
+    Shanghai EIP-2930 access-list transfer. The fixture coverage guard now
+    requires legacy, access-list, dynamic-fee, and contract-creation
+    transaction families, and the access-list case runs through executable
+    import, forkchoice, receipt, transaction lookup, and public RPC visibility
+    checks.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
