@@ -713,6 +713,31 @@
     (is (string= "0x" (bytes-to-hex (state-db-get-code state address))))
     (is (= 1 (state-account-balance (state-db-get-account state address))))))
 
+(deftest state-account-update-preserves-code-and-storage-commitments
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x000000000000000000000000000000000000000a"))
+        (slot (hash32-from-hex
+               "0x000000000000000000000000000000000000000000000000000000000000000c"))
+        (code (hex-to-bytes "0x6001600201")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 1 :balance 1000))
+    (state-db-set-storage state address slot 12)
+    (state-db-set-code state address code)
+    (let ((storage-root (state-db-get-storage-root state address))
+          (code-hash (keccak-256-hash code)))
+      (state-db-set-account state address
+                            (make-state-account :nonce 0 :balance 0))
+      (let ((account (state-db-get-account state address)))
+        (is account)
+        (is (zerop (state-account-nonce account)))
+        (is (zerop (state-account-balance account)))
+        (is (bytes= (hash32-bytes storage-root)
+                    (hash32-bytes (state-account-storage-root account))))
+        (is (bytes= (hash32-bytes code-hash)
+                    (hash32-bytes (state-account-code-hash account))))
+        (is (= 12 (state-db-get-storage state address slot)))
+        (is (bytes= code (state-db-get-code state address)))))))
+
 (deftest state-clear-account-removes-code-storage-and-is-missing-noop
   (let* ((state (make-state-db))
          (address (address-from-hex "0x000000000000000000000000000000000000000a"))

@@ -1652,6 +1652,12 @@ splits can land after the Phase A smoke path closes.
     trie root/account RLP produced by `setAccount` with zero nonce/balance and
     the EIP-161-style `clearAccount` transition back to the empty state root
     behind named seed-case gates.
+    Fixed and locked `setAccount` account-update semantics so nonce/balance
+    updates preserve existing code and storage commitments. The state DB now
+    derives object commitments when replacing account fields, and the
+    state-root fixture set includes a named seed case whose final account RLP,
+    code hash, storage root, and trie root remain stable after an explicit
+    zero nonce/balance update.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

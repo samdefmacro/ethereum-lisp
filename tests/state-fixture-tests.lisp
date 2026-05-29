@@ -114,6 +114,7 @@
     "explicit-empty-account-clear-prunes-to-empty-root"
     "account-update-overwrites-nonce-balance-root"
     "account-update-preserves-storage-root"
+    "account-update-preserves-code-and-storage-root"
     "account-clear-prunes-to-empty-root"
     "account-clear-prunes-code-and-storage-root"
     "account-clear-preserves-sibling-account-root"

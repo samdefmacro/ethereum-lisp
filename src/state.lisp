@@ -72,12 +72,25 @@
     (remhash key (state-db-objects state)))
   state)
 
+(defun state-object-code-hash (object account)
+  (if (plusp (length (state-object-code object)))
+      (keccak-256-hash (state-object-code object))
+      (state-account-code-hash account)))
+
+(defun state-account-with-object-commitments (object account)
+  (make-state-account
+   :nonce (state-account-nonce account)
+   :balance (state-account-balance account)
+   :storage-root (storage-root object)
+   :code-hash (state-object-code-hash object account)))
+
 (defun state-db-set-account (state address account)
   (let* ((key (address-key address))
          (object (or (gethash key (state-db-objects state))
                      (setf (gethash key (state-db-objects state))
                            (make-state-object)))))
-    (setf (state-object-account object) account)
+    (setf (state-object-account object)
+          (state-account-with-object-commitments object account))
     state))
 
 (defun state-db-clear-account (state address)
@@ -408,11 +421,7 @@
 
 (defun account-with-storage-root (object)
   (let ((account (or (state-object-account object) (make-state-account))))
-    (make-state-account
-     :nonce (state-account-nonce account)
-     :balance (state-account-balance account)
-     :storage-root (storage-root object)
-     :code-hash (state-account-code-hash account))))
+    (state-account-with-object-commitments object account)))
 
 (defun state-db-state-trie (state)
   (let ((trie (make-mpt)))
