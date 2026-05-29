@@ -114,7 +114,9 @@ fixes in those areas are allowed; expansion is not.
   represented before pinned transaction-test replacement. It also gates a
   dynamic-fee transaction with a non-empty access list, keeping EIP-1559
   access-list intrinsic-gas and decoded projection coverage distinct from the
-  EIP-2930-only access-list path. The
+  EIP-2930-only access-list path. It also gates a typed EIP-2930 message-call
+  with non-empty calldata, so typed `input` decoding and calldata intrinsic
+  gas are covered separately from legacy calldata and contract initcode. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint

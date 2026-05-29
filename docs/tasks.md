@@ -381,6 +381,12 @@ ones.
     `intrinsicGas` together, reject orphan or non-canonical hash/sender fields,
     and compare any per-fork hash/sender assertions against the decoded
     `txbytes`.
+  - Progress: added typed calldata message-call coverage to the transaction
+    fixtures. The Phase A EEST-shaped selector now includes an EIP-2930
+    non-empty `input` transfer whose hash, sender, decoded payload, and
+    intrinsic gas are replayed from `txbytes`, and the summary gate now
+    requires typed calldata message-call coverage instead of relying only on
+    legacy calldata or contract initcode.
   - Progress: added explicit Shanghai coverage to the transaction fixture fork
     matrix and made Cancun/Prague fixture configs include Shanghai activation.
     The Phase A target fork is now checked directly for every transaction
