@@ -248,6 +248,105 @@
       }
     },
     {
+      "name": "balance-add-creates-account-proof",
+      "tags": [
+        "present-account",
+        "balance-update-proof",
+        "geth-shaped-result"
+      ],
+      "operations": [
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000310",
+          "amount": 777
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000310",
+        "storageKeys": []
+      },
+      "expectedRoot": "0xf035c82f27a5817ea3c001ea719346d0a3370677f6c07776aced2f9d7583c2c5",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000310",
+        "accountProof": [
+          "0xf86ca1203a4138545f87c8d1e2069966382fafae41a078aa8be22bb9744d49a6989ade0bb848f84680820309a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x309",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
+    },
+    {
+      "name": "balance-add-preserves-code-and-storage-proof",
+      "tags": [
+        "present-account",
+        "storage-present",
+        "storage-missing",
+        "balance-update-proof",
+        "geth-shaped-result"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000311",
+          "nonce": 2,
+          "balance": 10
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000311",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000031",
+          "value": 49
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000311",
+          "code": "0x6001600201"
+        },
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000311",
+          "amount": 30
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000311",
+        "storageKeys": [
+          "0x0000000000000000000000000000000000000000000000000000000000000031",
+          "0x0000000000000000000000000000000000000000000000000000000000000032"
+        ]
+      },
+      "expectedRoot": "0x727090f36dd34188b5577ea46d023feb1fc3bebea0980063137c5aa43bb16e1c",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000311",
+        "accountProof": [
+          "0xf86aa120da72031b75e3398c00e6d12134135b1a2819309f77886c2f67afe335b84b35b0b846f8440228a0f523a2473ec276bfc5205ea639d1e29808e7e3f3bb6a95fd0ad648f690af7f2da0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d"
+        ],
+        "balance": "0x28",
+        "codeHash": "0xdecae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d",
+        "nonce": "0x2",
+        "storageHash": "0xf523a2473ec276bfc5205ea639d1e29808e7e3f3bb6a95fd0ad648f690af7f2d",
+        "storageProof": [
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000031",
+            "value": "0x31",
+            "proof": [
+              "0xe3a120c54045fa7c6ec765e825df7f9e9bf9dec12c5cef146f93a5eee56772ee647fbc31"
+            ]
+          },
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000032",
+            "value": "0x0",
+            "proof": [
+              "0xe3a120c54045fa7c6ec765e825df7f9e9bf9dec12c5cef146f93a5eee56772ee647fbc31"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "state-trie-branch-account-update-preserves-code-storage-proof",
       "tags": [
         "present-account",

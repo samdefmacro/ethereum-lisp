@@ -1865,6 +1865,11 @@ splits can land after the Phase A smoke path closes.
     locks geth-shaped proof nodes plus retained code/storage hashes and
     present/missing storage proofs for branch, extension, and branch/extension
     account-trie layouts after `setAccount` resets nonce and balance.
+  - Progress: added balance-add state-proof fixture coverage. The required
+    proof set now locks `addBalance` creation of a funded account and
+    `addBalance` updates that preserve existing code and storage commitments,
+    including exact geth-shaped account proof nodes plus present and missing
+    storage proofs.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
