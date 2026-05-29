@@ -1580,6 +1580,11 @@ splits can land after the Phase A smoke path closes.
     and gates. Phase A now requires object-valued secure-key replay for both
     pure writes and `null` deletes, keeping the secure path aligned with
     plain trie object-form coverage.
+    Added a secureTrie object-form hex byte-string case to the selected
+    EEST-style trie subset, with a dedicated summary counter and gate requiring
+    secure object-valued `0x` byte values. This keeps byte-string normalization
+    covered on the Nethermind/geth-style object-form path as well as the
+    array-of-pairs path.
     Added non-string field-name rejection to trie fixture object validators, so
     wrappers, cases, operations, and lookup expectations fail with
     harness-level shape errors before allowed-field checks can reach
