@@ -1632,6 +1632,10 @@ splits can land after the Phase A smoke path closes.
     RLP projections, compressed path expectations, hashed extension child
     references, and hashed branch child references behind required seed-case
     gates.
+    Added an account-update state-root fixture that updates nonce/balance
+    after a storage write and locks the retained storage root, account RLP,
+    storage-root projection, and leaf-shaped account trie behind the named
+    seed-case gate.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

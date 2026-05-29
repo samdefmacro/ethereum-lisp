@@ -491,6 +491,54 @@
       "expectedRoot": "0x2dcce5f38ad7313b7c2a6419687744503a336be01219c897f786b4bfeb4a0b39"
     },
     {
+      "name": "account-update-preserves-storage-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-root-projection",
+        "account-update",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000108",
+          "nonce": 1,
+          "balance": 1000
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000108",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000018",
+          "value": 24
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000108",
+          "nonce": 2,
+          "balance": 2000
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000108",
+          "nonce": 2,
+          "balance": 2000,
+          "storageRoot": "0xa034e7f012c66481f66a1cf830489d508692b56dfd3ffa35c0fbead281ab993a",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf846028207d0a0a034e7f012c66481f66a1cf830489d508692b56dfd3ffa35c0fbead281ab993aa0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000108",
+          "root": "0xa034e7f012c66481f66a1cf830489d508692b56dfd3ffa35c0fbead281ab993a"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0x36919f7a7f990aaad1a2badc3787f59604fbb878b6be9fe8cf9a0dcd00b86435"
+    },
+    {
       "name": "account-clear-prunes-to-empty-root",
       "tags": ["account-root", "account-update", "account-prune"],
       "operations": [
