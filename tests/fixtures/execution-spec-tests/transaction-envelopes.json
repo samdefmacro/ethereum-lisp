@@ -103,6 +103,95 @@
       }
     },
     {
+      "name": "legacy-unprotected",
+      "type": "legacy",
+      "chainId": 0,
+      "txbytes": "0xf86103018261a894b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a8255441ba079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a063ba75f072fb465223d8c651fbbf7ce6dd582ca9c793bcb595dd245b8a28cd17",
+      "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+      "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+      "signature": {
+        "v": "0x1b",
+        "yParity": "0x0",
+        "r": "0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "s": "0x63ba75f072fb465223d8c651fbbf7ce6dd582ca9c793bcb595dd245b8a28cd17"
+      },
+      "decoded": {
+        "nonce": "0x3",
+        "gasLimit": "0x61a8",
+        "to": "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "value": "0xa",
+        "input": "0x5544",
+        "gasPrice": "0x1"
+      },
+      "result": {
+        "Frontier": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Homestead": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "EIP150": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "EIP158": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Byzantium": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Constantinople": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Istanbul": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Berlin": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "London": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Paris": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Shanghai": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Cancun": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        },
+        "Prague": {
+          "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x5228"
+        }
+      }
+    },
+    {
       "name": "legacy-contract-creation",
       "type": "legacy",
       "chainId": 1,

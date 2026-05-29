@@ -69,6 +69,16 @@
       }
     }
   },
+  "legacy-unprotected-sample": {
+    "txbytes": "f86103018261a894b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a8255441ba079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a063ba75f072fb465223d8c651fbbf7ce6dd582ca9c793bcb595dd245b8a28cd17",
+    "result": {
+      "Shanghai": {
+        "hash": "fd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
+        "sender": "7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intrinsicGas": "0x5228"
+      }
+    }
+  },
   "legacy-contract-creation-sample": {
     "txbytes": "f8550a84b2d05e00830186a080808560006000f326a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a00761c24ce4afcc327e43b898785f9721e36233622bfa7c77109035ed9daafc7e",
     "result": {

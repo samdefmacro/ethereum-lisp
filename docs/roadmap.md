@@ -158,12 +158,13 @@ Reth/Rust primitive transaction and block types.
 
 Status: first pass for accounts, legacy tx, EIP-2930 tx, EIP-1559 tx,
 EIP-4844 blob tx envelope encoding/hashing, EIP-7702 set-code tx envelope
-encoding/hashing, legacy EIP-155 signing hash and sender recovery, and
-EIP-2930/EIP-1559/EIP-4844/EIP-7702 typed signing hash plus sender recovery;
-EIP-7702 authorization tuple authority recovery is also present. The Phase A
-transaction harness now replays transfer and contract-creation legacy txbytes
-plus access-list and dynamic-fee typed txbytes through hash, sender, decoded
-payload, and intrinsic-gas checks. Blob sidecars now have a first-pass data
+encoding/hashing, legacy EIP-155 plus unprotected signing hash and sender
+recovery, and EIP-2930/EIP-1559/EIP-4844/EIP-7702 typed signing hash plus
+sender recovery; EIP-7702 authorization tuple authority recovery is also
+present. The Phase A transaction harness now replays protected/unprotected
+transfer and contract-creation legacy txbytes plus access-list and dynamic-fee
+typed txbytes through hash, sender, decoded payload, and intrinsic-gas checks.
+Blob sidecars now have a first-pass data
 shape and commitment-to-versioned-hash
 validation layer; callers that require KZG proof verification now fail
 explicitly until a trusted-setup-backed verifier is wired in, so blob sidecars

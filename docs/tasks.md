@@ -632,6 +632,11 @@ ones.
     for tampered `decoded` payload and `signature` projections, so future
     pinned EEST swaps cannot keep raw bytes, hashes, senders, and fork results
     green while silently drifting the derived transaction projections.
+  - Progress: added unprotected legacy transaction coverage to the seed
+    envelope fixture and selected EEST-shaped sample. The runner now treats
+    `v = 27/28` legacy sender recovery as chain-id independent, while
+    Phase A/full summaries require both EIP-155-protected and unprotected
+    legacy vectors.
 
 ## P0: Module Boundaries
 
