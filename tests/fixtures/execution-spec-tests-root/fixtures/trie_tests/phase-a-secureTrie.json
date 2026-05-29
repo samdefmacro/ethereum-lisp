@@ -6,6 +6,14 @@
     ],
     "root": "8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268"
   },
+  "phase-a-secure-branch-child-branch": {
+    "in": [
+      ["secure0", "left"],
+      ["secure9", "middle"],
+      ["secure1", "right"]
+    ],
+    "root": "626be931db190ef431bdb5638866b8aa95af9384f3ee1c88c3065ec971a17b88"
+  },
   "phase-a-secure-extension": {
     "in": [
       ["dog", "left"],

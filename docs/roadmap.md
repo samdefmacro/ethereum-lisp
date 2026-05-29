@@ -111,7 +111,10 @@ fixes in those areas are allowed; expansion is not.
   now also gates a branch-root case whose populated child resolves to another
   branch, so nested branch child-shape projection is locked alongside the
   extension-child path before pinned trie vectors replace the seed set. The
-  selected Phase A transaction subset
+  selected EEST-style trie subset
+  now gates the same nested branch-child shape under secure-key hashing,
+  keeping account/state-trie-like replay aligned with the plain seed shape.
+  The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so
   typed sender recovery, access-list projection, and `to = null` decoding are
