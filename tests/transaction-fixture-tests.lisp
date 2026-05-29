@@ -58,7 +58,8 @@
   '("geth" "nethermind" "reth"))
 
 (defparameter +transaction-fixture-vector-fields+
-  '("name" "type" "chainId" "txbytes" "hash" "sender" "result" "accessList"))
+  '("name" "type" "chainId" "txbytes" "hash" "sender" "result" "decoded"
+    "accessList"))
 
 (defparameter +transaction-fixture-required-vector-fields+
   '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
@@ -68,6 +69,14 @@
 
 (defparameter +transaction-fixture-access-list-entry-fields+
   '("address" "storageKeys"))
+
+(defparameter +transaction-fixture-decoded-fields+
+  '("nonce" "gasLimit" "to" "value" "input" "gasPrice"
+    "maxPriorityFeePerGas" "maxFeePerGas" "maxFeePerBlobGas"
+    "blobVersionedHashes" "authorizationList"))
+
+(defparameter +transaction-fixture-authorization-fields+
+  '("chainId" "address" "nonce" "yParity" "r" "s"))
 
 (defparameter +eest-transaction-test-case-fields+
   '("txbytes" "result"))
@@ -255,6 +264,124 @@
                               "Transaction fixture accessList storage key"))
               (error "Transaction fixture accessList storage key must be canonical lowercase 0x-prefixed hex"))))))))
 
+(defun validate-transaction-fixture-decoded-quantity-field
+    (decoded field label)
+  (let ((value (fixture-required-field decoded field)))
+    (unless (stringp value)
+      (error "~A ~A must be a string" label field))
+    (transaction-fixture-canonical-quantity
+     value
+     (format nil "~A ~A" label field))))
+
+(defun validate-transaction-fixture-decoded-optional-quantity-field
+    (decoded field label)
+  (when (fixture-field-present-p decoded field)
+    (validate-transaction-fixture-decoded-quantity-field decoded field label)))
+
+(defun validate-transaction-fixture-decoded-address-field
+    (decoded field label)
+  (let ((value (fixture-object-field decoded field)))
+    (unless (or (null value) (stringp value))
+      (error "~A ~A must be null or a string" label field))
+    (when value
+      (unless (string= value
+                       (transaction-fixture-canonical-address
+                        value
+                        (format nil "~A ~A" label field)))
+        (error "~A ~A must be canonical lowercase 0x-prefixed hex"
+               label
+               field)))))
+
+(defun validate-transaction-fixture-decoded-required-address-field
+    (decoded field label)
+  (unless (fixture-field-present-p decoded field)
+    (error "~A ~A must be present" label field))
+  (validate-transaction-fixture-decoded-address-field decoded field label))
+
+(defun validate-transaction-fixture-decoded-input-field (decoded label)
+  (let ((value (fixture-required-field decoded "input")))
+    (unless (stringp value)
+      (error "~A input must be a string" label))
+    (unless (string= value
+                     (transaction-fixture-canonical-byte-string
+                      value
+                      (format nil "~A input" label)))
+      (error "~A input must be canonical lowercase 0x-prefixed hex bytes"
+             label))))
+
+(defun validate-transaction-fixture-decoded-blob-hashes
+    (decoded label)
+  (when (fixture-field-present-p decoded "blobVersionedHashes")
+    (let ((hashes (fixture-object-field decoded "blobVersionedHashes")))
+      (unless (listp hashes)
+        (error "~A blobVersionedHashes must be a JSON array" label))
+      (dolist (hash hashes)
+        (unless (stringp hash)
+          (error "~A blobVersionedHashes entry must be a string" label))
+        (unless (string= hash
+                         (transaction-fixture-canonical-hash32
+                          hash
+                          (format nil "~A blobVersionedHashes entry" label)))
+          (error "~A blobVersionedHashes entry must be canonical lowercase 0x-prefixed hex"
+                 label))))))
+
+(defun validate-transaction-fixture-decoded-authorization-shape
+    (authorization label)
+  (validate-transaction-fixture-object-fields
+   authorization
+   +transaction-fixture-authorization-fields+
+   label)
+  (dolist (field '("chainId" "nonce" "yParity" "r" "s"))
+    (validate-transaction-fixture-decoded-quantity-field
+     authorization
+     field
+     label))
+  (validate-transaction-fixture-decoded-required-address-field
+   authorization
+   "address"
+   label))
+
+(defun validate-transaction-fixture-decoded-authorizations
+    (decoded label)
+  (when (fixture-field-present-p decoded "authorizationList")
+    (let ((authorizations (fixture-object-field decoded "authorizationList")))
+      (unless (listp authorizations)
+        (error "~A authorizationList must be a JSON array" label))
+      (dolist (authorization authorizations)
+        (validate-transaction-fixture-decoded-authorization-shape
+         authorization
+         (format nil "~A authorizationList entry" label))))))
+
+(defun validate-transaction-fixture-decoded-shape (vector)
+  (when (fixture-field-present-p vector "decoded")
+    (let ((decoded (fixture-object-field vector "decoded"))
+          (label (format nil "Transaction fixture ~A decoded"
+                         (fixture-object-field vector "name"))))
+      (validate-transaction-fixture-object-fields
+       decoded
+       +transaction-fixture-decoded-fields+
+       label)
+      (dolist (field '("nonce" "gasLimit" "value"))
+        (validate-transaction-fixture-decoded-quantity-field
+         decoded
+         field
+         label))
+      (validate-transaction-fixture-decoded-required-address-field
+       decoded
+       "to"
+       label)
+      (validate-transaction-fixture-decoded-input-field decoded label)
+      (dolist (field '("gasPrice"
+                       "maxPriorityFeePerGas"
+                       "maxFeePerGas"
+                       "maxFeePerBlobGas"))
+        (validate-transaction-fixture-decoded-optional-quantity-field
+         decoded
+         field
+         label))
+      (validate-transaction-fixture-decoded-blob-hashes decoded label)
+      (validate-transaction-fixture-decoded-authorizations decoded label))))
+
 (defun transaction-fixture-hex-prefixed-p (value)
   (and (stringp value)
        (<= 2 (length value))
@@ -292,6 +419,10 @@
       (error "~A must encode at least one byte" label))
     (bytes-to-hex bytes)))
 
+(defun transaction-fixture-canonical-byte-string (value label)
+  (declare (ignore label))
+  (bytes-to-hex (hex-to-bytes value)))
+
 (defun transaction-fixture-access-list-object (access-list)
   (mapcar
    (lambda (entry)
@@ -301,6 +432,108 @@
             (mapcar #'hash32-to-hex
                     (access-list-entry-storage-keys entry)))))
    access-list))
+
+(defun transaction-fixture-transaction-to-object (recipient)
+  (and recipient (address-to-hex recipient)))
+
+(defun transaction-fixture-authorization-object (authorization)
+  (list
+   (cons "chainId"
+         (quantity-to-hex
+          (set-code-authorization-chain-id authorization)))
+   (cons "address"
+         (address-to-hex
+          (set-code-authorization-address authorization)))
+   (cons "nonce"
+         (quantity-to-hex
+          (set-code-authorization-nonce authorization)))
+   (cons "yParity"
+         (quantity-to-hex
+          (set-code-authorization-y-parity authorization)))
+   (cons "r"
+         (quantity-to-hex
+          (set-code-authorization-r authorization)))
+   (cons "s"
+         (quantity-to-hex
+          (set-code-authorization-s authorization)))))
+
+(defun transaction-fixture-decoded-object (transaction)
+  (let ((decoded
+          (list
+           (cons "nonce" (quantity-to-hex (transaction-nonce transaction)))
+           (cons "gasLimit"
+                 (quantity-to-hex (transaction-gas-limit transaction)))
+           (cons "to"
+                 (transaction-fixture-transaction-to-object
+                  (transaction-to transaction)))
+           (cons "value" (quantity-to-hex (transaction-value transaction)))
+           (cons "input" (bytes-to-hex (transaction-data transaction))))))
+    (etypecase transaction
+      (legacy-transaction
+       (setf decoded
+             (append
+              decoded
+              (list
+               (cons "gasPrice"
+                     (quantity-to-hex
+                      (legacy-transaction-gas-price transaction)))))))
+      (access-list-transaction
+       (setf decoded
+             (append
+              decoded
+              (list
+               (cons "gasPrice"
+                     (quantity-to-hex
+                      (access-list-transaction-gas-price transaction)))))))
+      (dynamic-fee-transaction
+       (setf decoded
+             (append
+              decoded
+              (list
+               (cons "maxPriorityFeePerGas"
+                     (quantity-to-hex
+                      (dynamic-fee-transaction-max-priority-fee-per-gas
+                       transaction)))
+               (cons "maxFeePerGas"
+                     (quantity-to-hex
+                      (dynamic-fee-transaction-max-fee-per-gas
+                       transaction)))))))
+      (blob-transaction
+       (setf decoded
+             (append
+              decoded
+              (list
+               (cons "maxPriorityFeePerGas"
+                     (quantity-to-hex
+                      (blob-transaction-max-priority-fee-per-gas
+                       transaction)))
+               (cons "maxFeePerGas"
+                     (quantity-to-hex
+                      (blob-transaction-max-fee-per-gas transaction)))
+               (cons "maxFeePerBlobGas"
+                     (quantity-to-hex
+                      (blob-transaction-max-fee-per-blob-gas transaction)))
+               (cons "blobVersionedHashes"
+                     (mapcar #'hash32-to-hex
+                             (blob-transaction-blob-versioned-hashes
+                              transaction)))))))
+      (set-code-transaction
+       (setf decoded
+             (append
+              decoded
+              (list
+               (cons "maxPriorityFeePerGas"
+                     (quantity-to-hex
+                      (set-code-transaction-max-priority-fee-per-gas
+                       transaction)))
+               (cons "maxFeePerGas"
+                     (quantity-to-hex
+                      (set-code-transaction-max-fee-per-gas transaction)))
+               (cons "authorizationList"
+                     (mapcar #'transaction-fixture-authorization-object
+                             (set-code-transaction-authorization-list
+                              transaction))))))))
+    decoded))
 
 (defun normalize-eest-transaction-result-entry (case-name fork result)
   (unless (listp result)
@@ -695,6 +928,7 @@
               (cons "txbytes" txbytes)
               (cons "hash" (fixture-required-field success "hash"))
               (cons "sender" (fixture-required-field success "sender"))
+              (cons "decoded" (transaction-fixture-decoded-object transaction))
               (cons "result"
                     (eest-transaction-result-to-fixture-result
                      case
@@ -798,6 +1032,12 @@
      (cons "accessListAddressCount" address-count)
      (cons "accessListStorageKeyCount" storage-key-count))))
 
+(defun transaction-fixture-decoded-summary (vectors)
+  (list
+   (cons "decodedVectorCount"
+         (loop for vector in vectors
+               count (fixture-field-present-p vector "decoded")))))
+
 (defun validate-transaction-fixture-access-list-coverage (summary label)
   (dolist (field '("accessListVectorCount"
                    "accessListAddressCount"
@@ -812,6 +1052,19 @@
     (error "~A summary is missing access-list address coverage" label))
   (when (zerop (fixture-required-field summary "accessListStorageKeyCount"))
     (error "~A summary is missing access-list storage-key coverage" label))
+  summary)
+
+(defun validate-transaction-fixture-decoded-coverage
+    (vectors summary label)
+  (let ((value (fixture-required-field summary "decodedVectorCount")))
+    (unless (and (integerp value) (not (minusp value)))
+      (error "~A summary field decodedVectorCount must be a non-negative integer"
+             label))
+    (unless (= value (length vectors))
+      (error "~A summary has decodedVectorCount ~A but expected ~A"
+             label
+             value
+             (length vectors))))
   summary)
 
 (defun transaction-fixture-expected-result-count-summary (vectors)
@@ -867,6 +1120,7 @@
     (cons "names" (mapcar (lambda (vector)
                             (fixture-required-field vector "name"))
                           vectors)))
+   (transaction-fixture-decoded-summary vectors)
    (transaction-fixture-access-list-summary vectors)
    (transaction-fixture-result-count-summary vectors)))
 
@@ -943,6 +1197,10 @@
              +phase-a-eest-transaction-test-case-names+))
     (validate-phase-a-eest-transaction-target-fork-results vectors)
     (validate-phase-a-eest-transaction-summary-types types)
+    (validate-transaction-fixture-decoded-coverage
+     vectors
+     summary
+     "Phase A EEST transaction")
     (validate-transaction-fixture-access-list-coverage
      summary
      "Phase A EEST transaction")
@@ -974,6 +1232,10 @@
       (unless (assoc type types)
         (error "Full EEST transaction summary is missing required type ~A"
                type)))
+    (validate-transaction-fixture-decoded-coverage
+     vectors
+     summary
+     "Full EEST transaction")
     (validate-transaction-fixture-access-list-coverage
      summary
      "Full EEST transaction")
@@ -1035,7 +1297,8 @@
           (error "Phase A EEST transaction subset is missing type ~A" type))
         (unless seed-vector
           (error "Seed transaction fixture is missing Phase A type ~A" type))
-        (dolist (field '("type" "chainId" "txbytes" "hash" "sender" "result"))
+        (dolist (field '("type" "chainId" "txbytes" "hash" "sender"
+                         "decoded" "result"))
           (unless (equal (fixture-required-field phase-a-vector field)
                          (fixture-required-field seed-vector field))
             (error "Phase A EEST transaction type ~A field ~A does not match seed fixture"
@@ -1066,7 +1329,8 @@
           (error "EEST transaction subset is missing required type ~A" type))
         (unless seed-vector
           (error "Seed transaction fixture is missing required type ~A" type))
-        (dolist (field '("type" "chainId" "txbytes" "hash" "sender" "result"))
+        (dolist (field '("type" "chainId" "txbytes" "hash" "sender"
+                         "decoded" "result"))
           (unless (equal (fixture-required-field eest-vector field)
                          (fixture-required-field seed-vector field))
             (error "EEST transaction type ~A field ~A does not match seed fixture"
@@ -1097,6 +1361,7 @@
   (transaction-fixture-txbytes-value vector)
   (validate-transaction-fixture-hash-field vector)
   (validate-transaction-fixture-address-field vector)
+  (validate-transaction-fixture-decoded-shape vector)
   (validate-transaction-fixture-access-list-shape vector))
 
 (defun validate-transaction-fixture-unique-txbytes (seen vector)
@@ -1367,6 +1632,10 @@
   (validate-transaction-fixture-required-vector-names
    vectors
    +transaction-envelope-fixture-required-vector-names+)
+  (validate-transaction-fixture-decoded-coverage
+   vectors
+   (transaction-fixture-vector-summary vectors)
+   "Transaction fixture")
   (validate-transaction-fixture-access-list-coverage
    (transaction-fixture-vector-summary vectors)
    "Transaction fixture"))
@@ -1592,6 +1861,15 @@
         (error "Transaction fixture ~A accessList does not match decoded transaction"
                (fixture-object-field vector "name"))))))
 
+(defun validate-transaction-fixture-decoded-payload
+    (vector transaction)
+  (when (fixture-field-present-p vector "decoded")
+    (let ((expected (fixture-object-field vector "decoded"))
+          (actual (transaction-fixture-decoded-object transaction)))
+      (unless (equal expected actual)
+        (error "Transaction fixture ~A decoded payload does not match txbytes"
+               (fixture-object-field vector "name"))))))
+
 (defun validate-transaction-fixture-decoded-vector (vector)
   (let* ((raw (transaction-fixture-txbytes-value vector))
          (chain-id (fixture-required-field vector "chainId"))
@@ -1609,6 +1887,7 @@
                      (address-to-hex sender))
       (error "Transaction fixture ~A sender does not match decoded transaction"
              (fixture-object-field vector "name")))
+    (validate-transaction-fixture-decoded-payload vector transaction)
     (validate-transaction-fixture-decoded-access-list vector transaction)
     (validate-transaction-fixture-derived-results vector transaction)
     transaction))
@@ -2865,6 +3144,15 @@
                  (fixture-object-field typed-vector "type")))
     (is (equal
          (list
+          (cons "nonce" "0x4")
+          (cons "gasLimit" "0xc350")
+          (cons "to" "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b")
+          (cons "value" "0xa")
+          (cons "input" "0x")
+          (cons "gasPrice" "0x1"))
+         (fixture-object-field typed-vector "decoded")))
+    (is (equal
+         (list
           (list
            (cons "address" "0x0000000000000000000000000000000000000101")
            (cons "storageKeys"
@@ -2887,6 +3175,7 @@
                  (:blob . 1)
                  (:set-code . 1))
                (fixture-object-field all-summary "types")))
+    (is (= 5 (fixture-object-field all-summary "decodedVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListVectorCount")))
     (is (= 1 (fixture-object-field all-summary "accessListAddressCount")))
     (is (= 2 (fixture-object-field all-summary "accessListStorageKeyCount")))
@@ -2922,6 +3211,7 @@
     (is (= 3 (fixture-object-field summary "count")))
     (is (equal '((:legacy . 1) (:access-list . 1) (:dynamic-fee . 1))
                (fixture-object-field summary "types")))
+    (is (= 3 (fixture-object-field summary "decodedVectorCount")))
     (is (= 1 (fixture-object-field summary "accessListVectorCount")))
     (is (= 1 (fixture-object-field summary "accessListAddressCount")))
     (is (= 2 (fixture-object-field summary "accessListStorageKeyCount")))
@@ -2980,6 +3270,12 @@
        (list (cons "accessListVectorCount" 0)
              (cons "accessListAddressCount" 0)
              (cons "accessListStorageKeyCount" 0))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-decoded-coverage
+       selected-vectors
+       (cons (cons "decodedVectorCount" 0)
+             (remove "decodedVectorCount" summary :key #'car :test #'string=))
        "Phase A EEST transaction"))
     (is (equal vectors
                (validate-eest-transaction-seed-alignment

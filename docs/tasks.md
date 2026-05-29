@@ -604,6 +604,11 @@ ones.
     and storage keys, and seed/EEST alignment compares the projection so
     future pinned swaps cannot preserve gas totals while losing the actual
     warmed account/slot shape.
+  - Progress: added exact decoded payload projections to transaction vectors.
+    Seed and EEST-style imports now derive and compare nonce, gas limit,
+    recipient, value, input bytes, fee fields, blob versioned hashes, and
+    set-code authorization tuples from `txbytes`; summary gates require every
+    selected Phase A/full transaction vector to carry the decoded projection.
 
 ## P0: Module Boundaries
 
