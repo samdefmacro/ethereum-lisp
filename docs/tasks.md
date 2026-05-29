@@ -598,6 +598,12 @@ ones.
     subset gate require non-empty access-list storage-key coverage so the
     Berlin/Shanghai intrinsic-gas path cannot silently fall back to empty
     access lists.
+  - Progress: added an exact decoded access-list projection to transaction
+    vectors. The EEST transaction adapter now derives `accessList` projections
+    from `txbytes`, the seed wrapper can assert canonical access-list addresses
+    and storage keys, and seed/EEST alignment compares the projection so
+    future pinned swaps cannot preserve gas totals while losing the actual
+    warmed account/slot shape.
 
 ## P0: Module Boundaries
 

@@ -58,13 +58,16 @@
   '("geth" "nethermind" "reth"))
 
 (defparameter +transaction-fixture-vector-fields+
-  '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
+  '("name" "type" "chainId" "txbytes" "hash" "sender" "result" "accessList"))
 
 (defparameter +transaction-fixture-required-vector-fields+
   '("name" "type" "chainId" "txbytes" "hash" "sender" "result"))
 
 (defparameter +transaction-fixture-result-entry-fields+
   '("hash" "sender" "exception" "intrinsicGas"))
+
+(defparameter +transaction-fixture-access-list-entry-fields+
+  '("address" "storageKeys"))
 
 (defparameter +eest-transaction-test-case-fields+
   '("txbytes" "result"))
@@ -222,6 +225,36 @@
       (unless (string= value canonical)
         (error "Transaction fixture sender must be canonical lowercase 0x-prefixed hex")))))
 
+(defun validate-transaction-fixture-access-list-shape (vector)
+  (when (fixture-field-present-p vector "accessList")
+    (let ((access-list (fixture-object-field vector "accessList")))
+      (unless (listp access-list)
+        (error "Transaction fixture accessList must be a JSON array"))
+      (dolist (entry access-list)
+        (validate-transaction-fixture-object-fields
+         entry
+         +transaction-fixture-access-list-entry-fields+
+         "Transaction fixture accessList entry")
+        (let ((address (fixture-required-field entry "address"))
+              (storage-keys (fixture-required-field entry "storageKeys")))
+          (unless (stringp address)
+            (error "Transaction fixture accessList address must be a string"))
+          (unless (string= address
+                           (transaction-fixture-canonical-address
+                            address
+                            "Transaction fixture accessList address"))
+            (error "Transaction fixture accessList address must be canonical lowercase 0x-prefixed hex"))
+          (unless (listp storage-keys)
+            (error "Transaction fixture accessList storageKeys must be a JSON array"))
+          (dolist (storage-key storage-keys)
+            (unless (stringp storage-key)
+              (error "Transaction fixture accessList storage key must be a string"))
+            (unless (string= storage-key
+                             (transaction-fixture-canonical-hash32
+                              storage-key
+                              "Transaction fixture accessList storage key"))
+              (error "Transaction fixture accessList storage key must be canonical lowercase 0x-prefixed hex"))))))))
+
 (defun transaction-fixture-hex-prefixed-p (value)
   (and (stringp value)
        (<= 2 (length value))
@@ -258,6 +291,16 @@
     (when (zerop (length bytes))
       (error "~A must encode at least one byte" label))
     (bytes-to-hex bytes)))
+
+(defun transaction-fixture-access-list-object (access-list)
+  (mapcar
+   (lambda (entry)
+     (list
+      (cons "address" (address-to-hex (access-list-entry-address entry)))
+      (cons "storageKeys"
+            (mapcar #'hash32-to-hex
+                    (access-list-entry-storage-keys entry)))))
+   access-list))
 
 (defun normalize-eest-transaction-result-entry (case-name fork result)
   (unless (listp result)
@@ -643,19 +686,25 @@
     (validate-eest-transaction-success-result-derived
      case transaction success)
     (let ((vector
-            (list
-             (cons "name" name)
-             (cons "type" (transaction-fixture-type-name
-                           (transaction-vector-type transaction)))
-             (cons "chainId" (transaction-vector-chain-id transaction))
-             (cons "txbytes" txbytes)
-             (cons "hash" (fixture-required-field success "hash"))
-             (cons "sender" (fixture-required-field success "sender"))
-             (cons "result"
-                   (eest-transaction-result-to-fixture-result
-                    case
-                    transaction
-                    success)))))
+            (append
+             (list
+              (cons "name" name)
+              (cons "type" (transaction-fixture-type-name
+                            (transaction-vector-type transaction)))
+              (cons "chainId" (transaction-vector-chain-id transaction))
+              (cons "txbytes" txbytes)
+              (cons "hash" (fixture-required-field success "hash"))
+              (cons "sender" (fixture-required-field success "sender"))
+              (cons "result"
+                    (eest-transaction-result-to-fixture-result
+                     case
+                     transaction
+                     success)))
+             (when (transaction-access-list transaction)
+               (list
+                (cons "accessList"
+                      (transaction-fixture-access-list-object
+                       (transaction-access-list transaction))))))))
       (validate-transaction-fixture-vector-shape vector)
       (validate-transaction-fixture-result-shape vector)
       (validate-transaction-fixture-decoded-vector vector)
@@ -991,7 +1040,13 @@
                          (fixture-required-field seed-vector field))
             (error "Phase A EEST transaction type ~A field ~A does not match seed fixture"
                    type
-                   field))))))
+                   field)))
+        (when (or (fixture-field-present-p phase-a-vector "accessList")
+                  (fixture-field-present-p seed-vector "accessList"))
+          (unless (equal (fixture-object-field phase-a-vector "accessList")
+                         (fixture-object-field seed-vector "accessList"))
+            (error "Phase A EEST transaction type ~A accessList does not match seed fixture"
+                   type))))))
   phase-a-vectors)
 
 (defun validate-eest-transaction-seed-alignment
@@ -1016,7 +1071,13 @@
                          (fixture-required-field seed-vector field))
             (error "EEST transaction type ~A field ~A does not match seed fixture"
                    type
-                   field))))))
+                   field)))
+        (when (or (fixture-field-present-p eest-vector "accessList")
+                  (fixture-field-present-p seed-vector "accessList"))
+          (unless (equal (fixture-object-field eest-vector "accessList")
+                         (fixture-object-field seed-vector "accessList"))
+            (error "EEST transaction type ~A accessList does not match seed fixture"
+                   type))))))
   eest-vectors)
 
 (defun validate-transaction-fixture-vector-shape (vector)
@@ -1035,7 +1096,8 @@
     (error "Transaction fixture result must be a JSON object"))
   (transaction-fixture-txbytes-value vector)
   (validate-transaction-fixture-hash-field vector)
-  (validate-transaction-fixture-address-field vector))
+  (validate-transaction-fixture-address-field vector)
+  (validate-transaction-fixture-access-list-shape vector))
 
 (defun validate-transaction-fixture-unique-txbytes (seen vector)
   (let ((value (transaction-fixture-txbytes-value vector)))
@@ -1519,6 +1581,17 @@
                      (fixture-object-field result "sender")
                      expected-sender))))))))
 
+(defun validate-transaction-fixture-decoded-access-list
+    (vector transaction)
+  (when (fixture-field-present-p vector "accessList")
+    (let ((expected (fixture-object-field vector "accessList"))
+          (actual
+            (transaction-fixture-access-list-object
+             (transaction-access-list transaction))))
+      (unless (equal expected actual)
+        (error "Transaction fixture ~A accessList does not match decoded transaction"
+               (fixture-object-field vector "name"))))))
+
 (defun validate-transaction-fixture-decoded-vector (vector)
   (let* ((raw (transaction-fixture-txbytes-value vector))
          (chain-id (fixture-required-field vector "chainId"))
@@ -1536,6 +1609,7 @@
                      (address-to-hex sender))
       (error "Transaction fixture ~A sender does not match decoded transaction"
              (fixture-object-field vector "name")))
+    (validate-transaction-fixture-decoded-access-list vector transaction)
     (validate-transaction-fixture-derived-results vector transaction)
     transaction))
 
@@ -2789,6 +2863,14 @@
     (is typed-vector)
     (is (string= "access-list"
                  (fixture-object-field typed-vector "type")))
+    (is (equal
+         (list
+          (list
+           (cons "address" "0x0000000000000000000000000000000000000101")
+           (cons "storageKeys"
+                 '("0x0000000000000000000000000000000000000000000000000000000000000001"
+                   "0x0000000000000000000000000000000000000000000000000000000000000002"))))
+         (fixture-object-field typed-vector "accessList")))
     (is dynamic-fee-vector)
     (is (string= "dynamic-fee"
                  (fixture-object-field dynamic-fee-vector "type")))
