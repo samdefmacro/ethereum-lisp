@@ -242,6 +242,27 @@
       ]
     },
     {
+      "name": "secure-missing-delete-keeps-extension-root",
+      "secure": true,
+      "tags": ["secure-key", "extension-root", "path-compression", "hashed-child-reference", "missing-delete-noop", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "dog", "valueAscii": "left" },
+        { "op": "put", "keyAscii": "beam", "valueAscii": "right" },
+        { "op": "delete", "keyAscii": "cat" }
+      ],
+      "expectedRoot": "0x2c6f6489a6626f2f887d76882467e53e711032408473799352c0c2d192db7f80",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [4],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyAscii": "dog", "valueAscii": "left" },
+        { "keyAscii": "beam", "valueAscii": "right" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "cat" }
+      ]
+    },
+    {
       "name": "secure-delete-branch-child-collapses-to-leaf",
       "secure": true,
       "tags": ["secure-key", "leaf-root", "path-compression", "delete-collapse", "lookup-assertions"],

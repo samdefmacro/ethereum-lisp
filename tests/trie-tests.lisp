@@ -22,6 +22,7 @@
     "phase-a-secureTrie.json/phase-a-secure-extension"
     "phase-a-secureTrie.json/phase-a-secure-insert"
     "phase-a-secureTrie.json/phase-a-secure-missing-delete-branch"
+    "phase-a-secureTrie.json/phase-a-secure-missing-delete-extension"
     "phase-a-secureTrie.json/phase-a-secure-object-form-branch"
     "phase-a-secureTrie.json/phase-a-secure-object-form-missing-delete"
     "phase-a-trie-multi.json/alpha"
@@ -80,6 +81,7 @@
     "secure-branch-root"
     "secure-missing-delete-keeps-branch-root"
     "secure-extension-root"
+    "secure-missing-delete-keeps-extension-root"
     "secure-delete-branch-child-collapses-to-leaf"
     "secure-single-leaf"
     "secure-delete-last-entry-empty-root"
@@ -1180,6 +1182,13 @@
                  count (and secure-p
                             (string= "branch" shape)
                             (eest-trie-test-case-missing-delete-p case))))
+         (secure-extension-missing-delete-root-count
+           (loop for secure-p in secure-flags
+                 for case in cases
+                 for shape in root-shapes
+                 count (and secure-p
+                            (string= "extension" shape)
+                            (eest-trie-test-case-missing-delete-p case))))
          (hex-byte-string-entry-count
            (loop for entries in entries-by-case
                  sum (count-if
@@ -1282,6 +1291,8 @@
      (cons "leafMissingDeleteRootCount" leaf-missing-delete-root-count)
      (cons "secureBranchMissingDeleteRootCount"
            secure-branch-missing-delete-root-count)
+     (cons "secureExtensionMissingDeleteRootCount"
+           secure-extension-missing-delete-root-count)
      (cons "hexByteStringEntryCount" hex-byte-string-entry-count)
      (cons "hexValueEntryCount" hex-value-entry-count)
      (cons "emptyValueDeleteEntryCount" empty-value-delete-entry-count)
@@ -1378,6 +1389,8 @@
       (error "Phase A EEST trie subset must include a leaf-root missing-delete case"))
     (when (zerop (fixture-object-field summary "secureBranchMissingDeleteRootCount"))
       (error "Phase A EEST trie subset must include a secure branch-root missing-delete case"))
+    (when (zerop (fixture-object-field summary "secureExtensionMissingDeleteRootCount"))
+      (error "Phase A EEST trie subset must include a secure extension-root missing-delete case"))
     (when (zerop (fixture-object-field summary "hexByteStringEntryCount"))
       (error "Phase A EEST trie subset must include hex byte-string keys or values"))
     (when (zerop (fixture-object-field summary "hexValueEntryCount"))
@@ -2213,10 +2226,11 @@
          (extension-case (fourth cases))
          (insert-case (fifth cases))
          (missing-delete-branch-case (sixth cases))
-         (object-branch-case (seventh cases))
-         (object-missing-delete-case (eighth cases))
+         (missing-delete-extension-case (seventh cases))
+         (object-branch-case (eighth cases))
+         (object-missing-delete-case (ninth cases))
          (trie (assert-eest-trie-test-case-root case)))
-    (is (= 8 (length cases)))
+    (is (= 9 (length cases)))
     (is (string= "phase-a-secure-branch"
                  (fixture-object-field case "name")))
     (is (fixture-object-field case "secure"))
@@ -2247,6 +2261,13 @@
     (is (find-if (lambda (entry)
                    (fixture-field-present-p entry "delete"))
                  (fixture-object-field missing-delete-branch-case "entries")))
+    (is (string= "phase-a-secure-missing-delete-extension"
+                 (fixture-object-field missing-delete-extension-case "name")))
+    (is (string= "0x2c6f6489a6626f2f887d76882467e53e711032408473799352c0c2d192db7f80"
+                 (fixture-object-field missing-delete-extension-case "root")))
+    (is (find-if (lambda (entry)
+                   (fixture-field-present-p entry "delete"))
+                 (fixture-object-field missing-delete-extension-case "entries")))
     (is (string= "phase-a-secure-object-form-branch"
                  (fixture-object-field object-branch-case "name")))
     (is (string= "object"
@@ -2489,14 +2510,15 @@
          (selected-cases
            (load-phase-a-eest-trie-test-root-cases root))
          (summary (eest-trie-test-case-summary selected-cases)))
-    (is (= 28 (length cases)))
-    (is (= 27 (length selected-cases)))
+    (is (= 29 (length cases)))
+    (is (= 28 (length selected-cases)))
     (is (equal '("phase-a-secureTrie.json/phase-a-secure-branch"
                  "phase-a-secureTrie.json/phase-a-secure-delete"
                  "phase-a-secureTrie.json/phase-a-secure-delete-branch-child"
                  "phase-a-secureTrie.json/phase-a-secure-extension"
                  "phase-a-secureTrie.json/phase-a-secure-insert"
                  "phase-a-secureTrie.json/phase-a-secure-missing-delete-branch"
+                 "phase-a-secureTrie.json/phase-a-secure-missing-delete-extension"
                  "phase-a-secureTrie.json/phase-a-secure-object-form-branch"
                  "phase-a-secureTrie.json/phase-a-secure-object-form-missing-delete"
                  "phase-a-trie-multi.json/alpha"
@@ -2526,7 +2548,7 @@
     (is (string= "0x8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268"
                  (fixture-object-field (first cases) "root")))
     (is (string= "phase-a-trie-sample.json"
-                 (fixture-object-field (nth 27 cases) "name")))
+                 (fixture-object-field (nth 28 cases) "name")))
     (is (string= "phase-a-secureTrie.json/phase-a-secure-branch"
                  (fixture-object-field (first selected-cases) "name")))
     (is (fixture-object-field (first selected-cases) "secure"))
@@ -2540,55 +2562,58 @@
                  (fixture-object-field (fifth selected-cases) "name")))
     (is (string= "phase-a-secureTrie.json/phase-a-secure-missing-delete-branch"
                  (fixture-object-field (sixth selected-cases) "name")))
-    (is (string= "phase-a-secureTrie.json/phase-a-secure-object-form-branch"
+    (is (string= "phase-a-secureTrie.json/phase-a-secure-missing-delete-extension"
                  (fixture-object-field (seventh selected-cases) "name")))
-    (is (string= "phase-a-secureTrie.json/phase-a-secure-object-form-missing-delete"
+    (is (string= "phase-a-secureTrie.json/phase-a-secure-object-form-branch"
                  (fixture-object-field (eighth selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/alpha"
+    (is (string= "phase-a-secureTrie.json/phase-a-secure-object-form-missing-delete"
                  (fixture-object-field (ninth selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/branch"
+    (is (string= "phase-a-trie-multi.json/alpha"
                  (fixture-object-field (tenth selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/branch-value"
+    (is (string= "phase-a-trie-multi.json/branch"
                  (fixture-object-field (nth 10 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/branch-value-zero-child"
+    (is (string= "phase-a-trie-multi.json/branch-value"
                  (fixture-object-field (nth 11 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/delete-branch-child"
+    (is (string= "phase-a-trie-multi.json/branch-value-zero-child"
                  (fixture-object-field (nth 12 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/delete-branch-value"
+    (is (string= "phase-a-trie-multi.json/delete-branch-child"
                  (fixture-object-field (nth 13 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/delete-collapse"
+    (is (string= "phase-a-trie-multi.json/delete-branch-value"
                  (fixture-object-field (nth 14 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/delete-missing-branch-child"
+    (is (string= "phase-a-trie-multi.json/delete-collapse"
                  (fixture-object-field (nth 15 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/delete-missing-extension-child"
+    (is (string= "phase-a-trie-multi.json/delete-missing-branch-child"
                  (fixture-object-field (nth 16 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/delete-missing-leaf"
+    (is (string= "phase-a-trie-multi.json/delete-missing-extension-child"
                  (fixture-object-field (nth 17 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/delete-nested-branch-value"
+    (is (string= "phase-a-trie-multi.json/delete-missing-leaf"
                  (fixture-object-field (nth 18 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/delete-prefix-branch-value"
+    (is (string= "phase-a-trie-multi.json/delete-nested-branch-value"
                  (fixture-object-field (nth 19 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/duplicate-overwrite"
+    (is (string= "phase-a-trie-multi.json/delete-prefix-branch-value"
                  (fixture-object-field (nth 20 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/embedded-extension"
+    (is (string= "phase-a-trie-multi.json/duplicate-overwrite"
                  (fixture-object-field (nth 21 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/extension"
+    (is (string= "phase-a-trie-multi.json/embedded-extension"
                  (fixture-object-field (nth 22 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/mixed-branch-refs"
+    (is (string= "phase-a-trie-multi.json/extension"
                  (fixture-object-field (nth 23 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/object-form-branch"
+    (is (string= "phase-a-trie-multi.json/mixed-branch-refs"
                  (fixture-object-field (nth 24 selected-cases) "name")))
-    (is (string= "phase-a-trie-multi.json/object-form-missing-delete"
+    (is (string= "phase-a-trie-multi.json/object-form-branch"
                  (fixture-object-field (nth 25 selected-cases) "name")))
-    (is (string= "phase-a-trie-sample.json"
+    (is (string= "phase-a-trie-multi.json/object-form-missing-delete"
                  (fixture-object-field (nth 26 selected-cases) "name")))
-    (is (= 27 (fixture-object-field summary "count")))
+    (is (string= "phase-a-trie-sample.json"
+                 (fixture-object-field (nth 27 selected-cases) "name")))
+    (is (= 28 (fixture-object-field summary "count")))
     (is (equal '("phase-a-secureTrie.json/phase-a-secure-branch"
                  "phase-a-secureTrie.json/phase-a-secure-delete"
                  "phase-a-secureTrie.json/phase-a-secure-delete-branch-child"
                  "phase-a-secureTrie.json/phase-a-secure-extension"
                  "phase-a-secureTrie.json/phase-a-secure-insert"
                  "phase-a-secureTrie.json/phase-a-secure-missing-delete-branch"
+                 "phase-a-secureTrie.json/phase-a-secure-missing-delete-extension"
                  "phase-a-secureTrie.json/phase-a-secure-object-form-branch"
                  "phase-a-secureTrie.json/phase-a-secure-object-form-missing-delete"
                  "phase-a-trie-multi.json/alpha"
@@ -2611,7 +2636,7 @@
                  "phase-a-trie-multi.json/object-form-missing-delete"
                  "phase-a-trie-sample.json")
                (fixture-object-field summary "names")))
-    (is (equal '("array" "array" "array" "array" "array" "array" "object" "object"
+    (is (equal '("array" "array" "array" "array" "array" "array" "array" "object" "object"
                  "array" "array" "array" "array" "array" "array" "array"
                  "array" "array" "array" "array" "array" "array" "array"
                  "array" "array" "object" "object" "array")
@@ -2621,17 +2646,17 @@
     (is (= 2 (fixture-object-field summary "objectFormWriteOnlyCaseCount")))
     (is (= 2 (fixture-object-field summary "secureObjectFormCaseCount")))
     (is (= 1 (fixture-object-field summary "secureObjectFormDeleteEntryCount")))
-    (is (equal '(t t t t t t t t nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil)
+    (is (equal '(t t t t t t t t t nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil)
                (fixture-object-field summary "secureFlags")))
-    (is (= 8 (fixture-object-field summary "secureCaseCount")))
+    (is (= 9 (fixture-object-field summary "secureCaseCount")))
     (is (= 19 (fixture-object-field summary "plainCaseCount")))
-    (is (equal '(t nil t t t t t t t t t t t t t t t t t t t t t t t t nil)
+    (is (equal '(t nil t t t t t t t t t t t t t t t t t t t t t t t t t nil)
                (fixture-object-field summary "nonEmptyRootFlags")))
-    (is (= 7 (fixture-object-field summary "secureNonEmptyRootCount")))
+    (is (= 8 (fixture-object-field summary "secureNonEmptyRootCount")))
     (is (= 3 (fixture-object-field summary "secureBranchRootCount")))
-    (is (= 1 (fixture-object-field summary "secureExtensionRootCount")))
+    (is (= 2 (fixture-object-field summary "secureExtensionRootCount")))
     (is (= 18 (fixture-object-field summary "plainNonEmptyRootCount")))
-    (is (equal '("branch" "empty" "leaf" "extension" "leaf" "branch" "branch" "leaf"
+    (is (equal '("branch" "empty" "leaf" "extension" "leaf" "branch" "extension" "branch" "leaf"
                  "leaf" "branch" "branch" "branch" "leaf" "leaf" "extension"
                  "branch" "extension" "leaf" "extension" "extension" "leaf"
                  "extension" "extension" "branch" "branch" "branch" "empty")
@@ -2654,19 +2679,20 @@
     (is (= 1 (fixture-object-field summary "overwrittenKeyCaseCount")))
     (is (= 2 (fixture-object-field summary "leafMissingDeleteRootCount")))
     (is (= 1 (fixture-object-field summary "secureBranchMissingDeleteRootCount")))
+    (is (= 1 (fixture-object-field summary "secureExtensionMissingDeleteRootCount")))
     (is (= 24 (fixture-object-field summary "hexByteStringEntryCount")))
     (is (= 1 (fixture-object-field summary "hexValueEntryCount")))
     (is (= 1 (fixture-object-field summary "emptyValueDeleteEntryCount")))
-    (is (= 7 (fixture-object-field summary "extensionRootCount")))
-    (is (equal '("hashed" "embedded" "hashed" "embedded" "embedded" "embedded" "hashed")
+    (is (= 8 (fixture-object-field summary "extensionRootCount")))
+    (is (equal '("hashed" "hashed" "embedded" "hashed" "embedded" "embedded" "embedded" "hashed")
                (fixture-object-field summary "extensionChildReferenceKinds")))
-    (is (equal '("hashed")
+    (is (equal '("hashed" "hashed")
                (fixture-object-field summary "secureExtensionChildReferenceKinds")))
     (is (= 4 (fixture-object-field summary "embeddedExtensionChildReferenceCount")))
-    (is (= 3 (fixture-object-field summary "hashedExtensionChildReferenceCount")))
-    (is (= 1 (fixture-object-field summary "secureHashedExtensionChildReferenceCount")))
-    (is (= 12 (fixture-object-field summary "nonEmptyDeleteRootCount")))
-    (is (= 3 (fixture-object-field summary "secureNonEmptyDeleteRootCount")))
+    (is (= 4 (fixture-object-field summary "hashedExtensionChildReferenceCount")))
+    (is (= 2 (fixture-object-field summary "secureHashedExtensionChildReferenceCount")))
+    (is (= 13 (fixture-object-field summary "nonEmptyDeleteRootCount")))
+    (is (= 4 (fixture-object-field summary "secureNonEmptyDeleteRootCount")))
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (remove (third selected-cases) selected-cases)))
@@ -2701,18 +2727,18 @@
     (signals error
       (validate-phase-a-eest-trie-test-coverage
        (remove (nth 25 selected-cases) selected-cases)))
-    (is (equal '(2 2 3 2 1 3 2 2 1 2 2 2 3 3 4 3 4 2 4 4 2 2 4 2 2 3 4)
+    (is (equal '(2 2 3 2 1 3 3 2 2 1 2 2 2 3 3 4 3 4 2 4 4 2 2 4 2 2 3 4)
                (fixture-object-field summary "entryCounts")))
-    (is (= 70 (fixture-object-field summary "totalEntryCount")))
-    (is (equal '(2 1 2 2 1 2 2 1 1 2 2 2 2 2 3 2 3 1 3 3 2 2 4 2 2 2 2)
+    (is (= 73 (fixture-object-field summary "totalEntryCount")))
+    (is (equal '(2 1 2 2 1 2 2 2 1 1 2 2 2 2 2 3 2 3 1 3 3 2 2 4 2 2 2 2)
                (fixture-object-field summary "writeEntryCounts")))
-    (is (= 55 (fixture-object-field summary "totalWriteEntryCount")))
-    (is (= 13 (fixture-object-field summary "secureWriteEntryCount")))
+    (is (= 57 (fixture-object-field summary "totalWriteEntryCount")))
+    (is (= 15 (fixture-object-field summary "secureWriteEntryCount")))
     (is (= 42 (fixture-object-field summary "plainWriteEntryCount")))
-    (is (equal '(0 1 1 0 0 1 0 1 0 0 0 0 1 1 1 1 1 1 1 1 0 0 0 0 0 1 2)
+    (is (equal '(0 1 1 0 0 1 1 0 1 0 0 0 0 1 1 1 1 1 1 1 1 0 0 0 0 0 1 2)
                (fixture-object-field summary "deleteEntryCounts")))
-    (is (= 15 (fixture-object-field summary "totalDeleteEntryCount")))
-    (is (= 4 (fixture-object-field summary "secureDeleteEntryCount")))
+    (is (= 16 (fixture-object-field summary "totalDeleteEntryCount")))
+    (is (= 5 (fixture-object-field summary "secureDeleteEntryCount")))
     (is (= 11 (fixture-object-field summary "plainDeleteEntryCount")))
     (is (equal '("0x8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
@@ -2720,6 +2746,7 @@
                  "0x2c6f6489a6626f2f887d76882467e53e711032408473799352c0c2d192db7f80"
                  "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
                  "0x8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268"
+                 "0x2c6f6489a6626f2f887d76882467e53e711032408473799352c0c2d192db7f80"
                  "0x8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268"
                  "0xff6bdab74d713ebb4005f8604a2108598e24cd031be3ef2880989457695066bf"
                  "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"

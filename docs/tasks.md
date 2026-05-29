@@ -1499,6 +1499,11 @@ splits can land after the Phase A smoke path closes.
     case, so account/state trie cleanup cannot silently lose the reference
     behavior where deleting an absent secure key preserves the existing branch
     root and proofs for retained keys.
+    Added the matching secure extension-root missing-delete no-op case to the
+    seed trie vectors and selected `secureTrie` sample, with a dedicated
+    summary gate requiring secure path-compressed no-op deletion coverage. This
+    locks the state-trie boundary where deleting an absent hashed key must
+    preserve an existing extension root and retained-key proofs.
     Added fixture-driven MPT proof assertions to trie vector lookups: every
     explicit `expectedGets` / `expectedMissing` entry now verifies the generated
     proof against the final root in addition to checking `mpt-get`, covering

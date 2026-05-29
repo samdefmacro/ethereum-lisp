@@ -188,7 +188,8 @@ leaf, branch, extension, and branch-into-extension account trie roots, with
 matching geth-shaped state proof fixtures for balance-add creation and
 code/storage-preserving updates. The trie harness now covers secure-key branch,
 extension, delete-collapse, delete-to-empty, and missing-delete no-op replay in
-both seed vectors and selected EEST-style secureTrie samples. Persistence
+both seed vectors and selected EEST-style secureTrie samples, including no-op
+deletion over branch and path-compressed extension roots. Persistence
 integration, deletion edge cases, and broader fixture compatibility remain.
 
 ## 4. EVM
