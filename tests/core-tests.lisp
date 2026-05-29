@@ -11933,6 +11933,11 @@ Content-Type: application/json
                 (hash32-bytes (first (blob-sidecar-versioned-hashes sidecar)))))
     (signals block-validation-error
       (validate-blob-sidecar-fields
+       sidecar
+       :transaction transaction
+       :require-proof-verification t))
+    (signals block-validation-error
+      (validate-blob-sidecar-fields
        (make-blob-sidecar :blobs (list blob)
                           :commitments (list commitment)
                           :proofs '())

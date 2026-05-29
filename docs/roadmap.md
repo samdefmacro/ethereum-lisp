@@ -157,7 +157,9 @@ encoding/hashing, legacy EIP-155 signing hash and sender recovery, and
 EIP-2930/EIP-1559/EIP-4844/EIP-7702 typed signing hash plus sender recovery;
 EIP-7702 authorization tuple authority recovery is also present. Blob
 sidecars now have a first-pass data shape and commitment-to-versioned-hash
-validation layer; actual KZG proof verification remains. Set-code execution
+validation layer; callers that require KZG proof verification now fail
+explicitly until a trusted-setup-backed verifier is wired in, so blob sidecars
+remain shape-checked only rather than Phase A VALID. Set-code execution
 semantics remain. Withdrawals/root derivation, receipts, logs bloom, and block
 headers/body-root derivation are present.
 
@@ -309,7 +311,8 @@ and off-curve failure coverage. BLAKE2F is present for
 EIP-152 valid and malformed-input paths. The Cancun KZG point-evaluation
 precompile address is now recognized with the fixed 50,000 gas cost, 192-byte
 input length validation, and versioned-hash/commitment mismatch failure
-coverage; actual KZG proof verification remains.
+coverage; actual KZG proof verification remains, with required verification
+paths expected to fail explicitly until the verifier lands.
 CREATE/CREATE2 now include
 first-pass EIP-3860 initcode word/hash gas in opcode gas accounting, with
 direct oversized-initcode rejection coverage for both opcodes when Shanghai
@@ -500,7 +503,8 @@ transactions of type contract creation, and enforces first-pass Cancun blob
 count/gas limits. Blob sidecars now validate
 blob, KZG commitment, and KZG proof byte sizes, require matching sidecar list
 lengths, and verify that sidecar commitments derive the versioned hashes
-declared by the blob transaction.
+declared by the blob transaction. A separate proof-verification-required path
+fails loudly while real KZG verification is unavailable.
 Blob base fee calculation now implements the EIP-4844 fake exponential using
 default Cancun parameters, and blob transaction body validation checks
 `maxFeePerBlobGas` against the derived blob base fee when the header carries

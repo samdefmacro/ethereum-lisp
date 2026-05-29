@@ -5238,7 +5238,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (format nil "~A must be exactly ~D bytes" label size)))
     bytes))
 
-(defun validate-blob-sidecar-fields (sidecar &key transaction)
+(defun kzg-proof-verification-available-p ()
+  nil)
+
+(defun validate-blob-sidecar-kzg-proofs (sidecar)
+  (declare (ignore sidecar))
+  (unless (kzg-proof-verification-available-p)
+    (block-validation-fail
+     "KZG proof verification is not available; blob sidecars are shape-checked only"))
+  t)
+
+(defun validate-blob-sidecar-fields
+    (sidecar &key transaction require-proof-verification)
   (let* ((blobs (blob-sidecar-blobs sidecar))
          (commitments (blob-sidecar-commitments sidecar))
          (proofs (blob-sidecar-proofs sidecar))
@@ -5269,6 +5280,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                            (blob-versioned-hash-bytes expected))
               do (block-validation-fail
                   "Blob sidecar commitment does not match transaction blob hash")))
+    (when require-proof-verification
+      (validate-blob-sidecar-kzg-proofs sidecar))
     t))
 
 (defstruct (withdrawal (:constructor make-withdrawal

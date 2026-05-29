@@ -2216,6 +2216,15 @@ splits can land after the Phase A smoke path closes.
     Phase A's window, blob transactions and `engine_newPayloadV3+` are
     explicitly recorded as "shape-checked only, not Phase A VALID".
   - Validation: KZG vector tests plus `sbcl --script tests/run-tests.lisp`.
+  - Progress: added an explicit KZG verification availability gate to blob
+    sidecar validation. Existing blob sidecar checks remain shape-only by
+    default, but callers that require proof verification now fail with a block
+    validation error until a real trusted-setup-backed verifier is wired in.
+    This records Cancun blob sidecars as shape/versioned-hash checked only,
+    not Phase A VALID, under the current Shanghai scope.
+    Remaining work: wire c-kzg or another trusted-setup-backed verifier and
+    replay KZG proof vectors through blob sidecars and the point-evaluation
+    precompile.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4
