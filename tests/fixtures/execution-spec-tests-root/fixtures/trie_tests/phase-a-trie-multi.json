@@ -138,6 +138,12 @@
     ],
     "root": "5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84"
   },
+  "hex-byte-value-leaf": {
+    "in": [
+      ["0x01", "0x0001ff"]
+    ],
+    "root": "17f635f78a34a75bdc662b9d717fc0be784fcc725ad4ae34cac40d51baed1813"
+  },
   "mixed-branch-refs": {
     "in": [
       ["0x00", "this value is deliberately long enough to hash the child leaf"],

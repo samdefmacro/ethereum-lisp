@@ -217,7 +217,8 @@ key/value replay with deletion to a non-empty secure root, so external fixture
 ingestion now exercises byte-oriented secure trie inputs as well as ASCII
 samples. Local trie-vector seeds can now express hex byte values directly,
 including non-text leaf values, and verify those values through root, lookup,
-and proof assertions.
+and proof assertions. The selected EEST-style subset now gates plain hex byte
+values alongside secure hex byte values.
 
 ## 4. EVM
 

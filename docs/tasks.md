@@ -1751,6 +1751,10 @@ splits can land after the Phase A smoke path closes.
     ASCII/hex values, checks hex root values, and proves lookups for byte
     values so pinned trie vectors with arbitrary byte payloads can be imported
     without flattening them to ASCII.
+    Added a plain EEST-style trie sample with a hex byte-string value and a
+    Phase A summary gate for plain hex byte-string values, so selected trie
+    imports now cover byte-valued payloads on both secure and plain trie
+    replay paths.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
