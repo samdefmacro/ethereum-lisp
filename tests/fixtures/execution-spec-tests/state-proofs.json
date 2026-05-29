@@ -344,6 +344,75 @@
       }
     },
     {
+      "name": "storage-trie-extension-storage-proof",
+      "tags": ["present-account", "storage-present", "storage-missing", "multi-storage-present", "storage-trie-extension-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000401",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000000e",
+          "value": 14
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000401",
+        "storageKeys": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "0x000000000000000000000000000000000000000000000000000000000000000e",
+          "0x000000000000000000000000000000000000000000000000000000000000000f"
+        ]
+      },
+      "expectedRoot": "0x17abb55ac4a5d0f71fbf3779a4346b679c6d5d33192329460692f729adcab05a",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000401",
+        "accountProof": [
+          "0xf86aa120716448df2412de7fcd4085f7efcb0572ae7f5569b611c613906dd447ec696f56b846f8448001a08aa03a332368f65093c122b05c11668e8e0124305d0685d51352b13812b72ebfa0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x1",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x8aa03a332368f65093c122b05c11668e8e0124305d0685d51352b13812b72ebf",
+        "storageProof": [
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "value": "0x1",
+            "proof": [
+              "0xe21ba0c97742c4454c2c13b003aa14eaa20956cf04b7c593d3cd415e2c477bd0b9edfb",
+              "0xf85180a096455ee1d857c707946176fa5a0637d94a029274cc114caa338517ed6e5ee05e808080808080808080a05821321131aca07065443960b799aa9c0b43b0d9102184004bbcab8ae68a4ca98080808080",
+              "0xe2a0200e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf601"
+            ]
+          },
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000000e",
+            "value": "0xe",
+            "proof": [
+              "0xe21ba0c97742c4454c2c13b003aa14eaa20956cf04b7c593d3cd415e2c477bd0b9edfb",
+              "0xf85180a096455ee1d857c707946176fa5a0637d94a029274cc114caa338517ed6e5ee05e808080808080808080a05821321131aca07065443960b799aa9c0b43b0d9102184004bbcab8ae68a4ca98080808080",
+              "0xe2a0207b4a454dc3493923482f07822329ed19e8244eff582cc204f8554c3620c3fd0e"
+            ]
+          },
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000000f",
+            "value": "0x0",
+            "proof": [
+              "0xe21ba0c97742c4454c2c13b003aa14eaa20956cf04b7c593d3cd415e2c477bd0b9edfb"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "nethermind-state-trie-leaf-account-proof",
       "tags": ["present-account", "state-trie-leaf-proof", "geth-shaped-result"],
       "operations": [
