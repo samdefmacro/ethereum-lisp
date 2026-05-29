@@ -2220,6 +2220,11 @@ splits can land after the Phase A smoke path closes.
     sidecar validation. Existing blob sidecar checks remain shape-only by
     default, but callers that require proof verification now fail with a block
     validation error until a real trusted-setup-backed verifier is wired in.
+    The point-evaluation precompile also now has coverage for the matched
+    versioned-hash path that reaches the verifier boundary and fails with the
+    explicit "KZG proof verification is not implemented yet" precompile error,
+    instead of being hidden behind malformed length or commitment-hash mismatch
+    checks.
     This records Cancun blob sidecars as shape/versioned-hash checked only,
     not Phase A VALID, under the current Shanghai scope.
     Remaining work: wire c-kzg or another trusted-setup-backed verifier and

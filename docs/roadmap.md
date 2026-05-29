@@ -311,8 +311,10 @@ and off-curve failure coverage. BLAKE2F is present for
 EIP-152 valid and malformed-input paths. The Cancun KZG point-evaluation
 precompile address is now recognized with the fixed 50,000 gas cost, 192-byte
 input length validation, and versioned-hash/commitment mismatch failure
-coverage; actual KZG proof verification remains, with required verification
-paths expected to fail explicitly until the verifier lands.
+coverage. The matched versioned-hash path is also covered through the current
+explicit verifier-unavailable failure; actual KZG proof verification remains,
+with required verification paths expected to fail explicitly until the verifier
+lands.
 CREATE/CREATE2 now include
 first-pass EIP-3860 initcode word/hash gas in opcode gas accounting, with
 direct oversized-initcode rejection coverage for both opcodes when Shanghai

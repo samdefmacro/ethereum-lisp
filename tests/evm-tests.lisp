@@ -1687,23 +1687,58 @@
                                   96 32 95 96 size 95 95 96 10
                                   97 #xc3 #x50 241
                                   96 32 95 243)))
-               (concat-bytes code input))))
+               (concat-bytes code input)))
+           (matched-version-input ()
+             (let* ((commitment (make-byte-vector +kzg-commitment-size+))
+                    (proof (make-byte-vector +kzg-proof-size+))
+                    (versioned-hash
+                      (hash32-bytes
+                       (kzg-commitment-to-versioned-hash commitment)))
+                    (input
+                      (make-byte-vector
+                       ethereum-lisp.evm::+kzg-point-evaluation-input-size+)))
+               (replace input versioned-hash :start1 0)
+               (replace input commitment :start1 96)
+               (replace input proof :start1 144)
+               input)))
     (let* ((state (make-state-db))
            (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))
            (context (make-evm-context :state state :address caller))
            (short-input #(1))
            (mismatched-version-input (make-byte-vector 192))
+           (unverified-proof-input (matched-version-input))
            (short-result
              (execute-bytecode (program short-input) :context context))
            (mismatch-result
              (execute-bytecode (program mismatched-version-input)
-                               :context context)))
+                               :context context))
+           (unverified-proof-result
+             (execute-bytecode (program unverified-proof-input)
+                               :context context))
+           (unverified-proof-error
+             (handler-case
+                 (progn
+                   (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+                    unverified-proof-input)
+                   nil)
+               (ethereum-lisp.evm::evm-precompile-error (condition)
+                 condition))))
       (is (= 0 (first (evm-result-stack short-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data short-result)))
       (is (= 0 (first (evm-result-stack mismatch-result))))
       (is (bytes= (make-byte-vector 32)
-                  (evm-result-return-data mismatch-result))))))
+                  (evm-result-return-data mismatch-result)))
+      (is (= 0 (first (evm-result-stack unverified-proof-result))))
+      (is (bytes= (make-byte-vector 32)
+                  (evm-result-return-data unverified-proof-result)))
+      (is unverified-proof-error)
+      (is (= ethereum-lisp.evm::+kzg-point-evaluation-gas+
+             (ethereum-lisp.evm::evm-precompile-error-gas-used
+              unverified-proof-error)))
+      (is (search "KZG proof verification is not implemented yet"
+                  (princ-to-string unverified-proof-error)
+                  :test #'char=)))))
 
 (deftest evm-call-blake2f-precompile
   (let* ((state (make-state-db))
