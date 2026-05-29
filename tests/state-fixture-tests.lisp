@@ -115,6 +115,8 @@
     "account-clear-prunes-code-and-storage-root"
     "account-clear-preserves-sibling-account-root"
     "account-clear-missing-keeps-branch-root"
+    "account-clear-missing-keeps-extension-root"
+    "account-clear-missing-keeps-branch-extension-root"
     "single-account-storage-root"
     "storage-update-overwrites-slot-root"
     "storage-created-account-prunes-to-empty-root"

@@ -1622,6 +1622,11 @@ splits can land after the Phase A smoke path closes.
     Added a missing-account `clearAccount` no-op state-root fixture that
     preserves a non-empty branch-shaped account trie, including hashed branch
     child references and account RLP projections for the retained accounts.
+    Extended missing-account `clearAccount` no-op coverage across extension
+    and branch-into-extension account-trie roots, including retained account
+    RLP projections, compressed path expectations, hashed extension child
+    references, and hashed branch child references behind required seed-case
+    gates.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
