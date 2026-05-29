@@ -1662,6 +1662,12 @@ splits can land after the Phase A smoke path closes.
     trie with a retained sibling account, locking the updated account RLP,
     storage root, code hash, branch child indexes/references, and final state
     root behind the required seed-case gate.
+    Extended the same commitment-preserving account-update coverage across
+    extension-root and branch-into-extension account trie layouts. The
+    state-root fixture set now locks retained code/storage commitments,
+    sibling account projections, compressed extension paths, branch child
+    shapes/references, and final roots for all three nontrivial account-update
+    trie shapes.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
@@ -1836,6 +1842,11 @@ splits can land after the Phase A smoke path closes.
     geth-shaped branch account proof, retained code hash, retained storage
     hash, present storage proof, and missing storage proof after the account
     fields are reset.
+  - Progress: extended the same account-update proof boundary across
+    extension-root and branch-into-extension state tries. The fixture set now
+    locks geth-shaped proof nodes plus retained code/storage hashes and
+    present/missing storage proofs for branch, extension, and branch/extension
+    account-trie layouts after `setAccount` resets nonce and balance.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
