@@ -127,10 +127,13 @@ fixes in those areas are allowed; expansion is not.
   represented before pinned transaction-test replacement. It also gates a
   dynamic-fee transaction with a non-empty access list, keeping EIP-1559
   access-list intrinsic-gas and decoded projection coverage distinct from the
-  EIP-2930-only access-list path. It also gates a typed EIP-2930 message-call
-  with non-empty calldata, and the summary gate now requires that access-list
-  calldata count explicitly so typed `input` decoding and calldata intrinsic
-  gas are covered separately from legacy and EIP-1559 calldata. The same
+  EIP-2930-only access-list path. The subset now also gates the combined
+  EIP-1559 dynamic-fee access-list contract-creation path, including
+  non-empty access-list projection, `to = null`, initcode, and derived
+  contract-address checks in one vector. It also gates a typed EIP-2930
+  message-call with non-empty calldata, and the summary gate now requires that
+  access-list calldata count explicitly so typed `input` decoding and calldata
+  intrinsic gas are covered separately from legacy and EIP-1559 calldata. The same
   gate now also requires legacy calldata count explicitly, so the selected
   Shanghai subset keeps legacy, EIP-2930, and EIP-1559 calldata message-call
   paths distinct before pinned transaction-test replacement. It now also gates

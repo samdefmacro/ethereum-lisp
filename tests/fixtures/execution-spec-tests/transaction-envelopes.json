@@ -908,6 +908,89 @@
       }
     },
     {
+      "name": "eip1559-access-list-contract-creation",
+      "type": "dynamic-fee",
+      "chainId": 1,
+      "txbytes": "0x02f8b2010901820fa0830186a080808560006000f3f85bf859940000000000000000000000000000000000000101f842a00000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000280a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a0333bfa1342de453d9b32c98407ee185fa30e3e3f4678ab5f69be85042fee1b19",
+      "hash": "0x8df408b56f04ec015137ae18263eefe210fa6c9c42e1b18651fe05a66f6b59e8",
+      "sender": "0x255555d765745c5e79ff5f8ed75d706b55df5cb3",
+      "contractAddress": "0x0db2f2d9790960138f1550ac55d8e5d1e60087ab",
+      "signature": {
+        "yParity": "0x0",
+        "r": "0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "s": "0x333bfa1342de453d9b32c98407ee185fa30e3e3f4678ab5f69be85042fee1b19"
+      },
+      "decoded": {
+        "nonce": "0x9",
+        "gasLimit": "0x186a0",
+        "to": null,
+        "value": "0x0",
+        "input": "0x60006000f3",
+        "maxPriorityFeePerGas": "0x1",
+        "maxFeePerGas": "0xfa0"
+      },
+      "accessList": [
+        {
+          "address": "0x0000000000000000000000000000000000000101",
+          "storageKeys": [
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000000000000000000000000000002"
+          ]
+        }
+      ],
+      "result": {
+        "Frontier": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "Homestead": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "EIP150": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "EIP158": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "Byzantium": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "Constantinople": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "Istanbul": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "Berlin": {
+          "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+        },
+        "London": {
+          "hash": "0x8df408b56f04ec015137ae18263eefe210fa6c9c42e1b18651fe05a66f6b59e8",
+          "sender": "0x255555d765745c5e79ff5f8ed75d706b55df5cb3",
+          "intrinsicGas": "0xe77a"
+        },
+        "Paris": {
+          "hash": "0x8df408b56f04ec015137ae18263eefe210fa6c9c42e1b18651fe05a66f6b59e8",
+          "sender": "0x255555d765745c5e79ff5f8ed75d706b55df5cb3",
+          "intrinsicGas": "0xe77a"
+        },
+        "Shanghai": {
+          "hash": "0x8df408b56f04ec015137ae18263eefe210fa6c9c42e1b18651fe05a66f6b59e8",
+          "sender": "0x255555d765745c5e79ff5f8ed75d706b55df5cb3",
+          "intrinsicGas": "0xe77a"
+        },
+        "Cancun": {
+          "hash": "0x8df408b56f04ec015137ae18263eefe210fa6c9c42e1b18651fe05a66f6b59e8",
+          "sender": "0x255555d765745c5e79ff5f8ed75d706b55df5cb3",
+          "intrinsicGas": "0xe77a"
+        },
+        "Prague": {
+          "hash": "0x8df408b56f04ec015137ae18263eefe210fa6c9c42e1b18651fe05a66f6b59e8",
+          "sender": "0x255555d765745c5e79ff5f8ed75d706b55df5cb3",
+          "intrinsicGas": "0xe77a"
+        }
+      }
+    },
+    {
       "name": "eip1559-access-list-calldata",
       "type": "dynamic-fee",
       "chainId": 1,
