@@ -1866,6 +1866,11 @@ splits can land after the Phase A smoke path closes.
     storage trie remains a branch. The state-root seed gate now locks the
     retained slot indexes, hashed child references, account RLP, storage root,
     and final state root for this branch-preserving storage cleanup boundary.
+    Added the matching extension-root storage cleanup boundary: three
+    secure-hashed storage slots are inserted under a compressed extension, one
+    present child is deleted, and the final fixture locks the retained
+    extension path, hashed child reference, account RLP, storage root, and
+    state root rather than collapsing to a leaf.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

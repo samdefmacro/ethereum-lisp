@@ -142,10 +142,10 @@ fixes in those areas are allowed; expansion is not.
   verifies geth-shaped `storageProof.value` quantities against the imported
   child state root; remaining Engine fixture work is mainly pinned-fixture
   breadth rather than new smoke-path shape. The state-root seed set now also
-  locks a storage-trie branch-preserving delete boundary: after a three-slot
-  secure storage trie deletes one present child, retained hashed child
-  references, account RLP, storage root, and final state root must still match
-  the two-slot branch outcome.
+  locks storage-trie branch- and extension-preserving delete boundaries: after
+  a three-slot secure storage trie deletes one present child, retained hashed
+  child references, compressed paths, account RLPs, storage roots, and final
+  state roots must still match the two-slot non-collapsed outcomes.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing

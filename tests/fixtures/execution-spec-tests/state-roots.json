@@ -2207,6 +2207,74 @@
       "expectedRoot": "0xf36cb219fefbf0f87da80c24e9e6b92fa0f051fe2c93f014cdf9d3d59a312f49"
     },
     {
+      "name": "storage-trie-extension-delete-preserves-extension-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-delete",
+        "storage-root-projection",
+        "storage-trie-extension",
+        "storage-trie-extension-child-reference",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000401",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000000e",
+          "value": 14
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000000f",
+          "value": 15
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000401",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000000f",
+          "value": 0
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "nonce": 0,
+          "balance": 1,
+          "storageRoot": "0x8aa03a332368f65093c122b05c11668e8e0124305d0685d51352b13812b72ebf",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448001a08aa03a332368f65093c122b05c11668e8e0124305d0685d51352b13812b72ebfa0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "root": "0x8aa03a332368f65093c122b05c11668e8e0124305d0685d51352b13812b72ebf"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000401",
+          "shape": "extension",
+          "rootPathNibbles": [11],
+          "childReference": "hashed"
+        }
+      ],
+      "expectedRoot": "0x17abb55ac4a5d0f71fbf3779a4346b679c6d5d33192329460692f729adcab05a"
+    },
+    {
       "name": "storage-trie-branch-delete-collapses-to-leaf-root",
       "tags": [
         "account-root",

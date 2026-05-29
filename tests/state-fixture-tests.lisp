@@ -163,6 +163,7 @@
     "storage-trie-extension-root"
     "storage-trie-extension-missing-delete-keeps-root"
     "storage-trie-extension-update-keeps-sibling-slot-root"
+    "storage-trie-extension-delete-preserves-extension-root"
     "storage-trie-branch-delete-collapses-to-leaf-root"
     "storage-trie-extension-delete-collapses-to-leaf-root"))
 
