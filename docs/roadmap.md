@@ -545,6 +545,9 @@ snapshot/rebuild coverage rather than only root/proof assertions.
 The seed trie fixture format now also accepts explicit `expectedEntryPairs`,
 and the geth three-account TinyTrie case locks the exported final leaf order
 and values directly before rebuilding from `mpt-entry-pairs`.
+The state-root fixture now replays the geth-derived secure account RLPs through
+`state-db-set-account`, gating the secure account-trie root and hashed branch
+child references at the state layer as well as the raw trie layer.
 The MPT export path now also supports geth-style half-open range iteration
 through `mpt-entry-range`, with fixture coverage for bounded and unbounded
 entry ranges before broader snapshot/export consumers depend on it.

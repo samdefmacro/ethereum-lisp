@@ -4227,6 +4227,75 @@
         }
       ],
       "expectedRoot": "0x135f5309d81f52a9be75830a47a92edf04c45be79614d98bffd993c08d1bac01"
+    },
+    {
+      "name": "geth-secure-account-state-root",
+      "tags": [
+        "multi-account",
+        "account-root",
+        "account-projection",
+        "state-trie-branch",
+        "state-trie-branch-child-references"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f",
+          "nonce": 2339563716805116249,
+          "balance": 13231285807645419471
+        },
+        {
+          "op": "setAccount",
+          "address": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+          "nonce": 7259475919510918339,
+          "balance": 1420263156754097894072208833565313120560341020854497370086991
+        },
+        {
+          "op": "setAccount",
+          "address": "0xb10d394651850fd4a178892ee285ece151145578",
+          "nonce": 2217592893536642650,
+          "balance": 668036214256246407260665125299057
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f",
+          "nonce": 2339563716805116249,
+          "balance": 13231285807645419471,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf854882077ccce0d8fc15988b79ef856f65f67cfa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+          "nonce": 7259475919510918339,
+          "balance": 1420263156754097894072208833565313120560341020854497370086991,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8658864bed6e2edf354c399e242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0xb10d394651850fd4a178892ee285ece151145578",
+          "nonce": 2217592893536642650,
+          "balance": 668036214256246407260665125299057,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf85a881ec678fcc3aea65a8e20efcd6cea84b6925e607be06371a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedRoot": "0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d",
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [0, 4, 12],
+      "expectedStateTrieRootChildShapes": {
+        "0": "leaf",
+        "4": "leaf",
+        "12": "leaf"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "0": "hashed",
+        "4": "hashed",
+        "12": "hashed"
+      }
     }
   ]
 }

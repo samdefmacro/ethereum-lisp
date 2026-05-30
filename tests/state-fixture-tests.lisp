@@ -195,6 +195,7 @@
     "code-created-account-prunes-to-empty-root"
     "code-delete-keeps-funded-account-root"
     "multi-account-secure-state-root"
+    "geth-secure-account-state-root"
     "nethermind-state-trie-leaf-root"
     "nethermind-state-trie-branch-root"
     "state-trie-branch-storage-delete-keeps-sibling-root"

@@ -1593,6 +1593,11 @@ splits can land after the Phase A smoke path closes.
     `0x29b235a58c3c25ab83010c327d5932bcf05324b7d6b1185e650798034783ca9d`,
     branch child indexes/references, retained/deleted lookups, and proof-node
     RLP prefixes against geth reference commit `8a0223e`.
+    Promoted the geth-derived `geth-secure-account-step-3` account-RLP
+    sequence into the state-root fixture. The state DB now replays those
+    accounts through `state-db-set-account`, then gates the geth-derived secure
+    state root, account RLP projections, branch child indexes, and hashed child
+    references as a required state-root case.
     Added trie-test root discovery for pinned EEST layouts. The harness now
     detects both unpacked EEST archive roots (`fixtures/trie_tests`) and
     geth-style checked-out spec-test roots (`spec-tests/fixtures/trie_tests`),
