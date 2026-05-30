@@ -140,7 +140,8 @@ fixes in those areas are allowed; expansion is not.
   boundary is now represented too, locking the `key1` / `key2` trie with a
   32-byte value against
   `0xafebee6cfce72f9d2a7a4f5926ac11f2a79bd75f3a9ae6358a08252ba5dce3be`
-  and checking the extension-root proof-node prefix in the seed fixture.
+  and checking both present-key and missing-key proof-node prefixes in the
+  seed fixture.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now

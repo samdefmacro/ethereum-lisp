@@ -2138,6 +2138,10 @@ splits can land after the Phase A smoke path closes.
     root for the 32-byte value boundary, verifies retained/missing lookups,
     and checks the extension-root proof-node RLP prefix so exact-threshold
     value encoding is anchored to geth reference commit `8a0223e`.
+    Added missing-key proof-node RLP coverage to the same geth large-value
+    vector: the absent `key3` lookup now checks the exact extension and
+    branch proof nodes, and the fixture coverage gate requires at least one
+    missing proof-node RLP case.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

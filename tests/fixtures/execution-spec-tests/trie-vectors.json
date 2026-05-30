@@ -34,7 +34,7 @@
     },
     {
       "name": "geth-large-value-branch",
-      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-value", "lookup-assertions", "proof-node-rlp"],
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-value", "lookup-assertions", "proof-node-rlp", "missing-proof-node-rlp"],
       "operations": [
         { "op": "put", "keyAscii": "key1", "valueHex": "0x63636363" },
         { "op": "put", "keyAscii": "key2", "valueHex": "0x0101010101010101010101010101010101010101010101010101010101010101" }
@@ -57,6 +57,13 @@
             "0xe68416b65793a0fc74138bf1e512b527f5d71c5a4bcaae8d4bdf17c0e31e4eb58166e7ea0da029",
             "0xf780c6208463636363a03c2eb6f8f766784d300e3f9381cbc58aa53fbddd979c5b5dde0b52c21d7acf4e8080808080808080808080808080",
             "0xe220a00101010101010101010101010101010101010101010101010101010101010101"
+          ]
+        },
+        {
+          "keyAscii": "key3",
+          "nodeRlps": [
+            "0xe68416b65793a0fc74138bf1e512b527f5d71c5a4bcaae8d4bdf17c0e31e4eb58166e7ea0da029",
+            "0xf780c6208463636363a03c2eb6f8f766784d300e3f9381cbc58aa53fbddd979c5b5dde0b52c21d7acf4e8080808080808080808080808080"
           ]
         }
       ]

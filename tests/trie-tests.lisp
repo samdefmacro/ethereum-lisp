@@ -99,7 +99,8 @@
     "hex-value"
     "secure-key"
     "lookup-assertions"
-    "proof-node-rlp"))
+    "proof-node-rlp"
+    "missing-proof-node-rlp"))
 
 (defparameter +trie-fixture-required-case-names+
   '("single-leaf"
@@ -170,7 +171,8 @@
     "hex-value"
     "secure-key"
     "lookup-assertions"
-    "proof-node-rlp"))
+    "proof-node-rlp"
+    "missing-proof-node-rlp"))
 
 (defparameter +trie-fixture-root-shapes+
   '("empty" "leaf" "extension" "branch"))
@@ -2803,6 +2805,13 @@
        (remove-if
         (lambda (case)
           (string= "root-branch-mixed-child-references"
+                   (fixture-object-field case "name")))
+        cases)))
+    (signals error
+      (validate-trie-fixture-case-coverage
+       (remove-if
+        (lambda (case)
+          (string= "geth-large-value-branch"
                    (fixture-object-field case "name")))
         cases)))
     (let ((+trie-fixture-required-case-names+
