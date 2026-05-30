@@ -248,7 +248,9 @@ fixes in those areas are allowed; expansion is not.
   zero credits preserve balances and account RLPs in non-leaf state tries.
   State-proof fixtures and retained-state `eth_getProof` now cover both
   missing-account and existing-account non-leaf zero-add boundaries, including
-  proof output against the unchanged roots.
+  proof output against the unchanged roots. State-proof fixture requests now
+  also accept short storage keys such as `0x1` and normalize them before proof
+  lookup while keeping expected proof output canonical.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing

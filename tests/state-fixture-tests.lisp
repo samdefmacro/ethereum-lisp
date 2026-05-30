@@ -237,6 +237,7 @@
     "storage-missing"
     "no-storage-request"
     "prefixless-storage-key-request"
+    "short-storage-key-request"
     "storage-deleted-missing"
     "storage-overwrite-proof"
     "storage-overwrite-delete-proof"
@@ -264,6 +265,7 @@
     "present-account-with-present-and-missing-storage"
     "present-account-without-storage-key-request"
     "present-account-with-prefixless-storage-key-request"
+    "present-account-with-short-storage-key-request"
     "storage-overwrite-final-value-proof"
     "storage-overwrite-to-zero-prunes-slot-proof"
     "missing-account-proof"
@@ -334,6 +336,7 @@
     "storage-missing"
     "no-storage-request"
     "prefixless-storage-key-request"
+    "short-storage-key-request"
     "storage-deleted-missing"
     "storage-overwrite-proof"
     "storage-overwrite-delete-proof"
@@ -1146,11 +1149,32 @@
     (unless (string= value (string-downcase (quantity-to-hex (hex-to-quantity value))))
       (error "~A must be a canonical quantity" label))))
 
+(defun state-proof-fixture-storage-key-from-request (key)
+  (unless (stringp key)
+    (error "State proof fixture request storage key must be a hex string"))
+  (let ((hex (if (and (>= (length key) 2)
+                      (char= (char key 0) #\0)
+                      (member (char key 1) '(#\x #\X)))
+                 (subseq key 2)
+                 key)))
+    (when (oddp (length hex))
+      (setf hex (concatenate 'string "0" hex)))
+    (when (> (length hex) 64)
+      (error "State proof fixture request storage key is wider than 32 bytes"))
+    (handler-case
+        (let ((bytes (hex-to-bytes hex)))
+          (let ((padded (make-byte-vector 32)))
+            (replace padded bytes :start1 (- 32 (length bytes)))
+            (make-hash32 padded)))
+      (error ()
+        (error "State proof fixture request storage key must be hex bytes")))))
+
 (defun validate-state-proof-fixture-storage-key-uniqueness (storage-keys)
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (key storage-keys)
       (let ((normalized (bytes-to-hex
-                         (hash32-bytes (hash32-from-hex key))
+                         (hash32-bytes
+                          (state-proof-fixture-storage-key-from-request key))
                          :prefix nil)))
         (when (gethash normalized seen)
           (error "State proof fixture request has duplicate storage key ~A"
@@ -1167,11 +1191,10 @@
       (error "State proof fixture request address must be an address hex string"))
     (address-from-hex address))
   (let ((storage-keys (fixture-required-field request "storageKeys")))
-    (validate-state-proof-fixture-hex-list
-     storage-keys
-     "State proof fixture request storageKeys")
+    (unless (listp storage-keys)
+      (error "State proof fixture request storageKeys must be a JSON array"))
     (dolist (key storage-keys)
-      (hash32-from-hex key))
+      (state-proof-fixture-storage-key-from-request key))
     (validate-state-proof-fixture-storage-key-uniqueness storage-keys)))
 
 (defun state-proof-fixture-empty-storage-root-p (storage-hash)
@@ -1287,7 +1310,8 @@
     (loop for key in storage-keys
           for entry in storage-proof
           for index from 0
-          unless (bytes= (hash32-bytes (hash32-from-hex key))
+          unless (bytes= (hash32-bytes
+                          (state-proof-fixture-storage-key-from-request key))
                          (hash32-bytes
                           (hash32-from-hex
                            (fixture-required-field entry "key"))))
@@ -1350,7 +1374,7 @@
 (defun run-state-proof-fixture-request (state request)
   (let ((address (address-from-hex (fixture-object-field request "address")))
         (storage-keys
-          (mapcar #'hash32-from-hex
+          (mapcar #'state-proof-fixture-storage-key-from-request
                   (fixture-object-field request "storageKeys"))))
     (state-db-get-proof state address storage-keys)))
 
@@ -1799,8 +1823,7 @@
                   (cons "address"
                         "0x0000000000000000000000000000000000000001")
                   (cons "storageKeys"
-                        (list
-                         "0x0000000000000000000000000000000000000000000000000000000000000001"))))
+                        (list "0x1"))))
            (cons "expectedRoot"
                  "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
            (cons "expectedProof"
@@ -1935,6 +1958,21 @@
                   (list
                    "0x0000000000000000000000000000000000000000000000000000000000000001"
                    "0X0000000000000000000000000000000000000000000000000000000000000001"))))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "request" bad-request))))
+      (signals error
+        (let* ((request (fixture-required-field valid-case "request"))
+               (bad-request
+                 (replace-field
+                  request
+                  "storageKeys"
+                  (list
+                   "0x100000000000000000000000000000000000000000000000000000000000000000"))))
+          (validate-state-proof-fixture-case-shape
+           (replace-field valid-case "request" bad-request))))
+      (signals error
+        (let* ((request (fixture-required-field valid-case "request"))
+               (bad-request (replace-field request "storageKeys" (list 42))))
           (validate-state-proof-fixture-case-shape
            (replace-field valid-case "request" bad-request))))
       (signals error
