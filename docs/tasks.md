@@ -747,6 +747,13 @@ ones.
     transactions with empty access lists, plus EIP-2930 and EIP-1559 empty
     access-list cases, so non-empty warming coverage cannot mask the empty-list
     typed payload boundary before pinned transaction-test replacement.
+  - Progress: tightened the local transaction envelope coverage entry point to
+    run the same dynamic-fee, blob, set-code, legacy-protection, decoded,
+    signature, access-list, contract-creation, input, and fork-result
+    distribution gates used by the richer fixture summaries. The set-code
+    coverage gate now also requires multi-authorization EIP-7702 coverage, so
+    the seed fixture cannot degrade to a single authorization while preserving
+    type coverage.
 
 ## P0: Module Boundaries
 

@@ -1638,7 +1638,10 @@
       (error "~A summary is missing set-code authorization-list transaction coverage"
              label))
     (when (zerop authorization-value)
-      (error "~A summary is missing set-code authorization entries" label)))
+      (error "~A summary is missing set-code authorization entries" label))
+    (unless (> authorization-value vector-value)
+      (error "~A summary is missing multi-authorization set-code coverage"
+             label)))
   summary)
 
 (defun validate-transaction-fixture-legacy-protection-coverage
@@ -2298,26 +2301,40 @@
   (validate-transaction-fixture-required-vector-names
    vectors
    +transaction-envelope-fixture-required-vector-names+)
-  (validate-transaction-fixture-decoded-coverage
-   vectors
-   (transaction-fixture-vector-summary vectors)
-   "Transaction fixture")
-  (validate-transaction-fixture-signature-coverage
-   vectors
-   (transaction-fixture-vector-summary vectors)
-   "Transaction fixture")
-  (validate-transaction-fixture-access-list-coverage
-   (transaction-fixture-vector-summary vectors)
-   "Transaction fixture")
-  (validate-transaction-fixture-contract-creation-coverage
-   (transaction-fixture-vector-summary vectors)
-   "Transaction fixture")
-  (validate-transaction-fixture-input-coverage
-   (transaction-fixture-vector-summary vectors)
-   "Transaction fixture")
-  (validate-transaction-fixture-legacy-protection-coverage
-   (transaction-fixture-vector-summary vectors)
-   "Transaction fixture"))
+  (let ((summary (transaction-fixture-vector-summary vectors)))
+    (validate-transaction-fixture-decoded-coverage
+     vectors
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-signature-coverage
+     vectors
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-access-list-coverage
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-contract-creation-coverage
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-input-coverage
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-dynamic-fee-coverage
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-blob-coverage
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-set-code-coverage
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-legacy-protection-coverage
+     summary
+     "Transaction fixture")
+    (validate-transaction-fixture-result-count-summary
+     vectors
+     summary
+     "Transaction fixture")))
 
 (defun load-transaction-envelope-vectors (path)
   (let* ((fixture (load-handwritten-fixture-file path))
@@ -4768,6 +4785,18 @@
                      full-summary
                      :key #'car
                      :test #'string=))
+       "Full EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-set-code-coverage
+       (cons (cons "setCodeAuthorizationCount" 1)
+             (cons (cons "setCodeAuthorizationVectorCount" 1)
+                   (remove "setCodeAuthorizationCount"
+                           (remove "setCodeAuthorizationVectorCount"
+                                   full-summary
+                                   :key #'car
+                                   :test #'string=)
+                           :key #'car
+                           :test #'string=)))
        "Full EEST transaction"))
     (signals error
       (validate-transaction-fixture-legacy-protection-coverage

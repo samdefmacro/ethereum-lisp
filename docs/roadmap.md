@@ -170,7 +170,10 @@ fixes in those areas are allowed; expansion is not.
   full EEST transaction selector now also gates EIP-4844
   `blobVersionedHashes` payloads and EIP-7702 `authorizationList` payloads,
   so those post-Shanghai typed families cannot degrade to type-only coverage
-  before pinned transaction-test replacement. The
+  before pinned transaction-test replacement. The local envelope fixture entry
+  point now applies those payload gates too, and set-code coverage requires a
+  multi-authorization EIP-7702 case rather than a single authorization-only
+  placeholder. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint
