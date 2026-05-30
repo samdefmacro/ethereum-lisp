@@ -292,6 +292,8 @@
     "balance-add-zero-funded-account-proof"
     "balance-add-preserves-code-and-storage-proof"
     "state-trie-branch-balance-add-zero-missing-proof"
+    "state-trie-extension-balance-add-zero-missing-proof"
+    "state-trie-branch-extension-balance-add-zero-missing-proof"
     "state-trie-branch-balance-add-proof"
     "state-trie-extension-balance-add-proof"
     "state-trie-branch-extension-balance-add-proof"

@@ -8218,15 +8218,67 @@
                            (state-proof-result-account-proof expected-proof))
                           (field proof "accountProof")))
                (is (state-db-verify-proof (state-db-root state)
+                                          decoded-proof))))
+           (assert-balance-add-zero-missing-proof
+             (store state block target expected-nodes)
+             (let* ((storage-key
+                      "0x0000000000000000000000000000000000000000000000000000000000000001")
+                    (response
+                      (parse-json
+                       (engine-rpc-handle-request-json
+                        (concatenate
+                         'string
+                         "{\"jsonrpc\":\"2.0\",\"id\":111,"
+                         "\"method\":\"eth_getProof\","
+                         "\"params\":[\"" (address-to-hex target)
+                         "\",[\"" storage-key "\"],\""
+                         (hash32-to-hex (block-hash block))
+                         "\"]}")
+                        store
+                        (make-chain-config))))
+                    (proof (field response "result"))
+                    (expected-proof
+                      (state-db-get-proof
+                       state
+                       target
+                       (list (hash32-from-hex storage-key))))
+                    (decoded-proof
+                      (state-proof-result-from-rpc-object proof))
+                    (storage-proof
+                      (first (field proof "storageProof"))))
+               (is (string= (address-to-hex target)
+                            (field proof "address")))
+               (is (string= "0x0" (field proof "balance")))
+               (is (string= "0x0" (field proof "nonce")))
+               (is (string= (hash32-to-hex +empty-code-hash+)
+                            (field proof "codeHash")))
+               (is (string= (hash32-to-hex +empty-trie-hash+)
+                            (field proof "storageHash")))
+               (is (= expected-nodes
+                      (length (field proof "accountProof"))))
+               (is (string= storage-key (field storage-proof "key")))
+               (is (string= "0x0" (field storage-proof "value")))
+               (is (null (field storage-proof "proof")))
+               (is (equal (proof-node-hex-list
+                           (state-proof-result-account-proof expected-proof))
+                          (field proof "accountProof")))
+               (is (equal (state-proof-result-rpc-object expected-proof)
+                          proof))
+               (is (state-db-verify-proof (state-db-root state)
                                           decoded-proof)))))
     (let* ((store (make-engine-payload-memory-store))
            (branch-target
              (address-from-hex "0x0000000000000000000000000000000000000201"))
            (extension-target
              (address-from-hex "0x0000000000000000000000000000000000000220"))
+           (missing-target
+             (address-from-hex "0x00000000000000000000000000000000000002ff"))
            (branch-state (make-state-db))
            (extension-state (make-state-db))
-           (branch-extension-state (make-state-db)))
+           (branch-extension-state (make-state-db))
+           (branch-zero-state (make-state-db))
+           (extension-zero-state (make-state-db))
+           (branch-extension-zero-state (make-state-db)))
       (add-account branch-state
                    "0x0000000000000000000000000000000000000201"
                    1 100)
@@ -8251,6 +8303,30 @@
                    "0x0000000000000000000000000000000000000203"
                    3 300)
       (state-db-add-balance branch-extension-state extension-target 300)
+      (add-account branch-zero-state
+                   "0x0000000000000000000000000000000000000201"
+                   1 100)
+      (add-account branch-zero-state
+                   "0x0000000000000000000000000000000000000211"
+                   2 200)
+      (state-db-add-balance branch-zero-state missing-target 0)
+      (add-account extension-zero-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 100)
+      (add-account extension-zero-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (state-db-add-balance extension-zero-state missing-target 0)
+      (add-account branch-extension-zero-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 100)
+      (add-account branch-extension-zero-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (add-account branch-extension-zero-state
+                   "0x0000000000000000000000000000000000000203"
+                   3 300)
+      (state-db-add-balance branch-extension-zero-state missing-target 0)
       (assert-balance-add-proof
        store
        branch-state
@@ -8268,7 +8344,25 @@
        branch-extension-state
        (commit-state-block store branch-extension-state 37 370)
        extension-target
-       4))))
+       4)
+      (assert-balance-add-zero-missing-proof
+       store
+       branch-zero-state
+       (commit-state-block store branch-zero-state 38 380)
+       missing-target
+       2)
+      (assert-balance-add-zero-missing-proof
+       store
+       extension-zero-state
+       (commit-state-block store extension-zero-state 39 390)
+       missing-target
+       1)
+      (assert-balance-add-zero-missing-proof
+       store
+       branch-extension-zero-state
+       (commit-state-block store branch-extension-zero-state 40 400)
+       missing-target
+       2))))
 
 (deftest eth-rpc-get-proof-zero-storage-writes
   (labels ((field (object name)

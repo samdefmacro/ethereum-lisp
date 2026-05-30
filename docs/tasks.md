@@ -2207,6 +2207,11 @@ splits can land after the Phase A smoke path closes.
     branch-shaped state trie missing-account proof after a zero-value
     `addBalance`, with named seed-case gates so these observable RPC
     boundaries cannot be dropped silently.
+  - Progress: extended zero-amount `addBalance` no-op proof coverage across
+    extension-root and branch-into-extension account tries. The proof fixture
+    now locks exact geth-shaped missing-account accountProof nodes and missing
+    storage proofs for the same unchanged non-leaf roots covered by state-root
+    fixtures, with required seed-case gates for both trie shapes.
   - Progress: extended balance-add proof coverage across branch, extension,
     and branch-into-extension account tries. The proof fixture now locks exact
     geth-shaped account proof nodes for the same nontrivial `addBalance`
@@ -2218,6 +2223,12 @@ splits can land after the Phase A smoke path closes.
     snapshot, compares returned account proof nodes with `state-db-get-proof`,
     checks the expected proof depth for each trie shape, and verifies the
     decoded RPC proof against the committed state root.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to
+    zero-amount `addBalance` missing-account no-ops across branch, extension,
+    and branch-with-extension account tries. The RPC test now commits each
+    unchanged non-leaf root, requests a missing storage key for the absent
+    account, compares geth-shaped account proof nodes with the core proof
+    primitive, and verifies the decoded proof against the committed root.
   - Progress: added state-proof fixture coverage for a code-created account
     that receives a zero-value storage write. The proof vector locks the
     code-only account root, empty storage root, null missing-slot proof, and
