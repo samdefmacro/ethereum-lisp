@@ -142,7 +142,10 @@ fixes in those areas are allowed; expansion is not.
   paths distinct before pinned transaction-test replacement. It now also gates
   EIP-2930 and EIP-1559 access-list transactions that carry non-empty calldata,
   so access-list warming costs and calldata intrinsic-gas costs are exercised
-  together instead of only as separate fixture paths. The
+  together instead of only as separate fixture paths. It also gates an
+  EIP-2930 duplicate access-list message-call so duplicate address and storage
+  key entries remain charged and projected as source order occurrences rather
+  than collapsed sets. The
   full EEST transaction selector now also gates EIP-4844
   `blobVersionedHashes` payloads and EIP-7702 `authorizationList` payloads,
   so those post-Shanghai typed families cannot degrade to type-only coverage
