@@ -292,7 +292,10 @@ fixes in those areas are allowed; expansion is not.
   `blockchain_tests_engine/cancun/eip4844_blobs/test_valid_blob_tx_combinations.json`,
   locking blob fee decoding, versioned hash payloads, signature, sender/hash
   recovery, intrinsic gas, empty access-list projection, Cancun/Prague
-  validity, and pre-Cancun typed-transaction rejections. The
+  validity, and pre-Cancun typed-transaction rejections. Seed, Phase A, and
+  full EEST-style transaction selectors now explicitly gate those transcribed
+  pinned valid families, while the pinned EIP-7702 invalid group gates the
+  set-code transaction-test side of the stable archive. The
   Shanghai
   `engine_newPayloadV2` smoke now
   covers legacy transfer, access-list

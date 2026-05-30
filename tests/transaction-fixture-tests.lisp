@@ -111,6 +111,22 @@
     "eip7702-set-code-access-list-calldata"
     "eip7702-set-code"))
 
+(defparameter +transaction-envelope-fixture-pinned-valid-vector-types+
+  '(("legacy-pinned-blockchain-valid" . :legacy)
+    ("eip2930-pinned-blockchain-valid" . :access-list)
+    ("eip1559-pinned-blockchain-valid" . :dynamic-fee)
+    ("eip4844-pinned-blockchain-valid" . :blob)))
+
+(defparameter +phase-a-eest-transaction-pinned-valid-case-types+
+  '(("phase-a-sample.json/legacy-pinned-blockchain-valid-sample" . :legacy)
+    ("phase-a-sample.json/typed-eip2930-pinned-blockchain-valid-sample" . :access-list)
+    ("phase-a-sample.json/typed-eip1559-pinned-blockchain-valid-sample" . :dynamic-fee)))
+
+(defparameter +full-eest-transaction-pinned-valid-case-types+
+  (append
+   +phase-a-eest-transaction-pinned-valid-case-types+
+   '(("phase-a-sample.json/typed-eip4844-pinned-blockchain-valid-sample" . :blob))))
+
 (defparameter +transaction-envelope-fixture-format+
   "ethereum-lisp/transaction-envelope-fixtures-v1")
 
@@ -2225,6 +2241,10 @@
              +phase-a-eest-transaction-test-case-names+))
     (validate-phase-a-eest-transaction-target-fork-results vectors)
     (validate-phase-a-eest-transaction-summary-types types)
+    (validate-transaction-fixture-required-vector-types
+     vectors
+     +phase-a-eest-transaction-pinned-valid-case-types+
+     "Phase A EEST transaction pinned valid vectors")
     (validate-transaction-fixture-decoded-coverage
      vectors
      summary
@@ -2276,6 +2296,10 @@
       (unless (assoc type types)
         (error "Full EEST transaction summary is missing required type ~A"
                type)))
+    (validate-transaction-fixture-required-vector-types
+     vectors
+     +full-eest-transaction-pinned-valid-case-types+
+     "Full EEST transaction pinned valid vectors")
     (validate-transaction-fixture-decoded-coverage
      vectors
      summary
@@ -2713,11 +2737,46 @@
         (error "Transaction fixture is missing required seed vector ~A"
                name)))))
 
+(defun validate-transaction-fixture-required-vector-types
+    (vectors required-name-types label)
+  (let ((vector-by-name (make-hash-table :test 'equal))
+        (seen-required-names (make-hash-table :test 'equal)))
+    (dolist (vector vectors)
+      (setf (gethash (fixture-required-field vector "name") vector-by-name)
+            vector))
+    (dolist (entry required-name-types)
+      (unless (and (consp entry)
+                   (stringp (car entry))
+                   (keywordp (cdr entry)))
+        (error "~A required vector entry is malformed: ~S" label entry))
+      (when (gethash (car entry) seen-required-names)
+        (error "~A required vector list has duplicate name ~A"
+               label
+               (car entry)))
+      (setf (gethash (car entry) seen-required-names) t)
+      (let ((vector (gethash (car entry) vector-by-name)))
+        (unless vector
+          (error "~A is missing required vector ~A" label (car entry)))
+        (let ((actual-type
+                (transaction-fixture-type-keyword
+                 (fixture-required-field vector "type"))))
+          (unless (eq actual-type (cdr entry))
+            (error "~A vector ~A has type ~A but expected ~A"
+                   label
+                   (car entry)
+                   actual-type
+                   (cdr entry)))))))
+  vectors)
+
 (defun validate-transaction-envelope-vector-coverage (vectors)
   (validate-transaction-fixture-vector-set vectors :require-required-types t)
   (validate-transaction-fixture-required-vector-names
    vectors
    +transaction-envelope-fixture-required-vector-names+)
+  (validate-transaction-fixture-required-vector-types
+   vectors
+   +transaction-envelope-fixture-pinned-valid-vector-types+
+   "Transaction fixture pinned valid vectors")
   (let ((summary (transaction-fixture-vector-summary vectors)))
     (validate-transaction-fixture-decoded-coverage
      vectors
@@ -5500,6 +5559,16 @@
     (is (equal full-summary
                (validate-full-eest-transaction-vector-summary
                 full-vectors)))
+    (is (equal selected-vectors
+               (validate-transaction-fixture-required-vector-types
+                selected-vectors
+                +phase-a-eest-transaction-pinned-valid-case-types+
+                "Phase A EEST transaction pinned valid vectors")))
+    (is (equal full-vectors
+               (validate-transaction-fixture-required-vector-types
+                full-vectors
+                +full-eest-transaction-pinned-valid-case-types+
+                "Full EEST transaction pinned valid vectors")))
     (is (= 3 (fixture-object-field full-summary "blobVersionedHashVectorCount")))
     (is (= 5 (fixture-object-field full-summary "blobVersionedHashCount")))
     (is (= 1 (fixture-object-field full-summary "blobAccessListVectorCount")))
@@ -5890,6 +5959,16 @@
       (validate-phase-a-eest-transaction-vector-summary
        (remove dynamic-fee-vector selected-vectors)))
     (signals error
+      (validate-transaction-fixture-required-vector-types
+       selected-vectors
+       '(("phase-a-sample.json/legacy-pinned-blockchain-valid-sample" . :blob))
+       "Phase A EEST transaction pinned valid vectors"))
+    (signals error
+      (validate-transaction-fixture-required-vector-types
+       selected-vectors
+       '(("phase-a-sample.json/missing-pinned-valid-sample" . :legacy))
+       "Phase A EEST transaction pinned valid vectors"))
+    (signals error
       (validate-full-eest-transaction-vector-summary
        (remove set-code-vector full-vectors)))
     (signals error
@@ -6058,6 +6137,11 @@
 (deftest transaction-envelope-fixture-vectors
   (let ((vectors (load-transaction-envelope-vectors
                   +transaction-envelope-fixture-path+)))
+    (is (equal vectors
+               (validate-transaction-fixture-required-vector-types
+                vectors
+                +transaction-envelope-fixture-pinned-valid-vector-types+
+                "Transaction fixture pinned valid vectors")))
     (signals error
       (validate-transaction-envelope-vector-coverage
        (remove "eip4844-blob"
@@ -6065,4 +6149,9 @@
                :test #'string=
                :key (lambda (candidate)
                       (fixture-object-field candidate "name")))))
+    (signals error
+      (validate-transaction-fixture-required-vector-types
+       vectors
+       '(("eip1559-pinned-blockchain-valid" . :blob))
+       "Transaction fixture pinned valid vectors"))
     (assert-transaction-fixture-vectors-replay vectors)))

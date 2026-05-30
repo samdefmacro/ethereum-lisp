@@ -64,7 +64,6 @@ Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked. Order matters: earlier items unblock later
 ones.
 
-- `HARNESS-TX-VECTORS`
 - `TRIE-FIXTURE-GRADE`
 
 ## P0: Phase A Discipline
@@ -163,7 +162,7 @@ ones.
     name, network, source, block count, and expected status through the current
     test runner.
 
-- [~] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
+- [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
   - Milestone: 2 / 8
   - Dependencies: `PHASE-A-SCOPE-GATE` (for fork-set selection); no code
@@ -869,6 +868,17 @@ ones.
     set-code-field-validation, authorization-signature, or accepted
     distribution, so fixture files cannot drift between local rejection paths
     while aggregate counts still pass.
+  - Result: complete for the Phase A gate. The harness now covers
+    transaction encoding, hash derivation, sender recovery, decoded payloads,
+    signatures, intrinsic gas, and fork activation for legacy, EIP-2930,
+    EIP-1559, EIP-4844, and EIP-7702 envelopes. Valid legacy, EIP-2930,
+    EIP-1559, and EIP-4844 vectors include pinned v5.4.0
+    `blockchain_tests_engine` transcriptions, while the stable v5.4.0
+    `transaction_tests` payload is represented by the full 12-file,
+    53-case Prague/EIP-7702 invalid group. Seed, Phase A, and full EEST-style
+    selectors now gate the required pinned valid vector families, and the
+    invalid group is locked by exact source-file, exception, and local
+    rejection-stage distributions.
 
 ## P0: Module Boundaries
 
