@@ -2512,6 +2512,10 @@ splits can land after the Phase A smoke path closes.
     model. The tests now lock non-adjacent double cancellation as true and an
     unbalanced duplicate pairing product as false, covering product-level
     behavior beyond single pair and adjacent two-pair inputs.
+  - Progress: added a geth `bn256Pairing.json` valid non-empty false vector
+    (`jeff6`) as direct precompile coverage. This locks output and Istanbul
+    two-pair gas for an external reference-client vector while the remaining
+    arbitrary true vectors still require full optimal Ate pairing.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5
