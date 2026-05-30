@@ -1204,6 +1204,68 @@
       "expectedMissing": [
         { "keyHex": "0x10" }
       ]
+    },
+    {
+      "name": "geth-secure-delete-sequence",
+      "secure": true,
+      "tags": ["branch-root", "secure-key", "delete-collapse", "lookup-assertions", "proof-node-rlp", "delete-proof-node-rlp", "missing-proof-node-rlp"],
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "ether", "valueAscii": "wookiedoo" },
+        { "op": "put", "keyAscii": "horse", "valueAscii": "stallion" },
+        { "op": "put", "keyAscii": "shaman", "valueAscii": "horse" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "delete", "keyAscii": "ether" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "delete", "keyAscii": "shaman" }
+      ],
+      "expectedRoot": "0x29b235a58c3c25ab83010c327d5932bcf05324b7d6b1185e650798034783ca9d",
+      "expectedShape": "branch",
+      "expectedRootChildren": [4, 10, 12, 15],
+      "expectedRootChildReferences": {
+        "4": "hashed",
+        "10": "hashed",
+        "12": "hashed",
+        "15": "hashed"
+      },
+      "expectedRootChildShapes": {
+        "4": "leaf",
+        "10": "leaf",
+        "12": "leaf",
+        "15": "leaf"
+      },
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "doge", "valueAscii": "coin" },
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "horse", "valueAscii": "stallion" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "ether" },
+        { "keyAscii": "shaman" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyAscii": "do",
+          "nodeRlps": [
+            "0xf89180808080a06401522e6c22d1f0b30a66229bdbbae185e388efe1de3dacc2182f0f7fe550d18080808080a0a4a8c217a8f9017ea2a502598b0bc25fc5932412c7926a0703bc7b23231c152580a0da74376839326b58475f9644e25ba6a59d16c5120268ec0fa0db58d8798004858080a0b72120a1a059b409352f5d17ca80c08ba75144b035ecffec93413410d418dda180",
+            "0xe6a0325dd137276eccd5048f808ec1a55102f9cde0dc9f47be33bc0c29fa331a789d8476657262"
+          ]
+        },
+        {
+          "keyAscii": "ether",
+          "nodeRlps": [
+            "0xf89180808080a06401522e6c22d1f0b30a66229bdbbae185e388efe1de3dacc2182f0f7fe550d18080808080a0a4a8c217a8f9017ea2a502598b0bc25fc5932412c7926a0703bc7b23231c152580a0da74376839326b58475f9644e25ba6a59d16c5120268ec0fa0db58d8798004858080a0b72120a1a059b409352f5d17ca80c08ba75144b035ecffec93413410d418dda180"
+          ]
+        },
+        {
+          "keyAscii": "shaman",
+          "nodeRlps": [
+            "0xf89180808080a06401522e6c22d1f0b30a66229bdbbae185e388efe1de3dacc2182f0f7fe550d18080808080a0a4a8c217a8f9017ea2a502598b0bc25fc5932412c7926a0703bc7b23231c152580a0da74376839326b58475f9644e25ba6a59d16c5120268ec0fa0db58d8798004858080a0b72120a1a059b409352f5d17ca80c08ba75144b035ecffec93413410d418dda180",
+            "0xe6a0325dd137276eccd5048f808ec1a55102f9cde0dc9f47be33bc0c29fa331a789d8476657262"
+          ]
+        }
+      ]
     }
   ]
 }

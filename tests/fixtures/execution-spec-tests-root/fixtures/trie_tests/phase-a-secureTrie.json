@@ -172,5 +172,18 @@
       ["0x00", null]
     ],
     "root": "51601f67f06338ad14e87799781d9eb786daf72d238e3122434a6d7b71900c7f"
+  },
+  "phase-a-secure-zgeth-delete-sequence": {
+    "in": [
+      ["do", "verb"],
+      ["ether", "wookiedoo"],
+      ["horse", "stallion"],
+      ["shaman", "horse"],
+      ["doge", "coin"],
+      ["ether", null],
+      ["dog", "puppy"],
+      ["shaman", null]
+    ],
+    "root": "29b235a58c3c25ab83010c327d5932bcf05324b7d6b1185e650798034783ca9d"
   }
 }

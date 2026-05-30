@@ -1527,6 +1527,12 @@ splits can land after the Phase A smoke path closes.
     projection validation, including numeric aliases such as `1` and `01`.
     Added duplicate lookup-key rejection across trie fixture `expectedGets`
     and `expectedMissing`, including equivalent `keyAscii` / `keyHex` forms.
+    Added geth `TestSecureDelete` to both the seed trie fixture and the
+    selected EEST-style secureTrie subset. The secure-key update/delete replay
+    now locks root
+    `0x29b235a58c3c25ab83010c327d5932bcf05324b7d6b1185e650798034783ca9d`,
+    branch child indexes/references, retained/deleted lookups, and proof-node
+    RLP prefixes against geth reference commit `8a0223e`.
     Added trie-test root discovery for pinned EEST layouts. The harness now
     detects both unpacked EEST archive roots (`fixtures/trie_tests`) and
     geth-style checked-out spec-test roots (`spec-tests/fixtures/trie_tests`),

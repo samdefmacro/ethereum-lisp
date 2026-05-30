@@ -149,6 +149,11 @@ fixes in those areas are allowed; expansion is not.
   `k` -> `v`. Proof verification now also rejects a tampered referenced node
   in that geth large-value proof shape, so proof-node hash binding is covered
   directly.
+  Geth `TestSecureDelete` is now represented in both the seed trie fixture and
+  selected secureTrie subset, locking the secure-key update/delete replay to
+  root `0x29b235a58c3c25ab83010c327d5932bcf05324b7d6b1185e650798034783ca9d`
+  plus retained/deleted lookups and proof-node RLP prefixes at geth reference
+  commit `8a0223e`.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now
