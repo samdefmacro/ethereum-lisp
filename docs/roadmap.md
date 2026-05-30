@@ -179,7 +179,10 @@ fixes in those areas are allowed; expansion is not.
   final state roots must still match the two-slot non-collapsed outcomes. The
   retained-state proof path now also locks that overwrite-then-zero boundary as
   a geth-shaped `eth_getProof` response with an empty storage hash and null
-  missing-slot proof for the pruned slot.
+  missing-slot proof for the pruned slot. It also locks branch- and
+  extension-shaped storage-trie update proofs where one slot changes while
+  sibling and missing-slot proofs remain valid against the updated storage
+  root.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing
@@ -296,6 +299,9 @@ non-collapsed branch/extension outcomes. Retained-state `eth_getProof` RPC
 coverage now verifies those same committed snapshot boundaries by block hash,
 and the two-slot delete-collapse boundary now has retained-state RPC proof
 coverage for both the surviving slot and the deleted missing slot.
+State-proof coverage also locks branch- and extension-shaped storage-trie
+updates where one secure-hashed slot is overwritten while sibling present-slot
+and missing-slot proofs remain valid against the updated storage root.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch
