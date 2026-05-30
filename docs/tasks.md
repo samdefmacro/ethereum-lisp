@@ -238,6 +238,10 @@ ones.
     archive metadata before consuming seed vectors, making fixture-only
     transaction coverage explicit until the pinned transaction cases are
     transcribed.
+  - Progress: added an EIP-2930 address-only access-list vector with no
+    storage keys, plus a summary gate for that boundary. The Phase A
+    transaction subset now distinguishes address warming cost from storage-key
+    warming cost before pinned transaction-test replacement.
   - Progress: added transaction fixture coverage guards for required envelope
     families and duplicate vector identities. The runner now rejects missing
     legacy, EIP-2930, EIP-1559, EIP-4844, or EIP-7702 coverage, duplicate
