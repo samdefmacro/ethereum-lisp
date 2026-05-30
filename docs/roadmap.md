@@ -127,7 +127,10 @@ fixes in those areas are allowed; expansion is not.
   branch-preserving delete path. It now also includes geth `TestReplication`,
   adding a long-key multi-leaf branch-root replay that locks
   `0x09c889feaafd53779755259beaa0ff41c32512c8cac45152af46fae7ebdef210`
-  against geth reference commit `8a0223e`.
+  against geth reference commit `8a0223e`. The selected subset now also
+  carries geth's fixed `TestRandomCases` fuzz regression, locking repeated
+  hex-key overwrite, missing-delete, and short-key deletion replay to
+  `0x380d56237a963e2c17a7c282142dc0b85d3236cd515d4f0348c787e70a68d24c`.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now

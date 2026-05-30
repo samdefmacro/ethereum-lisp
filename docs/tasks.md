@@ -2115,6 +2115,13 @@ splits can land after the Phase A smoke path closes.
     `0x09c889feaafd53779755259beaa0ff41c32512c8cac45152af46fae7ebdef210`
     root and expanding branch-root coverage with long-key multi-leaf replay
     anchored to geth reference commit `8a0223e`.
+    Added the fixed geth `TestRandomCases` fuzz regression to the selected
+    EEST-style trie subset. The new `geth-random-cases-sequence` case
+    transcribes the update/delete steps that mutate trie state, including
+    repeated hex-key overwrites, a missing delete, and deletion of a short hex
+    key, locking geth's final
+    `0x380d56237a963e2c17a7c282142dc0b85d3236cd515d4f0348c787e70a68d24c`
+    branch root against reference commit `8a0223e`.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
