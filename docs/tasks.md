@@ -1997,6 +1997,11 @@ splits can land after the Phase A smoke path closes.
     account projections, expected state roots, and root child shape/reference
     assertions, so code-root changes cannot rely only on the single-account
     leaf case.
+    Added matching state-root code-delete coverage across the same non-leaf
+    account trie layouts. Clearing code on a funded account now has branch,
+    extension, and branch-with-extension-child fixtures that assert the empty
+    code hash, retained sibling account projections, final state roots, and
+    non-leaf trie shape/reference invariants.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
