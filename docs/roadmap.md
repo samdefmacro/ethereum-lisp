@@ -319,6 +319,9 @@ branch-to-leaf, extension-to-leaf, and branch-plus-extension-to-extension
 state root. Retained-state `eth_getProof` RPC coverage now verifies the same
 three account-trie delete-collapse snapshots by block hash, including both
 the surviving account and the pruned account's missing-proof result.
+Code-update proof coverage now locks overwriting non-empty code with new
+non-empty code through both fixture replay and retained-state `eth_getProof`,
+including the updated account code hash and retained empty storage root.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch

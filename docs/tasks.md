@@ -2257,6 +2257,11 @@ splits can land after the Phase A smoke path closes.
     extension-to-leaf, and branch-plus-extension-to-extension compression, and
     retained-state `eth_getProof` verifies both the survivor and deleted
     account against the same committed block-hash snapshots.
+  - Progress: added code-update state-proof coverage. The fixture set now
+    locks the proof output for overwriting non-empty account code with new
+    non-empty code, including the updated code hash, retained empty storage
+    root, and missing storage proof; retained-state `eth_getProof` now verifies
+    the same committed block-hash snapshot through the RPC path.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

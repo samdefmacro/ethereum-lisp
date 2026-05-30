@@ -1177,6 +1177,51 @@
       }
     },
     {
+      "name": "code-update-overwrites-code-hash-proof",
+      "tags": ["present-account", "storage-missing", "code-update-proof", "state-trie-leaf-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000109",
+          "balance": 1
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000109",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000109",
+          "code": "0x6002600301"
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000109",
+        "storageKeys": [
+          "0x000000000000000000000000000000000000000000000000000000000000000b"
+        ]
+      },
+      "expectedRoot": "0xa71076e81cddb7521d7345f5aa21a0b5781991a366f66861e5faca0a336798ad",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000109",
+        "accountProof": [
+          "0xf86aa1201fa902a00209a1fa9b07bda3b15f8a59a27ed99720a2ec372bd9cbc9b52c352fb846f8448001a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a048abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8"
+        ],
+        "balance": "0x1",
+        "codeHash": "0x48abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": [
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000000b",
+            "value": "0x0",
+            "proof": null
+          }
+        ]
+      }
+    },
+    {
       "name": "code-created-account-delete-prunes-proof",
       "tags": ["empty-state-proof", "missing-account", "storage-missing", "code-delete-proof", "geth-shaped-result"],
       "operations": [
