@@ -121,6 +121,10 @@ fixes in those areas are allowed; expansion is not.
   proof node for the three-account branch-root case against geth's root-node
   RLP, adding direct proof encoding coverage on top of the secure account root
   hashes.
+  The selected EEST-style trie subset now includes geth `TestEmptyValues`,
+  proving that empty string updates delete existing keys and land on the same
+  reference root as the explicit delete sequence while still exercising the
+  branch-preserving delete path.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now

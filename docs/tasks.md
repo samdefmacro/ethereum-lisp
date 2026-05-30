@@ -2102,6 +2102,12 @@ splits can land after the Phase A smoke path closes.
     first deterministic account address against geth's root-node RLP from
     commit `8a0223e`, so the secure account branch encoding is locked by a
     direct proof-node comparison as well as by the root hash.
+    Added the geth `TestEmptyValues` sequence to the selected EEST-style trie
+    subset. The new case replays the same `do` / `ether` / `horse` /
+    `shaman` / `doge` / `dog` progression as the delete reference, but uses
+    empty string updates for `ether` and `shaman`, locking geth's final
+    `0x5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84`
+    root and gating empty-value deletes through branch-preserving deletion.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
