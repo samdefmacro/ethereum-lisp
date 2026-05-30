@@ -367,7 +367,9 @@
     "state-trie-extension-missing-account-after-clear-proof"
     "nethermind-state-trie-branch-extension-missing-account-proof"
     "state-trie-branch-extension-missing-account-after-clear-proof"
-    "geth-secure-account-state-proof"))
+    "geth-secure-account-state-proof"
+    "geth-secure-account-state-second-account-proof"
+    "geth-secure-account-state-third-account-proof"))
 
 (defparameter +state-proof-fixture-required-tags+
   '("empty-state-proof"

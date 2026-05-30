@@ -463,7 +463,10 @@ state-proof fixtures: the deterministic account nonce/balance set from
 first account, tying state proof replay to the same reference account-trie
 coverage used by the trie and state-root gates.
 Retained-state `eth_getProof` now replays that same secure account snapshot by
-block hash and compares the RPC proof with the core proof primitive.
+block hash and compares the RPC proof with the core proof primitive. The
+secure account proof fixture now covers all three deterministic accounts under
+that root, so each hashed branch child is represented by exact account proof
+nodes.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.

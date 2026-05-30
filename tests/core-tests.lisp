@@ -8150,8 +8150,16 @@
                                (hash32-to-hex (block-hash block)))))))
     (let* ((store (make-engine-payload-memory-store))
            (state (make-state-db))
-           (address
-             (address-from-hex "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f")))
+           (cases
+             '(("0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f"
+                "0xb79ef856f65f67cf"
+                "0x2077ccce0d8fc159")
+               ("0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0"
+                "0xe242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4f"
+                "0x64bed6e2edf354c3")
+               ("0xb10d394651850fd4a178892ee285ece151145578"
+                "0x20efcd6cea84b6925e607be06371"
+                "0x1ec678fcc3aea65a"))))
       (add-account state
                    "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f"
                    2339563716805116249
@@ -8165,31 +8173,35 @@
                    2217592893536642650
                    668036214256246407260665125299057)
       (let* ((block (commit-state-block store state 30 300))
-             (response (engine-rpc-handle-request
-                        (proof-request address block)
-                        store
-                        (make-chain-config)))
-             (proof (field response "result"))
-             (expected-proof (state-db-get-proof state address nil))
-             (decoded-proof (state-proof-result-from-rpc-object proof)))
+             (config (make-chain-config)))
         (is (string= "0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d"
                      (state-db-root-hex state)))
-        (is (equal (state-proof-result-rpc-object expected-proof)
-                   proof))
-        (is (string= (address-to-hex address)
-                     (field proof "address")))
-        (is (string= "0xb79ef856f65f67cf"
-                     (field proof "balance")))
-        (is (string= "0x2077ccce0d8fc159"
-                     (field proof "nonce")))
-        (is (string= (hash32-to-hex +empty-code-hash+)
-                     (field proof "codeHash")))
-        (is (string= (hash32-to-hex +empty-trie-hash+)
-                     (field proof "storageHash")))
-        (is (= 2 (length (field proof "accountProof"))))
-        (is (null (field proof "storageProof")))
-        (is (state-db-verify-proof (state-db-root state)
-                                   decoded-proof))))))
+        (dolist (case cases)
+          (destructuring-bind (address-hex balance nonce) case
+            (let* ((address (address-from-hex address-hex))
+                   (response (engine-rpc-handle-request
+                              (proof-request address block)
+                              store
+                              config))
+                   (proof (field response "result"))
+                   (expected-proof (state-db-get-proof state address nil))
+                   (decoded-proof (state-proof-result-from-rpc-object proof)))
+              (is (equal (state-proof-result-rpc-object expected-proof)
+                         proof))
+              (is (string= (address-to-hex address)
+                           (field proof "address")))
+              (is (string= balance
+                           (field proof "balance")))
+              (is (string= nonce
+                           (field proof "nonce")))
+              (is (string= (hash32-to-hex +empty-code-hash+)
+                           (field proof "codeHash")))
+              (is (string= (hash32-to-hex +empty-trie-hash+)
+                           (field proof "storageHash")))
+              (is (= 2 (length (field proof "accountProof"))))
+              (is (null (field proof "storageProof")))
+              (is (state-db-verify-proof (state-db-root state)
+                                         decoded-proof)))))))))
 
 (deftest eth-rpc-get-proof-missing-clear-nontrivial-state-tries
   (labels ((field (object name)

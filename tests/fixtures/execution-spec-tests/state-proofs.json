@@ -3610,6 +3610,88 @@
         "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
         "storageProof": []
       }
+    },
+    {
+      "name": "geth-secure-account-state-second-account-proof",
+      "tags": ["present-account", "state-trie-branch-proof", "geth-secure-account-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f",
+          "nonce": 2339563716805116249,
+          "balance": 13231285807645419471
+        },
+        {
+          "op": "setAccount",
+          "address": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+          "nonce": 7259475919510918339,
+          "balance": 1420263156754097894072208833565313120560341020854497370086991
+        },
+        {
+          "op": "setAccount",
+          "address": "0xb10d394651850fd4a178892ee285ece151145578",
+          "nonce": 2217592893536642650,
+          "balance": 668036214256246407260665125299057
+        }
+      ],
+      "request": {
+        "address": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+        "storageKeys": []
+      },
+      "expectedRoot": "0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d",
+      "expectedProof": {
+        "address": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+        "accountProof": [
+          "0xf871a07cd36aa83de9c2f6f770f527f34f0a126d41e9963a78b34257103f3ed1d268f3808080a01fae88636401e2a7d6b7087781abc8fccb543993a894e3fd19fbe746508c03e880808080808080a0132e52cd585751086b933b660062b4dbb5fbe8900990933415b4cd153060498d80808080",
+          "0xf88aa038913c8209c024043db2900e320f4e86eed01aaa6bcce6db1b39dc65ae0c8614b867f8658864bed6e2edf354c399e242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0xe242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4f",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x64bed6e2edf354c3",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
+    },
+    {
+      "name": "geth-secure-account-state-third-account-proof",
+      "tags": ["present-account", "state-trie-branch-proof", "geth-secure-account-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f",
+          "nonce": 2339563716805116249,
+          "balance": 13231285807645419471
+        },
+        {
+          "op": "setAccount",
+          "address": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+          "nonce": 7259475919510918339,
+          "balance": 1420263156754097894072208833565313120560341020854497370086991
+        },
+        {
+          "op": "setAccount",
+          "address": "0xb10d394651850fd4a178892ee285ece151145578",
+          "nonce": 2217592893536642650,
+          "balance": 668036214256246407260665125299057
+        }
+      ],
+      "request": {
+        "address": "0xb10d394651850fd4a178892ee285ece151145578",
+        "storageKeys": []
+      },
+      "expectedRoot": "0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d",
+      "expectedProof": {
+        "address": "0xb10d394651850fd4a178892ee285ece151145578",
+        "accountProof": [
+          "0xf871a07cd36aa83de9c2f6f770f527f34f0a126d41e9963a78b34257103f3ed1d268f3808080a01fae88636401e2a7d6b7087781abc8fccb543993a894e3fd19fbe746508c03e880808080808080a0132e52cd585751086b933b660062b4dbb5fbe8900990933415b4cd153060498d80808080",
+          "0xf87fa03f57ed030b55a3ad455a2e178c4f0f8f3751e133a79f50311d30985f681c632eb85cf85a881ec678fcc3aea65a8e20efcd6cea84b6925e607be06371a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x20efcd6cea84b6925e607be06371",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x1ec678fcc3aea65a",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
     }
   ]
 }

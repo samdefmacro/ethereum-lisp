@@ -2755,6 +2755,12 @@ splits can land after the Phase A smoke path closes.
     the returned geth-shaped proof with `state-db-get-proof`, checks account
     fields and proof depth, and verifies the decoded proof against the
     committed root.
+  - Progress: broadened the geth-derived secure account state proof coverage
+    across all three deterministic `makeAccounts` accounts. The state-proof
+    fixture set now locks exact geth-shaped account proof nodes for each
+    hashed branch child, and the retained-state `eth_getProof` RPC regression
+    verifies all three account paths against the same committed block-hash
+    snapshot.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
