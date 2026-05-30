@@ -2195,6 +2195,11 @@ splits can land after the Phase A smoke path closes.
     deleted `shaman` missing proof after the geth update/delete sequence
     compresses back to an extension root, and the coverage gate requires a
     deletion-derived proof-node RLP case.
+    Promoted geth `TestEmptyValues` into the seed trie fixture runner. The
+    local trie-vector format now permits empty `put` values where `mpt-put`
+    interprets them as deletes, and the new case locks the same geth reference
+    root, retained/missing lookups, and proof-node RLP prefixes as the explicit
+    delete sequence behind an `empty-value-delete` coverage gate.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

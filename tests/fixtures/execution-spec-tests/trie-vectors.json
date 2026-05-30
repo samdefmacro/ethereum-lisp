@@ -331,6 +331,51 @@
       ]
     },
     {
+      "name": "geth-empty-value-sequence",
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "delete-collapse", "lookup-assertions", "empty-value-delete", "delete-proof-node-rlp"],
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "ether", "valueAscii": "wookiedoo" },
+        { "op": "put", "keyAscii": "horse", "valueAscii": "stallion" },
+        { "op": "put", "keyAscii": "shaman", "valueAscii": "horse" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "put", "keyAscii": "ether", "valueAscii": "" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "shaman", "valueAscii": "" }
+      ],
+      "expectedRoot": "0x5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [6],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "horse", "valueAscii": "stallion" },
+        { "keyAscii": "doge", "valueAscii": "coin" },
+        { "keyAscii": "dog", "valueAscii": "puppy" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "ether" },
+        { "keyAscii": "shaman" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyAscii": "dog",
+          "nodeRlps": [
+            "0xe216a0bd3ee507e6c67cfefca98f84be47c1bbc009315fabc4405db4ba32190374572a",
+            "0xf84080808080a094a9f95bd89698e4da1812e0518053813b4d5b87caaf6b3c6fa57e9e50c0ff68808080cf85206f727365887374616c6c696f6e8080808080808080",
+            "0xe482006fa0d43b87fdcd4217013ccc92d04662e12d36e4cc25dc690077cd821a1956fc3e36",
+            "0xf3808080808080de17dc808080808080c63584636f696e8080808080808080808570757070798080808080808080808476657262"
+          ]
+        },
+        {
+          "keyAscii": "shaman",
+          "nodeRlps": [
+            "0xe216a0bd3ee507e6c67cfefca98f84be47c1bbc009315fabc4405db4ba32190374572a"
+          ]
+        }
+      ]
+    },
+    {
       "name": "geth-replication-sequence",
       "tags": ["branch-root", "branch-child-references", "branch-children", "hashed-child-reference", "lookup-assertions", "proof-node-rlp"],
       "operations": [

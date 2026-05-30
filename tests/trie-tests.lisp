@@ -99,6 +99,7 @@
     "hex-value"
     "secure-key"
     "lookup-assertions"
+    "empty-value-delete"
     "single-node-proof"
     "proof-node-rlp"
     "delete-proof-node-rlp"
@@ -117,6 +118,7 @@
     "duplicate-key-overwrites-leaf-value"
     "geth-insert-shared-prefix"
     "geth-delete-sequence"
+    "geth-empty-value-sequence"
     "geth-replication-sequence"
     "geth-random-cases-sequence"
     "nethermind-partial-path-proof-nodes"
@@ -174,6 +176,7 @@
     "hex-value"
     "secure-key"
     "lookup-assertions"
+    "empty-value-delete"
     "single-node-proof"
     "proof-node-rlp"
     "delete-proof-node-rlp"
@@ -261,7 +264,7 @@
     (error (condition)
       (error "~A must be hex bytes: ~A" label condition))))
 
-(defun validate-trie-fixture-value-fields (object label)
+(defun validate-trie-fixture-value-fields (object label &key allow-empty)
   (let ((has-hex (fixture-field-present-p object "valueHex"))
         (has-ascii (fixture-field-present-p object "valueAscii")))
     (unless (or has-hex has-ascii)
@@ -269,15 +272,19 @@
     (when (and has-hex has-ascii)
       (error "~A must not include both valueAscii and valueHex" label))
     (when has-ascii
-      (validate-trie-fixture-non-empty-string
-       (fixture-object-field object "valueAscii")
-       (format nil "~A valueAscii" label)))
+      (if allow-empty
+          (unless (stringp (fixture-object-field object "valueAscii"))
+            (error "~A valueAscii must be a string" label))
+          (validate-trie-fixture-non-empty-string
+           (fixture-object-field object "valueAscii")
+           (format nil "~A valueAscii" label))))
     (when has-hex
       (let ((value (fixture-object-field object "valueHex")))
         (validate-trie-fixture-byte-field
          value
          (format nil "~A valueHex" label))
-        (when (zerop (length (hex-to-bytes value)))
+        (when (and (not allow-empty)
+                   (zerop (length (hex-to-bytes value))))
           (error "~A valueHex must not be empty" label))))))
 
 (defun validate-trie-fixture-metadata (fixture)
@@ -351,7 +358,8 @@
       ((string= op "put")
        (validate-trie-fixture-value-fields
         operation
-        (format nil "Trie fixture case ~A put operation" case-name)))
+        (format nil "Trie fixture case ~A put operation" case-name)
+        :allow-empty t))
       ((string= op "delete")
        (when (fixture-field-present-p operation "valueAscii")
          (error "Trie fixture case ~A delete operation must not include valueAscii"
@@ -2125,7 +2133,8 @@
         (setf entries (remove key entries :key #'car :test #'bytes=))
         (cond
           ((string= op "put")
-           (push (cons key (trie-fixture-value operation)) entries))
+           (let ((value (trie-fixture-value operation)))
+             (push (cons key (and (plusp (length value)) value)) entries)))
           ((string= op "delete")
            (push (cons key nil) entries))
           (t (error "Unknown trie fixture operation: ~A" op)))))
@@ -2844,6 +2853,13 @@
        (remove-if
         (lambda (case)
           (string= "geth-large-value-branch"
+                   (fixture-object-field case "name")))
+        cases)))
+    (signals error
+      (validate-trie-fixture-case-coverage
+       (remove-if
+        (lambda (case)
+          (string= "geth-empty-value-sequence"
                    (fixture-object-field case "name")))
         cases)))
     (let ((+trie-fixture-required-case-names+

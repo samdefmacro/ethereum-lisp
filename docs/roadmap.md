@@ -475,7 +475,10 @@ seed set locks Nethermind's `GetBranchNodesWithPartialPath` root and branch
 node encodings for the shared-prefix hex-key case, including the branch RLP
 that Nethermind records as geth-compatible output. The geth `TestDelete`
 replay now also locks exact proof-node RLP prefixes for a retained key and a
-deleted-key missing proof after deletion-driven extension compression.
+deleted-key missing proof after deletion-driven extension compression. The
+seed fixture runner also accepts empty `put` values as delete operations,
+matching geth `TestEmptyValues` and locking that path to the same root,
+lookup, and proof-node encoding expectations.
 Persistence integration, deletion edge cases, and broader fixture
 compatibility remain.
 The selected EEST-style trie subset also covers secure hex byte-string
