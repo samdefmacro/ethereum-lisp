@@ -162,7 +162,10 @@ fixes in those areas are allowed; expansion is not.
   separately. The EEST trie-test adapter now also consumes optional `out`
   final-output maps, and the selected plain and secure subset verifies
   explicit present/missing output keys with trie lookup plus proof
-  verification after root replay. The selected secure trie subset now also
+  verification after root replay. Object-form trie-test inputs now also replay
+  all key/value entry permutations, matching Nethermind's unordered
+  `trieanyorder` treatment before broader pinned trie imports are enabled. The
+  selected secure trie subset now also
   gates duplicate-key
   overwrites, so secure-key replay keeps the StateTrie-like final-write-wins
   boundary distinct from plain trie overwrite coverage. State-root fixtures now

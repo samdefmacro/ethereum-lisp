@@ -1883,6 +1883,12 @@ splits can land after the Phase A smoke path closes.
     selections so future pinned trie imports can consume fixture-provided
     final-output expectations instead of relying only on operation-derived
     touched-key checks.
+    Added Nethermind-style permutation replay for EEST trie-test object-form
+    inputs. Object-form plain and secure cases now replay all key/value entry
+    orderings and require the same expected root, with summary gates for total,
+    secure, and plain permutation replay counts. This keeps unordered JSON
+    object fixtures aligned with the reference `trieanyorder` behavior before
+    broader pinned trie imports are enabled.
     Added matching field-name and alloc-address type guards to the Phase A
     Shanghai genesis fixture validator, so malformed pinned genesis wrappers
     fail before lower-level field matching or address decoding.

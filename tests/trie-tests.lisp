@@ -947,9 +947,9 @@
             for index from 0
             collect (normalize-eest-trie-test-entry case-name entry index))))
 
-(defun run-eest-trie-test-case (case)
+(defun run-eest-trie-test-entries (case entries)
   (let ((trie (make-mpt)))
-    (dolist (entry (fixture-required-field case "entries"))
+    (dolist (entry entries)
       (let ((trie-key (eest-trie-test-entry-trie-key case entry)))
         (if (fixture-field-present-p entry "delete")
             (mpt-delete trie trie-key)
@@ -960,6 +960,11 @@
                       (format nil "EEST trie test case ~A in entry value"
                               (fixture-required-field case "name")))))))
     trie))
+
+(defun run-eest-trie-test-case (case)
+  (run-eest-trie-test-entries
+   case
+   (fixture-required-field case "entries")))
 
 (defun eest-trie-test-entry-trie-key (case entry)
   (let ((key (eest-trie-test-byte-string
@@ -1083,6 +1088,49 @@
                   key)))))
        output))))
 
+(defun eest-trie-test-object-form-case-p (case)
+  (string= "object" (fixture-required-field case "inputForm")))
+
+(defun eest-trie-test-remove-nth (index list)
+  (loop for item in list
+        for i from 0
+        unless (= i index)
+          collect item))
+
+(defun eest-trie-test-entry-permutations (entries)
+  (if (endp entries)
+      (list nil)
+      (loop for entry in entries
+            for index from 0
+            append
+            (mapcar (lambda (tail)
+                      (cons entry tail))
+                    (eest-trie-test-entry-permutations
+                     (eest-trie-test-remove-nth index entries))))))
+
+(defun eest-trie-test-object-form-permutation-count (case)
+  (if (eest-trie-test-object-form-case-p case)
+      (length
+       (eest-trie-test-entry-permutations
+        (fixture-required-field case "entries")))
+      0))
+
+(defun assert-eest-trie-test-object-form-permutations (case)
+  (when (eest-trie-test-object-form-case-p case)
+    (let ((name (fixture-required-field case "name"))
+          (expected-root (fixture-required-field case "root")))
+      (dolist (entries
+               (eest-trie-test-entry-permutations
+                (fixture-required-field case "entries")))
+        (let ((actual-root
+                (mpt-root-hex
+                 (run-eest-trie-test-entries case entries))))
+          (unless (string= expected-root actual-root)
+            (error "EEST trie test case ~A object-form permutation root mismatch: expected ~A, got ~A"
+                   name
+                   expected-root
+                   actual-root)))))))
+
 (defun assert-eest-trie-test-case-root (case)
   (let* ((trie (run-eest-trie-test-case case))
          (name (fixture-required-field case "name"))
@@ -1095,6 +1143,7 @@
              actual-root))
     (assert-eest-trie-test-case-lookups case trie)
     (assert-eest-trie-test-case-explicit-output case trie)
+    (assert-eest-trie-test-object-form-permutations case)
     trie))
 
 (defun assert-eest-trie-test-case-proof-present
@@ -1842,6 +1891,18 @@
                  for input-form in input-forms
                  count (and secure-p
                             (string= "object" input-form))))
+         (object-form-permutation-counts
+           (mapcar #'eest-trie-test-object-form-permutation-count cases))
+         (secure-object-form-permutation-counts
+           (loop for secure-p in secure-flags
+                 for count in object-form-permutation-counts
+                 when secure-p
+                   collect count))
+         (plain-object-form-permutation-counts
+           (loop for secure-p in secure-flags
+                 for count in object-form-permutation-counts
+                 unless secure-p
+                   collect count))
          (secure-object-form-delete-entry-count
            (loop for secure-p in secure-flags
                  for input-form in input-forms
@@ -1894,6 +1955,16 @@
            object-form-empty-value-delete-entry-count)
      (cons "objectFormWriteOnlyCaseCount" object-form-write-only-case-count)
      (cons "secureObjectFormCaseCount" secure-object-form-case-count)
+     (cons "objectFormPermutationReplayCount"
+           (reduce #'+ object-form-permutation-counts :initial-value 0))
+     (cons "secureObjectFormPermutationReplayCount"
+           (reduce #'+
+                   secure-object-form-permutation-counts
+                   :initial-value 0))
+     (cons "plainObjectFormPermutationReplayCount"
+           (reduce #'+
+                   plain-object-form-permutation-counts
+                   :initial-value 0))
      (cons "secureObjectFormDeleteEntryCount"
            secure-object-form-delete-entry-count)
      (cons "secureObjectFormEmptyValueDeleteEntryCount"
@@ -2063,8 +2134,14 @@
       (error "Phase A EEST trie subset must include an object-form empty-value delete entry"))
     (when (zerop (fixture-object-field summary "objectFormWriteOnlyCaseCount"))
       (error "Phase A EEST trie subset must include an object-form write-only case"))
+    (when (zerop (fixture-object-field summary "objectFormPermutationReplayCount"))
+      (error "Phase A EEST trie subset must include object-form permutation replay"))
     (when (zerop (fixture-object-field summary "secureObjectFormCaseCount"))
       (error "Phase A EEST trie subset must include a secure object-form input case"))
+    (when (zerop (fixture-object-field summary "secureObjectFormPermutationReplayCount"))
+      (error "Phase A EEST trie subset must include secure object-form permutation replay"))
+    (when (zerop (fixture-object-field summary "plainObjectFormPermutationReplayCount"))
+      (error "Phase A EEST trie subset must include plain object-form permutation replay"))
     (when (zerop (fixture-object-field summary "secureObjectFormDeleteEntryCount"))
       (error "Phase A EEST trie subset must include a secure object-form delete entry"))
     (when (zerop (fixture-object-field summary "secureObjectFormEmptyValueDeleteEntryCount"))
@@ -3622,6 +3699,13 @@
     (is (= 2 (fixture-object-field summary "objectFormEmptyValueDeleteEntryCount")))
     (is (= 3 (fixture-object-field summary "objectFormWriteOnlyCaseCount")))
     (is (= 4 (fixture-object-field summary "secureObjectFormCaseCount")))
+    (is (= 23 (fixture-object-field summary "objectFormPermutationReplayCount")))
+    (is (= 12 (fixture-object-field
+               summary
+               "secureObjectFormPermutationReplayCount")))
+    (is (= 11 (fixture-object-field
+               summary
+               "plainObjectFormPermutationReplayCount")))
     (is (= 3 (fixture-object-field summary "secureObjectFormDeleteEntryCount")))
     (is (= 1 (fixture-object-field
               summary
