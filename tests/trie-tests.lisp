@@ -166,6 +166,41 @@
     "delete-root-branch-child-collapses-to-root-value-leaf"
     "geth-general-range-iteration"))
 
+(defparameter +trie-fixture-reference-case-requirements+
+  '(("geth-one-element-proof" . :plain)
+    ("geth-long-leaf-value" . :plain)
+    ("geth-large-value-branch" . :plain)
+    ("geth-general-range-iteration" . :plain)
+    ("geth-tiny-account-step-1" . :plain)
+    ("geth-tiny-account-step-2" . :plain)
+    ("geth-tiny-account-step-3" . :plain)
+    ("geth-insert-shared-prefix" . :plain)
+    ("geth-delete-sequence" . :plain)
+    ("geth-empty-value-sequence" . :plain)
+    ("geth-replication-sequence" . :plain)
+    ("geth-random-cases-sequence" . :plain)
+    ("nethermind-partial-path-proof-nodes" . :plain)
+    ("geth-secure-account-step-1" . :secure)
+    ("geth-secure-account-step-2" . :secure)
+    ("geth-secure-account-step-3" . :secure)
+    ("geth-secure-delete-sequence" . :secure)))
+
+(defparameter +phase-a-eest-trie-reference-case-requirements+
+  '(("phase-a-trie-multi.json/geth-long-leaf-value" . :plain)
+    ("phase-a-trie-multi.json/geth-large-value-branch" . :plain)
+    ("phase-a-trie-multi.json/geth-tiny-account-step-1" . :plain)
+    ("phase-a-trie-multi.json/geth-tiny-account-step-2" . :plain)
+    ("phase-a-trie-multi.json/geth-tiny-account-step-3" . :plain)
+    ("phase-a-trie-multi.json/geth-insert-shared-prefix" . :plain)
+    ("phase-a-trie-multi.json/geth-delete-sequence" . :plain)
+    ("phase-a-trie-multi.json/geth-empty-value-sequence" . :plain)
+    ("phase-a-trie-multi.json/geth-replication-sequence" . :plain)
+    ("phase-a-trie-multi.json/geth-random-cases-sequence" . :plain)
+    ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1" . :secure)
+    ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2" . :secure)
+    ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3" . :secure)
+    ("phase-a-secureTrie.json/phase-a-secure-zgeth-delete-sequence" . :secure)))
+
 (defparameter +trie-fixture-required-tags+
   '("leaf-root"
     "branch-root"
@@ -810,11 +845,6 @@
     (unless exact-proof-node-rlp-p
       (error "Trie fixture must include exact proof-node RLP coverage"))))
 
-(defun validate-trie-fixture-cases (cases)
-  (validate-trie-fixture-case-coverage cases)
-  (dolist (case cases)
-    (validate-trie-fixture-case-shape case)))
-
 (defun validate-trie-fixture-required-case-names (cases)
   (let ((case-by-name (make-hash-table :test #'equal))
         (seen-required-names (make-hash-table :test #'equal)))
@@ -829,6 +859,52 @@
       (unless (gethash name case-by-name)
         (error "Trie fixture is missing required seed case ~A"
                name)))))
+
+(defun trie-reference-case-mode (case)
+  (if (fixture-object-field case "secure")
+      :secure
+      :plain))
+
+(defun validate-trie-reference-case-requirements
+    (cases requirements label)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-requirements (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (requirement requirements)
+      (destructuring-bind (name . expected-mode) requirement
+        (unless (member expected-mode '(:plain :secure))
+          (error "~A reference case ~A has unknown required mode ~A"
+                 label
+                 name
+                 expected-mode))
+        (when (gethash name seen-requirements)
+          (error "~A reference case list has duplicate name ~A"
+                 label
+                 name))
+        (setf (gethash name seen-requirements) t)
+        (let ((case (gethash name case-by-name)))
+          (unless case
+            (error "~A is missing required reference-derived trie case ~A"
+                   label
+                   name))
+          (let ((actual-mode (trie-reference-case-mode case)))
+            (unless (eq actual-mode expected-mode)
+              (error "~A reference-derived trie case ~A must be ~A, got ~A"
+                     label
+                     name
+                     expected-mode
+                     actual-mode))))))))
+
+(defun validate-trie-fixture-cases (cases)
+  (validate-trie-fixture-case-coverage cases)
+  (validate-trie-reference-case-requirements
+   cases
+   +trie-fixture-reference-case-requirements+
+   "Seed trie fixture")
+  (dolist (case cases)
+    (validate-trie-fixture-case-shape case)))
 
 (defun eest-trie-test-json-paths (root)
   (let* ((root-path (pathname root))
@@ -2423,6 +2499,10 @@
                            cases)))))
 
 (defun validate-phase-a-eest-trie-test-coverage (cases)
+  (validate-trie-reference-case-requirements
+   cases
+   +phase-a-eest-trie-reference-case-requirements+
+   "Phase A EEST trie subset")
   (let ((summary (eest-trie-test-case-summary cases)))
     (when (zerop (fixture-object-field summary "secureCaseCount"))
       (error "Phase A EEST trie subset must include a secure trie case"))
@@ -3593,7 +3673,27 @@
     (let ((+trie-fixture-required-case-names+
             '("single-leaf" "single-leaf")))
       (signals error
-        (validate-trie-fixture-required-case-names cases)))))
+        (validate-trie-fixture-required-case-names cases)))
+    (validate-trie-reference-case-requirements
+     cases
+     +trie-fixture-reference-case-requirements+
+     "Seed trie fixture")
+    (signals error
+      (validate-trie-reference-case-requirements
+       cases
+       '(("missing-geth-derived-case" . :plain))
+       "Seed trie fixture"))
+    (signals error
+      (validate-trie-reference-case-requirements
+       cases
+       '(("geth-secure-account-step-3" . :plain))
+       "Seed trie fixture"))
+    (signals error
+      (validate-trie-reference-case-requirements
+       cases
+       '(("geth-long-leaf-value" . :plain)
+         ("geth-long-leaf-value" . :plain))
+       "Seed trie fixture"))))
 
 (deftest optional-eest-trie-test-root-discovery
   (with-execution-spec-tests-trie-test-root (root)
@@ -4088,6 +4188,20 @@
          (summary (eest-trie-test-case-summary selected-cases)))
     (is (= 63 (length cases)))
     (is (= 62 (length selected-cases)))
+    (validate-trie-reference-case-requirements
+     selected-cases
+     +phase-a-eest-trie-reference-case-requirements+
+     "Phase A EEST trie subset")
+    (signals error
+      (validate-trie-reference-case-requirements
+       selected-cases
+       '(("phase-a-trie-multi.json/missing-geth-case" . :plain))
+       "Phase A EEST trie subset"))
+    (signals error
+      (validate-trie-reference-case-requirements
+       selected-cases
+       '(("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3" . :plain))
+       "Phase A EEST trie subset"))
     (let ((case-names
             (mapcar (lambda (case)
                       (fixture-object-field case "name"))

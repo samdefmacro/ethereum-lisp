@@ -2360,6 +2360,12 @@ splits can land after the Phase A smoke path closes.
     multi-entry bounded `mpt-entry-range` output against deterministic
     `mpt-entry-pairs`, so range export semantics are exercised by
     external-style fixtures instead of only the local seed range vector.
+    Added explicit reference-derived trie family gates for the seed fixture and
+    selected Phase A EEST-style subset. The harness now requires the
+    geth-derived proof, long-leaf, large-value, account-step, insert/delete,
+    empty-value, replication, random-case, range, and secure account/delete
+    families plus the Nethermind partial-path proof-node case, and verifies
+    each required family stays on the expected plain or secure trie path.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

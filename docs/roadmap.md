@@ -552,6 +552,10 @@ The selected EEST-style trie subset now derives the same entry-range checks
 for every replayed plain and secure case, comparing range output against final
 entry pairs across full, lower/upper-bounded, equal-bound, and multi-entry
 bounded windows.
+The trie fixture gate now explicitly requires the current geth-derived proof,
+large-value, account-step, insert/delete, empty-value, replication, random,
+range, and secure account/delete families plus the Nethermind partial-path
+proof-node case to remain present on the expected plain or secure path.
 State snapshot export now exposes the same half-open secure-key range ordering
 for account and storage entries, giving later proof/range-sync code a
 deterministic boundary instead of re-scanning hash-table state.
