@@ -1875,6 +1875,14 @@ splits can land after the Phase A smoke path closes.
     comparing Phase A fixture provenance.
     Added a shared fixture format scalar guard so wrappers reject non-string
     format values before comparing expected fixture schema ids.
+    Added `out` support to the EEST trie-test adapter. Selected plain and
+    secure trie cases now carry explicit final-output present/missing key
+    assertions, and replay verifies those outputs with trie lookups plus
+    present/missing proof verification after the root check. Phase A summary
+    gates now require explicit `out` coverage on both plain and secure
+    selections so future pinned trie imports can consume fixture-provided
+    final-output expectations instead of relying only on operation-derived
+    touched-key checks.
     Added matching field-name and alloc-address type guards to the Phase A
     Shanghai genesis fixture validator, so malformed pinned genesis wrappers
     fail before lower-level field matching or address decoding.

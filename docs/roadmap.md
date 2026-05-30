@@ -159,7 +159,11 @@ fixes in those areas are allowed; expansion is not.
   semantics covered outside the array-of-pairs adapter path. The importer now
   preserves the exact empty-value source as well, and the Phase A summary
   gates `0x`, string `""`, and object-form string empty-value deletes
-  separately. The selected secure trie subset now also gates duplicate-key
+  separately. The EEST trie-test adapter now also consumes optional `out`
+  final-output maps, and the selected plain and secure subset verifies
+  explicit present/missing output keys with trie lookup plus proof
+  verification after root replay. The selected secure trie subset now also
+  gates duplicate-key
   overwrites, so secure-key replay keeps the StateTrie-like final-write-wins
   boundary distinct from plain trie overwrite coverage. State-root fixtures now
   also cover storage write-then-zero deletion inside multi-account branch,

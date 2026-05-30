@@ -224,7 +224,7 @@
   '("keyHex" "keyAscii" "nodeRlps"))
 
 (defparameter +eest-trie-test-case-fields+
-  '("in" "root" "secure"))
+  '("in" "out" "root" "secure"))
 
 (defun validate-trie-fixture-object-fields (object allowed-fields label)
   (unless (listp object)
@@ -786,20 +786,27 @@
   (let* ((input (fixture-required-field case "in"))
          (object-form-p (and (listp input)
                              (eest-trie-test-object-entries-p input))))
-    (list
-     (cons "name" name)
-     (cons "entries"
-           (normalize-eest-trie-test-entries name input))
-     (cons "inputForm" (if object-form-p "object" "array"))
-     (cons "secure"
-           (eest-trie-test-normalized-secure-p
-            name
-            case
-            default-secure-p))
-     (cons "root"
-           (eest-trie-test-normalized-root
-            (fixture-required-field case "root")
-            name)))))
+    (append
+     (list
+      (cons "name" name)
+      (cons "entries"
+            (normalize-eest-trie-test-entries name input))
+      (cons "inputForm" (if object-form-p "object" "array"))
+      (cons "secure"
+            (eest-trie-test-normalized-secure-p
+             name
+             case
+             default-secure-p))
+      (cons "root"
+            (eest-trie-test-normalized-root
+             (fixture-required-field case "root")
+             name)))
+     (when (fixture-field-present-p case "out")
+       (list
+        (cons "expectedOut"
+              (normalize-eest-trie-test-output-entries
+               name
+               (fixture-object-field case "out"))))))))
 
 (defun eest-trie-test-normalized-secure-p
     (case-name case &optional default-secure-p)
@@ -905,6 +912,32 @@
                  (list (car entry) (cdr entry))
                  index)))
 
+(defun normalize-eest-trie-test-output-entries (case-name entries)
+  (unless (and (listp entries)
+               (eest-trie-test-object-entries-p entries))
+    (error "EEST trie test case ~A out must be a JSON object" case-name))
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (entry entries)
+      (let* ((key (car entry))
+             (key-id (bytes-to-hex
+                      (eest-trie-test-byte-string
+                       key
+                       (format nil
+                               "EEST trie test case ~A out object key"
+                               case-name))
+                      :prefix nil)))
+        (when (gethash key-id seen)
+          (error "EEST trie test case ~A out object has duplicate normalized key ~A"
+                 case-name
+                 key))
+        (setf (gethash key-id seen) t))))
+  (loop for entry in (sort (copy-list entries) #'string< :key #'car)
+        for index from 0
+        collect (normalize-eest-trie-test-entry
+                 case-name
+                 (list (car entry) (cdr entry))
+                 index)))
+
 (defun normalize-eest-trie-test-entries (case-name entries)
   (unless (listp entries)
     (error "EEST trie test case ~A in must be a JSON array" case-name))
@@ -964,6 +997,33 @@
      (eest-trie-test-final-entry-map case))
     (values present-count missing-count)))
 
+(defun eest-trie-test-explicit-output-map (case)
+  (let ((output (make-hash-table :test 'equal)))
+    (dolist (entry (fixture-object-field case "expectedOut"))
+      (let ((key-id (bytes-to-hex
+                     (eest-trie-test-entry-trie-key case entry)
+                     :prefix nil)))
+        (if (fixture-field-present-p entry "delete")
+            (setf (gethash key-id output) nil)
+            (setf (gethash key-id output)
+                  (eest-trie-test-byte-string
+                   (fixture-required-field entry "value")
+                   (format nil "EEST trie test case ~A out entry value"
+                           (fixture-required-field case "name")))))))
+    output))
+
+(defun eest-trie-test-explicit-output-counts (case)
+  (let ((present-count 0)
+        (missing-count 0))
+    (maphash
+     (lambda (key-id expected)
+       (declare (ignore key-id))
+       (if expected
+           (incf present-count)
+           (incf missing-count)))
+     (eest-trie-test-explicit-output-map case))
+    (values present-count missing-count)))
+
 (defun assert-eest-trie-test-case-lookups (case trie)
   (let ((name (fixture-required-field case "name"))
         (final (eest-trie-test-final-entry-map case)))
@@ -993,6 +1053,36 @@
                 key)))))
      final)))
 
+(defun assert-eest-trie-test-case-explicit-output (case trie)
+  (when (fixture-field-present-p case "expectedOut")
+    (let ((name (fixture-required-field case "name"))
+          (output (eest-trie-test-explicit-output-map case)))
+      (maphash
+       (lambda (key-id expected)
+         (let* ((key (hex-to-bytes key-id))
+                (actual (mpt-get trie key)))
+           (if expected
+               (progn
+                 (unless (bytes= expected actual)
+                   (error "EEST trie test case ~A out mismatch for key ~A"
+                          name
+                          key-id))
+                 (assert-eest-trie-test-case-proof-present
+                  case
+                  trie
+                  key
+                  expected))
+               (progn
+                 (when actual
+                   (error "EEST trie test case ~A expected out-missing key ~A"
+                          name
+                          key-id))
+                 (assert-eest-trie-test-case-proof-missing
+                  case
+                  trie
+                  key)))))
+       output))))
+
 (defun assert-eest-trie-test-case-root (case)
   (let* ((trie (run-eest-trie-test-case case))
          (name (fixture-required-field case "name"))
@@ -1004,6 +1094,7 @@
              expected-root
              actual-root))
     (assert-eest-trie-test-case-lookups case trie)
+    (assert-eest-trie-test-case-explicit-output case trie)
     trie))
 
 (defun assert-eest-trie-test-case-proof-present
@@ -1375,6 +1466,58 @@
                      (eest-trie-test-final-proof-counts case)
                    (declare (ignore present-count))
                    missing-count)))
+         (explicit-output-flags
+           (mapcar (lambda (case)
+                     (fixture-field-present-p case "expectedOut"))
+                   cases))
+         (explicit-output-entry-counts
+           (mapcar (lambda (case)
+                     (if (fixture-field-present-p case "expectedOut")
+                         (length (fixture-object-field case "expectedOut"))
+                         0))
+                   cases))
+         (explicit-output-present-counts
+           (loop for case in cases
+                 collect
+                 (multiple-value-bind (present-count missing-count)
+                     (eest-trie-test-explicit-output-counts case)
+                   (declare (ignore missing-count))
+                   present-count)))
+         (explicit-output-missing-counts
+           (loop for case in cases
+                 collect
+                 (multiple-value-bind (present-count missing-count)
+                     (eest-trie-test-explicit-output-counts case)
+                   (declare (ignore present-count))
+                   missing-count)))
+         (secure-explicit-output-case-count
+           (loop for secure-p in secure-flags
+                 for output-p in explicit-output-flags
+                 count (and secure-p output-p)))
+         (plain-explicit-output-case-count
+           (loop for secure-p in secure-flags
+                 for output-p in explicit-output-flags
+                 count (and (not secure-p) output-p)))
+         (secure-explicit-output-present-counts
+           (loop for secure-p in secure-flags
+                 for count in explicit-output-present-counts
+                 when secure-p
+                   collect count))
+         (plain-explicit-output-present-counts
+           (loop for secure-p in secure-flags
+                 for count in explicit-output-present-counts
+                 unless secure-p
+                   collect count))
+         (secure-explicit-output-missing-counts
+           (loop for secure-p in secure-flags
+                 for count in explicit-output-missing-counts
+                 when secure-p
+                   collect count))
+         (plain-explicit-output-missing-counts
+           (loop for secure-p in secure-flags
+                 for count in explicit-output-missing-counts
+                 unless secure-p
+                   collect count))
          (secure-proof-present-counts
            (loop for secure-p in secure-flags
                  for count in proof-present-counts
@@ -1870,6 +2013,28 @@
            (reduce #'+ secure-proof-missing-counts :initial-value 0))
      (cons "plainProofMissingKeyCount"
            (reduce #'+ plain-proof-missing-counts :initial-value 0))
+     (cons "explicitOutputCaseCount"
+           (count t explicit-output-flags))
+     (cons "secureExplicitOutputCaseCount"
+           secure-explicit-output-case-count)
+     (cons "plainExplicitOutputCaseCount"
+           plain-explicit-output-case-count)
+     (cons "explicitOutputEntryCounts"
+           explicit-output-entry-counts)
+     (cons "explicitOutputEntryCount"
+           (reduce #'+ explicit-output-entry-counts :initial-value 0))
+     (cons "explicitOutputPresentKeyCount"
+           (reduce #'+ explicit-output-present-counts :initial-value 0))
+     (cons "secureExplicitOutputPresentKeyCount"
+           (reduce #'+ secure-explicit-output-present-counts :initial-value 0))
+     (cons "plainExplicitOutputPresentKeyCount"
+           (reduce #'+ plain-explicit-output-present-counts :initial-value 0))
+     (cons "explicitOutputMissingKeyCount"
+           (reduce #'+ explicit-output-missing-counts :initial-value 0))
+     (cons "secureExplicitOutputMissingKeyCount"
+           (reduce #'+ secure-explicit-output-missing-counts :initial-value 0))
+     (cons "plainExplicitOutputMissingKeyCount"
+           (reduce #'+ plain-explicit-output-missing-counts :initial-value 0))
      (cons "secureWriteEntryCount"
            (reduce #'+ secure-write-counts :initial-value 0))
      (cons "plainWriteEntryCount"
@@ -1930,6 +2095,16 @@
       (error "Phase A EEST trie subset must include plain present-key proof coverage"))
     (when (zerop (fixture-object-field summary "plainProofMissingKeyCount"))
       (error "Phase A EEST trie subset must include plain missing-key proof coverage"))
+    (when (zerop (fixture-object-field summary "explicitOutputCaseCount"))
+      (error "Phase A EEST trie subset must include explicit out assertions"))
+    (when (zerop (fixture-object-field summary "secureExplicitOutputCaseCount"))
+      (error "Phase A EEST trie subset must include secure explicit out assertions"))
+    (when (zerop (fixture-object-field summary "plainExplicitOutputCaseCount"))
+      (error "Phase A EEST trie subset must include plain explicit out assertions"))
+    (when (zerop (fixture-object-field summary "explicitOutputPresentKeyCount"))
+      (error "Phase A EEST trie subset must include present-key explicit out assertions"))
+    (when (zerop (fixture-object-field summary "explicitOutputMissingKeyCount"))
+      (error "Phase A EEST trie subset must include missing-key explicit out assertions"))
     (when (zerop (fixture-object-field summary "secureNonEmptyRootCount"))
       (error "Phase A EEST trie subset must include a non-empty secure trie root"))
     (when (zerop (fixture-object-field summary "secureBranchRootCount"))
@@ -3513,6 +3688,16 @@
     (is (= 34 (fixture-object-field summary "proofMissingKeyCount")))
     (is (= 13 (fixture-object-field summary "secureProofMissingKeyCount")))
     (is (= 21 (fixture-object-field summary "plainProofMissingKeyCount")))
+    (is (= 2 (fixture-object-field summary "explicitOutputCaseCount")))
+    (is (= 1 (fixture-object-field summary "secureExplicitOutputCaseCount")))
+    (is (= 1 (fixture-object-field summary "plainExplicitOutputCaseCount")))
+    (is (= 5 (fixture-object-field summary "explicitOutputEntryCount")))
+    (is (= 3 (fixture-object-field summary "explicitOutputPresentKeyCount")))
+    (is (= 2 (fixture-object-field summary "secureExplicitOutputPresentKeyCount")))
+    (is (= 1 (fixture-object-field summary "plainExplicitOutputPresentKeyCount")))
+    (is (= 2 (fixture-object-field summary "explicitOutputMissingKeyCount")))
+    (is (= 1 (fixture-object-field summary "secureExplicitOutputMissingKeyCount")))
+    (is (= 1 (fixture-object-field summary "plainExplicitOutputMissingKeyCount")))
     (is (= 54 (fixture-object-field summary "secureWriteEntryCount")))
     (is (= 101 (fixture-object-field summary "plainWriteEntryCount")))
     (is (= 36 (fixture-object-field summary "totalDeleteEntryCount")))

@@ -3,6 +3,10 @@
     "in": [
       ["dog", "puppy"]
     ],
+    "out": {
+      "cat": null,
+      "dog": "puppy"
+    },
     "root": "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
   },
   "geth-long-leaf-value": {

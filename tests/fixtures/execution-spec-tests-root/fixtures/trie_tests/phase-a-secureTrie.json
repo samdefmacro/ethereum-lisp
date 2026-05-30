@@ -4,6 +4,11 @@
       ["dog", "puppy"],
       ["cat", "kitten"]
     ],
+    "out": {
+      "cat": "kitten",
+      "dog": "puppy",
+      "horse": null
+    },
     "root": "8acdeb64a8209f6c7f27168a1767883b15ad7e29ed86bec0e59841bce1dd1268"
   },
   "phase-a-secure-branch-child-branch": {
