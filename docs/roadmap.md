@@ -197,10 +197,10 @@ fixes in those areas are allowed; expansion is not.
   extension-shaped storage-trie update proofs where one slot changes while
   sibling and missing-slot proofs remain valid against the updated storage
   root.
-  Code-update state-root fixtures now also cover branch-root and
-  extension-root account tries, asserting the updated code hash, retained
-  sibling account projection, and non-leaf state-trie shape/reference
-  invariants.
+  Code-update state-root fixtures now also cover branch-root,
+  extension-root, and branch-with-extension-child account tries, asserting the
+  updated code hash, retained sibling account projection, and non-leaf
+  state-trie shape/reference invariants.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing

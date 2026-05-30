@@ -1292,6 +1292,87 @@
       }
     },
     {
+      "name": "state-trie-branch-extension-code-update-keeps-sibling-root",
+      "tags": [
+        "account-root",
+        "code-root",
+        "code-update",
+        "multi-account",
+        "account-projection",
+        "state-trie-branch",
+        "state-trie-branch-child-references",
+        "state-trie-extension",
+        "state-trie-branch-extension"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000220",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000220",
+          "code": "0x6002600301"
+        }
+      ],
+      "expectedRoot": "0xe31b6f0f47639086a960b1e26b44f33a2c8b27b9615814fc617b0c0f3ae79752",
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0x48abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8",
+          "rlp": "0xf8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a048abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8450281c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8460382012ca056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [12, 13],
+      "expectedStateTrieRootChildShapes": {
+        "12": "leaf",
+        "13": "extension"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "12": "hashed",
+        "13": "hashed"
+      }
+    },
+    {
       "name": "state-trie-branch-delete-collapses-to-leaf-root",
       "tags": [
         "account-root",

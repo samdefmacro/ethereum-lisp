@@ -145,6 +145,7 @@
     "state-trie-branch-extension-storage-delete-keeps-sibling-root"
     "state-trie-branch-extension-account-update-keeps-sibling-root"
     "state-trie-branch-extension-account-update-preserves-code-storage-root"
+    "state-trie-branch-extension-code-update-keeps-sibling-root"
     "single-account-storage-root"
     "storage-update-overwrites-slot-root"
     "storage-update-to-zero-prunes-slot-root"
