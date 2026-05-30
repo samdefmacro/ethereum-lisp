@@ -149,7 +149,10 @@ fixes in those areas are allowed; expansion is not.
   key entries remain charged and projected as source order occurrences rather
   than collapsed sets. It also gates an EIP-2930 address-only access-list
   message-call with no storage keys, keeping address warming cost visible
-  separately from storage-key warming cost. It also gates an EIP-1559
+  separately from storage-key warming cost. The selected Shanghai subset now
+  also gates the same address-only access-list boundary on an EIP-1559
+  dynamic-fee transaction, so dynamic-fee address warming cannot rely on the
+  EIP-2930-only vector. It also gates an EIP-1559
   dynamic-fee message-call with equal priority and max fee caps, locking the
   fee-market decoded-field
   boundary where `maxPriorityFeePerGas == maxFeePerGas` remains valid. The

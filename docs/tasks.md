@@ -724,6 +724,12 @@ ones.
     `accessListWithCallDataVectorCount` plus
     `dynamicFeeAccessListWithCallDataVectorCount` so access-list intrinsic gas
     cannot drift independently from calldata intrinsic gas.
+  - Progress: added an EIP-1559 dynamic-fee address-only access-list vector
+    with no storage keys to the seed envelope fixture and selected EEST-shaped
+    Phase A/full subsets. The summary now gates
+    `dynamicFeeAddressOnlyAccessListVectorCount`, keeping address warming cost
+    visible for dynamic-fee transactions separately from EIP-2930 address-only
+    coverage and dynamic-fee storage-key access-list coverage.
 
 ## P0: Module Boundaries
 

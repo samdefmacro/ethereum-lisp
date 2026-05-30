@@ -435,6 +435,60 @@
       }
     }
   },
+  "typed-eip1559-address-only-access-list-sample": {
+    "txbytes": "02f87b010c01820fa082c35094b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a80d7d6940000000000000000000000000000000000000101c080a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a06a7b60a82a9ad7c29ae79f23a3cc64d301bf85996d7b4a8cc4af83359d01913f",
+    "result": {
+      "Frontier": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Homestead": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "EIP150": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "EIP158": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Byzantium": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Constantinople": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Istanbul": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "Berlin": {
+        "exception": "TransactionException.TYPE_2_TX_PRE_FORK"
+      },
+      "London": {
+        "hash": "cb794b18ac4fb6ffa5830696dc48531a9f38b7bf96dab4c2a6d6a2a2f6d2028f",
+        "sender": "de62be4543e5a94a02959ebea4c7dc88b393f4ee",
+        "intrinsicGas": "0x5b68"
+      },
+      "Paris": {
+        "hash": "cb794b18ac4fb6ffa5830696dc48531a9f38b7bf96dab4c2a6d6a2a2f6d2028f",
+        "sender": "de62be4543e5a94a02959ebea4c7dc88b393f4ee",
+        "intrinsicGas": "0x5b68"
+      },
+      "Shanghai": {
+        "hash": "cb794b18ac4fb6ffa5830696dc48531a9f38b7bf96dab4c2a6d6a2a2f6d2028f",
+        "sender": "de62be4543e5a94a02959ebea4c7dc88b393f4ee",
+        "intrinsicGas": "0x5b68"
+      },
+      "Cancun": {
+        "hash": "cb794b18ac4fb6ffa5830696dc48531a9f38b7bf96dab4c2a6d6a2a2f6d2028f",
+        "sender": "de62be4543e5a94a02959ebea4c7dc88b393f4ee",
+        "intrinsicGas": "0x5b68"
+      },
+      "Prague": {
+        "hash": "cb794b18ac4fb6ffa5830696dc48531a9f38b7bf96dab4c2a6d6a2a2f6d2028f",
+        "sender": "de62be4543e5a94a02959ebea4c7dc88b393f4ee",
+        "intrinsicGas": "0x5b68"
+      }
+    }
+  },
   "typed-eip1559-access-list-sample": {
     "txbytes": "02f8c0010601820fa082c35094b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a80f85bf859940000000000000000000000000000000000000101f842a00000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000280a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a029df7c9b2304c0caf5dda62fe680677fd3a3354a3671bbd02ee03f5ecb854151",
     "result": {
