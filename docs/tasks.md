@@ -863,6 +863,12 @@ ones.
     v5.4.0 `eip7702_set_code_tx` source files to their expected case counts,
     preventing a missing fixture file from being hidden by aggregate exception
     or rejection-stage totals.
+  - Progress: added per-source-file local rejection-stage counts to the pinned
+    Prague/EIP-7702 invalid transaction summary. The regression now locks each
+    of the 12 official v5.4.0 source files to its exact decode,
+    set-code-field-validation, authorization-signature, or accepted
+    distribution, so fixture files cannot drift between local rejection paths
+    while aggregate counts still pass.
 
 ## P0: Module Boundaries
 

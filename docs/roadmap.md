@@ -266,10 +266,11 @@ fixes in those areas are allowed; expansion is not.
   replay also locks the exact exception-to-rejection-stage distribution for the
   official invalid cases, so decode, set-code field, and signature-preflight
   regressions are distinguishable. The invalid transaction summary also locks
-  per-source-file counts for all 12 transcribed v5.4.0 files, so fixture-file
-  omissions cannot hide behind aggregate rejection totals. The same transaction
-  fixture path now also includes a valid EIP-2930 type-1 transaction payload
-  transcribed from pinned v5.4.0
+  per-source-file counts for all 12 transcribed v5.4.0 files plus each file's
+  local rejection-stage distribution, so fixture-file omissions and
+  source-local rejection-path drift cannot hide behind aggregate rejection
+  totals. The same transaction fixture path now also includes a valid EIP-2930
+  type-1 transaction payload transcribed from pinned v5.4.0
   `blockchain_tests_engine/berlin/eip2930_access_list/test_eip2930_tx_validity.json`,
   because the stable release's `transaction_tests` set only exposes invalid
   Prague cases; the seed-alignment gate locks its txbytes, hash, recovered

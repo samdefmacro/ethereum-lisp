@@ -181,6 +181,10 @@
   '("exception" "decodeErrorCount" "fieldValidationErrorCount"
     "signatureValidationErrorCount" "acceptedCount"))
 
+(defparameter +eest-invalid-transaction-source-file-stage-fields+
+  '("sourceFile" "decodeErrorCount" "fieldValidationErrorCount"
+    "signatureValidationErrorCount" "acceptedCount"))
+
 (defun validate-transaction-fixture-object-fields
     (object allowed-fields label)
   (unless (listp object)
@@ -1252,18 +1256,54 @@
       (unless (and (integerp value) (not (minusp value)))
         (error "~A ~A must be a non-negative integer" label field)))))
 
+(defun validate-eest-invalid-transaction-source-file-stage-entry
+    (entry label)
+  (validate-transaction-fixture-object-fields
+   entry
+   +eest-invalid-transaction-source-file-stage-fields+
+   label)
+  (dolist (field +eest-invalid-transaction-source-file-stage-fields+)
+    (unless (fixture-field-present-p entry field)
+      (error "~A is missing ~A" label field)))
+  (validate-transaction-fixture-required-string-field
+   entry "sourceFile" (format nil "~A sourceFile" label))
+  (dolist (field '("decodeErrorCount" "fieldValidationErrorCount"
+                   "signatureValidationErrorCount" "acceptedCount"))
+    (let ((value (fixture-required-field entry field)))
+      (unless (and (integerp value) (not (minusp value)))
+        (error "~A ~A must be a non-negative integer" label field)))))
+
+(defun eest-invalid-transaction-stage-count-entry
+    (key field-name counts)
+  (list
+   (cons field-name key)
+   (cons "decodeErrorCount" (gethash "decode" counts 0))
+   (cons "fieldValidationErrorCount" (gethash "field" counts 0))
+   (cons "signatureValidationErrorCount" (gethash "signature" counts 0))
+   (cons "acceptedCount" (gethash "accepted" counts 0))))
+
 (defun eest-invalid-transaction-exception-stage-entry
     (exception counts)
   (let ((entry
-          (list
-           (cons "exception" exception)
-           (cons "decodeErrorCount" (gethash "decode" counts 0))
-           (cons "fieldValidationErrorCount" (gethash "field" counts 0))
-           (cons "signatureValidationErrorCount" (gethash "signature" counts 0))
-           (cons "acceptedCount" (gethash "accepted" counts 0)))))
+          (eest-invalid-transaction-stage-count-entry
+           exception
+           "exception"
+           counts)))
     (validate-eest-invalid-transaction-rejection-stage-entry
      entry
      "EEST invalid transaction rejection stage summary")
+    entry))
+
+(defun eest-invalid-transaction-source-file-stage-entry
+    (source-file counts)
+  (let ((entry
+          (eest-invalid-transaction-stage-count-entry
+           source-file
+           "sourceFile"
+           counts)))
+    (validate-eest-invalid-transaction-source-file-stage-entry
+     entry
+     "EEST invalid transaction source-file rejection stage summary")
     entry))
 
 (defun eest-invalid-transaction-exception-stage-counts (table)
@@ -1277,12 +1317,24 @@
    :key (lambda (entry)
           (fixture-required-field entry "exception"))))
 
+(defun eest-invalid-transaction-source-file-stage-counts (table)
+  (sort
+   (loop for source-file being the hash-keys of table
+         using (hash-value counts)
+         collect
+         (eest-invalid-transaction-source-file-stage-entry
+          source-file counts))
+   #'string<
+   :key (lambda (entry)
+          (fixture-required-field entry "sourceFile"))))
+
 (defun eest-invalid-transaction-rejection-summary (cases)
   (let ((decode-error-count 0)
         (field-validation-error-count 0)
         (signature-validation-error-count 0)
         (source-file-counts (make-hash-table :test 'equal))
         (exception-counts (make-hash-table :test 'equal))
+        (source-file-stage-counts (make-hash-table :test 'equal))
         (exception-stage-counts (make-hash-table :test 'equal))
         (accepted-names '()))
     (dolist (case cases)
@@ -1292,10 +1344,15 @@
              (stage-counts
                (or (gethash exception exception-stage-counts)
                    (setf (gethash exception exception-stage-counts)
+                         (make-hash-table :test 'equal))))
+             (source-stage-counts
+               (or (gethash source-file source-file-stage-counts)
+                   (setf (gethash source-file source-file-stage-counts)
                          (make-hash-table :test 'equal)))))
         (increment-string-count source-file-counts source-file)
         (increment-string-count exception-counts exception)
         (increment-string-count stage-counts stage)
+        (increment-string-count source-stage-counts stage)
         (cond
           ((string= stage "decode")
            (incf decode-error-count))
@@ -1312,6 +1369,9 @@
      (cons "signatureValidationErrorCount" signature-validation-error-count)
      (cons "sourceFileCounts" (sorted-string-counts source-file-counts))
      (cons "exceptionCounts" (sorted-string-counts exception-counts))
+     (cons "sourceFileStageCounts"
+           (eest-invalid-transaction-source-file-stage-counts
+            source-file-stage-counts))
      (cons "exceptionStageCounts"
            (eest-invalid-transaction-exception-stage-counts
             exception-stage-counts))
@@ -4545,6 +4605,70 @@
              ("TransactionException.TYPE_4_INVALID_AUTHORIZATION_FORMAT" . 44))
            (fixture-required-field invalid-rejection-summary
                                    "exceptionCounts")))
+      (is (equal
+           (list
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_empty_authorization_list.json")
+              ("decodeErrorCount" . 0)
+              ("fieldValidationErrorCount" . 1)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_auth_signature.json")
+              ("decodeErrorCount" . 0)
+              ("fieldValidationErrorCount" . 6)
+              ("signatureValidationErrorCount" . 2)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_address.json")
+              ("decodeErrorCount" . 4)
+              ("fieldValidationErrorCount" . 0)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_auth_chain_id.json")
+              ("decodeErrorCount" . 0)
+              ("fieldValidationErrorCount" . 2)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_auth_chain_id_encoding.json")
+              ("decodeErrorCount" . 4)
+              ("fieldValidationErrorCount" . 0)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_encoded_as_bytes.json")
+              ("decodeErrorCount" . 2)
+              ("fieldValidationErrorCount" . 0)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_extra_element.json")
+              ("decodeErrorCount" . 4)
+              ("fieldValidationErrorCount" . 0)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_missing_element.json")
+              ("decodeErrorCount" . 12)
+              ("fieldValidationErrorCount" . 0)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce.json")
+              ("decodeErrorCount" . 0)
+              ("fieldValidationErrorCount" . 4)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce_as_list.json")
+              ("decodeErrorCount" . 6)
+              ("fieldValidationErrorCount" . 0)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce_encoding.json")
+              ("decodeErrorCount" . 2)
+              ("fieldValidationErrorCount" . 0)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("sourceFile" . "prague/eip7702_set_code_tx/test_invalid_tx_invalid_rlp_encoding.json")
+              ("decodeErrorCount" . 4)
+              ("fieldValidationErrorCount" . 0)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0)))
+           (fixture-required-field invalid-rejection-summary
+                                   "sourceFileStageCounts")))
       (is (equal
            (list
             '(("exception" . "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST")
