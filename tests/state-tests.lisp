@@ -782,6 +782,41 @@
     (is (string= "0x" (bytes-to-hex (state-db-get-code state address))))
     (is (string= empty-root (state-db-root-hex state)))))
 
+(deftest state-db-for-each-account-iterates-deterministically
+  (let ((state (make-state-db))
+        (address-a (address-from-hex "0x0000000000000000000000000000000000000001"))
+        (address-b (address-from-hex "0x0000000000000000000000000000000000000002"))
+        (address-c (address-from-hex "0x0000000000000000000000000000000000000003"))
+        (slot-a (hash32-from-hex
+                 "0x0000000000000000000000000000000000000000000000000000000000000001"))
+        (slot-b (hash32-from-hex
+                 "0x000000000000000000000000000000000000000000000000000000000000000b"))
+        (addresses '())
+        (storage-slots '()))
+    (state-db-set-account state address-c (make-state-account :balance 3))
+    (state-db-set-account state address-a (make-state-account :balance 1))
+    (state-db-set-account state address-b (make-state-account :balance 2))
+    (state-db-set-storage state address-a slot-b 11)
+    (state-db-set-storage state address-a slot-a 1)
+    (state-db-for-each-account
+     state
+     (lambda (address account code storage-entries)
+       (declare (ignore account code))
+       (push (address-to-hex address) addresses)
+       (when (bytes= (address-bytes address-a) (address-bytes address))
+         (setf storage-slots
+               (mapcar (lambda (entry)
+                         (hash32-to-hex (car entry)))
+                       storage-entries)))))
+    (is (equal (list "0x0000000000000000000000000000000000000001"
+                     "0x0000000000000000000000000000000000000002"
+                     "0x0000000000000000000000000000000000000003")
+               (nreverse addresses)))
+    (is (equal (list
+                "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "0x000000000000000000000000000000000000000000000000000000000000000b")
+               storage-slots))))
+
 (deftest state-db-from-genesis-json-applies-alloc
   (let* ((json (concatenate
                 'string

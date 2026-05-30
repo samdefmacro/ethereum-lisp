@@ -2273,6 +2273,10 @@ splits can land after the Phase A smoke path closes.
     replay. The geth three-account TinyTrie seed case now exports final
     key/value pairs, rebuilds a fresh trie from them, and requires the same
     reference root and lookups behind an `entry-pair-replay` gate.
+    Made `state-db-for-each-account` deterministic by sorting exported account
+    addresses and per-account storage slots before invoking snapshot/replay
+    callbacks. This keeps chain-store state snapshot commits and fixture
+    exports independent of Common Lisp hash-table iteration order.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

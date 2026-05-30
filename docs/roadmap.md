@@ -511,7 +511,9 @@ and `0x0608c1d1dc3905fa22204c7a0e43644831c3b6d3def0f274be623a948197e64a`.
 The MPT can now export deterministic final key/value pairs, and the
 three-account TinyTrie fixture rebuilds a fresh trie from that export to match
 geth's iterator-style reconstruction check before broader state snapshot
-persistence lands.
+persistence lands. State snapshot export now also sorts account addresses and
+storage slots before replay callbacks, so retained-state commits and fixture
+exports no longer depend on hash-table iteration order.
 The secure-key counterpart now hashes geth's deterministic account addresses
 before replay and locks the one-, two-, and three-account roots
 `0xc8c796b39027107040d7bae53042070762d888d7ec5e8fa875c95bde2ab3e8a5`,
