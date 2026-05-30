@@ -2190,6 +2190,11 @@ splits can land after the Phase A smoke path closes.
     present proof and a root-only missing proof, and the secure
     branch-child-extension fixture locks the four-node extension/branch/leaf
     present proof plus its root-only missing proof.
+    Added exact proof-node RLP assertions for the geth `TestDelete` replay.
+    The seed trie fixture now checks both a retained `dog` proof and a
+    deleted `shaman` missing proof after the geth update/delete sequence
+    compresses back to an extension root, and the coverage gate requires a
+    deletion-derived proof-node RLP case.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

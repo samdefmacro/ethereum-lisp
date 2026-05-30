@@ -473,7 +473,9 @@ and `0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d`.
 Trie-vector fixtures can now assert proof-node RLP prefixes as well, and the
 seed set locks Nethermind's `GetBranchNodesWithPartialPath` root and branch
 node encodings for the shared-prefix hex-key case, including the branch RLP
-that Nethermind records as geth-compatible output.
+that Nethermind records as geth-compatible output. The geth `TestDelete`
+replay now also locks exact proof-node RLP prefixes for a retained key and a
+deleted-key missing proof after deletion-driven extension compression.
 Persistence integration, deletion edge cases, and broader fixture
 compatibility remain.
 The selected EEST-style trie subset also covers secure hex byte-string

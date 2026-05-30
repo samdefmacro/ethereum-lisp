@@ -287,7 +287,7 @@
     },
     {
       "name": "geth-delete-sequence",
-      "tags": ["extension-root", "path-compression", "hashed-child-reference", "delete-collapse", "lookup-assertions"],
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "delete-collapse", "lookup-assertions", "delete-proof-node-rlp"],
       "operations": [
         { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
         { "op": "put", "keyAscii": "ether", "valueAscii": "wookiedoo" },
@@ -311,6 +311,23 @@
       "expectedMissing": [
         { "keyAscii": "ether" },
         { "keyAscii": "shaman" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyAscii": "dog",
+          "nodeRlps": [
+            "0xe216a0bd3ee507e6c67cfefca98f84be47c1bbc009315fabc4405db4ba32190374572a",
+            "0xf84080808080a094a9f95bd89698e4da1812e0518053813b4d5b87caaf6b3c6fa57e9e50c0ff68808080cf85206f727365887374616c6c696f6e8080808080808080",
+            "0xe482006fa0d43b87fdcd4217013ccc92d04662e12d36e4cc25dc690077cd821a1956fc3e36",
+            "0xf3808080808080de17dc808080808080c63584636f696e8080808080808080808570757070798080808080808080808476657262"
+          ]
+        },
+        {
+          "keyAscii": "shaman",
+          "nodeRlps": [
+            "0xe216a0bd3ee507e6c67cfefca98f84be47c1bbc009315fabc4405db4ba32190374572a"
+          ]
+        }
       ]
     },
     {

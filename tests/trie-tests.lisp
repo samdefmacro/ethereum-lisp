@@ -101,6 +101,7 @@
     "lookup-assertions"
     "single-node-proof"
     "proof-node-rlp"
+    "delete-proof-node-rlp"
     "missing-proof-node-rlp"))
 
 (defparameter +trie-fixture-required-case-names+
@@ -175,6 +176,7 @@
     "lookup-assertions"
     "single-node-proof"
     "proof-node-rlp"
+    "delete-proof-node-rlp"
     "missing-proof-node-rlp"))
 
 (defparameter +trie-fixture-root-shapes+
