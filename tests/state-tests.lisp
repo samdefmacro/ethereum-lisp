@@ -713,9 +713,32 @@
     (is (string= "0x" (bytes-to-hex (state-db-get-code state address))))
     (is (= 1 (state-account-balance (state-db-get-account state address))))))
 
-(deftest state-account-update-preserves-code-and-storage-commitments
+(deftest state-code-update-preserves-storage-commitments
   (let ((state (make-state-db))
         (address (address-from-hex "0x000000000000000000000000000000000000000a"))
+        (slot (hash32-from-hex
+               "0x000000000000000000000000000000000000000000000000000000000000000c"))
+        (first-code (hex-to-bytes "0x60016000"))
+        (final-code (hex-to-bytes "0x6002600301")))
+    (state-db-set-account state address
+                          (make-state-account :nonce 1 :balance 1000))
+    (state-db-set-storage state address slot 12)
+    (state-db-set-code state address first-code)
+    (let ((storage-root (state-db-get-storage-root state address)))
+      (state-db-set-code state address final-code)
+      (let ((account (state-db-get-account state address)))
+        (is account)
+        (is (= 12 (state-db-get-storage state address slot)))
+        (is (bytes= final-code (state-db-get-code state address)))
+        (is (bytes= (hash32-bytes storage-root)
+                    (hash32-bytes (state-account-storage-root account))))
+        (is (bytes= (hash32-bytes (keccak-256-hash final-code))
+                    (hash32-bytes
+                     (state-account-code-hash account))))))))
+
+(deftest state-account-update-preserves-code-and-storage-commitments
+  (let ((state (make-state-db))
+        (address (address-from-hex "0x000000000000000000000000000000000000000b"))
         (slot (hash32-from-hex
                "0x000000000000000000000000000000000000000000000000000000000000000c"))
         (code (hex-to-bytes "0x6001600201")))

@@ -150,6 +150,7 @@
     "storage-delete-keeps-funded-account-root"
     "single-code-account-root"
     "code-update-overwrites-code-hash-root"
+    "code-update-preserves-storage-root"
     "code-created-account-prunes-to-empty-root"
     "code-delete-keeps-funded-account-root"
     "multi-account-secure-state-root"

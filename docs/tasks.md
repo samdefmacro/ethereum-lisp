@@ -1841,6 +1841,10 @@ splits can land after the Phase A smoke path closes.
     state-root fixture set includes a named seed case whose final account RLP,
     code hash, storage root, and trie root remain stable after an explicit
     zero nonce/balance update.
+    Added code-update state-root coverage for an account with an existing
+    storage trie. The fixture now locks that overwriting non-empty code changes
+    only the code hash while retaining the storage root, account RLP, storage
+    projection, storage trie leaf shape, and final state root.
     Extended that account-update commitment coverage to a branch-shaped state
     trie with a retained sibling account, locking the updated account RLP,
     storage root, code hash, branch child indexes/references, and final state

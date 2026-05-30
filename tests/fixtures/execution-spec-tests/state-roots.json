@@ -2829,6 +2829,66 @@
       "expectedRoot": "0xa71076e81cddb7521d7345f5aa21a0b5781991a366f66861e5faca0a336798ad"
     },
     {
+      "name": "code-update-preserves-storage-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-root-projection",
+        "storage-trie-leaf",
+        "code-root",
+        "code-update",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x000000000000000000000000000000000000010b",
+          "nonce": 1,
+          "balance": 1000
+        },
+        {
+          "op": "setStorage",
+          "address": "0x000000000000000000000000000000000000010b",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000002c",
+          "value": 44
+        },
+        {
+          "op": "setCode",
+          "address": "0x000000000000000000000000000000000000010b",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x000000000000000000000000000000000000010b",
+          "code": "0x6002600301"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x000000000000000000000000000000000000010b",
+          "nonce": 1,
+          "balance": 1000,
+          "storageRoot": "0x39b3b39f4dd43bd60944a54f2478267341aa89516ee9e8b5c9b6272b02cb0f75",
+          "codeHash": "0x48abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8",
+          "rlp": "0xf846018203e8a039b3b39f4dd43bd60944a54f2478267341aa89516ee9e8b5c9b6272b02cb0f75a048abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x000000000000000000000000000000000000010b",
+          "root": "0x39b3b39f4dd43bd60944a54f2478267341aa89516ee9e8b5c9b6272b02cb0f75"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x000000000000000000000000000000000000010b",
+          "shape": "leaf"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0xc7b8d640084dfe51710f52b73da6975f617c6c4503ec763c1e2a2eeef11b3f01"
+    },
+    {
       "name": "code-created-account-prunes-to-empty-root",
       "tags": ["code-root", "code-delete", "code-prune"],
       "operations": [
