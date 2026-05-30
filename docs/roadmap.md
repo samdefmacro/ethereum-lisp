@@ -442,7 +442,10 @@ covers a branch-root account trie transfer, including the recipient proof below
 a hashed branch child, and retained-state RPC coverage now replays that
 branch-root transfer snapshot as well. The same branch-root proof boundary now
 locks the debited sender proof, so both sides of the transfer are checked
-through fixture replay and retained-state RPC.
+through fixture replay and retained-state RPC. Extension-root and branch-with-
+extension-child transfer layouts are now covered the same way, including
+sender and recipient proof nodes plus retained-state `eth_getProof` RPC replay
+from committed block-hash snapshots.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.

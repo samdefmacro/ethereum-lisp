@@ -2668,6 +2668,12 @@ splits can land after the Phase A smoke path closes.
     geth-shaped proof nodes for both sides of the transfer below the hashed
     branch child, and retained-state `eth_getProof` verifies both sender and
     recipient proofs against the committed block-hash snapshot.
+  - Progress: extended `transferValue` state-root and state-proof coverage to
+    extension-root and branch-with-extension-child account tries. The fixture
+    set now locks sender and recipient account projections, exact geth-shaped
+    account proof nodes, and non-leaf root shapes after recipient creation;
+    retained-state `eth_getProof` RPC coverage verifies both sides of each
+    committed transfer snapshot by block hash.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

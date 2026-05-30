@@ -8610,9 +8610,19 @@
              (address-from-hex "0x0000000000000000000000000000000000000211"))
            (branch-recipient
              (address-from-hex "0x0000000000000000000000000000000000000202"))
+           (extension-sender
+             (address-from-hex "0x0000000000000000000000000000000000000220"))
+           (extension-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000201"))
+           (extension-sibling
+             (address-from-hex "0x0000000000000000000000000000000000000225"))
+           (branch-extension-extra
+             (address-from-hex "0x0000000000000000000000000000000000000203"))
            (transfer-state (make-state-db))
            (zero-transfer-state (make-state-db))
-           (branch-transfer-state (make-state-db)))
+           (branch-transfer-state (make-state-db))
+           (extension-transfer-state (make-state-db))
+           (branch-extension-transfer-state (make-state-db)))
       (state-db-set-account
        transfer-state sender (make-state-account :nonce 1 :balance 100))
       (ethereum-lisp.state::state-db-transfer-value
@@ -8633,12 +8643,44 @@
        (make-state-account :nonce 2 :balance 200))
       (ethereum-lisp.state::state-db-transfer-value
        branch-transfer-state branch-sender branch-recipient 37)
+      (state-db-set-account
+       extension-transfer-state
+       extension-sender
+       (make-state-account :nonce 1 :balance 100))
+      (state-db-set-account
+       extension-transfer-state
+       extension-sibling
+       (make-state-account :nonce 2 :balance 200))
+      (ethereum-lisp.state::state-db-transfer-value
+       extension-transfer-state extension-sender extension-recipient 37)
+      (state-db-set-account
+       branch-extension-transfer-state
+       extension-sender
+       (make-state-account :nonce 1 :balance 100))
+      (state-db-set-account
+       branch-extension-transfer-state
+       extension-sibling
+       (make-state-account :nonce 2 :balance 200))
+      (state-db-set-account
+       branch-extension-transfer-state
+       branch-extension-extra
+       (make-state-account :nonce 3 :balance 300))
+      (ethereum-lisp.state::state-db-transfer-value
+       branch-extension-transfer-state
+       extension-sender
+       extension-recipient
+       37)
       (let ((transfer-block
               (commit-state-block store transfer-state 44 440))
             (zero-transfer-block
               (commit-state-block store zero-transfer-state 45 450))
             (branch-transfer-block
-              (commit-state-block store branch-transfer-state 46 460)))
+              (commit-state-block store branch-transfer-state 46 460))
+            (extension-transfer-block
+              (commit-state-block store extension-transfer-state 47 470))
+            (branch-extension-transfer-block
+              (commit-state-block
+               store branch-extension-transfer-state 48 480)))
         (assert-transfer-proof
          store
          transfer-state
@@ -8687,6 +8729,50 @@
          branch-recipient
          nil
          "0x4dd8ed5858a2fce6bf433fa35e5cc54821ad964aa7a2dd979ea34336ff8b6544"
+         37
+         0
+         0
+         :expected-account-proof-count 3)
+        (assert-transfer-proof
+         store
+         extension-transfer-state
+         extension-transfer-block
+         extension-sender
+         nil
+         "0x62d868986c4260fa44341f1c75694a5180bb3caaa21efe07f7bab246f22a2aa2"
+         63
+         1
+         0
+         :expected-account-proof-count 4)
+        (assert-transfer-proof
+         store
+         extension-transfer-state
+         extension-transfer-block
+         extension-recipient
+         nil
+         "0x62d868986c4260fa44341f1c75694a5180bb3caaa21efe07f7bab246f22a2aa2"
+         37
+         0
+         0
+         :expected-account-proof-count 3)
+        (assert-transfer-proof
+         store
+         branch-extension-transfer-state
+         branch-extension-transfer-block
+         extension-sender
+         nil
+         "0xc86e674a6e90c03f48bc01ea942843efe0eb52fba078dbff71fa44b8c4651aa5"
+         63
+         1
+         0
+         :expected-account-proof-count 4)
+        (assert-transfer-proof
+         store
+         branch-extension-transfer-state
+         branch-extension-transfer-block
+         extension-recipient
+         nil
+         "0xc86e674a6e90c03f48bc01ea942843efe0eb52fba078dbff71fa44b8c4651aa5"
          37
          0
          0
