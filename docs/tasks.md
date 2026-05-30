@@ -1889,6 +1889,10 @@ splits can land after the Phase A smoke path closes.
     secure, and plain permutation replay counts. This keeps unordered JSON
     object fixtures aligned with the reference `trieanyorder` behavior before
     broader pinned trie imports are enabled.
+    Tightened EEST trie-test `out` semantics so explicit final-output maps
+    must include every replay-derived key that remains present, while `null`
+    output entries continue to act as extra missing-key assertions. This keeps
+    imported final-output fixtures from silently omitting live trie entries.
     Added matching field-name and alloc-address type guards to the Phase A
     Shanghai genesis fixture validator, so malformed pinned genesis wrappers
     fail before lower-level field matching or address decoding.

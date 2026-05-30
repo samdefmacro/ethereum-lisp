@@ -162,7 +162,9 @@ fixes in those areas are allowed; expansion is not.
   separately. The EEST trie-test adapter now also consumes optional `out`
   final-output maps, and the selected plain and secure subset verifies
   explicit present/missing output keys with trie lookup plus proof
-  verification after root replay. Object-form trie-test inputs now also replay
+  verification after root replay; those maps must cover every replay-derived
+  final present key, with `null` entries reserved for extra missing-key
+  assertions. Object-form trie-test inputs now also replay
   all key/value entry permutations, matching Nethermind's unordered
   `trieanyorder` treatment before broader pinned trie imports are enabled. The
   selected secure trie subset now also

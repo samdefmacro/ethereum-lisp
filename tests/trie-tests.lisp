@@ -1029,6 +1029,20 @@
      (eest-trie-test-explicit-output-map case))
     (values present-count missing-count)))
 
+(defun assert-eest-trie-test-explicit-output-complete (case output)
+  (let ((name (fixture-required-field case "name"))
+        (final (eest-trie-test-final-entry-map case)))
+    (maphash
+     (lambda (key-id expected)
+       (when expected
+         (multiple-value-bind (actual-output output-present-p)
+             (gethash key-id output)
+           (unless (and output-present-p actual-output)
+             (error "EEST trie test case ~A out missing final key ~A"
+                    name
+                    key-id)))))
+     final)))
+
 (defun assert-eest-trie-test-case-lookups (case trie)
   (let ((name (fixture-required-field case "name"))
         (final (eest-trie-test-final-entry-map case)))
@@ -1062,6 +1076,7 @@
   (when (fixture-field-present-p case "expectedOut")
     (let ((name (fixture-required-field case "name"))
           (output (eest-trie-test-explicit-output-map case)))
+      (assert-eest-trie-test-explicit-output-complete case output)
       (maphash
        (lambda (key-id expected)
          (let* ((key (hex-to-bytes key-id))
@@ -3420,6 +3435,20 @@
                  (fixture-object-field put-entry "value")))
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
+  (is (handler-case
+          (progn
+            (assert-eest-trie-test-case-root
+             (normalize-eest-trie-test-case
+              "out-missing-final-key"
+              (list (cons "in" (list (list "dog" "puppy")))
+                    (cons "out" (list (cons "cat" nil)))
+                    (cons "root"
+                          "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+            nil)
+        (error (condition)
+          (not (null
+                (search "out missing final key"
+                        (princ-to-string condition)))))))
   (let* ((case (normalize-eest-trie-test-case
                 "secure-entry"
                 (list (cons "in" (list (list "dog" "puppy")))
