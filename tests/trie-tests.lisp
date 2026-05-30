@@ -211,6 +211,7 @@
     "expectedRootValueHex"
     "expectedGets"
     "expectedMissing"
+    "expectedEntryPairs"
     "expectedProofPrefixes"))
 
 (defparameter +trie-fixture-operation-fields+
@@ -221,6 +222,9 @@
 
 (defparameter +trie-fixture-expected-missing-fields+
   '("keyHex" "keyAscii"))
+
+(defparameter +trie-fixture-expected-entry-pair-fields+
+  '("keyHex" "keyAscii" "valueAscii" "valueHex"))
 
 (defparameter +trie-fixture-expected-proof-prefix-fields+
   '("keyHex" "keyAscii" "nodeRlps"))
@@ -424,6 +428,21 @@
       (when (zerop (length (hex-to-bytes node-rlp)))
         (error "Trie fixture case ~A expectedProofPrefixes nodeRlp must not be empty"
                case-name)))))
+
+(defun validate-trie-fixture-expected-entry-pair (expected case-name)
+  (unless (listp expected)
+    (error "Trie fixture case ~A expectedEntryPairs entry must be a JSON object"
+           case-name))
+  (validate-trie-fixture-object-fields
+   expected
+   +trie-fixture-expected-entry-pair-fields+
+   (format nil "Trie fixture case ~A expectedEntryPairs entry" case-name))
+  (validate-trie-fixture-key-fields
+   expected
+   (format nil "Trie fixture case ~A expectedEntryPairs entry" case-name))
+  (validate-trie-fixture-value-fields
+   expected
+   (format nil "Trie fixture case ~A expectedEntryPairs entry" case-name)))
 
 (defun validate-trie-fixture-expected-lookup-keys (case)
   (let ((seen-keys (make-hash-table :test 'equal))
@@ -643,6 +662,8 @@
       (validate-trie-fixture-expected-lookup expected name "expectedGets"))
     (dolist (expected (fixture-object-field case "expectedMissing"))
       (validate-trie-fixture-expected-lookup expected name "expectedMissing"))
+    (dolist (expected (fixture-object-field case "expectedEntryPairs"))
+      (validate-trie-fixture-expected-entry-pair expected name))
     (dolist (expected (fixture-object-field case "expectedProofPrefixes"))
       (validate-trie-fixture-expected-proof-prefix expected name))
     (validate-trie-fixture-expected-lookup-keys case)))
@@ -2486,14 +2507,25 @@
 
 (defun assert-trie-fixture-entry-pair-replay (trie case)
   (when (trie-fixture-case-tag-p case "entry-pair-replay")
-    (let ((rebuilt (make-mpt)))
-      (dolist (entry (mpt-entry-pairs trie))
+    (let ((entries (mpt-entry-pairs trie))
+          (rebuilt (make-mpt)))
+      (dolist (entry entries)
         (mpt-put rebuilt (car entry) (cdr entry)))
       (is (string= (mpt-root-hex trie)
                    (mpt-root-hex rebuilt)))
-      (dolist (entry (mpt-entry-pairs trie))
+      (dolist (entry entries)
         (is (bytes= (cdr entry)
-                    (mpt-get rebuilt (car entry))))))))
+                    (mpt-get rebuilt (car entry)))))
+      (let ((expected-entries
+              (fixture-object-field case "expectedEntryPairs")))
+        (when expected-entries
+          (is (= (length expected-entries) (length entries)))
+          (loop for expected in expected-entries
+                for actual in entries
+                do (is (bytes= (trie-fixture-trie-key case expected)
+                               (car actual)))
+                   (is (bytes= (trie-fixture-value expected)
+                               (cdr actual)))))))))
 
 (defun assert-trie-fixture-proof-present (trie key expected-value)
   (multiple-value-bind (value present-p)
@@ -3037,7 +3069,19 @@
                  (list (list (cons "keyAscii" "dog")
                              (cons "valueAscii" "puppy"))))
            (cons "expectedMissing"
-                 (list (list (cons "keyHex" "0x646f67")))))))
+                 (list (list (cons "keyHex" "0x646f67"))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "entry-pair-without-value")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedEntryPairs"
+                 (list (list (cons "keyAscii" "dog"))))))))
 
 (deftest trie-fixture-shape-validation-rejects-unknown-fields
   (signals error

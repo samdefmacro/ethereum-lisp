@@ -2296,6 +2296,12 @@ splits can land after the Phase A smoke path closes.
     values; Phase A summaries now gate secure and plain final-entry replay
     counts so external-style trie imports cannot lose deterministic
     snapshot/rebuild coverage.
+    Added explicit `expectedEntryPairs` assertions to the seed trie fixture
+    format and locked the geth three-account TinyTrie export order and values
+    against `mpt-entry-pairs`. The entry-pair replay gate now checks the
+    exported final leaves directly before rebuilding, so iterator-style
+    snapshot regressions fail on the exact exported key/value pair rather than
+    only on a rebuilt root mismatch.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
