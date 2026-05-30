@@ -3569,6 +3569,47 @@
         "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
         "storageProof": []
       }
+    },
+    {
+      "name": "geth-secure-account-state-proof",
+      "tags": ["present-account", "state-trie-branch-proof", "geth-secure-account-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f",
+          "nonce": 2339563716805116249,
+          "balance": 13231285807645419471
+        },
+        {
+          "op": "setAccount",
+          "address": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+          "nonce": 7259475919510918339,
+          "balance": 1420263156754097894072208833565313120560341020854497370086991
+        },
+        {
+          "op": "setAccount",
+          "address": "0xb10d394651850fd4a178892ee285ece151145578",
+          "nonce": 2217592893536642650,
+          "balance": 668036214256246407260665125299057
+        }
+      ],
+      "request": {
+        "address": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f",
+        "storageKeys": []
+      },
+      "expectedRoot": "0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d",
+      "expectedProof": {
+        "address": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f",
+        "accountProof": [
+          "0xf871a07cd36aa83de9c2f6f770f527f34f0a126d41e9963a78b34257103f3ed1d268f3808080a01fae88636401e2a7d6b7087781abc8fccb543993a894e3fd19fbe746508c03e880808080808080a0132e52cd585751086b933b660062b4dbb5fbe8900990933415b4cd153060498d80808080",
+          "0xf879a036c00ee26500e3ccd6e487bc630671dd33654f01ba0e2e02cfe7ee523bd23952b856f854882077ccce0d8fc15988b79ef856f65f67cfa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0xb79ef856f65f67cf",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x2077ccce0d8fc159",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
     }
   ]
 }

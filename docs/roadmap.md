@@ -457,6 +457,11 @@ through fixture replay and retained-state RPC. Extension-root and branch-with-
 extension-child transfer layouts are now covered the same way, including
 sender and recipient proof nodes plus retained-state `eth_getProof` RPC replay
 from committed block-hash snapshots.
+The geth-derived secure account state root is now also represented in
+state-proof fixtures: the deterministic account nonce/balance set from
+`makeAccounts` locks the secure root and exact account proof nodes for the
+first account, tying state proof replay to the same reference account-trie
+coverage used by the trie and state-root gates.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.

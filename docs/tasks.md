@@ -2743,6 +2743,12 @@ splits can land after the Phase A smoke path closes.
     account proof nodes, and non-leaf root shapes after recipient creation;
     retained-state `eth_getProof` RPC coverage verifies both sides of each
     committed transfer snapshot by block hash.
+  - Progress: promoted the geth-derived secure account state root into the
+    state-proof fixture set. The new vector replays geth `makeAccounts`
+    deterministic account nonce/balance values, locks the secure state root
+    `0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d`,
+    and verifies the exact geth-shaped account proof nodes for the first
+    account behind a required seed-case/tag gate.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
