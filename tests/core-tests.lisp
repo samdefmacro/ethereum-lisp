@@ -8601,6 +8601,15 @@
              (cdr (assoc name object :test #'string=)))
            (proof-node-hex-list (proof)
              (mapcar #'bytes-to-hex proof))
+           (add-account (state address nonce balance)
+             (state-db-set-account
+              state
+              (address-from-hex address)
+              (make-state-account :nonce nonce :balance balance)))
+           (set-deleted-code (state address)
+             (let ((target (address-from-hex address)))
+               (state-db-set-code state target #(96 1 96 0))
+               (state-db-set-code state target #())))
            (commit-state-block (store state number timestamp)
              (let ((block
                      (make-block
@@ -8621,7 +8630,8 @@
                                (list (hash32-to-hex slot))
                                (hash32-to-hex (block-hash block))))))
            (assert-code-deletion-proof
-               (store state block address slot expected-balance)
+               (store state block address slot expected-balance
+                &optional expected-root expected-nodes (expected-nonce 0))
              (let* ((response
                       (engine-rpc-handle-request
                        (proof-request 119 address slot block)
@@ -8636,16 +8646,22 @@
                               expected-proof)))
                     (decoded-proof
                       (state-proof-result-from-rpc-object proof)))
+               (when expected-root
+                 (is (string= expected-root
+                              (state-db-root-hex state))))
                (is (string= (address-to-hex address)
                             (field proof "address")))
                (is (string= (quantity-to-hex expected-balance)
                             (field proof "balance")))
-               (is (string= (quantity-to-hex 0)
+               (is (string= (quantity-to-hex expected-nonce)
                             (field proof "nonce")))
                (is (string= (hash32-to-hex +empty-code-hash+)
                             (field proof "codeHash")))
                (is (string= (hash32-to-hex +empty-trie-hash+)
                             (field proof "storageHash")))
+               (when expected-nodes
+                 (is (= expected-nodes
+                        (length (field proof "accountProof")))))
                (is (= 1 (length (field proof "storageProof"))))
                (is (string= (hash32-to-hex slot)
                             (field storage-proof "key")))
@@ -8665,18 +8681,52 @@
              (address-from-hex "0x0000000000000000000000000000000000000105"))
            (funded-address
              (address-from-hex "0x0000000000000000000000000000000000000106"))
+           (branch-target
+             (address-from-hex "0x0000000000000000000000000000000000000201"))
+           (extension-target
+             (address-from-hex "0x0000000000000000000000000000000000000220"))
            (slot
              (hash32-from-hex
               "0x000000000000000000000000000000000000000000000000000000000000000b"))
            (code #(96 1 96 0))
            (created-state (make-state-db))
-           (funded-state (make-state-db)))
+           (funded-state (make-state-db))
+           (branch-state (make-state-db))
+           (extension-state (make-state-db))
+           (branch-extension-state (make-state-db)))
       (state-db-set-code created-state created-address code)
       (state-db-set-code created-state created-address #())
       (state-db-set-account funded-state funded-address
                             (make-state-account :balance 1))
       (state-db-set-code funded-state funded-address code)
       (state-db-set-code funded-state funded-address #())
+      (add-account branch-state
+                   "0x0000000000000000000000000000000000000201"
+                   1 1000)
+      (set-deleted-code branch-state
+                        "0x0000000000000000000000000000000000000201")
+      (add-account branch-state
+                   "0x0000000000000000000000000000000000000211"
+                   2 200)
+      (add-account extension-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 1000)
+      (set-deleted-code extension-state
+                        "0x0000000000000000000000000000000000000220")
+      (add-account extension-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 1000)
+      (set-deleted-code branch-extension-state
+                        "0x0000000000000000000000000000000000000220")
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000203"
+                   3 300)
       (assert-code-deletion-proof
        store
        created-state
@@ -8690,6 +8740,36 @@
        (commit-state-block store funded-state 42 420)
        funded-address
        slot
+       1)
+      (assert-code-deletion-proof
+       store
+       branch-state
+       (commit-state-block store branch-state 57 570)
+       branch-target
+       slot
+       1000
+       "0x582439b37db3e207275bb7dd5391cb2119286e63ac0c7d52f719adbae41e00bb"
+       2
+       1)
+      (assert-code-deletion-proof
+       store
+       extension-state
+       (commit-state-block store extension-state 58 580)
+       extension-target
+       slot
+       1000
+       "0x915d94dd285fc0df8a08abcc98035f585db26f42ff322fdbf202b94de5ad2e8e"
+       3
+       1)
+      (assert-code-deletion-proof
+       store
+       branch-extension-state
+       (commit-state-block store branch-extension-state 59 590)
+       extension-target
+       slot
+       1000
+       "0x51eb577604090486f0601db492fe0690432903734494bccedfc7d321659b4e7e"
+       4
        1))))
 
 (deftest eth-rpc-get-proof-storage-overwrite-final-value

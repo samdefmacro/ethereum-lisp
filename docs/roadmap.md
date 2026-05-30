@@ -302,6 +302,9 @@ Code-deletion proof fixtures also lock both pruning of code-created empty
 accounts and preservation of funded accounts after their code hash returns to
 the empty-code hash, with retained-state `eth_getProof` RPC reads now
 verifying those same committed snapshot boundaries.
+Code-deletion proof coverage now also spans branch, extension, and
+branch-into-extension account-trie layouts, proving funded-account code
+clearing keeps the account while returning the empty-code hash.
 State-proof fixtures now also cover the storage-trie branch- and
 extension-preserving delete boundaries: after deleting one present child from a
 three-slot secure storage trie, geth-shaped proof objects verify retained

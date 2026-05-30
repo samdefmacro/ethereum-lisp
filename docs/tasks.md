@@ -2206,6 +2206,11 @@ splits can land after the Phase A smoke path closes.
     pruning and funded-account preservation snapshots, reads each proof by
     block hash, checks the geth-shaped empty code/storage fields, and verifies
     the decoded proof against the committed state root.
+  - Progress: extended code-deletion proof coverage across branch, extension,
+    and branch-into-extension account-trie layouts. The fixture set now locks
+    geth-shaped proof nodes for funded accounts whose code is cleared inside
+    nontrivial state tries, and retained-state `eth_getProof` verifies the
+    same committed block-hash snapshots with expected proof depths.
   - Progress: added state-proof fixtures for the storage-trie branch- and
     extension-preserving delete boundaries from `TRIE-FIXTURE-GRADE`. The
     proof vectors create three secure-hashed storage slots, delete one present
