@@ -172,7 +172,11 @@ fixes in those areas are allowed; expansion is not.
   empty-access-list contract creation vector, so type-1 `to = null` and
   initcode coverage now covers both empty and non-empty access-list payloads,
   with selector summary gates for typed, EIP-2930, and dynamic-fee empty-list
-  creation combinations.
+  creation combinations. The EIP-1559 empty-access-list contract-creation
+  boundary now has its own seed and EEST-shaped sample vector too, locking
+  dynamic-fee `to = null` replay, derived contract address, and sparse
+  Shanghai result expansion separately from the non-empty access-list creation
+  case.
   It also gates a typed EIP-2930
   message-call with non-empty calldata, and the summary gate now requires that
   access-list calldata count explicitly so typed `input` decoding and calldata

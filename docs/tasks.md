@@ -698,6 +698,12 @@ ones.
     Shanghai intrinsic gas, sparse EEST result expansion, and selector summary
     counts so typed contract creation cannot rely only on non-empty
     access-list fixtures.
+  - Progress: added the matching EIP-1559 empty-access-list contract-creation
+    vector to the seed envelope fixture and selected EEST-shaped Phase A/full
+    subsets. The vector locks type-2 `to = null`, initcode, derived
+    `contractAddress`, sender recovery, Shanghai intrinsic gas, sparse EEST
+    result expansion, and dynamic-fee empty-access-list contract-creation
+    summary counts before pinned transaction-test replacement.
   - Progress: tightened transaction fixture contract-creation summaries with
     explicit empty-access-list creation counters for all typed transactions,
     EIP-2930, and dynamic-fee envelopes. Phase A/full selector gates now fail
