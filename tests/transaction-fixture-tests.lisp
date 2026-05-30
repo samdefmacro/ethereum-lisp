@@ -166,6 +166,10 @@
 (defparameter +eest-transaction-test-result-entry-fields+
   '("hash" "sender" "exception" "intrinsicGas"))
 
+(defparameter +eest-invalid-transaction-rejection-stage-fields+
+  '("exception" "decodeErrorCount" "fieldValidationErrorCount"
+    "signatureValidationErrorCount" "acceptedCount"))
+
 (defun validate-transaction-fixture-object-fields
     (object allowed-fields label)
   (unless (listp object)
@@ -1165,6 +1169,11 @@
              name))
     (subseq name 0 (+ json-end (length ".json")))))
 
+(defun eest-invalid-transaction-case-exception (case)
+  (let* ((result (fixture-required-field case "result"))
+         (prague-result (fixture-required-field result "Prague")))
+    (fixture-required-field prague-result "exception")))
+
 (defun load-phase-a-eest-transaction-test-root-vectors (root)
   (validate-eest-transaction-selector-list
    +phase-a-eest-transaction-test-case-names+)
@@ -1185,37 +1194,112 @@
     (validate-full-eest-transaction-vector-summary vectors)
     vectors))
 
+(defun eest-invalid-transaction-local-rejection-stage (case)
+  (handler-case
+      (let ((transaction
+              (transaction-from-encoding
+               (hex-to-bytes (fixture-required-field case "txbytes")))))
+        (handler-case
+            (progn
+              (ethereum-lisp.execution::validate-set-code-transaction-fields
+               transaction)
+              (handler-case
+                  (progn
+                    (ethereum-lisp.core::eth-rpc-validate-set-code-authorization-signatures
+                     transaction)
+                    "accepted")
+                (error () "signature")))
+          (error () "field")))
+    (error () "decode")))
+
+(defun increment-string-count (table key)
+  (setf (gethash key table)
+        (1+ (gethash key table 0))))
+
+(defun sorted-string-counts (table)
+  (sort
+   (loop for key being the hash-keys of table
+         using (hash-value count)
+         collect (cons key count))
+   #'string<
+   :key #'car))
+
+(defun validate-eest-invalid-transaction-rejection-stage-entry
+    (entry label)
+  (validate-transaction-fixture-object-fields
+   entry
+   +eest-invalid-transaction-rejection-stage-fields+
+   label)
+  (dolist (field +eest-invalid-transaction-rejection-stage-fields+)
+    (unless (fixture-field-present-p entry field)
+      (error "~A is missing ~A" label field)))
+  (validate-transaction-fixture-required-string-field
+   entry "exception" (format nil "~A exception" label))
+  (dolist (field '("decodeErrorCount" "fieldValidationErrorCount"
+                   "signatureValidationErrorCount" "acceptedCount"))
+    (let ((value (fixture-required-field entry field)))
+      (unless (and (integerp value) (not (minusp value)))
+        (error "~A ~A must be a non-negative integer" label field)))))
+
+(defun eest-invalid-transaction-exception-stage-entry
+    (exception counts)
+  (let ((entry
+          (list
+           (cons "exception" exception)
+           (cons "decodeErrorCount" (gethash "decode" counts 0))
+           (cons "fieldValidationErrorCount" (gethash "field" counts 0))
+           (cons "signatureValidationErrorCount" (gethash "signature" counts 0))
+           (cons "acceptedCount" (gethash "accepted" counts 0)))))
+    (validate-eest-invalid-transaction-rejection-stage-entry
+     entry
+     "EEST invalid transaction rejection stage summary")
+    entry))
+
+(defun eest-invalid-transaction-exception-stage-counts (table)
+  (sort
+   (loop for exception being the hash-keys of table
+         using (hash-value counts)
+         collect
+         (eest-invalid-transaction-exception-stage-entry
+          exception counts))
+   #'string<
+   :key (lambda (entry)
+          (fixture-required-field entry "exception"))))
+
 (defun eest-invalid-transaction-rejection-summary (cases)
   (let ((decode-error-count 0)
         (field-validation-error-count 0)
         (signature-validation-error-count 0)
+        (exception-counts (make-hash-table :test 'equal))
+        (exception-stage-counts (make-hash-table :test 'equal))
         (accepted-names '()))
     (dolist (case cases)
-      (handler-case
-          (let ((transaction
-                  (transaction-from-encoding
-                   (hex-to-bytes
-                    (fixture-required-field case "txbytes")))))
-            (handler-case
-                (progn
-                  (ethereum-lisp.execution::validate-set-code-transaction-fields
-                   transaction)
-                  (handler-case
-                      (progn
-                        (ethereum-lisp.core::eth-rpc-validate-set-code-authorization-signatures
-                         transaction)
-                        (push (fixture-required-field case "name")
-                              accepted-names))
-                    (error ()
-                      (incf signature-validation-error-count))))
-              (error ()
-                (incf field-validation-error-count))))
-        (error ()
-          (incf decode-error-count))))
+      (let* ((exception (eest-invalid-transaction-case-exception case))
+             (stage (eest-invalid-transaction-local-rejection-stage case))
+             (stage-counts
+               (or (gethash exception exception-stage-counts)
+                   (setf (gethash exception exception-stage-counts)
+                         (make-hash-table :test 'equal)))))
+        (increment-string-count exception-counts exception)
+        (increment-string-count stage-counts stage)
+        (cond
+          ((string= stage "decode")
+           (incf decode-error-count))
+          ((string= stage "field")
+           (incf field-validation-error-count))
+          ((string= stage "signature")
+           (incf signature-validation-error-count))
+          ((string= stage "accepted")
+           (push (fixture-required-field case "name") accepted-names))
+          (t (error "Unknown invalid transaction rejection stage: ~A" stage)))))
     (list
      (cons "decodeErrorCount" decode-error-count)
      (cons "fieldValidationErrorCount" field-validation-error-count)
      (cons "signatureValidationErrorCount" signature-validation-error-count)
+     (cons "exceptionCounts" (sorted-string-counts exception-counts))
+     (cons "exceptionStageCounts"
+           (eest-invalid-transaction-exception-stage-counts
+            exception-stage-counts))
      (cons "acceptedNames" (nreverse accepted-names)))))
 
 (defun transaction-fixture-vector-type-counts (vectors)
@@ -4389,18 +4473,6 @@
                (remove-duplicates
                 (mapcar #'eest-transaction-case-source-file-name invalid-cases)
                 :test #'string=)))
-    (let ((counts (make-hash-table :test 'equal)))
-      (dolist (case invalid-cases)
-        (let* ((result (fixture-required-field case "result"))
-               (prague-result (fixture-required-field result "Prague"))
-               (exception (fixture-required-field prague-result "exception")))
-          (incf (gethash exception counts 0))))
-      (is (= 1 (gethash "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST"
-                        counts 0)))
-      (is (= 8 (gethash "TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE|TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE_S_TOO_HIGH"
-                        counts 0)))
-      (is (= 44 (gethash "TransactionException.TYPE_4_INVALID_AUTHORIZATION_FORMAT"
-                         counts 0))))
     (let ((invalid-rejection-summary
             (eest-invalid-transaction-rejection-summary invalid-cases)))
       (is (= 38 (fixture-required-field invalid-rejection-summary
@@ -4410,7 +4482,32 @@
       (is (= 2 (fixture-required-field invalid-rejection-summary
                                        "signatureValidationErrorCount")))
       (is (null (fixture-required-field invalid-rejection-summary
-                                        "acceptedNames"))))
+                                        "acceptedNames")))
+      (is (equal
+           '(("TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST" . 1)
+             ("TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE|TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE_S_TOO_HIGH" . 8)
+             ("TransactionException.TYPE_4_INVALID_AUTHORIZATION_FORMAT" . 44))
+           (fixture-required-field invalid-rejection-summary
+                                   "exceptionCounts")))
+      (is (equal
+           (list
+            '(("exception" . "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST")
+              ("decodeErrorCount" . 0)
+              ("fieldValidationErrorCount" . 1)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0))
+            '(("exception" . "TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE|TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE_S_TOO_HIGH")
+              ("decodeErrorCount" . 0)
+              ("fieldValidationErrorCount" . 6)
+              ("signatureValidationErrorCount" . 2)
+              ("acceptedCount" . 0))
+            '(("exception" . "TransactionException.TYPE_4_INVALID_AUTHORIZATION_FORMAT")
+              ("decodeErrorCount" . 38)
+              ("fieldValidationErrorCount" . 6)
+              ("signatureValidationErrorCount" . 0)
+              ("acceptedCount" . 0)))
+           (fixture-required-field invalid-rejection-summary
+                                   "exceptionStageCounts"))))
     (let* ((invalid-case (first invalid-cases))
            (invalid-result (fixture-required-field invalid-case "result"))
            (prague-result (fixture-required-field invalid-result "Prague"))

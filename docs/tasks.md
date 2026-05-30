@@ -819,6 +819,12 @@ ones.
     asserts that all 53 official invalid cases are rejected by decoding,
     set-code field validation, or authorization-signature preflight with no
     accepted payloads.
+  - Progress: locked the pinned Prague/EIP-7702 invalid group to an exact
+    exception-to-local-rejection-stage distribution. The harness now records
+    each invalid case's official EEST exception and local rejection stage
+    (`decode`, set-code field validation, authorization-signature preflight, or
+    accepted) and asserts the full 53-case distribution, keeping future
+    rejection-path changes visible instead of only checking aggregate rejection.
 
 ## P0: Module Boundaries
 
