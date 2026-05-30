@@ -141,7 +141,9 @@ fixes in those areas are allowed; expansion is not.
   non-empty access-list projection, `to = null`, initcode, and derived
   contract-address checks in one vector. It also gates a typed EIP-2930
   empty-access-list contract creation vector, so type-1 `to = null` and
-  initcode coverage now covers both empty and non-empty access-list payloads.
+  initcode coverage now covers both empty and non-empty access-list payloads,
+  with selector summary gates for typed, EIP-2930, and dynamic-fee empty-list
+  creation combinations.
   It also gates a typed EIP-2930
   message-call with non-empty calldata, and the summary gate now requires that
   access-list calldata count explicitly so typed `input` decoding and calldata

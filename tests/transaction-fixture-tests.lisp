@@ -1226,6 +1226,9 @@
         (access-list-contract-creation-count 0)
         (dynamic-fee-contract-creation-count 0)
         (dynamic-fee-access-list-contract-creation-count 0)
+        (empty-access-list-contract-creation-count 0)
+        (access-list-empty-access-list-contract-creation-count 0)
+        (dynamic-fee-empty-access-list-contract-creation-count 0)
         (contract-address-count 0))
     (dolist (vector vectors)
       (let* ((transaction
@@ -1238,6 +1241,13 @@
             (incf contract-address-count))
           (when access-list
             (incf access-list-contract-creation-count))
+          (when (and (not (typep transaction 'legacy-transaction))
+                     (null access-list))
+            (incf empty-access-list-contract-creation-count)
+            (when (typep transaction 'access-list-transaction)
+              (incf access-list-empty-access-list-contract-creation-count))
+            (when (typep transaction 'dynamic-fee-transaction)
+              (incf dynamic-fee-empty-access-list-contract-creation-count)))
           (when (typep transaction 'dynamic-fee-transaction)
             (incf dynamic-fee-contract-creation-count)
             (when access-list
@@ -1250,7 +1260,13 @@
      (cons "dynamicFeeContractCreationVectorCount"
            dynamic-fee-contract-creation-count)
      (cons "dynamicFeeAccessListContractCreationVectorCount"
-           dynamic-fee-access-list-contract-creation-count))))
+           dynamic-fee-access-list-contract-creation-count)
+     (cons "emptyAccessListContractCreationVectorCount"
+           empty-access-list-contract-creation-count)
+     (cons "accessListEmptyAccessListContractCreationVectorCount"
+           access-list-empty-access-list-contract-creation-count)
+     (cons "dynamicFeeEmptyAccessListContractCreationVectorCount"
+           dynamic-fee-empty-access-list-contract-creation-count))))
 
 (defun transaction-fixture-input-summary (vectors)
   (let ((message-call-data-count 0)
@@ -1430,7 +1446,19 @@
         (dynamic-fee-access-list-value
           (fixture-required-field
            summary
-           "dynamicFeeAccessListContractCreationVectorCount")))
+           "dynamicFeeAccessListContractCreationVectorCount"))
+        (empty-access-list-value
+          (fixture-required-field
+           summary
+           "emptyAccessListContractCreationVectorCount"))
+        (access-list-empty-access-list-value
+          (fixture-required-field
+           summary
+           "accessListEmptyAccessListContractCreationVectorCount"))
+        (dynamic-fee-empty-access-list-value
+          (fixture-required-field
+           summary
+           "dynamicFeeEmptyAccessListContractCreationVectorCount")))
     (unless (and (integerp value) (not (minusp value)))
       (error "~A summary field contractCreationVectorCount must be a non-negative integer"
              label))
@@ -1449,6 +1477,18 @@
                  (not (minusp dynamic-fee-access-list-value)))
       (error "~A summary field dynamicFeeAccessListContractCreationVectorCount must be a non-negative integer"
              label))
+    (unless (and (integerp empty-access-list-value)
+                 (not (minusp empty-access-list-value)))
+      (error "~A summary field emptyAccessListContractCreationVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp access-list-empty-access-list-value)
+                 (not (minusp access-list-empty-access-list-value)))
+      (error "~A summary field accessListEmptyAccessListContractCreationVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp dynamic-fee-empty-access-list-value)
+                 (not (minusp dynamic-fee-empty-access-list-value)))
+      (error "~A summary field dynamicFeeEmptyAccessListContractCreationVectorCount must be a non-negative integer"
+             label))
     (when (zerop value)
       (error "~A summary is missing contract-creation transaction coverage"
              label))
@@ -1463,6 +1503,15 @@
              label))
     (when (zerop dynamic-fee-access-list-value)
       (error "~A summary is missing dynamic-fee access-list contract-creation transaction coverage"
+             label))
+    (when (zerop empty-access-list-value)
+      (error "~A summary is missing empty access-list contract-creation transaction coverage"
+             label))
+    (when (zerop access-list-empty-access-list-value)
+      (error "~A summary is missing EIP-2930 empty access-list contract-creation transaction coverage"
+             label))
+    (when (zerop dynamic-fee-empty-access-list-value)
+      (error "~A summary is missing dynamic-fee empty access-list contract-creation transaction coverage"
              label)))
   summary)
 
@@ -4365,6 +4414,15 @@
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeAccessListContractCreationVectorCount")))
+    (is (= 2 (fixture-object-field
+              all-summary
+              "emptyAccessListContractCreationVectorCount")))
+    (is (= 1 (fixture-object-field
+              all-summary
+              "accessListEmptyAccessListContractCreationVectorCount")))
+    (is (= 1 (fixture-object-field
+              all-summary
+              "dynamicFeeEmptyAccessListContractCreationVectorCount")))
     (is (= 5 (fixture-object-field all-summary "messageCallDataVectorCount")))
     (is (= 1 (fixture-object-field all-summary "legacyMessageCallDataVectorCount")))
     (is (= 4 (fixture-object-field all-summary "typedMessageCallDataVectorCount")))
@@ -4435,6 +4493,15 @@
     (is (= 1 (fixture-object-field
               summary
               "dynamicFeeAccessListContractCreationVectorCount")))
+    (is (= 2 (fixture-object-field
+              summary
+              "emptyAccessListContractCreationVectorCount")))
+    (is (= 1 (fixture-object-field
+              summary
+              "accessListEmptyAccessListContractCreationVectorCount")))
+    (is (= 1 (fixture-object-field
+              summary
+              "dynamicFeeEmptyAccessListContractCreationVectorCount")))
     (is (= 5 (fixture-object-field summary "messageCallDataVectorCount")))
     (is (= 1 (fixture-object-field summary "legacyMessageCallDataVectorCount")))
     (is (= 4 (fixture-object-field summary "typedMessageCallDataVectorCount")))
@@ -4594,6 +4661,30 @@
       (validate-transaction-fixture-contract-creation-coverage
        (cons (cons "accessListContractCreationVectorCount" 0)
              (remove "accessListContractCreationVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-contract-creation-coverage
+       (cons (cons "emptyAccessListContractCreationVectorCount" 0)
+             (remove "emptyAccessListContractCreationVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-contract-creation-coverage
+       (cons (cons "accessListEmptyAccessListContractCreationVectorCount" 0)
+             (remove "accessListEmptyAccessListContractCreationVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-contract-creation-coverage
+       (cons (cons "dynamicFeeEmptyAccessListContractCreationVectorCount" 0)
+             (remove "dynamicFeeEmptyAccessListContractCreationVectorCount"
                      summary
                      :key #'car
                      :test #'string=))
