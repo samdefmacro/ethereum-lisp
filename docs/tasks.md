@@ -2179,6 +2179,11 @@ splits can land after the Phase A smoke path closes.
     large-value proof now has its referenced branch node mutated and
     `mpt-verify-proof` must reject it, locking proof-node hash binding beyond
     wrong-root and extra-node checks.
+    Added exact proof-node RLP assertions for secure-key nested branch-child
+    shapes. The secure branch-child-branch fixture now locks a three-node
+    present proof and a root-only missing proof, and the secure
+    branch-child-extension fixture locks the four-node extension/branch/leaf
+    present proof plus its root-only missing proof.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

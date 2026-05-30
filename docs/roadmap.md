@@ -120,7 +120,10 @@ fixes in those areas are allowed; expansion is not.
   The geth-derived secure account-RLP trie coverage now also locks the first
   proof node for the three-account branch-root case against geth's root-node
   RLP, adding direct proof encoding coverage on top of the secure account root
-  hashes.
+  hashes. Secure-key branch-root fixtures with nested branch and extension
+  children now also pin exact present and missing proof-node RLP prefixes, so
+  hashed-key proof encoding is checked across root-only misses and multi-node
+  present paths.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the

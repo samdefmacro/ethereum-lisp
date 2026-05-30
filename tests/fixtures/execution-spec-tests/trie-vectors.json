@@ -681,7 +681,7 @@
     {
       "name": "secure-branch-child-branch",
       "secure": true,
-      "tags": ["secure-key", "branch-root", "branch-child-references", "branch-children", "hashed-child-reference", "lookup-assertions"],
+      "tags": ["secure-key", "branch-root", "branch-child-references", "branch-children", "hashed-child-reference", "lookup-assertions", "proof-node-rlp", "missing-proof-node-rlp"],
       "operations": [
         { "op": "put", "keyAscii": "secure0", "valueAscii": "left" },
         { "op": "put", "keyAscii": "secure9", "valueAscii": "middle" },
@@ -702,12 +702,31 @@
         { "keyAscii": "secure0", "valueAscii": "left" },
         { "keyAscii": "secure9", "valueAscii": "middle" },
         { "keyAscii": "secure1", "valueAscii": "right" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "secure-missing" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyAscii": "secure0",
+          "nodeRlps": [
+            "0xf851808080a0e0054a12c009dbc383f949a13c1d8b0af9c7ce505fc686fe92913a00b42872d380808080808080a099a2ba44a99e10c6f19b67f2765abe426e1c81d2faeb73bdee35beb1187825568080808080",
+            "0xf8518080808080a046aae5709d022d356ed4d10da5c8eb5164c287d6d216e7511ebd349d92ad21d3808080808080a0358e86c5b77375191c0fb684382a48574fc4ac3590cf5d36f2e278e2d64c534380808080",
+            "0xe6a0203c3b3f6ad7d1d686d0080ca88f606ddbd03e9234e67e08fdb9b4e0dc684129846c656674"
+          ]
+        },
+        {
+          "keyAscii": "secure-missing",
+          "nodeRlps": [
+            "0xf851808080a0e0054a12c009dbc383f949a13c1d8b0af9c7ce505fc686fe92913a00b42872d380808080808080a099a2ba44a99e10c6f19b67f2765abe426e1c81d2faeb73bdee35beb1187825568080808080"
+          ]
+        }
       ]
     },
     {
       "name": "secure-branch-child-extension",
       "secure": true,
-      "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "lookup-assertions"],
+      "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "lookup-assertions", "proof-node-rlp", "missing-proof-node-rlp"],
       "operations": [
         { "op": "put", "keyAscii": "secure0", "valueAscii": "left" },
         { "op": "put", "keyAscii": "secure6", "valueAscii": "middle" },
@@ -728,6 +747,26 @@
         { "keyAscii": "secure0", "valueAscii": "left" },
         { "keyAscii": "secure6", "valueAscii": "middle" },
         { "keyAscii": "secure61", "valueAscii": "right" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "secure-missing" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyAscii": "secure6",
+          "nodeRlps": [
+            "0xf851a0e5dac3feb64876d3694c018fb033696288279ee5ad5961d1bb90f23d8f4ec0fa8080a05770aa6f1cba52351d5a9eecde66a6da2ee08501fc6805bfa8e94e61746db31e80808080808080808080808080",
+            "0xe215a01f5d8cd15e6b5a21a897bf87f33bcd0f2493cd5131b9d436ffea5b508dd98f5c",
+            "0xf851808080808080808080808080a0bdd010e0769fff7e5625c3a6ab39bfa3c765ed9e800209cc6e1121a8ccd0c4cf8080a027c36141a4cbe57cea38c0335a45bbfd583fda1b8306e14fdab5ca603f230d5e80",
+            "0xe79f370c26c1b2aa66ccc95fb26280eae39826ee45907d91af03aeb648ddc46948866d6964646c65"
+          ]
+        },
+        {
+          "keyAscii": "secure-missing",
+          "nodeRlps": [
+            "0xf851a0e5dac3feb64876d3694c018fb033696288279ee5ad5961d1bb90f23d8f4ec0fa8080a05770aa6f1cba52351d5a9eecde66a6da2ee08501fc6805bfa8e94e61746db31e80808080808080808080808080"
+          ]
+        }
       ]
     },
     {
