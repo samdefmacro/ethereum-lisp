@@ -178,11 +178,13 @@ fixes in those areas are allowed; expansion is not.
   full EEST transaction selector now also gates EIP-4844
   `blobVersionedHashes` payloads, including a blob transaction that combines
   non-empty calldata with a non-empty access list, and EIP-7702
-  `authorizationList` payloads, so those post-Shanghai typed families cannot
-  degrade to type-only coverage before pinned transaction-test replacement.
+  `authorizationList` payloads, including a set-code transaction that combines
+  multi-authorization, non-empty calldata, and a non-empty access list, so
+  those post-Shanghai typed families cannot degrade to type-only coverage
+  before pinned transaction-test replacement.
   The local envelope fixture entry point now applies those payload gates too,
   with blob coverage requiring access-list calldata and set-code coverage
-  requiring a multi-authorization EIP-7702 case rather than a single
+  requiring multi-authorization plus access-list calldata rather than a single
   authorization-only placeholder. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
@@ -289,7 +291,10 @@ txbytes through hash, sender, decoded payload, access-list projection, and
 intrinsic-gas checks.
 The full transaction fixture selector additionally covers an EIP-4844 blob
 message-call with non-empty calldata and access-list data, keeping blob
-versioned-hash handling tied to regular typed payload projection.
+versioned-hash handling tied to regular typed payload projection. It also
+covers an EIP-7702 set-code message-call with non-empty calldata and
+access-list data, tying authorization-list handling to regular typed payload
+projection.
 Blob sidecars now have a first-pass data
 shape and commitment-to-versioned-hash
 validation layer; callers that require KZG proof verification now fail

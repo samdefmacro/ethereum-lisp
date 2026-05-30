@@ -1889,6 +1889,98 @@
       }
     },
     {
+      "name": "eip7702-set-code-access-list-calldata",
+      "type": "set-code",
+      "chainId": 1337,
+      "txbytes": "0x04f90186820539010285012a05f2008307a12094b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a84deadbeeff85bf859940000000000000000000000000000000000000101f842a00000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000002f8baf85c82053994000000000000000000000000000000000000aaaa0101a07ed17af7d2d2b9ba7d797a202125bf505b9a0f962a67b3b61b56783d8faf7461a001b73b6e586edc706dce6c074eaec28692fa6359fb3446a2442f36777e1c0669f85a8094000000000000000000000000000000000000bbbb8001a05011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98a056c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf6101a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a07c41aa21016c007d2720ae49b13be42cbc6805c8229c8a093a11ba8dbc378546",
+      "hash": "0x9a702b01fef16f4b4b8fc6071ea6b8f8b2d81e493b4633d451ccc0e38211e52c",
+      "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+      "signature": {
+        "yParity": "0x1",
+        "r": "0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "s": "0x7c41aa21016c007d2720ae49b13be42cbc6805c8229c8a093a11ba8dbc378546"
+      },
+      "decoded": {
+        "nonce": "0x1",
+        "gasLimit": "0x7a120",
+        "to": "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "value": "0xa",
+        "input": "0xdeadbeef",
+        "maxPriorityFeePerGas": "0x2",
+        "maxFeePerGas": "0x12a05f200",
+        "authorizationList": [
+          {
+            "chainId": "0x539",
+            "address": "0x000000000000000000000000000000000000aaaa",
+            "nonce": "0x1",
+            "yParity": "0x1",
+            "r": "0x7ed17af7d2d2b9ba7d797a202125bf505b9a0f962a67b3b61b56783d8faf7461",
+            "s": "0x1b73b6e586edc706dce6c074eaec28692fa6359fb3446a2442f36777e1c0669"
+          },
+          {
+            "chainId": "0x0",
+            "address": "0x000000000000000000000000000000000000bbbb",
+            "nonce": "0x0",
+            "yParity": "0x1",
+            "r": "0x5011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98",
+            "s": "0x56c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf61"
+          }
+        ]
+      },
+      "accessList": [
+        {
+          "address": "0x0000000000000000000000000000000000000101",
+          "storageKeys": [
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "0x0000000000000000000000000000000000000000000000000000000000000002"
+          ]
+        }
+      ],
+      "result": {
+        "Frontier": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Homestead": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "EIP150": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "EIP158": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Byzantium": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Constantinople": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Istanbul": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Berlin": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "London": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Paris": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Shanghai": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Cancun": {
+          "exception": "TransactionException.TYPE_4_TX_PRE_FORK"
+        },
+        "Prague": {
+          "hash": "0x9a702b01fef16f4b4b8fc6071ea6b8f8b2d81e493b4633d451ccc0e38211e52c",
+          "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intrinsicGas": "0x12dd0"
+        }
+      }
+    },
+    {
       "name": "eip7702-set-code",
       "type": "set-code",
       "chainId": 1337,

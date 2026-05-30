@@ -53,6 +53,7 @@
     "phase-a-sample.json/typed-eip1559-access-list-contract-creation-sample"
     "phase-a-sample.json/typed-eip4844-blob-sample"
     "phase-a-sample.json/typed-eip4844-blob-access-list-calldata-sample"
+    "phase-a-sample.json/typed-eip7702-set-code-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip7702-set-code-sample"))
 
 (defparameter +transaction-envelope-fixture-required-vector-names+
@@ -79,6 +80,7 @@
     "eip1559-access-list-contract-creation"
     "eip4844-blob"
     "eip4844-blob-access-list-calldata"
+    "eip7702-set-code-access-list-calldata"
     "eip7702-set-code"))
 
 (defparameter +transaction-envelope-fixture-format+
@@ -1384,7 +1386,10 @@
 
 (defun transaction-fixture-set-code-summary (vectors)
   (let ((set-code-vector-count 0)
-        (authorization-count 0))
+        (authorization-count 0)
+        (set-code-access-list-vector-count 0)
+        (set-code-message-call-data-vector-count 0)
+        (set-code-access-list-message-call-data-vector-count 0))
     (dolist (vector vectors)
       (let ((transaction
               (transaction-from-encoding
@@ -1394,10 +1399,22 @@
                   (set-code-transaction-authorization-list transaction)))
             (when authorizations
               (incf set-code-vector-count)
-              (incf authorization-count (length authorizations)))))))
+              (incf authorization-count (length authorizations))))
+          (when (transaction-access-list transaction)
+            (incf set-code-access-list-vector-count))
+          (when (and (transaction-to transaction)
+                     (plusp (length (transaction-data transaction))))
+            (incf set-code-message-call-data-vector-count)
+            (when (transaction-access-list transaction)
+              (incf set-code-access-list-message-call-data-vector-count))))))
     (list
      (cons "setCodeAuthorizationVectorCount" set-code-vector-count)
-     (cons "setCodeAuthorizationCount" authorization-count))))
+     (cons "setCodeAuthorizationCount" authorization-count)
+     (cons "setCodeAccessListVectorCount" set-code-access-list-vector-count)
+     (cons "setCodeMessageCallDataVectorCount"
+           set-code-message-call-data-vector-count)
+     (cons "setCodeAccessListMessageCallDataVectorCount"
+           set-code-access-list-message-call-data-vector-count))))
 
 (defun transaction-fixture-legacy-protection-summary (vectors)
   (let ((protected-count 0)
@@ -1704,13 +1721,31 @@
   (let ((vector-value
           (fixture-required-field summary "setCodeAuthorizationVectorCount"))
         (authorization-value
-          (fixture-required-field summary "setCodeAuthorizationCount")))
+          (fixture-required-field summary "setCodeAuthorizationCount"))
+        (access-list-value
+          (fixture-required-field summary "setCodeAccessListVectorCount"))
+        (calldata-value
+          (fixture-required-field summary "setCodeMessageCallDataVectorCount"))
+        (access-list-calldata-value
+          (fixture-required-field
+           summary
+           "setCodeAccessListMessageCallDataVectorCount")))
     (unless (and (integerp vector-value) (not (minusp vector-value)))
       (error "~A summary field setCodeAuthorizationVectorCount must be a non-negative integer"
              label))
     (unless (and (integerp authorization-value)
                  (not (minusp authorization-value)))
       (error "~A summary field setCodeAuthorizationCount must be a non-negative integer"
+             label))
+    (unless (and (integerp access-list-value) (not (minusp access-list-value)))
+      (error "~A summary field setCodeAccessListVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp calldata-value) (not (minusp calldata-value)))
+      (error "~A summary field setCodeMessageCallDataVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp access-list-calldata-value)
+                 (not (minusp access-list-calldata-value)))
+      (error "~A summary field setCodeAccessListMessageCallDataVectorCount must be a non-negative integer"
              label))
     (when (zerop vector-value)
       (error "~A summary is missing set-code authorization-list transaction coverage"
@@ -1719,6 +1754,15 @@
       (error "~A summary is missing set-code authorization entries" label))
     (unless (> authorization-value vector-value)
       (error "~A summary is missing multi-authorization set-code coverage"
+             label))
+    (when (zerop access-list-value)
+      (error "~A summary is missing set-code access-list transaction coverage"
+             label))
+    (when (zerop calldata-value)
+      (error "~A summary is missing set-code calldata transaction coverage"
+             label))
+    (when (zerop access-list-calldata-value)
+      (error "~A summary is missing combined set-code access-list calldata coverage"
              label)))
   summary)
 
@@ -4168,6 +4212,13 @@
             :test #'string=
             :key (lambda (candidate)
                    (fixture-object-field candidate "name"))))
+         (set-code-access-list-calldata-vector
+           (find
+            "phase-a-sample.json/typed-eip7702-set-code-access-list-calldata-sample"
+            vectors
+            :test #'string=
+            :key (lambda (candidate)
+                   (fixture-object-field candidate "name"))))
          (set-code-vector
            (find "phase-a-sample.json/typed-eip7702-set-code-sample"
                  vectors
@@ -4178,11 +4229,11 @@
          (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 1 (length paths)))
-    (is (= 24 (length cases)))
+    (is (= 25 (length cases)))
     (is (= 21 (length selected-cases)))
-    (is (= 24 (length vectors)))
+    (is (= 25 (length vectors)))
     (is (= 21 (length selected-vectors)))
-    (is (= 24 (length full-vectors)))
+    (is (= 25 (length full-vectors)))
     (validate-transaction-fixture-vector-set vectors :require-required-types t)
     (assert-transaction-fixture-vectors-replay vectors)
     (is (equal +phase-a-eest-transaction-test-case-names+
@@ -4598,19 +4649,50 @@
                                          "result")
                    "Cancun")
                   "intrinsicGas")))
+    (is set-code-access-list-calldata-vector)
+    (is (string= "set-code"
+                 (fixture-object-field set-code-access-list-calldata-vector
+                                       "type")))
+    (is (string= "0xdeadbeef"
+                 (fixture-object-field
+                  (fixture-object-field set-code-access-list-calldata-vector
+                                        "decoded")
+                  "input")))
+    (is (equal
+         (list
+          (list
+           (cons "address" "0x0000000000000000000000000000000000000101")
+           (cons "storageKeys"
+                 '("0x0000000000000000000000000000000000000000000000000000000000000001"
+                   "0x0000000000000000000000000000000000000000000000000000000000000002"))))
+         (fixture-object-field set-code-access-list-calldata-vector
+                               "accessList")))
+    (is (= 2
+           (length
+            (fixture-object-field
+             (fixture-object-field set-code-access-list-calldata-vector
+                                   "decoded")
+             "authorizationList"))))
+    (is (string= "0x12dd0"
+                 (fixture-object-field
+                  (fixture-object-field
+                   (fixture-object-field set-code-access-list-calldata-vector
+                                         "result")
+                   "Prague")
+                  "intrinsicGas")))
     (is set-code-vector)
     (is (string= "set-code"
                  (fixture-object-field set-code-vector "type")))
-    (is (= 24 (fixture-object-field all-summary "count")))
+    (is (= 25 (fixture-object-field all-summary "count")))
     (is (equal '((:legacy . 5)
                  (:access-list . 7)
                  (:dynamic-fee . 9)
                  (:blob . 2)
-                 (:set-code . 1))
+                 (:set-code . 2))
                (fixture-object-field all-summary "types")))
-    (is (= 24 (fixture-object-field all-summary "decodedVectorCount")))
-    (is (= 24 (fixture-object-field all-summary "signatureVectorCount")))
-    (is (= 11 (fixture-object-field all-summary "accessListVectorCount")))
+    (is (= 25 (fixture-object-field all-summary "decodedVectorCount")))
+    (is (= 25 (fixture-object-field all-summary "signatureVectorCount")))
+    (is (= 12 (fixture-object-field all-summary "accessListVectorCount")))
     (is (= 5 (fixture-object-field all-summary "dynamicFeeAccessListVectorCount")))
     (is (= 2 (fixture-object-field all-summary "duplicateAccessListVectorCount")))
     (is (= 1 (fixture-object-field
@@ -4623,8 +4705,8 @@
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeAddressOnlyAccessListVectorCount")))
-    (is (= 13 (fixture-object-field all-summary "accessListAddressCount")))
-    (is (= 20 (fixture-object-field all-summary "accessListStorageKeyCount")))
+    (is (= 14 (fixture-object-field all-summary "accessListAddressCount")))
+    (is (= 22 (fixture-object-field all-summary "accessListStorageKeyCount")))
     (is (= 6 (fixture-object-field all-summary "contractCreationVectorCount")))
     (is (= 6 (fixture-object-field all-summary "contractCreationAddressVectorCount")))
     (is (= 2 (fixture-object-field all-summary "accessListContractCreationVectorCount")))
@@ -4641,12 +4723,12 @@
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeEmptyAccessListContractCreationVectorCount")))
-    (is (= 7 (fixture-object-field all-summary "messageCallDataVectorCount")))
+    (is (= 8 (fixture-object-field all-summary "messageCallDataVectorCount")))
     (is (= 2 (fixture-object-field all-summary "legacyMessageCallDataVectorCount")))
-    (is (= 5 (fixture-object-field all-summary "typedMessageCallDataVectorCount")))
+    (is (= 6 (fixture-object-field all-summary "typedMessageCallDataVectorCount")))
     (is (= 2 (fixture-object-field all-summary "accessListMessageCallDataVectorCount")))
     (is (= 2 (fixture-object-field all-summary "dynamicFeeMessageCallDataVectorCount")))
-    (is (= 3 (fixture-object-field all-summary "accessListWithCallDataVectorCount")))
+    (is (= 4 (fixture-object-field all-summary "accessListWithCallDataVectorCount")))
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeAccessListWithCallDataVectorCount")))
@@ -4660,12 +4742,17 @@
     (is (= 1 (fixture-object-field
               all-summary
               "blobAccessListMessageCallDataVectorCount")))
-    (is (= 1 (fixture-object-field all-summary "setCodeAuthorizationVectorCount")))
-    (is (= 2 (fixture-object-field all-summary "setCodeAuthorizationCount")))
+    (is (= 2 (fixture-object-field all-summary "setCodeAuthorizationVectorCount")))
+    (is (= 4 (fixture-object-field all-summary "setCodeAuthorizationCount")))
+    (is (= 1 (fixture-object-field all-summary "setCodeAccessListVectorCount")))
+    (is (= 1 (fixture-object-field all-summary "setCodeMessageCallDataVectorCount")))
+    (is (= 1 (fixture-object-field
+              all-summary
+              "setCodeAccessListMessageCallDataVectorCount")))
     (is (= 3 (fixture-object-field all-summary "protectedLegacyVectorCount")))
     (is (= 2 (fixture-object-field all-summary "unprotectedLegacyVectorCount")))
-    (is (= 157 (fixture-object-field all-summary "validResultCount")))
-    (is (= 155 (fixture-object-field all-summary "exceptionResultCount")))
+    (is (= 158 (fixture-object-field all-summary "validResultCount")))
+    (is (= 167 (fixture-object-field all-summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 5)
                  ("Homestead" . 5)
                  ("EIP150" . 5)
@@ -4678,20 +4765,20 @@
                  ("Paris" . 21)
                  ("Shanghai" . 21)
                  ("Cancun" . 23)
-                 ("Prague" . 24))
+                 ("Prague" . 25))
                (fixture-object-field all-summary "validForkCounts")))
-    (is (equal '(("Frontier" . 19)
-                 ("Homestead" . 19)
-                 ("EIP150" . 19)
-                 ("EIP158" . 19)
-                 ("Byzantium" . 19)
-                 ("Constantinople" . 19)
-                 ("Istanbul" . 19)
-                 ("Berlin" . 12)
-                 ("London" . 3)
-                 ("Paris" . 3)
-                 ("Shanghai" . 3)
-                 ("Cancun" . 1))
+    (is (equal '(("Frontier" . 20)
+                 ("Homestead" . 20)
+                 ("EIP150" . 20)
+                 ("EIP158" . 20)
+                 ("Byzantium" . 20)
+                 ("Constantinople" . 20)
+                 ("Istanbul" . 20)
+                 ("Berlin" . 13)
+                 ("London" . 4)
+                 ("Paris" . 4)
+                 ("Shanghai" . 4)
+                 ("Cancun" . 2))
                (fixture-object-field all-summary "exceptionForkCounts")))
     (is (= 21 (fixture-object-field summary "count")))
     (is (equal '((:legacy . 5) (:access-list . 7) (:dynamic-fee . 9))
@@ -4750,6 +4837,11 @@
               "blobAccessListMessageCallDataVectorCount")))
     (is (= 0 (fixture-object-field summary "setCodeAuthorizationVectorCount")))
     (is (= 0 (fixture-object-field summary "setCodeAuthorizationCount")))
+    (is (= 0 (fixture-object-field summary "setCodeAccessListVectorCount")))
+    (is (= 0 (fixture-object-field summary "setCodeMessageCallDataVectorCount")))
+    (is (= 0 (fixture-object-field
+              summary
+              "setCodeAccessListMessageCallDataVectorCount")))
     (is (= 3 (fixture-object-field summary "protectedLegacyVectorCount")))
     (is (= 2 (fixture-object-field summary "unprotectedLegacyVectorCount")))
     (is (= 152 (fixture-object-field summary "validResultCount")))
@@ -4812,8 +4904,13 @@
     (is (= 1 (fixture-object-field
               full-summary
               "blobAccessListMessageCallDataVectorCount")))
-    (is (= 1 (fixture-object-field full-summary "setCodeAuthorizationVectorCount")))
-    (is (= 2 (fixture-object-field full-summary "setCodeAuthorizationCount")))
+    (is (= 2 (fixture-object-field full-summary "setCodeAuthorizationVectorCount")))
+    (is (= 4 (fixture-object-field full-summary "setCodeAuthorizationCount")))
+    (is (= 1 (fixture-object-field full-summary "setCodeAccessListVectorCount")))
+    (is (= 1 (fixture-object-field full-summary "setCodeMessageCallDataVectorCount")))
+    (is (= 1 (fixture-object-field
+              full-summary
+              "setCodeAccessListMessageCallDataVectorCount")))
     (signals error
       (validate-transaction-fixture-result-count-summary
        selected-vectors
@@ -5039,6 +5136,30 @@
       (validate-transaction-fixture-set-code-coverage
        (cons (cons "setCodeAuthorizationCount" 0)
              (remove "setCodeAuthorizationCount"
+                     full-summary
+                     :key #'car
+                     :test #'string=))
+       "Full EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-set-code-coverage
+       (cons (cons "setCodeAccessListVectorCount" 0)
+             (remove "setCodeAccessListVectorCount"
+                     full-summary
+                     :key #'car
+                     :test #'string=))
+       "Full EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-set-code-coverage
+       (cons (cons "setCodeMessageCallDataVectorCount" 0)
+             (remove "setCodeMessageCallDataVectorCount"
+                     full-summary
+                     :key #'car
+                     :test #'string=))
+       "Full EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-set-code-coverage
+       (cons (cons "setCodeAccessListMessageCallDataVectorCount" 0)
+             (remove "setCodeAccessListMessageCallDataVectorCount"
                      full-summary
                      :key #'car
                      :test #'string=))

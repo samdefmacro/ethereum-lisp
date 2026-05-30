@@ -770,13 +770,21 @@ ones.
     Cancun intrinsic gas, and pre-Cancun rejection covered together, and the
     full/seed summary gate now requires blob access-list calldata coverage
     instead of accepting a blob hash-only transaction.
+  - Progress: added EIP-7702 set-code access-list plus calldata coverage to
+    the full transaction fixture subset. The new vector keeps
+    multi-authorization, non-empty calldata, non-empty access-list projection,
+    sender recovery, Prague intrinsic gas, and pre-Prague rejection covered
+    together, and the full/seed summary gate now requires set-code access-list
+    calldata coverage instead of accepting authorization-list-only set-code
+    transactions.
   - Progress: tightened the local transaction envelope coverage entry point to
     run the same dynamic-fee, blob, set-code, legacy-protection, decoded,
     signature, access-list, contract-creation, input, and fork-result
     distribution gates used by the richer fixture summaries. The set-code
-    coverage gate now also requires multi-authorization EIP-7702 coverage, so
-    the seed fixture cannot degrade to a single authorization while preserving
-    type coverage.
+    coverage gate now also requires multi-authorization plus access-list
+    calldata EIP-7702 coverage, so the seed fixture cannot degrade to a single
+    authorization or authorization-list-only transaction while preserving type
+    coverage.
 
 ## P0: Module Boundaries
 
