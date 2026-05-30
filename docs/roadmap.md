@@ -152,7 +152,9 @@ fixes in those areas are allowed; expansion is not.
   separately from storage-key warming cost. The selected Shanghai subset now
   also gates the same address-only access-list boundary on an EIP-1559
   dynamic-fee transaction, so dynamic-fee address warming cannot rely on the
-  EIP-2930-only vector. It also gates an EIP-1559
+  EIP-2930-only vector. The transaction fixture summaries now also distinguish
+  typed empty-access-list payloads from non-empty access-list payloads, with
+  explicit EIP-2930 and EIP-1559 empty-list gates. It also gates an EIP-1559
   dynamic-fee message-call with equal priority and max fee caps, locking the
   fee-market decoded-field
   boundary where `maxPriorityFeePerGas == maxFeePerGas` remains valid. The

@@ -730,6 +730,11 @@ ones.
     `dynamicFeeAddressOnlyAccessListVectorCount`, keeping address warming cost
     visible for dynamic-fee transactions separately from EIP-2930 address-only
     coverage and dynamic-fee storage-key access-list coverage.
+  - Progress: tightened typed empty-access-list coverage in the transaction
+    fixture summaries. Phase A/full selectors now separately count typed
+    transactions with empty access lists, plus EIP-2930 and EIP-1559 empty
+    access-list cases, so non-empty warming coverage cannot mask the empty-list
+    typed payload boundary before pinned transaction-test replacement.
 
 ## P0: Module Boundaries
 

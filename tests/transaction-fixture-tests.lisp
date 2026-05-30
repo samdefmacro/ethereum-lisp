@@ -1174,6 +1174,9 @@
 (defun transaction-fixture-access-list-summary (vectors)
   (let ((vector-count 0)
         (dynamic-fee-vector-count 0)
+        (typed-empty-vector-count 0)
+        (access-list-empty-vector-count 0)
+        (dynamic-fee-empty-vector-count 0)
         (address-only-vector-count 0)
         (dynamic-fee-address-only-vector-count 0)
         (address-count 0)
@@ -1193,10 +1196,22 @@
           (when (zerop (access-list-storage-key-count access-list))
             (incf address-only-vector-count)
             (when (typep transaction 'dynamic-fee-transaction)
-              (incf dynamic-fee-address-only-vector-count))))))
+              (incf dynamic-fee-address-only-vector-count))))
+        (when (and (not (typep transaction 'legacy-transaction))
+                   (null access-list))
+          (incf typed-empty-vector-count)
+          (when (typep transaction 'access-list-transaction)
+            (incf access-list-empty-vector-count))
+          (when (typep transaction 'dynamic-fee-transaction)
+            (incf dynamic-fee-empty-vector-count)))))
     (list
      (cons "accessListVectorCount" vector-count)
      (cons "dynamicFeeAccessListVectorCount" dynamic-fee-vector-count)
+     (cons "typedEmptyAccessListVectorCount" typed-empty-vector-count)
+     (cons "accessListEmptyAccessListVectorCount"
+           access-list-empty-vector-count)
+     (cons "dynamicFeeEmptyAccessListVectorCount"
+           dynamic-fee-empty-vector-count)
      (cons "accessListAddressOnlyVectorCount" address-only-vector-count)
      (cons "dynamicFeeAddressOnlyAccessListVectorCount"
            dynamic-fee-address-only-vector-count)
@@ -1353,6 +1368,9 @@
 (defun validate-transaction-fixture-access-list-coverage (summary label)
   (dolist (field '("accessListVectorCount"
                    "dynamicFeeAccessListVectorCount"
+                   "typedEmptyAccessListVectorCount"
+                   "accessListEmptyAccessListVectorCount"
+                   "dynamicFeeEmptyAccessListVectorCount"
                    "accessListAddressOnlyVectorCount"
                    "dynamicFeeAddressOnlyAccessListVectorCount"
                    "accessListAddressCount"
@@ -1365,6 +1383,19 @@
     (error "~A summary is missing a non-empty access-list transaction" label))
   (when (zerop (fixture-required-field summary "dynamicFeeAccessListVectorCount"))
     (error "~A summary is missing a dynamic-fee access-list transaction" label))
+  (when (zerop (fixture-required-field summary "typedEmptyAccessListVectorCount"))
+    (error "~A summary is missing a typed transaction with an empty access list"
+           label))
+  (when (zerop (fixture-required-field
+                summary
+                "accessListEmptyAccessListVectorCount"))
+    (error "~A summary is missing an EIP-2930 transaction with an empty access list"
+           label))
+  (when (zerop (fixture-required-field
+                summary
+                "dynamicFeeEmptyAccessListVectorCount"))
+    (error "~A summary is missing a dynamic-fee transaction with an empty access list"
+           label))
   (when (zerop (fixture-required-field summary "accessListAddressCount"))
     (error "~A summary is missing access-list address coverage" label))
   (when (zerop (fixture-required-field summary "accessListAddressOnlyVectorCount"))
@@ -4277,6 +4308,9 @@
     (is (= 19 (fixture-object-field all-summary "signatureVectorCount")))
     (is (= 9 (fixture-object-field all-summary "accessListVectorCount")))
     (is (= 4 (fixture-object-field all-summary "dynamicFeeAccessListVectorCount")))
+    (is (= 7 (fixture-object-field all-summary "typedEmptyAccessListVectorCount")))
+    (is (= 1 (fixture-object-field all-summary "accessListEmptyAccessListVectorCount")))
+    (is (= 4 (fixture-object-field all-summary "dynamicFeeEmptyAccessListVectorCount")))
     (is (= 2 (fixture-object-field all-summary "accessListAddressOnlyVectorCount")))
     (is (= 1 (fixture-object-field
               all-summary
@@ -4344,6 +4378,9 @@
     (is (= 17 (fixture-object-field summary "signatureVectorCount")))
     (is (= 9 (fixture-object-field summary "accessListVectorCount")))
     (is (= 4 (fixture-object-field summary "dynamicFeeAccessListVectorCount")))
+    (is (= 5 (fixture-object-field summary "typedEmptyAccessListVectorCount")))
+    (is (= 1 (fixture-object-field summary "accessListEmptyAccessListVectorCount")))
+    (is (= 4 (fixture-object-field summary "dynamicFeeEmptyAccessListVectorCount")))
     (is (= 2 (fixture-object-field summary "accessListAddressOnlyVectorCount")))
     (is (= 1 (fixture-object-field
               summary
@@ -4447,10 +4484,29 @@
       (validate-transaction-fixture-access-list-coverage
        (list (cons "accessListVectorCount" 0)
              (cons "dynamicFeeAccessListVectorCount" 0)
+             (cons "typedEmptyAccessListVectorCount" 0)
+             (cons "accessListEmptyAccessListVectorCount" 0)
+             (cons "dynamicFeeEmptyAccessListVectorCount" 0)
              (cons "accessListAddressCount" 0)
              (cons "accessListAddressOnlyVectorCount" 0)
              (cons "dynamicFeeAddressOnlyAccessListVectorCount" 0)
              (cons "accessListStorageKeyCount" 0))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-access-list-coverage
+       (cons (cons "accessListEmptyAccessListVectorCount" 0)
+             (remove "accessListEmptyAccessListVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-access-list-coverage
+       (cons (cons "dynamicFeeEmptyAccessListVectorCount" 0)
+             (remove "dynamicFeeEmptyAccessListVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
        "Phase A EEST transaction"))
     (signals error
       (validate-transaction-fixture-access-list-coverage
