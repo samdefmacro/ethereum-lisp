@@ -1867,6 +1867,36 @@
                  (state-db-get-proof expected-state value-address nil))
                (decoded-proof
                  (state-proof-result-from-rpc-object proof))
+               (latest-sender-proof-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-proof-request 137 sender)
+                  store config))
+               (latest-sender-proof
+                 (field latest-sender-proof-response "result"))
+               (expected-sender-proof
+                 (state-db-get-proof expected-state sender nil))
+               (latest-sender-decoded-proof
+                 (state-proof-result-from-rpc-object latest-sender-proof))
+               (safe-sender-proof-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-proof-request
+                   138 sender :block-selector "safe")
+                  store config))
+               (safe-sender-proof
+                 (field safe-sender-proof-response "result"))
+               (parent-sender-proof
+                 (state-db-get-proof parent-state sender nil))
+               (safe-sender-decoded-proof
+                 (state-proof-result-from-rpc-object safe-sender-proof))
+               (finalized-sender-proof-response
+                 (engine-rpc-handle-request
+                  (engine-fixture-proof-request
+                   139 sender :block-selector "finalized")
+                  store config))
+               (finalized-sender-proof
+                 (field finalized-sender-proof-response "result"))
+               (finalized-sender-decoded-proof
+                 (state-proof-result-from-rpc-object finalized-sender-proof))
                (storage-proof-response
                  (engine-rpc-handle-request
                   (engine-fixture-proof-request
@@ -2025,6 +2055,52 @@
           (is (state-db-verify-proof
                (block-header-state-root (block-header child-block))
                decoded-proof))
+          (is (string= (address-to-hex sender)
+                       (field latest-sender-proof "address")))
+          (is (string= (quantity-to-hex
+                        (state-proof-result-balance expected-sender-proof))
+                       (field latest-sender-proof "balance")))
+          (is (string= (quantity-to-hex
+                        (state-proof-result-nonce expected-sender-proof))
+                       (field latest-sender-proof "nonce")))
+          (is (equal (mapcar #'bytes-to-hex
+                             (state-proof-result-account-proof
+                              expected-sender-proof))
+                     (field latest-sender-proof "accountProof")))
+          (is (null (field latest-sender-proof "storageProof")))
+          (is (state-db-verify-proof
+               (block-header-state-root (block-header child-block))
+               latest-sender-decoded-proof))
+          (is (string= (address-to-hex sender)
+                       (field safe-sender-proof "address")))
+          (is (string= (quantity-to-hex
+                        (state-proof-result-balance parent-sender-proof))
+                       (field safe-sender-proof "balance")))
+          (is (string= (quantity-to-hex
+                        (state-proof-result-nonce parent-sender-proof))
+                       (field safe-sender-proof "nonce")))
+          (is (equal (mapcar #'bytes-to-hex
+                             (state-proof-result-account-proof
+                              parent-sender-proof))
+                     (field safe-sender-proof "accountProof")))
+          (is (null (field safe-sender-proof "storageProof")))
+          (is (state-db-verify-proof
+               (block-header-state-root (block-header parent-block))
+               safe-sender-decoded-proof))
+          (is (string= (address-to-hex sender)
+                       (field finalized-sender-proof "address")))
+          (is (string= (field safe-sender-proof "balance")
+                       (field finalized-sender-proof "balance")))
+          (is (string= (field safe-sender-proof "nonce")
+                       (field finalized-sender-proof "nonce")))
+          (is (equal (field safe-sender-proof "accountProof")
+                     (field finalized-sender-proof "accountProof")))
+          (is (null (field finalized-sender-proof "storageProof")))
+          (is (state-db-verify-proof
+               (block-header-state-root (block-header parent-block))
+               finalized-sender-decoded-proof))
+          (is (not (string= (field latest-sender-proof "nonce")
+                            (field safe-sender-proof "nonce"))))
           (is (string= (address-to-hex storage-address)
                        (field storage-proof "address")))
           (is (equal (mapcar #'bytes-to-hex

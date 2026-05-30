@@ -296,8 +296,9 @@ fixes in those areas are allowed; expansion is not.
   verification over the imported child state root plus branch-switch proof
   reads that distinguish canonical `latest` from hash-addressed non-canonical
   child state. The same smoke path now exercises retained storage proofs and
-  verifies geth-shaped `storageProof.value` quantities against the imported
-  child state root; remaining Engine fixture work is mainly pinned-fixture
+  checkpoint-tag proof reads, verifying `latest` proofs against the child
+  state root while `safe` and `finalized` proofs resolve to the retained
+  parent state root; remaining Engine fixture work is mainly pinned-fixture
   breadth rather than new smoke-path shape. The state-root seed set now also
   locks storage overwrite-to-zero pruning plus storage-trie branch- and
   extension-preserving delete boundaries: after an overwritten slot is written

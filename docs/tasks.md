@@ -1296,6 +1296,12 @@ splits can land after the Phase A smoke path closes.
     compare account and storage proof nodes with `state-db-get-proof`, preserve
     geth-shaped quantity output for `storageProof.value`, and verify the
     decoded proof against the child state root.
+  - Progress: extended the same Engine smoke proof checks across checkpoint
+    tags. After forkchoice marks the parent as both safe and finalized while
+    selecting the imported child as latest, `eth_getProof` for the transaction
+    sender now verifies `latest` against the child state root and `safe` /
+    `finalized` against the retained parent state root, including balance,
+    nonce, account proof nodes, and decoded-proof verification.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
