@@ -393,6 +393,10 @@ EEST-style replay. It now also carries the geth `TestDelete` sequence for
 `do` / `ether` / `horse` / `shaman` / `doge` / `dog`, locking the
 post-deletion reference root, retained lookups, missing-key proofs, and
 compressed extension shape after deleting `ether` and `shaman`.
+The same seed/EEST-style trie path now includes geth's long leaf-value
+`TestInsert` case for key `A` with a 50-byte value, locking the
+`0xd23786fb4a010da3ce639d66d5e904a11dbc02746d1ce25029e53290cabf28ab`
+root and leaf value projection.
 Trie-vector fixtures can now assert proof-node RLP prefixes as well, and the
 seed set locks Nethermind's `GetBranchNodesWithPartialPath` root and branch
 node encodings for the shared-prefix hex-key case, including the branch RLP

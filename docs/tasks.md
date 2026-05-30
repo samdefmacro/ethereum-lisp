@@ -2069,6 +2069,13 @@ splits can land after the Phase A smoke path closes.
     expected root-node RLP and branch-node RLP (noted there as matching geth
     output), so node encoding compatibility is asserted directly instead of
     only through root hashes.
+    Added the second geth `TestInsert` root vector to the seed trie fixture
+    and selected EEST-style trie subset. The new `geth-long-leaf-value` case
+    inserts key `A` with a 50-byte ASCII value, locks geth's
+    `0xd23786fb4a010da3ce639d66d5e904a11dbc02746d1ce25029e53290cabf28ab`
+    root, verifies the leaf path/value projection, and bumps the Phase A
+    selected trie summary so long leaf-value encoding is represented alongside
+    shared-prefix insertion and deletion shapes.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

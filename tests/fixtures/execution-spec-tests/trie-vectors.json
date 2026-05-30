@@ -19,6 +19,20 @@
       "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7, 16]
     },
     {
+      "name": "geth-long-leaf-value",
+      "tags": ["leaf-root", "path-compression", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "A", "valueAscii": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      ],
+      "expectedRoot": "0xd23786fb4a010da3ce639d66d5e904a11dbc02746d1ce25029e53290cabf28ab",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [4, 1, 16],
+      "expectedRootValueAscii": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedGets": [
+        { "keyAscii": "A", "valueAscii": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      ]
+    },
+    {
       "name": "hex-byte-value-leaf",
       "tags": ["leaf-root", "path-compression", "hex-key", "hex-value", "lookup-assertions"],
       "operations": [
