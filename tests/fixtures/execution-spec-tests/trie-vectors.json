@@ -612,6 +612,75 @@
       ]
     },
     {
+      "name": "geth-stacktrie-root-branch-short-long-growth",
+      "tags": ["branch-root", "branch-child-references", "branch-children", "hex-key", "lookup-assertions", "intermediate-roots"],
+      "operations": [
+        { "op": "put", "keyHex": "0xa001", "valueAscii": "v1" },
+        { "op": "put", "keyHex": "0xb002", "valueAscii": "v2" },
+        { "op": "put", "keyHex": "0xc003", "valueAscii": "v___________________________3" },
+        { "op": "put", "keyHex": "0xd004", "valueAscii": "v___________________________4" }
+      ],
+      "expectedIntermediateRoots": [
+        "0xb9cc982d995392b51e6787f1915f0b88efd4ad8b30f138da0a3e2242f2323e35",
+        "0xa7b474bc77ef5097096fa0ee6298fdae8928c0bc3724e7311cd0fa9ed1942fc7",
+        "0xdceb5bb7c92b0e348df988a8d9fc36b101397e38ebd405df55ba6ee5f14a264a",
+        "0x36e60ecb86b9626165e1c6543c42ecbe4d83bca58e8e1124746961511fce362a"
+      ],
+      "expectedRoot": "0x36e60ecb86b9626165e1c6543c42ecbe4d83bca58e8e1124746961511fce362a",
+      "expectedShape": "branch",
+      "expectedRootChildren": [10, 11, 12, 13],
+      "expectedRootChildReferences": {
+        "10": "embedded",
+        "11": "embedded",
+        "12": "hashed",
+        "13": "hashed"
+      },
+      "expectedRootChildShapes": {
+        "10": "leaf",
+        "11": "leaf",
+        "12": "leaf",
+        "13": "leaf"
+      },
+      "expectedGets": [
+        { "keyHex": "0xa001", "valueAscii": "v1" },
+        { "keyHex": "0xb002", "valueAscii": "v2" },
+        { "keyHex": "0xc003", "valueAscii": "v___________________________3" },
+        { "keyHex": "0xd004", "valueAscii": "v___________________________4" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0xe005" }
+      ]
+    },
+    {
+      "name": "geth-stacktrie-extension-branch-short-long-growth",
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "lookup-assertions", "intermediate-roots"],
+      "operations": [
+        { "op": "put", "keyHex": "0x8002", "valueAscii": "v1" },
+        { "op": "put", "keyHex": "0x8004", "valueAscii": "v2" },
+        { "op": "put", "keyHex": "0x8008", "valueAscii": "v___________________________3" },
+        { "op": "put", "keyHex": "0x800d", "valueAscii": "v___________________________4" }
+      ],
+      "expectedIntermediateRoots": [
+        "0x3258fcb3e9e7d7234ecd3b8d4743999e4ab3a21592565e0a5ca64c141e8620d9",
+        "0xb6cb95b7024a83c17624a3c9bed09b4b5e8ed426f49f54b8ad13c39028b1e75a",
+        "0xc769d82963abe6f0900bf69754738eeb2f84559777cfa87a44f54e1aab417871",
+        "0x1cad1fdaab1a6fa95d7b780fd680030e423eb76669971368ba04797a8d9cdfc9"
+      ],
+      "expectedRoot": "0x1cad1fdaab1a6fa95d7b780fd680030e423eb76669971368ba04797a8d9cdfc9",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [8, 0, 0],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyHex": "0x8002", "valueAscii": "v1" },
+        { "keyHex": "0x8004", "valueAscii": "v2" },
+        { "keyHex": "0x8008", "valueAscii": "v___________________________3" },
+        { "keyHex": "0x800d", "valueAscii": "v___________________________4" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0x800f" }
+      ]
+    },
+    {
       "name": "nethermind-partial-path-proof-nodes",
       "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "proof-node-rlp"],
       "operations": [
