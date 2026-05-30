@@ -2245,6 +2245,12 @@ splits can land after the Phase A smoke path closes.
     trie, with required seed-case and tag gates so these state-root deletion
     shapes stay represented before pinned proof vectors replace the in-repo
     samples.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to the same
+    account-trie delete-collapse boundaries. The RPC regression now commits
+    branch-to-leaf, extension-to-leaf, and branch-plus-extension-to-extension
+    snapshots by block hash, compares geth-shaped account proofs with the
+    shared state proof primitive, and verifies decoded proofs against the
+    compressed state roots.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

@@ -8005,6 +8005,125 @@
        (commit-state-block store branch-extension-state 34 340)
        missing))))
 
+(deftest eth-rpc-get-proof-state-trie-delete-collapse
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (proof-node-hex-list (proof)
+             (mapcar #'bytes-to-hex proof))
+           (add-account (state address nonce balance)
+             (state-db-set-account
+              state
+              (address-from-hex address)
+              (make-state-account :nonce nonce :balance balance)))
+           (commit-state-block (store state number timestamp)
+             (let ((block
+                     (make-block
+                      :header (make-block-header
+                               :number number
+                               :timestamp timestamp
+                               :gas-limit 30000000
+                               :state-root (state-db-root state)))))
+               (chain-store-put-block store block :state-available-p t)
+               (commit-state-db-to-chain-store store (block-hash block) state)
+               block))
+           (assert-delete-collapse-proof
+               (store state block survivor expected-root expected-nodes)
+             (let* ((response
+                      (parse-json
+                       (engine-rpc-handle-request-json
+                        (concatenate
+                         'string
+                         "{\"jsonrpc\":\"2.0\",\"id\":123,"
+                         "\"method\":\"eth_getProof\","
+                         "\"params\":[\"" (address-to-hex survivor)
+                         "\",[],\"" (hash32-to-hex (block-hash block))
+                         "\"]}")
+                        store
+                        (make-chain-config))))
+                    (proof (field response "result"))
+                    (expected-proof
+                      (state-db-get-proof state survivor nil))
+                    (decoded-proof
+                      (state-proof-result-from-rpc-object proof)))
+               (is (string= expected-root (state-db-root-hex state)))
+               (is (string= (address-to-hex survivor)
+                            (field proof "address")))
+               (is (string= (quantity-to-hex 100)
+                            (field proof "balance")))
+               (is (string= (quantity-to-hex 1)
+                            (field proof "nonce")))
+               (is (string= (hash32-to-hex +empty-code-hash+)
+                            (field proof "codeHash")))
+               (is (string= (hash32-to-hex +empty-trie-hash+)
+                            (field proof "storageHash")))
+               (is (null (field proof "storageProof")))
+               (is (= expected-nodes
+                      (length (field proof "accountProof"))))
+               (is (equal (proof-node-hex-list
+                           (state-proof-result-account-proof expected-proof))
+                          (field proof "accountProof")))
+               (is (state-db-verify-proof (state-db-root state)
+                                          decoded-proof)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (branch-survivor
+             (address-from-hex "0x0000000000000000000000000000000000000201"))
+           (extension-survivor
+             (address-from-hex "0x0000000000000000000000000000000000000220"))
+           (branch-state (make-state-db))
+           (extension-state (make-state-db))
+           (branch-extension-state (make-state-db)))
+      (add-account branch-state
+                   "0x0000000000000000000000000000000000000201"
+                   1 100)
+      (add-account branch-state
+                   "0x0000000000000000000000000000000000000211"
+                   2 200)
+      (state-db-clear-account
+       branch-state
+       (address-from-hex "0x0000000000000000000000000000000000000211"))
+      (add-account extension-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 100)
+      (add-account extension-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (state-db-clear-account
+       extension-state
+       (address-from-hex "0x0000000000000000000000000000000000000225"))
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 100)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000203"
+                   3 300)
+      (state-db-clear-account
+       branch-extension-state
+       (address-from-hex "0x0000000000000000000000000000000000000203"))
+      (assert-delete-collapse-proof
+       store
+       branch-state
+       (commit-state-block store branch-state 50 500)
+       branch-survivor
+       "0x18742ec02ab527594bc83d163360c5b677ca92e37b5a0d5673920a895645b8a1"
+       1)
+      (assert-delete-collapse-proof
+       store
+       extension-state
+       (commit-state-block store extension-state 51 510)
+       extension-survivor
+       "0x006c6cf2120be53e089f44cb328653de92ca2a9a4970a6a9137148b829c47509"
+       1)
+      (assert-delete-collapse-proof
+       store
+       branch-extension-state
+       (commit-state-block store branch-extension-state 52 520)
+       extension-survivor
+       "0x107571af3beeb3b5f3d1b49b593066ac344ab7e98f657ee27670315fcbde6509"
+       3))))
+
 (deftest eth-rpc-get-proof-balance-add-nontrivial-state-tries
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
