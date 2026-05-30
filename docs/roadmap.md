@@ -256,7 +256,12 @@ fixes in those areas are allowed; expansion is not.
   `blockchain_tests_engine/london/eip1559_fee_market_change/test_eip1559_tx_validity.json`,
   locking dynamic-fee decoding, signature, sender/hash recovery, intrinsic
   gas, empty access-list projection, and London-through-Prague validity with
-  pre-London typed-transaction rejections. The Shanghai
+  pre-London typed-transaction rejections. It now also includes a valid
+  unprotected legacy transaction payload transcribed from pinned v5.4.0
+  `blockchain_tests_engine/frontier/validation/test_tx_nonce.json`, locking
+  nonce/gas decoding, signature, sender/hash recovery, intrinsic gas,
+  unprotected-signature classification, and all tracked-fork validity. The
+  Shanghai
   `engine_newPayloadV2` smoke now
   covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,

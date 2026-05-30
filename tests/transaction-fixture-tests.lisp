@@ -9,6 +9,7 @@
 (defparameter +phase-a-eest-transaction-test-case-names+
   '("phase-a-sample.json/legacy-eip155-sample"
     "phase-a-sample.json/legacy-unprotected-sample"
+    "phase-a-sample.json/legacy-pinned-blockchain-valid-sample"
     "phase-a-sample.json/legacy-unprotected-contract-creation-sample"
     "phase-a-sample.json/legacy-protected-calldata-sample"
     "phase-a-sample.json/legacy-contract-creation-sample"
@@ -35,6 +36,7 @@
 (defparameter +full-eest-transaction-test-case-names+
   '("phase-a-sample.json/legacy-eip155-sample"
     "phase-a-sample.json/legacy-unprotected-sample"
+    "phase-a-sample.json/legacy-pinned-blockchain-valid-sample"
     "phase-a-sample.json/legacy-unprotected-contract-creation-sample"
     "phase-a-sample.json/legacy-protected-calldata-sample"
     "phase-a-sample.json/legacy-contract-creation-sample"
@@ -79,6 +81,7 @@
 (defparameter +transaction-envelope-fixture-required-vector-names+
   '("legacy-eip155"
     "legacy-unprotected"
+    "legacy-pinned-blockchain-valid"
     "legacy-unprotected-contract-creation"
     "legacy-protected-calldata"
     "legacy-contract-creation"
@@ -4325,6 +4328,12 @@
                  :test #'string=
                  :key (lambda (candidate)
                         (fixture-object-field candidate "name"))))
+         (legacy-pinned-blockchain-vector
+           (find "phase-a-sample.json/legacy-pinned-blockchain-valid-sample"
+                 vectors
+                 :test #'string=
+                 :key (lambda (candidate)
+                        (fixture-object-field candidate "name"))))
          (unprotected-contract-vector
            (find "phase-a-sample.json/legacy-unprotected-contract-creation-sample"
                  vectors
@@ -4474,12 +4483,12 @@
          (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 13 (length paths)))
-    (is (= 81 (length cases)))
+    (is (= 82 (length cases)))
     (is (= 53 (length invalid-cases)))
-    (is (= 24 (length selected-cases)))
-    (is (= 28 (length vectors)))
-    (is (= 24 (length selected-vectors)))
-    (is (= 28 (length full-vectors)))
+    (is (= 25 (length selected-cases)))
+    (is (= 29 (length vectors)))
+    (is (= 25 (length selected-vectors)))
+    (is (= 29 (length full-vectors)))
     (validate-transaction-fixture-vector-set vectors :require-required-types t)
     (assert-transaction-fixture-vectors-replay vectors)
     (is (equal +phase-a-eest-transaction-test-case-names+
@@ -4584,6 +4593,42 @@
              (hex-to-bytes
               (fixture-object-field unprotected-vector "txbytes")))))
       (is (not (legacy-transaction-protected-p transaction))))
+    (is legacy-pinned-blockchain-vector)
+    (is (string= "legacy"
+                 (fixture-object-field legacy-pinned-blockchain-vector
+                                       "type")))
+    (is (= 0 (fixture-object-field legacy-pinned-blockchain-vector "chainId")))
+    (is (equal
+         (list
+          (cons "nonce" "0x5")
+          (cons "gasLimit" "0x5208")
+          (cons "to" "0x239d8f4155ea51080175d6d1cb9d0a8a4f8e27bc")
+          (cons "value" "0x0")
+          (cons "input" "0x")
+          (cons "gasPrice" "0xa"))
+         (fixture-object-field legacy-pinned-blockchain-vector "decoded")))
+    (is (equal
+         (list
+          (cons "v" "0x1c")
+          (cons "yParity" "0x1")
+          (cons "r"
+                "0x4cbd4c6a3fdb44020f1b8b90926784069a8fcec1e487065f422182f5c6bee518")
+          (cons "s"
+                "0x3367b6789a388d40ef567ec3347cc20921e9d4b4416c47137b1bd19132ad6290"))
+         (fixture-object-field legacy-pinned-blockchain-vector "signature")))
+    (let ((transaction
+            (transaction-from-encoding
+             (hex-to-bytes
+              (fixture-object-field legacy-pinned-blockchain-vector
+                                    "txbytes")))))
+      (is (not (legacy-transaction-protected-p transaction))))
+    (is (string= "0x5208"
+                 (fixture-object-field
+                  (fixture-object-field
+                   (fixture-object-field legacy-pinned-blockchain-vector
+                                         "result")
+                   +phase-a-eest-transaction-target-fork+)
+                  "intrinsicGas")))
     (is unprotected-contract-vector)
     (is (string= "legacy"
                  (fixture-object-field unprotected-contract-vector "type")))
@@ -5060,15 +5105,15 @@
     (is set-code-vector)
     (is (string= "set-code"
                  (fixture-object-field set-code-vector "type")))
-    (is (= 28 (fixture-object-field all-summary "count")))
-    (is (equal '((:legacy . 5)
+    (is (= 29 (fixture-object-field all-summary "count")))
+    (is (equal '((:legacy . 6)
                  (:access-list . 8)
                  (:dynamic-fee . 11)
                  (:blob . 2)
                  (:set-code . 2))
                (fixture-object-field all-summary "types")))
-    (is (= 28 (fixture-object-field all-summary "decodedVectorCount")))
-    (is (= 28 (fixture-object-field all-summary "signatureVectorCount")))
+    (is (= 29 (fixture-object-field all-summary "decodedVectorCount")))
+    (is (= 29 (fixture-object-field all-summary "signatureVectorCount")))
     (is (= 12 (fixture-object-field all-summary "accessListVectorCount")))
     (is (= 5 (fixture-object-field all-summary "dynamicFeeAccessListVectorCount")))
     (is (= 2 (fixture-object-field all-summary "duplicateAccessListVectorCount")))
@@ -5136,22 +5181,22 @@
               all-summary
               "setCodeAccessListMessageCallDataVectorCount")))
     (is (= 3 (fixture-object-field all-summary "protectedLegacyVectorCount")))
-    (is (= 2 (fixture-object-field all-summary "unprotectedLegacyVectorCount")))
-    (is (= 174 (fixture-object-field all-summary "validResultCount")))
+    (is (= 3 (fixture-object-field all-summary "unprotectedLegacyVectorCount")))
+    (is (= 187 (fixture-object-field all-summary "validResultCount")))
     (is (= 190 (fixture-object-field all-summary "exceptionResultCount")))
-    (is (equal '(("Frontier" . 5)
-                 ("Homestead" . 5)
-                 ("EIP150" . 5)
-                 ("EIP158" . 5)
-                 ("Byzantium" . 5)
-                 ("Constantinople" . 5)
-                 ("Istanbul" . 5)
-                 ("Berlin" . 13)
-                 ("London" . 24)
-                 ("Paris" . 24)
-                 ("Shanghai" . 24)
-                 ("Cancun" . 26)
-                 ("Prague" . 28))
+    (is (equal '(("Frontier" . 6)
+                 ("Homestead" . 6)
+                 ("EIP150" . 6)
+                 ("EIP158" . 6)
+                 ("Byzantium" . 6)
+                 ("Constantinople" . 6)
+                 ("Istanbul" . 6)
+                 ("Berlin" . 14)
+                 ("London" . 25)
+                 ("Paris" . 25)
+                 ("Shanghai" . 25)
+                 ("Cancun" . 27)
+                 ("Prague" . 29))
                (fixture-object-field all-summary "validForkCounts")))
     (is (equal '(("Frontier" . 23)
                  ("Homestead" . 23)
@@ -5166,11 +5211,11 @@
                  ("Shanghai" . 4)
                  ("Cancun" . 2))
                (fixture-object-field all-summary "exceptionForkCounts")))
-    (is (= 24 (fixture-object-field summary "count")))
-    (is (equal '((:legacy . 5) (:access-list . 8) (:dynamic-fee . 11))
+    (is (= 25 (fixture-object-field summary "count")))
+    (is (equal '((:legacy . 6) (:access-list . 8) (:dynamic-fee . 11))
                (fixture-object-field summary "types")))
-    (is (= 24 (fixture-object-field summary "decodedVectorCount")))
-    (is (= 24 (fixture-object-field summary "signatureVectorCount")))
+    (is (= 25 (fixture-object-field summary "decodedVectorCount")))
+    (is (= 25 (fixture-object-field summary "signatureVectorCount")))
     (is (= 10 (fixture-object-field summary "accessListVectorCount")))
     (is (= 5 (fixture-object-field summary "dynamicFeeAccessListVectorCount")))
     (is (= 2 (fixture-object-field summary "duplicateAccessListVectorCount")))
@@ -5238,22 +5283,22 @@
               summary
               "setCodeAccessListMessageCallDataVectorCount")))
     (is (= 3 (fixture-object-field summary "protectedLegacyVectorCount")))
-    (is (= 2 (fixture-object-field summary "unprotectedLegacyVectorCount")))
-    (is (= 168 (fixture-object-field summary "validResultCount")))
+    (is (= 3 (fixture-object-field summary "unprotectedLegacyVectorCount")))
+    (is (= 181 (fixture-object-field summary "validResultCount")))
     (is (= 144 (fixture-object-field summary "exceptionResultCount")))
-    (is (equal '(("Frontier" . 5)
-                 ("Homestead" . 5)
-                 ("EIP150" . 5)
-                 ("EIP158" . 5)
-                 ("Byzantium" . 5)
-                 ("Constantinople" . 5)
-                 ("Istanbul" . 5)
-                 ("Berlin" . 13)
-                 ("London" . 24)
-                 ("Paris" . 24)
-                 ("Shanghai" . 24)
-                 ("Cancun" . 24)
-                 ("Prague" . 24))
+    (is (equal '(("Frontier" . 6)
+                 ("Homestead" . 6)
+                 ("EIP150" . 6)
+                 ("EIP158" . 6)
+                 ("Byzantium" . 6)
+                 ("Constantinople" . 6)
+                 ("Istanbul" . 6)
+                 ("Berlin" . 14)
+                 ("London" . 25)
+                 ("Paris" . 25)
+                 ("Shanghai" . 25)
+                 ("Cancun" . 25)
+                 ("Prague" . 25))
                (fixture-object-field summary "validForkCounts")))
     (is (equal '(("Frontier" . 19)
                  ("Homestead" . 19)
@@ -5266,6 +5311,7 @@
                (fixture-object-field summary "exceptionForkCounts")))
     (is (equal '("phase-a-sample.json/legacy-eip155-sample"
                  "phase-a-sample.json/legacy-unprotected-sample"
+                 "phase-a-sample.json/legacy-pinned-blockchain-valid-sample"
                  "phase-a-sample.json/legacy-unprotected-contract-creation-sample"
                  "phase-a-sample.json/legacy-protected-calldata-sample"
                  "phase-a-sample.json/legacy-contract-creation-sample"

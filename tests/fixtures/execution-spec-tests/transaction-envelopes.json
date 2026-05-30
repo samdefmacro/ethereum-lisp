@@ -5,7 +5,7 @@
     "release": "v5.4.0",
     "tagTarget": "88e9fb8",
     "archive": "fixtures_stable.tar.gz",
-    "status": "seed vectors shaped for pinned fixture ingestion; includes a transcribed v5.4.0 blockchain_tests_engine EIP-2930 transaction while stable transaction_tests only provide invalid Prague cases"
+    "status": "seed vectors shaped for pinned fixture ingestion; includes transcribed v5.4.0 blockchain_tests_engine legacy, EIP-2930, and EIP-1559 transactions while stable transaction_tests only provide invalid Prague cases"
   },
   "referenceClients": {
     "geth": "8a0223e",
@@ -188,6 +188,95 @@
           "hash": "0xfd9b371e767c45c008fb2f49d1de7a3e183c62884e3b2814f899c9fca12e2922",
           "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
           "intrinsicGas": "0x5228"
+        }
+      }
+    },
+    {
+      "name": "legacy-pinned-blockchain-valid",
+      "type": "legacy",
+      "chainId": 0,
+      "txbytes": "0xf85f050a82520894239d8f4155ea51080175d6d1cb9d0a8a4f8e27bc80801ca04cbd4c6a3fdb44020f1b8b90926784069a8fcec1e487065f422182f5c6bee518a03367b6789a388d40ef567ec3347cc20921e9d4b4416c47137b1bd19132ad6290",
+      "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+      "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+      "signature": {
+        "v": "0x1c",
+        "yParity": "0x1",
+        "r": "0x4cbd4c6a3fdb44020f1b8b90926784069a8fcec1e487065f422182f5c6bee518",
+        "s": "0x3367b6789a388d40ef567ec3347cc20921e9d4b4416c47137b1bd19132ad6290"
+      },
+      "decoded": {
+        "nonce": "0x5",
+        "gasLimit": "0x5208",
+        "to": "0x239d8f4155ea51080175d6d1cb9d0a8a4f8e27bc",
+        "value": "0x0",
+        "input": "0x",
+        "gasPrice": "0xa"
+      },
+      "result": {
+        "Frontier": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Homestead": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "EIP150": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "EIP158": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Byzantium": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Constantinople": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Istanbul": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Berlin": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "London": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Paris": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Shanghai": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Cancun": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
+        },
+        "Prague": {
+          "hash": "0x2add2aa415be739c95b5bd657e29baac3d54776eea73ead2400ba5bba0a5201b",
+          "sender": "0x0c388231f816841bc83f2fa45f81c2e436d31d63",
+          "intrinsicGas": "0x5208"
         }
       }
     },

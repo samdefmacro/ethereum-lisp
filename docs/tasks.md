@@ -194,6 +194,13 @@ ones.
     replay path now locks its txbytes, hash, recovered sender, decoded dynamic
     fee fields, signature, intrinsic gas, empty access-list projection, and
     London-through-Prague validity with pre-London rejection checks.
+  - Progress: added a valid unprotected legacy transaction transcribed from
+    pinned v5.4.0
+    `fixtures/blockchain_tests_engine/frontier/validation/test_tx_nonce.json`
+    into the Phase A EEST-shaped sample root and seed envelope fixture. The
+    replay path now locks its txbytes, hash, recovered sender, decoded legacy
+    gas fields, signature, intrinsic gas, unprotected-signature classification,
+    and all tracked-fork validity.
   - Progress: added an in-repo external-style transaction envelope vector
     runner covering legacy EIP-155, EIP-2930, EIP-1559, EIP-4844, and
     EIP-7702 raw encodings, transaction hashes, sender recovery, and
