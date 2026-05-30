@@ -2517,6 +2517,12 @@ splits can land after the Phase A smoke path closes.
     nonzero value, and leave zero-value transfers to missing recipients as
     no-ops; the state-proof fixture set locks the geth-shaped recipient proof
     after transfer with required case and tag gates.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to
+    `transferValue` snapshots. The RPC regression now commits the nonzero
+    transfer state by block hash, verifies sender and recipient proofs against
+    `state-db-get-proof`, and separately proves that a zero-value transfer to
+    a missing recipient remains a missing-account proof against the unchanged
+    root.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

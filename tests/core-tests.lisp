@@ -8429,6 +8429,118 @@
        missing-target
        2))))
 
+(deftest eth-rpc-get-proof-value-transfer
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (commit-state-block (store state number timestamp)
+             (let ((block
+                     (make-block
+                      :header (make-block-header
+                               :number number
+                               :timestamp timestamp
+                               :gas-limit 30000000
+                               :state-root (state-db-root state)))))
+               (chain-store-put-block store block :state-available-p t)
+               (commit-state-db-to-chain-store store (block-hash block) state)
+               block))
+           (proof-request (id address storage-keys block)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getProof")
+                   (cons "params"
+                         (list (address-to-hex address)
+                               (mapcar #'hash32-to-hex storage-keys)
+                               (hash32-to-hex (block-hash block))))))
+           (assert-transfer-proof
+             (store state block address storage-keys expected-root
+              expected-balance expected-nonce expected-storage-proof-count)
+             (let* ((response
+                      (engine-rpc-handle-request
+                       (proof-request 132 address storage-keys block)
+                       store
+                       (make-chain-config)))
+                    (proof (field response "result"))
+                    (expected-proof
+                      (state-db-get-proof state address storage-keys))
+                    (decoded-proof
+                      (state-proof-result-from-rpc-object proof)))
+               (is (string= expected-root
+                            (state-db-root-hex state)))
+               (is (equal (state-proof-result-rpc-object expected-proof)
+                          proof))
+               (is (string= (address-to-hex address)
+                            (field proof "address")))
+               (is (string= (quantity-to-hex expected-balance)
+                            (field proof "balance")))
+               (is (string= (quantity-to-hex expected-nonce)
+                            (field proof "nonce")))
+               (is (string= (hash32-to-hex +empty-code-hash+)
+                            (field proof "codeHash")))
+               (is (string= (hash32-to-hex +empty-trie-hash+)
+                            (field proof "storageHash")))
+               (is (= expected-storage-proof-count
+                      (length (field proof "storageProof"))))
+               (is (state-db-verify-proof (state-db-root state)
+                                          decoded-proof)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (sender
+             (address-from-hex "0x0000000000000000000000000000000000000301"))
+           (recipient
+             (address-from-hex "0x0000000000000000000000000000000000000302"))
+           (zero-sender
+             (address-from-hex "0x0000000000000000000000000000000000000303"))
+           (missing-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000304"))
+           (missing-slot
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000001"))
+           (transfer-state (make-state-db))
+           (zero-transfer-state (make-state-db)))
+      (state-db-set-account
+       transfer-state sender (make-state-account :nonce 1 :balance 100))
+      (ethereum-lisp.state::state-db-transfer-value
+       transfer-state sender recipient 37)
+      (state-db-set-account
+       zero-transfer-state
+       zero-sender
+       (make-state-account :nonce 2 :balance 100))
+      (ethereum-lisp.state::state-db-transfer-value
+       zero-transfer-state zero-sender missing-recipient 0)
+      (let ((transfer-block
+              (commit-state-block store transfer-state 44 440))
+            (zero-transfer-block
+              (commit-state-block store zero-transfer-state 45 450)))
+        (assert-transfer-proof
+         store
+         transfer-state
+         transfer-block
+         sender
+         nil
+         "0xeb1be297ad9e87812158dcb9b646fe55dfc2e89526b65cf76bd4fe3b40c68da9"
+         63
+         1
+         0)
+        (assert-transfer-proof
+         store
+         transfer-state
+         transfer-block
+         recipient
+         nil
+         "0xeb1be297ad9e87812158dcb9b646fe55dfc2e89526b65cf76bd4fe3b40c68da9"
+         37
+         0
+         0)
+        (assert-transfer-proof
+         store
+         zero-transfer-state
+         zero-transfer-block
+         missing-recipient
+         (list missing-slot)
+         "0x600e37f427a9f42ebe6b592ff989ec26a865aa3d89c955bb78dbf53890cbeb41"
+         0
+         0
+         1)))))
+
 (deftest eth-rpc-get-proof-zero-storage-writes
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

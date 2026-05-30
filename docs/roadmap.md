@@ -376,7 +376,9 @@ account-trie layouts.
 The same fixture path now covers transaction-like `transferValue` state
 updates, locking nonzero sender debit plus recipient-account creation and the
 zero-value missing-recipient no-op boundary, with a geth-shaped recipient
-state proof after transfer.
+state proof after transfer. Retained-state `eth_getProof` RPC coverage now
+replays the same committed transfer snapshots by block hash for sender,
+recipient, and zero-value missing-recipient proofs.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.
