@@ -1747,6 +1747,67 @@
       "expectedRoot": "0x2f2a83b97a1c50b77211a967e2ee020a1ff9bdb1816bfa005d49784d20a6c6e8"
     },
     {
+      "name": "storage-update-to-zero-prunes-slot-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-update",
+        "storage-update-delete",
+        "storage-delete",
+        "storage-root-projection",
+        "storage-trie-delete-to-empty",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000104",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000104",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
+          "value": 99
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000104",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
+          "value": 100
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000104",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
+          "value": 0
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000104",
+          "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000104",
+          "shape": "empty"
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000104",
+          "nonce": 0,
+          "balance": 1,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448001a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedRoot": "0x6439f64edbc9131a808f8c5ae56c2d0b71d938b485f7c523570181f3a4d79e6b"
+    },
+    {
       "name": "storage-trie-branch-root",
       "tags": [
         "account-root",

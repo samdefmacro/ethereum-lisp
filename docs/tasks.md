@@ -1331,6 +1331,10 @@ splits can land after the Phase A smoke path closes.
     Added storage-update state-root coverage that writes the same storage slot
     twice, then asserts the final slot value, storage root projection, account
     RLP, and state root so storage overwrite semantics cannot regress.
+    Added storage-update-to-zero state-root coverage that writes a slot,
+    overwrites it, then writes zero, asserting the empty storage root,
+    empty storage-trie shape, retained funded account projection, and required
+    coverage gate so overwrite-then-delete pruning cannot regress.
     Added code-update state-root coverage that overwrites non-empty account code
     and asserts the final code hash, retained code bytes, account RLP, and
     state root.
