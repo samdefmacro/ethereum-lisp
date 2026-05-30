@@ -222,11 +222,13 @@ fixes in those areas are allowed; expansion is not.
   with blob coverage requiring access-list calldata and set-code coverage
   requiring multi-authorization plus access-list calldata rather than a single
   authorization-only placeholder. The in-repo EEST transaction-test root now
-  also includes the first transcribed pinned v5.4.0 `execution-spec-tests`
-  invalid case for an empty EIP-7702 authorization list; the importer keeps
-  invalid-only cases separate from successful hash/sender vectors while still
-  decoding the official payload and checking that local set-code validation
-  rejects it. The
+  also includes the full pinned v5.4.0 Prague/EIP-7702 invalid
+  `eip7702_set_code_tx` group currently present in the local
+  `fixtures_stable.tar.gz` archive: 12 source files and 53 invalid cases. The
+  importer keeps invalid-only cases separate from successful hash/sender
+  vectors while still decoding official payloads and gating the expected
+  empty-authorization, invalid-authority-signature, and
+  invalid-authorization-format exception distribution. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint

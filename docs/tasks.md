@@ -805,6 +805,14 @@ ones.
     cases, accepts `_info` metadata and invalid exception results that include
     `intrinsicGas`, and asserts the official empty EIP-7702 authorization-list
     payload decodes as set-code then fails local set-code field validation.
+  - Progress: expanded the pinned Prague/EIP-7702 invalid transaction-test
+    import to the full v5.4.0 `eip7702_set_code_tx` invalid group currently
+    present in the local `fixtures_stable.tar.gz` archive: 12 source files and
+    53 invalid cases. The root loader now accepts official multi-case EEST
+    source ids with nested case paths after `.json/`, and the regression gate
+    checks the exact source-file list plus the empty-authorization,
+    invalid-authority-signature, and invalid-authorization-format exception
+    distribution.
 
 ## P0: Module Boundaries
 

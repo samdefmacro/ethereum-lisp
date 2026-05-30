@@ -58,8 +58,19 @@
     "phase-a-sample.json/typed-eip7702-set-code-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip7702-set-code-sample"))
 
-(defparameter +invalid-eest-transaction-test-case-names+
-  '("prague/eip7702_set_code_tx/test_empty_authorization_list.json"))
+(defparameter +invalid-eest-transaction-test-file-names+
+  '("prague/eip7702_set_code_tx/test_empty_authorization_list.json"
+    "prague/eip7702_set_code_tx/test_invalid_auth_signature.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_address.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_auth_chain_id.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_auth_chain_id_encoding.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_encoded_as_bytes.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_extra_element.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_missing_element.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce_as_list.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce_encoding.json"
+    "prague/eip7702_set_code_tx/test_invalid_tx_invalid_rlp_encoding.json"))
 
 (defparameter +transaction-envelope-fixture-required-vector-names+
   '("legacy-eip155"
@@ -115,6 +126,7 @@
     "TransactionException.TYPE_3_TX_PRE_FORK"
     "TransactionException.TYPE_4_TX_PRE_FORK"
     "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST"
+    "TransactionException.TYPE_4_INVALID_AUTHORIZATION_FORMAT"
     "TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE"
     "TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE_S_TOO_HIGH"))
 
@@ -975,9 +987,7 @@
                   (and (< after-json (length name))
                        (char= (char name after-json) #\/)
                        (< (1+ after-json) (length name))
-                       (not (char= (char name (1+ after-json)) #\/))
-                       (null (position #\/ name
-                                       :start (1+ after-json)))))))))
+                       (not (char= (char name (1+ after-json)) #\/))))))))
 
 (defun load-eest-transaction-test-root-cases (root &key names)
   (when names
@@ -1146,6 +1156,14 @@
                    (load-eest-transaction-test-root-cases root :names names)))))
     (validate-transaction-fixture-vector-set vectors)
     vectors))
+
+(defun eest-transaction-case-source-file-name (case)
+  (let* ((name (fixture-required-field case "name"))
+         (json-end (search ".json" name)))
+    (unless json-end
+      (error "EEST transaction case ~A does not include a JSON source file"
+             name))
+    (subseq name 0 (+ json-end (length ".json")))))
 
 (defun load-phase-a-eest-transaction-test-root-vectors (root)
   (validate-eest-transaction-selector-list
@@ -4155,9 +4173,7 @@
          (paths (eest-transaction-test-json-paths root))
          (cases (load-eest-transaction-test-root-cases root))
          (invalid-cases
-           (load-eest-transaction-test-root-invalid-cases
-            root
-            :names +invalid-eest-transaction-test-case-names+))
+           (load-eest-transaction-test-root-invalid-cases root))
          (selected-cases
            (load-eest-transaction-test-root-cases
             root
@@ -4317,9 +4333,9 @@
          (all-summary (transaction-fixture-vector-summary vectors))
          (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
-    (is (= 2 (length paths)))
-    (is (= 27 (length cases)))
-    (is (= 1 (length invalid-cases)))
+    (is (= 13 (length paths)))
+    (is (= 79 (length cases)))
+    (is (= 53 (length invalid-cases)))
     (is (= 22 (length selected-cases)))
     (is (= 26 (length vectors)))
     (is (= 22 (length selected-vectors)))
@@ -4336,6 +4352,22 @@
                 (lambda (vector)
                   (fixture-object-field vector "name"))
                 full-vectors)))
+    (is (equal +invalid-eest-transaction-test-file-names+
+               (remove-duplicates
+                (mapcar #'eest-transaction-case-source-file-name invalid-cases)
+                :test #'string=)))
+    (let ((counts (make-hash-table :test 'equal)))
+      (dolist (case invalid-cases)
+        (let* ((result (fixture-required-field case "result"))
+               (prague-result (fixture-required-field result "Prague"))
+               (exception (fixture-required-field prague-result "exception")))
+          (incf (gethash exception counts 0))))
+      (is (= 1 (gethash "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST"
+                        counts 0)))
+      (is (= 8 (gethash "TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE|TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE_S_TOO_HIGH"
+                        counts 0)))
+      (is (= 44 (gethash "TransactionException.TYPE_4_INVALID_AUTHORIZATION_FORMAT"
+                         counts 0))))
     (let* ((invalid-case (first invalid-cases))
            (invalid-result (fixture-required-field invalid-case "result"))
            (prague-result (fixture-required-field invalid-result "Prague"))
@@ -5565,8 +5597,8 @@
       (validate-eest-transaction-selector-list '("case.json/")))
     (signals error
       (validate-eest-transaction-selector-list '("case.json//name")))
-    (signals error
-      (validate-eest-transaction-selector-list '("case.json/name/extra")))
+    (validate-eest-transaction-selector-list
+     '("case.json/tests/prague/eip7702_set_code_tx/test_invalid_tx.py::test_case[fork_Prague-transaction_test]"))
     (signals error
       (validate-eest-transaction-selector-list
        '("phase-a-sample.json" "phase-a-sample.json"))))
