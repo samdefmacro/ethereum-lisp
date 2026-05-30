@@ -251,7 +251,12 @@ fixes in those areas are allowed; expansion is not.
   because the stable release's `transaction_tests` set only exposes invalid
   Prague cases; the seed-alignment gate locks its txbytes, hash, recovered
   sender, decoded fields, signature, intrinsic gas, and Berlin-through-Prague
-  validity. The Shanghai
+  validity. It now also includes a valid EIP-1559 type-2 transaction payload
+  transcribed from pinned v5.4.0
+  `blockchain_tests_engine/london/eip1559_fee_market_change/test_eip1559_tx_validity.json`,
+  locking dynamic-fee decoding, signature, sender/hash recovery, intrinsic
+  gas, empty access-list projection, and London-through-Prague validity with
+  pre-London typed-transaction rejections. The Shanghai
   `engine_newPayloadV2` smoke now
   covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,

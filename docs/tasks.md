@@ -187,6 +187,13 @@ ones.
     seed-alignment replay path. Remaining work: continue replacing/extending
     seed vectors with pinned release payloads where the stable archive exposes
     usable transaction bytes.
+  - Progress: added a valid EIP-1559 type-2 transaction transcribed from
+    pinned v5.4.0
+    `fixtures/blockchain_tests_engine/london/eip1559_fee_market_change/test_eip1559_tx_validity.json`
+    into the Phase A EEST-shaped sample root and seed envelope fixture. The
+    replay path now locks its txbytes, hash, recovered sender, decoded dynamic
+    fee fields, signature, intrinsic gas, empty access-list projection, and
+    London-through-Prague validity with pre-London rejection checks.
   - Progress: added an in-repo external-style transaction envelope vector
     runner covering legacy EIP-155, EIP-2930, EIP-1559, EIP-4844, and
     EIP-7702 raw encodings, transaction hashes, sender recovery, and

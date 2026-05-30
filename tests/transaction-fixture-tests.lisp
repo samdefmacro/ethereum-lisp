@@ -21,6 +21,7 @@
     "phase-a-sample.json/typed-eip2930-contract-creation-sample"
     "phase-a-sample.json/typed-eip2930-empty-access-list-contract-creation-sample"
     "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
+    "phase-a-sample.json/typed-eip1559-pinned-blockchain-valid-sample"
     "phase-a-sample.json/typed-eip1559-equal-fee-caps-sample"
     "phase-a-sample.json/typed-eip1559-calldata-sample"
     "phase-a-sample.json/typed-eip1559-address-only-access-list-sample"
@@ -46,6 +47,7 @@
     "phase-a-sample.json/typed-eip2930-contract-creation-sample"
     "phase-a-sample.json/typed-eip2930-empty-access-list-contract-creation-sample"
     "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
+    "phase-a-sample.json/typed-eip1559-pinned-blockchain-valid-sample"
     "phase-a-sample.json/typed-eip1559-equal-fee-caps-sample"
     "phase-a-sample.json/typed-eip1559-calldata-sample"
     "phase-a-sample.json/typed-eip1559-address-only-access-list-sample"
@@ -89,6 +91,7 @@
     "eip2930-contract-creation"
     "eip2930-empty-access-list-contract-creation"
     "eip1559-dynamic-fee"
+    "eip1559-pinned-blockchain-valid"
     "eip1559-equal-fee-caps"
     "eip1559-calldata"
     "eip1559-address-only-access-list"
@@ -4389,6 +4392,13 @@
                  :test #'string=
                  :key (lambda (candidate)
                         (fixture-object-field candidate "name"))))
+         (dynamic-fee-pinned-blockchain-vector
+           (find
+            "phase-a-sample.json/typed-eip1559-pinned-blockchain-valid-sample"
+            vectors
+            :test #'string=
+            :key (lambda (candidate)
+                   (fixture-object-field candidate "name"))))
          (dynamic-fee-calldata-vector
            (find "phase-a-sample.json/typed-eip1559-calldata-sample"
                  vectors
@@ -4464,12 +4474,12 @@
          (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 13 (length paths)))
-    (is (= 80 (length cases)))
+    (is (= 81 (length cases)))
     (is (= 53 (length invalid-cases)))
-    (is (= 23 (length selected-cases)))
-    (is (= 27 (length vectors)))
-    (is (= 23 (length selected-vectors)))
-    (is (= 27 (length full-vectors)))
+    (is (= 24 (length selected-cases)))
+    (is (= 28 (length vectors)))
+    (is (= 24 (length selected-vectors)))
+    (is (= 28 (length full-vectors)))
     (validate-transaction-fixture-vector-set vectors :require-required-types t)
     (assert-transaction-fixture-vectors-replay vectors)
     (is (equal +phase-a-eest-transaction-test-case-names+
@@ -4792,6 +4802,40 @@
     (is dynamic-fee-vector)
     (is (string= "dynamic-fee"
                  (fixture-object-field dynamic-fee-vector "type")))
+    (is dynamic-fee-pinned-blockchain-vector)
+    (is (string= "dynamic-fee"
+                 (fixture-object-field dynamic-fee-pinned-blockchain-vector
+                                       "type")))
+    (is (equal
+         (list
+          (cons "nonce" "0x0")
+          (cons "gasLimit" "0x186a0")
+          (cons "to" "0xef5d8525b90f834e9b84a59351846383049035d4")
+          (cons "value" "0x0")
+          (cons "input" "0x")
+          (cons "maxPriorityFeePerGas" "0x1")
+          (cons "maxFeePerGas" "0x7"))
+         (fixture-object-field dynamic-fee-pinned-blockchain-vector
+                               "decoded")))
+    (is (equal
+         (list
+          (cons "yParity" "0x0")
+          (cons "r"
+                "0x50b0296997589bfd424b094c3c7f39a89f518699fbe6f13c4d511ee5abe97438")
+          (cons "s"
+                "0x6c7e63ab4d87efe9548c65d9c87fb64ac316f0d0e6bc29b3e230e479d9a653f1"))
+         (fixture-object-field dynamic-fee-pinned-blockchain-vector
+                               "signature")))
+    (is (not (fixture-field-present-p
+              dynamic-fee-pinned-blockchain-vector
+              "accessList")))
+    (is (string= "0x5208"
+                 (fixture-object-field
+                  (fixture-object-field
+                   (fixture-object-field dynamic-fee-pinned-blockchain-vector
+                                         "result")
+                   +phase-a-eest-transaction-target-fork+)
+                  "intrinsicGas")))
     (is dynamic-fee-calldata-vector)
     (is (string= "dynamic-fee"
                  (fixture-object-field dynamic-fee-calldata-vector "type")))
@@ -5016,24 +5060,24 @@
     (is set-code-vector)
     (is (string= "set-code"
                  (fixture-object-field set-code-vector "type")))
-    (is (= 27 (fixture-object-field all-summary "count")))
+    (is (= 28 (fixture-object-field all-summary "count")))
     (is (equal '((:legacy . 5)
                  (:access-list . 8)
-                 (:dynamic-fee . 10)
+                 (:dynamic-fee . 11)
                  (:blob . 2)
                  (:set-code . 2))
                (fixture-object-field all-summary "types")))
-    (is (= 27 (fixture-object-field all-summary "decodedVectorCount")))
-    (is (= 27 (fixture-object-field all-summary "signatureVectorCount")))
+    (is (= 28 (fixture-object-field all-summary "decodedVectorCount")))
+    (is (= 28 (fixture-object-field all-summary "signatureVectorCount")))
     (is (= 12 (fixture-object-field all-summary "accessListVectorCount")))
     (is (= 5 (fixture-object-field all-summary "dynamicFeeAccessListVectorCount")))
     (is (= 2 (fixture-object-field all-summary "duplicateAccessListVectorCount")))
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeDuplicateAccessListVectorCount")))
-    (is (= 10 (fixture-object-field all-summary "typedEmptyAccessListVectorCount")))
+    (is (= 11 (fixture-object-field all-summary "typedEmptyAccessListVectorCount")))
     (is (= 3 (fixture-object-field all-summary "accessListEmptyAccessListVectorCount")))
-    (is (= 5 (fixture-object-field all-summary "dynamicFeeEmptyAccessListVectorCount")))
+    (is (= 6 (fixture-object-field all-summary "dynamicFeeEmptyAccessListVectorCount")))
     (is (= 2 (fixture-object-field all-summary "accessListAddressOnlyVectorCount")))
     (is (= 1 (fixture-object-field
               all-summary
@@ -5093,8 +5137,8 @@
               "setCodeAccessListMessageCallDataVectorCount")))
     (is (= 3 (fixture-object-field all-summary "protectedLegacyVectorCount")))
     (is (= 2 (fixture-object-field all-summary "unprotectedLegacyVectorCount")))
-    (is (= 169 (fixture-object-field all-summary "validResultCount")))
-    (is (= 182 (fixture-object-field all-summary "exceptionResultCount")))
+    (is (= 174 (fixture-object-field all-summary "validResultCount")))
+    (is (= 190 (fixture-object-field all-summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 5)
                  ("Homestead" . 5)
                  ("EIP150" . 5)
@@ -5103,39 +5147,39 @@
                  ("Constantinople" . 5)
                  ("Istanbul" . 5)
                  ("Berlin" . 13)
-                 ("London" . 23)
-                 ("Paris" . 23)
-                 ("Shanghai" . 23)
-                 ("Cancun" . 25)
-                 ("Prague" . 27))
+                 ("London" . 24)
+                 ("Paris" . 24)
+                 ("Shanghai" . 24)
+                 ("Cancun" . 26)
+                 ("Prague" . 28))
                (fixture-object-field all-summary "validForkCounts")))
-    (is (equal '(("Frontier" . 22)
-                 ("Homestead" . 22)
-                 ("EIP150" . 22)
-                 ("EIP158" . 22)
-                 ("Byzantium" . 22)
-                 ("Constantinople" . 22)
-                 ("Istanbul" . 22)
-                 ("Berlin" . 14)
+    (is (equal '(("Frontier" . 23)
+                 ("Homestead" . 23)
+                 ("EIP150" . 23)
+                 ("EIP158" . 23)
+                 ("Byzantium" . 23)
+                 ("Constantinople" . 23)
+                 ("Istanbul" . 23)
+                 ("Berlin" . 15)
                  ("London" . 4)
                  ("Paris" . 4)
                  ("Shanghai" . 4)
                  ("Cancun" . 2))
                (fixture-object-field all-summary "exceptionForkCounts")))
-    (is (= 23 (fixture-object-field summary "count")))
-    (is (equal '((:legacy . 5) (:access-list . 8) (:dynamic-fee . 10))
+    (is (= 24 (fixture-object-field summary "count")))
+    (is (equal '((:legacy . 5) (:access-list . 8) (:dynamic-fee . 11))
                (fixture-object-field summary "types")))
-    (is (= 23 (fixture-object-field summary "decodedVectorCount")))
-    (is (= 23 (fixture-object-field summary "signatureVectorCount")))
+    (is (= 24 (fixture-object-field summary "decodedVectorCount")))
+    (is (= 24 (fixture-object-field summary "signatureVectorCount")))
     (is (= 10 (fixture-object-field summary "accessListVectorCount")))
     (is (= 5 (fixture-object-field summary "dynamicFeeAccessListVectorCount")))
     (is (= 2 (fixture-object-field summary "duplicateAccessListVectorCount")))
     (is (= 1 (fixture-object-field
               summary
               "dynamicFeeDuplicateAccessListVectorCount")))
-    (is (= 8 (fixture-object-field summary "typedEmptyAccessListVectorCount")))
+    (is (= 9 (fixture-object-field summary "typedEmptyAccessListVectorCount")))
     (is (= 3 (fixture-object-field summary "accessListEmptyAccessListVectorCount")))
-    (is (= 5 (fixture-object-field summary "dynamicFeeEmptyAccessListVectorCount")))
+    (is (= 6 (fixture-object-field summary "dynamicFeeEmptyAccessListVectorCount")))
     (is (= 2 (fixture-object-field summary "accessListAddressOnlyVectorCount")))
     (is (= 1 (fixture-object-field
               summary
@@ -5195,8 +5239,8 @@
               "setCodeAccessListMessageCallDataVectorCount")))
     (is (= 3 (fixture-object-field summary "protectedLegacyVectorCount")))
     (is (= 2 (fixture-object-field summary "unprotectedLegacyVectorCount")))
-    (is (= 163 (fixture-object-field summary "validResultCount")))
-    (is (= 136 (fixture-object-field summary "exceptionResultCount")))
+    (is (= 168 (fixture-object-field summary "validResultCount")))
+    (is (= 144 (fixture-object-field summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 5)
                  ("Homestead" . 5)
                  ("EIP150" . 5)
@@ -5205,20 +5249,20 @@
                  ("Constantinople" . 5)
                  ("Istanbul" . 5)
                  ("Berlin" . 13)
-                 ("London" . 23)
-                 ("Paris" . 23)
-                 ("Shanghai" . 23)
-                 ("Cancun" . 23)
-                 ("Prague" . 23))
+                 ("London" . 24)
+                 ("Paris" . 24)
+                 ("Shanghai" . 24)
+                 ("Cancun" . 24)
+                 ("Prague" . 24))
                (fixture-object-field summary "validForkCounts")))
-    (is (equal '(("Frontier" . 18)
-                 ("Homestead" . 18)
-                 ("EIP150" . 18)
-                 ("EIP158" . 18)
-                 ("Byzantium" . 18)
-                 ("Constantinople" . 18)
-                 ("Istanbul" . 18)
-                 ("Berlin" . 10))
+    (is (equal '(("Frontier" . 19)
+                 ("Homestead" . 19)
+                 ("EIP150" . 19)
+                 ("EIP158" . 19)
+                 ("Byzantium" . 19)
+                 ("Constantinople" . 19)
+                 ("Istanbul" . 19)
+                 ("Berlin" . 11))
                (fixture-object-field summary "exceptionForkCounts")))
     (is (equal '("phase-a-sample.json/legacy-eip155-sample"
                  "phase-a-sample.json/legacy-unprotected-sample"
@@ -5234,6 +5278,7 @@
                  "phase-a-sample.json/typed-eip2930-contract-creation-sample"
                  "phase-a-sample.json/typed-eip2930-empty-access-list-contract-creation-sample"
                  "phase-a-sample.json/typed-eip1559-dynamic-fee-sample"
+                 "phase-a-sample.json/typed-eip1559-pinned-blockchain-valid-sample"
                  "phase-a-sample.json/typed-eip1559-equal-fee-caps-sample"
                  "phase-a-sample.json/typed-eip1559-calldata-sample"
                  "phase-a-sample.json/typed-eip1559-address-only-access-list-sample"
