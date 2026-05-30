@@ -545,6 +545,9 @@ and values directly before rebuilding from `mpt-entry-pairs`.
 The MPT export path now also supports geth-style half-open range iteration
 through `mpt-entry-range`, with fixture coverage for bounded and unbounded
 entry ranges before broader snapshot/export consumers depend on it.
+State snapshot export now exposes the same half-open secure-key range ordering
+for account and storage entries, giving later proof/range-sync code a
+deterministic boundary instead of re-scanning hash-table state.
 The secure-key counterpart now hashes geth's deterministic account addresses
 before replay and locks the one-, two-, and three-account roots
 `0xc8c796b39027107040d7bae53042070762d888d7ec5e8fa875c95bde2ab3e8a5`,

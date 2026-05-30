@@ -809,6 +809,16 @@
    #:state-proof-result-storage-root
    #:state-proof-result-account-proof
    #:state-proof-result-storage-proofs
+   #:state-account-range-entry
+   #:state-account-range-entry-proof-key
+   #:state-account-range-entry-address
+   #:state-account-range-entry-account
+   #:state-account-range-entry-code
+   #:state-account-range-entry-storage-entries
+   #:state-storage-range-entry
+   #:state-storage-range-entry-proof-key
+   #:state-storage-range-entry-slot
+   #:state-storage-range-entry-value
    #:state-db-get-account
    #:state-db-set-account
    #:state-db-clear-account
@@ -828,6 +838,8 @@
    #:state-db-verify-proof
    #:state-proof-result-rpc-object
    #:state-proof-result-from-rpc-object
+   #:state-db-account-range
+   #:state-db-storage-range
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
@@ -1746,6 +1758,16 @@
    #:state-proof-result-storage-root
    #:state-proof-result-account-proof
    #:state-proof-result-storage-proofs
+   #:state-account-range-entry
+   #:state-account-range-entry-proof-key
+   #:state-account-range-entry-address
+   #:state-account-range-entry-account
+   #:state-account-range-entry-code
+   #:state-account-range-entry-storage-entries
+   #:state-storage-range-entry
+   #:state-storage-range-entry-proof-key
+   #:state-storage-range-entry-slot
+   #:state-storage-range-entry-value
    #:state-db-get-account
    #:state-db-set-account
    #:state-db-clear-account
@@ -1765,6 +1787,8 @@
    #:state-db-verify-proof
    #:state-proof-result-rpc-object
    #:state-proof-result-from-rpc-object
+   #:state-db-account-range
+   #:state-db-storage-range
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex
@@ -2589,6 +2613,16 @@
    #:state-proof-result-storage-root
    #:state-proof-result-account-proof
    #:state-proof-result-storage-proofs
+   #:state-account-range-entry
+   #:state-account-range-entry-proof-key
+   #:state-account-range-entry-address
+   #:state-account-range-entry-account
+   #:state-account-range-entry-code
+   #:state-account-range-entry-storage-entries
+   #:state-storage-range-entry
+   #:state-storage-range-entry-proof-key
+   #:state-storage-range-entry-slot
+   #:state-storage-range-entry-value
    #:state-db-get-account
    #:state-db-set-account
    #:state-db-clear-account
@@ -2608,6 +2642,8 @@
    #:state-db-verify-proof
    #:state-proof-result-rpc-object
    #:state-proof-result-from-rpc-object
+   #:state-db-account-range
+   #:state-db-storage-range
    #:state-db-for-each-account
    #:state-db-root
    #:state-db-root-hex

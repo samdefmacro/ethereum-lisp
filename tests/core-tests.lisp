@@ -3021,6 +3021,100 @@
                      (hash32-to-hex slot-b))
                slots))))
 
+(deftest state-db-account-range-uses-secure-half-open-bounds
+  (let* ((state (make-state-db))
+         (addresses
+           (list (address-from-hex "0x0000000000000000000000000000000000000601")
+                 (address-from-hex "0x0000000000000000000000000000000000000602")
+                 (address-from-hex "0x0000000000000000000000000000000000000603")
+                 (address-from-hex "0x0000000000000000000000000000000000000604")))
+         (slot
+           (hash32-from-hex
+            "0x000000000000000000000000000000000000000000000000000000000000000a")))
+    (loop for address in addresses
+          for balance from 10 by 10
+          do (state-db-set-account
+              state
+              address
+              (make-state-account :nonce balance :balance balance)))
+    (state-db-set-code state (second addresses) #(96 42))
+    (state-db-set-storage state (second addresses) slot 7)
+    (let* ((all (state-db-account-range state))
+           (proof-keys
+             (mapcar (lambda (entry)
+                       (bytes-to-hex
+                        (state-account-range-entry-proof-key entry)))
+                     all))
+           (start (state-account-range-entry-proof-key (second all)))
+           (end (state-account-range-entry-proof-key (fourth all)))
+           (middle (state-db-account-range state :start start :end end))
+           (prefix (state-db-account-range state :end start))
+           (suffix (state-db-account-range state :start end)))
+      (is (= 4 (length all)))
+      (is (equal (sort (copy-list proof-keys) #'string<)
+                 proof-keys))
+      (is (equal (subseq proof-keys 1 3)
+                 (mapcar (lambda (entry)
+                           (bytes-to-hex
+                            (state-account-range-entry-proof-key entry)))
+                         middle)))
+      (is (= 1 (length prefix)))
+      (is (= 1 (length suffix)))
+      (is (null (state-db-account-range state :start start :end start)))
+      (let ((code-entry
+              (find (address-to-hex (second addresses))
+                    all
+                    :key (lambda (entry)
+                           (address-to-hex
+                            (state-account-range-entry-address entry)))
+                    :test #'string=)))
+        (is (bytes= #(96 42)
+                    (state-account-range-entry-code code-entry)))
+        (is (= 1
+               (length
+                (state-account-range-entry-storage-entries code-entry))))))))
+
+(deftest state-db-storage-range-uses-secure-half-open-bounds
+  (let* ((state (make-state-db))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000611"))
+         (slots
+           (list (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000001")
+                 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000002")
+                 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000003")
+                 (hash32-from-hex
+                  "0x0000000000000000000000000000000000000000000000000000000000000004"))))
+    (loop for slot in slots
+          for value from 100 by 100
+          do (state-db-set-storage state address slot value))
+    (let* ((all (state-db-storage-range state address))
+           (proof-keys
+             (mapcar (lambda (entry)
+                       (bytes-to-hex
+                        (state-storage-range-entry-proof-key entry)))
+                     all))
+           (start (state-storage-range-entry-proof-key (second all)))
+           (end (state-storage-range-entry-proof-key (fourth all)))
+           (middle (state-db-storage-range state address :start start :end end)))
+      (is (= 4 (length all)))
+      (is (equal (sort (copy-list proof-keys) #'string<)
+                 proof-keys))
+      (is (equal (subseq proof-keys 1 3)
+                 (mapcar (lambda (entry)
+                           (bytes-to-hex
+                            (state-storage-range-entry-proof-key entry)))
+                         middle)))
+      (is (every #'plusp
+                 (mapcar #'state-storage-range-entry-value middle)))
+      (is (null (state-db-storage-range state address :start start :end start)))
+      (is (null (state-db-storage-range
+                 state
+                 (address-from-hex
+                  "0x0000000000000000000000000000000000000612")))))))
+
 (deftest chain-store-state-db-round-trips-nontrivial-state-root
   (let* ((store (make-engine-payload-memory-store))
          (sender

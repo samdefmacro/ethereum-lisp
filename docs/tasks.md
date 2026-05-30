@@ -2334,6 +2334,11 @@ splits can land after the Phase A smoke path closes.
     geth `TestGeneralRangeIteration`. The new seed case gates bounded,
     lower-unbounded, upper-unbounded, and empty equal-bound ranges against
     deterministic final entry ordering.
+    Lifted the same secure-key range semantics to state snapshots with
+    `state-db-account-range` and `state-db-storage-range`. Account and storage
+    range entries now export their proof trie keys with half-open bounds,
+    account/code/storage projections, and deterministic ordering for later
+    Snap-style range workloads and retained-state snapshot consumers.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
