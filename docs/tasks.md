@@ -2397,6 +2397,11 @@ splits can land after the Phase A smoke path closes.
     mixed embedded/hashed leaf child reference, plus the compressed
     extension-to-branch `0x8002` / `0x8004` / `0x8008` / `0x800d` sequence
     with final path `[8, 0, 0]` and hashed child reference.
+    Added three more geth `TestStackTrieInsertAndHash` table-head seed cases:
+    the sparse root branch with long values under children `0`, `7`, and `15`,
+    plus two root-branch cases where one root child is itself a hashed branch
+    and the sibling remains a hashed leaf. Each case locks all post-insert
+    StackTrie reference roots and final child-shape projections.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
