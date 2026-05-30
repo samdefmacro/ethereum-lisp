@@ -741,6 +741,11 @@ ones.
     transfer, Shanghai intrinsic gas, seed/EEST alignment, and the legacy
     calldata summary gate covered separately from the unprotected legacy
     calldata path.
+  - Progress: added unprotected legacy contract-creation coverage to the seed
+    envelope fixture and EEST-shaped Phase A/full subsets. The new vector
+    keeps pre-EIP-155 sender recovery, wrong-chain sender permissiveness,
+    `to = null` decoding, initcode intrinsic gas, and derived contract-address
+    checks covered together instead of only through protected legacy creation.
   - Progress: added combined access-list plus calldata coverage for both
     EIP-2930 and EIP-1559 transaction vectors. The seed envelope fixture and
     EEST-shaped Phase A/full subsets now include non-empty calldata with one
