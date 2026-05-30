@@ -1287,6 +1287,47 @@
                  name
                  (bytes-to-hex (car entry))))))))
 
+(defun eest-trie-test-entry-pairs-equal-p (left right)
+  (and (= (length left) (length right))
+       (loop for left-entry in left
+             for right-entry in right
+             always (and (bytes= (car left-entry) (car right-entry))
+                         (bytes= (cdr left-entry) (cdr right-entry))))))
+
+(defun assert-eest-trie-test-entry-range
+    (case trie label start end expected)
+  (let ((actual (mpt-entry-range trie :start start :end end))
+        (name (fixture-required-field case "name")))
+    (unless (eest-trie-test-entry-pairs-equal-p expected actual)
+      (error "EEST trie test case ~A entry range ~A mismatch: expected ~A entries, got ~A"
+             name
+             label
+             (length expected)
+             (length actual)))))
+
+(defun assert-eest-trie-test-entry-ranges (case trie)
+  (let* ((entries (mpt-entry-pairs trie))
+         (entry-count (length entries)))
+    (assert-eest-trie-test-entry-range
+     case trie "full" nil nil entries)
+    (when (plusp entry-count)
+      (let ((first-key (caar entries))
+            (last-key (caar (last entries))))
+        (assert-eest-trie-test-entry-range
+         case trie "from-first" first-key nil entries)
+        (assert-eest-trie-test-entry-range
+         case trie "to-last" nil last-key (butlast entries))
+        (assert-eest-trie-test-entry-range
+         case trie "equal-first" first-key first-key nil)
+        (when (> entry-count 2)
+          (assert-eest-trie-test-entry-range
+           case
+           trie
+           "second-to-last"
+           (car (second entries))
+           last-key
+           (subseq entries 1 (1- entry-count))))))))
+
 (defun assert-eest-trie-test-case-root (case)
   (let* ((trie (run-eest-trie-test-case case))
          (name (fixture-required-field case "name"))
@@ -1300,6 +1341,7 @@
     (assert-eest-trie-test-case-lookups case trie)
     (assert-eest-trie-test-case-explicit-output case trie)
     (assert-eest-trie-test-entry-pair-replay case trie)
+    (assert-eest-trie-test-entry-ranges case trie)
     (assert-eest-trie-test-object-form-permutations case)
     trie))
 
@@ -1823,6 +1865,22 @@
                    collect count))
          (final-entry-pair-replay-case-count
            (count-if #'plusp final-entry-pair-counts))
+         (entry-range-replay-case-count
+           (length cases))
+         (non-empty-entry-range-replay-case-count
+           (count-if #'plusp final-entry-pair-counts))
+         (bounded-entry-range-replay-case-count
+           (count-if (lambda (count)
+                       (> count 2))
+                     final-entry-pair-counts))
+         (secure-entry-range-replay-case-count
+           (loop for secure-p in secure-flags
+                 for count in final-entry-pair-counts
+                 count (and secure-p (plusp count))))
+         (plain-entry-range-replay-case-count
+           (loop for secure-p in secure-flags
+                 for count in final-entry-pair-counts
+                 count (and (not secure-p) (plusp count))))
          (secure-final-entry-pair-replay-case-count
            (loop for secure-p in secure-flags
                  for count in final-entry-pair-counts
@@ -2290,6 +2348,16 @@
            secure-final-entry-pair-replay-case-count)
      (cons "plainFinalEntryPairReplayCaseCount"
            plain-final-entry-pair-replay-case-count)
+     (cons "entryRangeReplayCaseCount"
+           entry-range-replay-case-count)
+     (cons "nonEmptyEntryRangeReplayCaseCount"
+           non-empty-entry-range-replay-case-count)
+     (cons "boundedEntryRangeReplayCaseCount"
+           bounded-entry-range-replay-case-count)
+     (cons "secureEntryRangeReplayCaseCount"
+           secure-entry-range-replay-case-count)
+     (cons "plainEntryRangeReplayCaseCount"
+           plain-entry-range-replay-case-count)
      (cons "writeEntryCounts" write-counts)
      (cons "totalWriteEntryCount" (reduce #'+ write-counts :initial-value 0))
      (cons "proofPresentKeyCounts" proof-present-counts)
@@ -2400,6 +2468,16 @@
       (error "Phase A EEST trie subset must include secure final entry-pair replay"))
     (when (zerop (fixture-object-field summary "plainFinalEntryPairReplayCaseCount"))
       (error "Phase A EEST trie subset must include plain final entry-pair replay"))
+    (when (zerop (fixture-object-field summary "entryRangeReplayCaseCount"))
+      (error "Phase A EEST trie subset must include entry range replay"))
+    (when (zerop (fixture-object-field summary "nonEmptyEntryRangeReplayCaseCount"))
+      (error "Phase A EEST trie subset must include non-empty entry range replay"))
+    (when (zerop (fixture-object-field summary "boundedEntryRangeReplayCaseCount"))
+      (error "Phase A EEST trie subset must include bounded entry range replay"))
+    (when (zerop (fixture-object-field summary "secureEntryRangeReplayCaseCount"))
+      (error "Phase A EEST trie subset must include secure entry range replay"))
+    (when (zerop (fixture-object-field summary "plainEntryRangeReplayCaseCount"))
+      (error "Phase A EEST trie subset must include plain entry range replay"))
     (when (zerop (fixture-object-field summary "proofPresentKeyCount"))
       (error "Phase A EEST trie subset must include present-key proof coverage"))
     (when (zerop (fixture-object-field summary "proofMissingKeyCount"))
@@ -4185,6 +4263,19 @@
     (is (= 37 (fixture-object-field
                 summary
                 "plainFinalEntryPairReplayCaseCount")))
+    (is (= 62 (fixture-object-field summary "entryRangeReplayCaseCount")))
+    (is (= 60 (fixture-object-field
+               summary
+               "nonEmptyEntryRangeReplayCaseCount")))
+    (is (= 14 (fixture-object-field
+               summary
+               "boundedEntryRangeReplayCaseCount")))
+    (is (= 23 (fixture-object-field
+               summary
+               "secureEntryRangeReplayCaseCount")))
+    (is (= 37 (fixture-object-field
+               summary
+               "plainEntryRangeReplayCaseCount")))
     (is (= 155 (fixture-object-field summary "totalWriteEntryCount")))
     (is (= 122 (fixture-object-field summary "proofPresentKeyCount")))
     (is (= 43 (fixture-object-field summary "secureProofPresentKeyCount")))

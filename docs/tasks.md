@@ -2344,6 +2344,12 @@ splits can land after the Phase A smoke path closes.
     bounded account proof-key ranges plus storage range/equal-bound behavior,
     so snapshot range regressions are caught at the fixture layer as well as
     direct unit coverage.
+    Extended the selected EEST-style trie replay path with derived entry-range
+    checks across every Phase A trie case. Each selected plain and secure trie
+    case now compares full, lower-bounded, upper-bounded, equal-bound, and
+    multi-entry bounded `mpt-entry-range` output against deterministic
+    `mpt-entry-pairs`, so range export semantics are exercised by
+    external-style fixtures instead of only the local seed range vector.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

@@ -545,6 +545,10 @@ and values directly before rebuilding from `mpt-entry-pairs`.
 The MPT export path now also supports geth-style half-open range iteration
 through `mpt-entry-range`, with fixture coverage for bounded and unbounded
 entry ranges before broader snapshot/export consumers depend on it.
+The selected EEST-style trie subset now derives the same entry-range checks
+for every replayed plain and secure case, comparing range output against final
+entry pairs across full, lower/upper-bounded, equal-bound, and multi-entry
+bounded windows.
 State snapshot export now exposes the same half-open secure-key range ordering
 for account and storage entries, giving later proof/range-sync code a
 deterministic boundary instead of re-scanning hash-table state.
