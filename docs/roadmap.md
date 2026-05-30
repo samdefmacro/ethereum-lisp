@@ -231,7 +231,10 @@ fixes in those areas are allowed; expansion is not.
   importer keeps invalid-only cases separate from successful hash/sender
   vectors while still decoding official payloads and gating the expected
   empty-authorization, invalid-authority-signature, and
-  invalid-authorization-format exception distribution. The
+  invalid-authorization-format exception distribution. Those invalid payloads
+  now also replay through local transaction rejection paths: scalar RLP
+  decoding, set-code field validation, and authorization-signature preflight
+  together reject all 53 official invalid cases with no accepted payloads. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint

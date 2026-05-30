@@ -1185,6 +1185,39 @@
     (validate-full-eest-transaction-vector-summary vectors)
     vectors))
 
+(defun eest-invalid-transaction-rejection-summary (cases)
+  (let ((decode-error-count 0)
+        (field-validation-error-count 0)
+        (signature-validation-error-count 0)
+        (accepted-names '()))
+    (dolist (case cases)
+      (handler-case
+          (let ((transaction
+                  (transaction-from-encoding
+                   (hex-to-bytes
+                    (fixture-required-field case "txbytes")))))
+            (handler-case
+                (progn
+                  (ethereum-lisp.execution::validate-set-code-transaction-fields
+                   transaction)
+                  (handler-case
+                      (progn
+                        (ethereum-lisp.core::eth-rpc-validate-set-code-authorization-signatures
+                         transaction)
+                        (push (fixture-required-field case "name")
+                              accepted-names))
+                    (error ()
+                      (incf signature-validation-error-count))))
+              (error ()
+                (incf field-validation-error-count))))
+        (error ()
+          (incf decode-error-count))))
+    (list
+     (cons "decodeErrorCount" decode-error-count)
+     (cons "fieldValidationErrorCount" field-validation-error-count)
+     (cons "signatureValidationErrorCount" signature-validation-error-count)
+     (cons "acceptedNames" (nreverse accepted-names)))))
+
 (defun transaction-fixture-vector-type-counts (vectors)
   (let ((counts (make-hash-table :test 'eq)))
     (dolist (vector vectors)
@@ -4368,6 +4401,16 @@
                         counts 0)))
       (is (= 44 (gethash "TransactionException.TYPE_4_INVALID_AUTHORIZATION_FORMAT"
                          counts 0))))
+    (let ((invalid-rejection-summary
+            (eest-invalid-transaction-rejection-summary invalid-cases)))
+      (is (= 38 (fixture-required-field invalid-rejection-summary
+                                        "decodeErrorCount")))
+      (is (= 13 (fixture-required-field invalid-rejection-summary
+                                        "fieldValidationErrorCount")))
+      (is (= 2 (fixture-required-field invalid-rejection-summary
+                                       "signatureValidationErrorCount")))
+      (is (null (fixture-required-field invalid-rejection-summary
+                                        "acceptedNames"))))
     (let* ((invalid-case (first invalid-cases))
            (invalid-result (fixture-required-field invalid-case "result"))
            (prague-result (fixture-required-field invalid-result "Prague"))

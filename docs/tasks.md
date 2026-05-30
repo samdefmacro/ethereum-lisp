@@ -813,6 +813,12 @@ ones.
     checks the exact source-file list plus the empty-authorization,
     invalid-authority-signature, and invalid-authorization-format exception
     distribution.
+  - Progress: replayed the full pinned Prague/EIP-7702 invalid group through
+    local transaction rejection paths. Transaction scalar RLP decoding now
+    rejects non-canonical integer encodings, and the invalid fixture regression
+    asserts that all 53 official invalid cases are rejected by decoding,
+    set-code field validation, or authorization-signature preflight with no
+    accepted payloads.
 
 ## P0: Module Boundaries
 
