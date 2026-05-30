@@ -2286,6 +2286,10 @@ splits can land after the Phase A smoke path closes.
     shared `chain-store-state-db` helper, and added a chain-store roundtrip
     regression proving that a committed value-transfer state with non-empty
     code and storage reconstructs to the exact original state root.
+    Made `chain-store-for-each-account` deterministic by sorting discovered
+    account addresses and per-account storage slots before invoking callbacks,
+    with regression coverage for out-of-order account and storage writes. This
+    aligns retained-state snapshot replay with deterministic state DB export.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

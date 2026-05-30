@@ -3282,20 +3282,29 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (when address-hex
         (setf (gethash address-hex accounts) t)))))
 
+(defun engine-payload-store-sorted-hash-keys (table)
+  (let (keys)
+    (maphash (lambda (key value)
+               (declare (ignore value))
+               (push key keys))
+             table)
+    (sort keys #'string<)))
+
 (defun engine-payload-store-account-storage-entries
     (memory-store block-hash address)
   (let ((account-prefix
           (format nil "~A:"
                   (engine-payload-store-account-key block-hash address)))
         (entries '()))
-    (maphash
-     (lambda (key value)
-       (when (engine-payload-store-string-prefix-p account-prefix key)
-         (push (cons (hash32-from-hex
-                      (subseq key (length account-prefix)))
-                     value)
-               entries)))
-     (engine-payload-memory-store-account-storage memory-store))
+    (dolist (key (engine-payload-store-sorted-hash-keys
+                  (engine-payload-memory-store-account-storage memory-store)))
+      (when (engine-payload-store-string-prefix-p account-prefix key)
+        (push (cons (hash32-from-hex
+                     (subseq key (length account-prefix)))
+                    (gethash
+                     key
+                     (engine-payload-memory-store-account-storage memory-store)))
+              entries)))
     (nreverse entries)))
 
 (defun chain-store-for-each-account (store block-hash function)
@@ -3328,9 +3337,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            (engine-payload-store-remember-account-key
             accounts block-prefix key :storage-key-p t))
          (engine-payload-memory-store-account-storage memory-store))
-        (maphash
-         (lambda (address-hex value)
-           (declare (ignore value))
+        (dolist (address-hex (engine-payload-store-sorted-hash-keys accounts))
            (let* ((address (address-from-hex address-hex))
                   (account-key
                     (engine-payload-store-account-key block-hash address)))
@@ -3349,7 +3356,6 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                memory-store block-hash address)
               (engine-payload-store-account-storage-entries
                memory-store block-hash address))))
-         accounts)
         store))))
 
 (defun engine-payload-store-state-available-p

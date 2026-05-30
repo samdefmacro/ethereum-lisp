@@ -2974,6 +2974,53 @@
              (state-db-get-storage
               state storage-only storage-only-slot))))))
 
+(deftest chain-store-for-each-account-iterates-deterministically
+  (let* ((store (make-engine-payload-memory-store))
+         (address-a
+           (address-from-hex "0x0000000000000000000000000000000000000501"))
+         (address-b
+           (address-from-hex "0x0000000000000000000000000000000000000502"))
+         (address-c
+           (address-from-hex "0x0000000000000000000000000000000000000503"))
+         (slot-a
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000001"))
+         (slot-b
+           (hash32-from-hex
+            "0x000000000000000000000000000000000000000000000000000000000000000b"))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 46
+                               :state-root +empty-trie-hash+)))
+         (block-hash (block-hash block))
+         (addresses '())
+         (slots '()))
+    (chain-store-put-block store block :state-available-p t)
+    (chain-store-put-account-balance store block-hash address-c 3)
+    (chain-store-put-account-balance store block-hash address-a 1)
+    (chain-store-put-account-balance store block-hash address-b 2)
+    (chain-store-put-account-storage store block-hash address-a slot-b 11)
+    (chain-store-put-account-storage store block-hash address-a slot-a 1)
+    (chain-store-for-each-account
+     store
+     block-hash
+     (lambda (address balance nonce code storage-entries)
+       (declare (ignore balance nonce code))
+       (push (address-to-hex address) addresses)
+       (when (bytes= (address-bytes address)
+                     (address-bytes address-a))
+         (setf slots (mapcar (lambda (entry)
+                               (hash32-to-hex (car entry)))
+                             storage-entries)))))
+    (is (equal (list (address-to-hex address-a)
+                     (address-to-hex address-b)
+                     (address-to-hex address-c))
+               (nreverse addresses)))
+    (is (equal (list (hash32-to-hex slot-a)
+                     (hash32-to-hex slot-b))
+               slots))))
+
 (deftest chain-store-state-db-round-trips-nontrivial-state-root
   (let* ((store (make-engine-payload-memory-store))
          (sender

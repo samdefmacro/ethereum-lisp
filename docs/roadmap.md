@@ -182,6 +182,9 @@ fixes in those areas are allowed; expansion is not.
   The public proof path now reuses the shared chain-store snapshot
   reconstruction helper, and chain-store roundtrip coverage asserts that a
   nontrivial value-transfer state reconstructs to the original state root.
+  Chain-store account iteration now also sorts discovered account addresses
+  and storage slots, keeping retained-state replay callbacks deterministic in
+  the same way as direct state DB export.
   The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so
