@@ -1897,6 +1897,11 @@ splits can land after the Phase A smoke path closes.
     branch-into-extension account tries, locking unchanged roots, retained
     account RLP projections, compressed paths, hashed child references, and
     missing touched-account non-creation behind required seed-case gates.
+    Added matching zero-amount `addBalance` no-op coverage for existing
+    accounts inside branch, extension, and branch-into-extension account tries.
+    The state-root fixture set now locks that existing account balances,
+    account RLPs, sibling projections, compressed paths, and child-reference
+    shapes remain unchanged when a reward/withdrawal-style credit is zero.
     Added a selected EEST-style secureTrie case that replays canonical hex
     byte-string keys and values, deletes one secure-hashed key, verifies the
     remaining non-empty root, and gates Phase A coverage on secure hex-value
@@ -2212,6 +2217,11 @@ splits can land after the Phase A smoke path closes.
     now locks exact geth-shaped missing-account accountProof nodes and missing
     storage proofs for the same unchanged non-leaf roots covered by state-root
     fixtures, with required seed-case gates for both trie shapes.
+  - Progress: added zero-amount `addBalance` existing-account proof coverage
+    across branch, extension, and branch-into-extension account tries. The
+    fixture set now locks exact geth-shaped present-account proof nodes,
+    unchanged nonce/balance/storage/code commitments, and required seed-case
+    gates for all three non-leaf layouts.
   - Progress: extended balance-add proof coverage across branch, extension,
     and branch-into-extension account tries. The proof fixture now locks exact
     geth-shaped account proof nodes for the same nontrivial `addBalance`
@@ -2229,6 +2239,11 @@ splits can land after the Phase A smoke path closes.
     unchanged non-leaf root, requests a missing storage key for the absent
     account, compares geth-shaped account proof nodes with the core proof
     primitive, and verifies the decoded proof against the committed root.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to the
+    zero-amount `addBalance` existing-account no-op boundary across branch,
+    extension, and branch-with-extension account tries. The RPC test now
+    verifies the unchanged balance, account proof depth, geth-shaped account
+    proof nodes, and decoded proof validity for each committed non-leaf root.
   - Progress: added state-proof fixture coverage for a code-created account
     that receives a zero-value storage write. The proof vector locks the
     code-only account root, empty storage root, null missing-slot proof, and

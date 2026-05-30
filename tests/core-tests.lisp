@@ -8183,7 +8183,8 @@
                (chain-store-put-block store block :state-available-p t)
                (commit-state-db-to-chain-store store (block-hash block) state)
                block))
-           (assert-balance-add-proof (store state block target expected-nodes)
+           (assert-balance-add-proof
+             (store state block target expected-balance expected-nodes)
              (let* ((response
                       (parse-json
                        (engine-rpc-handle-request-json
@@ -8203,7 +8204,7 @@
                       (state-proof-result-from-rpc-object proof)))
                (is (string= (address-to-hex target)
                             (field proof "address")))
-               (is (string= (quantity-to-hex 400)
+               (is (string= (quantity-to-hex expected-balance)
                             (field proof "balance")))
                (is (string= (quantity-to-hex 1)
                             (field proof "nonce")))
@@ -8276,6 +8277,9 @@
            (branch-state (make-state-db))
            (extension-state (make-state-db))
            (branch-extension-state (make-state-db))
+           (branch-existing-zero-state (make-state-db))
+           (extension-existing-zero-state (make-state-db))
+           (branch-extension-existing-zero-state (make-state-db))
            (branch-zero-state (make-state-db))
            (extension-zero-state (make-state-db))
            (branch-extension-zero-state (make-state-db)))
@@ -8303,6 +8307,32 @@
                    "0x0000000000000000000000000000000000000203"
                    3 300)
       (state-db-add-balance branch-extension-state extension-target 300)
+      (add-account branch-existing-zero-state
+                   "0x0000000000000000000000000000000000000201"
+                   1 100)
+      (add-account branch-existing-zero-state
+                   "0x0000000000000000000000000000000000000211"
+                   2 200)
+      (state-db-add-balance branch-existing-zero-state branch-target 0)
+      (add-account extension-existing-zero-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 100)
+      (add-account extension-existing-zero-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (state-db-add-balance extension-existing-zero-state extension-target 0)
+      (add-account branch-extension-existing-zero-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 100)
+      (add-account branch-extension-existing-zero-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (add-account branch-extension-existing-zero-state
+                   "0x0000000000000000000000000000000000000203"
+                   3 300)
+      (state-db-add-balance branch-extension-existing-zero-state
+                            extension-target
+                            0)
       (add-account branch-zero-state
                    "0x0000000000000000000000000000000000000201"
                    1 100)
@@ -8332,35 +8362,59 @@
        branch-state
        (commit-state-block store branch-state 35 350)
        branch-target
+       400
        2)
       (assert-balance-add-proof
        store
        extension-state
        (commit-state-block store extension-state 36 360)
        extension-target
+       400
        3)
       (assert-balance-add-proof
        store
        branch-extension-state
        (commit-state-block store branch-extension-state 37 370)
        extension-target
+       400
+       4)
+      (assert-balance-add-proof
+       store
+       branch-existing-zero-state
+       (commit-state-block store branch-existing-zero-state 38 380)
+       branch-target
+       100
+       2)
+      (assert-balance-add-proof
+       store
+       extension-existing-zero-state
+       (commit-state-block store extension-existing-zero-state 39 390)
+       extension-target
+       100
+       3)
+      (assert-balance-add-proof
+       store
+       branch-extension-existing-zero-state
+       (commit-state-block store branch-extension-existing-zero-state 40 400)
+       extension-target
+       100
        4)
       (assert-balance-add-zero-missing-proof
        store
        branch-zero-state
-       (commit-state-block store branch-zero-state 38 380)
+       (commit-state-block store branch-zero-state 41 410)
        missing-target
        2)
       (assert-balance-add-zero-missing-proof
        store
        extension-zero-state
-       (commit-state-block store extension-zero-state 39 390)
+       (commit-state-block store extension-zero-state 42 420)
        missing-target
        1)
       (assert-balance-add-zero-missing-proof
        store
        branch-extension-zero-state
-       (commit-state-block store branch-extension-zero-state 40 400)
+       (commit-state-block store branch-extension-zero-state 43 430)
        missing-target
        2))))
 

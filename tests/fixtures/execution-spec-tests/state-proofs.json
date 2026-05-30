@@ -678,6 +678,150 @@
       }
     },
     {
+      "name": "state-trie-branch-balance-add-zero-existing-proof",
+      "tags": [
+        "present-account",
+        "balance-update-proof",
+        "state-trie-branch-proof",
+        "geth-shaped-result"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000201",
+          "amount": 0
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000201",
+        "storageKeys": []
+      },
+      "expectedRoot": "0xb136a3c02a00f4d91ac42fa9423b8299bfd90892998ce7d8ece5e2f457284a36",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000201",
+        "accountProof": [
+          "0xf8518080808080808080808080a02479570f580238f2f3693bb82b3a6cfaecfdf6dedbfed5ae46fecf2381fc507d80a033b3a4ae2eb07978f2b2d95a86dec95b452b5848bcc70de5777b41eab288cbb8808080",
+          "0xf869a038537d8c61b5b671c520f767533666ce1cfd1dcbd6513bab30b3af087f68c707b846f8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x64",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x1",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
+    },
+    {
+      "name": "state-trie-extension-balance-add-zero-existing-proof",
+      "tags": [
+        "present-account",
+        "balance-update-proof",
+        "state-trie-extension-proof",
+        "geth-shaped-result"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000220",
+          "amount": 0
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000220",
+        "storageKeys": []
+      },
+      "expectedRoot": "0x107571af3beeb3b5f3d1b49b593066ac344ab7e98f657ee27670315fcbde6509",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000220",
+        "accountProof": [
+          "0xe48200d7a0f72e069c7b2d8fa747cae704ddbe90e0e120643421a6ea2474a484a28c2af18a",
+          "0xf85180a090dce5da1ad10a83da0378add7d23a8dbdd2516481c60bb3c20ba111fefa5d11a05866a93f42b9a9175d62a9b373f6235c538a1dff4df2a97842137f01320f5d2a8080808080808080808080808080",
+          "0xf8689f39d169343e17bd3922c005463ee7afef0078a28191b5bd53f4903590935dffb846f8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x64",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x1",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
+    },
+    {
+      "name": "state-trie-branch-extension-balance-add-zero-existing-proof",
+      "tags": [
+        "present-account",
+        "balance-update-proof",
+        "state-trie-branch-extension-proof",
+        "geth-shaped-result"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300
+        },
+        {
+          "op": "addBalance",
+          "address": "0x0000000000000000000000000000000000000220",
+          "amount": 0
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000220",
+        "storageKeys": []
+      },
+      "expectedRoot": "0x08767738cc4d52da0973b6f2030046afe8e67bea9da3b1ea31d19aacf59d077b",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000220",
+        "accountProof": [
+          "0xf851808080808080808080808080a057643dfbcef0d49a3a8fdb34b9b467d1b877edfc8e7b10550c2d51ef91cc03b4a00164dad070ec6316e694be10f836391e97a5a647c46eb2cdfd0eb3bca2df5463808080",
+          "0xe217a0f72e069c7b2d8fa747cae704ddbe90e0e120643421a6ea2474a484a28c2af18a",
+          "0xf85180a090dce5da1ad10a83da0378add7d23a8dbdd2516481c60bb3c20ba111fefa5d11a05866a93f42b9a9175d62a9b373f6235c538a1dff4df2a97842137f01320f5d2a8080808080808080808080808080",
+          "0xf8689f39d169343e17bd3922c005463ee7afef0078a28191b5bd53f4903590935dffb846f8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x64",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x1",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
+    },
+    {
       "name": "state-trie-branch-balance-add-zero-missing-proof",
       "tags": [
         "missing-account",

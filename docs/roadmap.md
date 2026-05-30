@@ -210,10 +210,12 @@ fixes in those areas are allowed; expansion is not.
   coverage now spans empty, leaf/funded, branch, extension, and
   branch-with-extension account-trie layouts, so missing reward/withdrawal
   targets cannot create empty accounts while preserving compressed paths and
-  child-reference projections. State-proof fixtures and retained-state
-  `eth_getProof` now cover the same non-leaf zero-add missing-account
-  boundaries, including missing storage-key proof output against the unchanged
-  roots.
+  child-reference projections. The same zero-add no-op coverage now also locks
+  existing-account branch, extension, and branch-with-extension layouts, so
+  zero credits preserve balances and account RLPs in non-leaf state tries.
+  State-proof fixtures and retained-state `eth_getProof` now cover both
+  missing-account and existing-account non-leaf zero-add boundaries, including
+  proof output against the unchanged roots.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing
