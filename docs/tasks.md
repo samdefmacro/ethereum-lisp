@@ -825,6 +825,11 @@ ones.
     (`decode`, set-code field validation, authorization-signature preflight, or
     accepted) and asserts the full 53-case distribution, keeping future
     rejection-path changes visible instead of only checking aggregate rejection.
+  - Progress: added per-source-file counts to the pinned Prague/EIP-7702
+    invalid transaction summary. The regression now locks all 12 transcribed
+    v5.4.0 `eip7702_set_code_tx` source files to their expected case counts,
+    preventing a missing fixture file from being hidden by aggregate exception
+    or rejection-stage totals.
 
 ## P0: Module Boundaries
 

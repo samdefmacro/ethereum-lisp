@@ -1270,16 +1270,19 @@
   (let ((decode-error-count 0)
         (field-validation-error-count 0)
         (signature-validation-error-count 0)
+        (source-file-counts (make-hash-table :test 'equal))
         (exception-counts (make-hash-table :test 'equal))
         (exception-stage-counts (make-hash-table :test 'equal))
         (accepted-names '()))
     (dolist (case cases)
       (let* ((exception (eest-invalid-transaction-case-exception case))
+             (source-file (eest-transaction-case-source-file-name case))
              (stage (eest-invalid-transaction-local-rejection-stage case))
              (stage-counts
                (or (gethash exception exception-stage-counts)
                    (setf (gethash exception exception-stage-counts)
                          (make-hash-table :test 'equal)))))
+        (increment-string-count source-file-counts source-file)
         (increment-string-count exception-counts exception)
         (increment-string-count stage-counts stage)
         (cond
@@ -1296,6 +1299,7 @@
      (cons "decodeErrorCount" decode-error-count)
      (cons "fieldValidationErrorCount" field-validation-error-count)
      (cons "signatureValidationErrorCount" signature-validation-error-count)
+     (cons "sourceFileCounts" (sorted-string-counts source-file-counts))
      (cons "exceptionCounts" (sorted-string-counts exception-counts))
      (cons "exceptionStageCounts"
            (eest-invalid-transaction-exception-stage-counts
@@ -4483,6 +4487,21 @@
                                        "signatureValidationErrorCount")))
       (is (null (fixture-required-field invalid-rejection-summary
                                         "acceptedNames")))
+      (is (equal
+           '(("prague/eip7702_set_code_tx/test_empty_authorization_list.json" . 1)
+             ("prague/eip7702_set_code_tx/test_invalid_auth_signature.json" . 8)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_address.json" . 4)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_auth_chain_id.json" . 2)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_auth_chain_id_encoding.json" . 4)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_encoded_as_bytes.json" . 2)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_extra_element.json" . 4)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_authorization_tuple_missing_element.json" . 12)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce.json" . 4)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce_as_list.json" . 6)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_nonce_encoding.json" . 2)
+             ("prague/eip7702_set_code_tx/test_invalid_tx_invalid_rlp_encoding.json" . 4))
+           (fixture-required-field invalid-rejection-summary
+                                   "sourceFileCounts")))
       (is (equal
            '(("TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST" . 1)
              ("TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE|TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE_S_TOO_HIGH" . 8)

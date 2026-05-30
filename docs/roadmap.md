@@ -242,7 +242,10 @@ fixes in those areas are allowed; expansion is not.
   together reject all 53 official invalid cases with no accepted payloads. That
   replay also locks the exact exception-to-rejection-stage distribution for the
   official invalid cases, so decode, set-code field, and signature-preflight
-  regressions are distinguishable. The Shanghai `engine_newPayloadV2` smoke now
+  regressions are distinguishable. The invalid transaction summary also locks
+  per-source-file counts for all 12 transcribed v5.4.0 files, so fixture-file
+  omissions cannot hide behind aggregate rejection totals. The Shanghai
+  `engine_newPayloadV2` smoke now
   covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint
