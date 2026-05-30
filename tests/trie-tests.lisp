@@ -87,7 +87,8 @@
     "hex-key"
     "hex-value"
     "secure-key"
-    "lookup-assertions"))
+    "lookup-assertions"
+    "proof-node-rlp"))
 
 (defparameter +trie-fixture-required-case-names+
   '("single-leaf"
@@ -96,6 +97,7 @@
     "duplicate-key-overwrites-leaf-value"
     "geth-insert-shared-prefix"
     "geth-delete-sequence"
+    "nethermind-partial-path-proof-nodes"
     "branch-extension-shared-prefix"
     "branch-child-branch"
     "branch-child-extension"
@@ -146,7 +148,8 @@
     "hex-key"
     "hex-value"
     "secure-key"
-    "lookup-assertions"))
+    "lookup-assertions"
+    "proof-node-rlp"))
 
 (defparameter +trie-fixture-root-shapes+
   '("empty" "leaf" "extension" "branch"))
@@ -172,7 +175,8 @@
     "expectedRootValueAscii"
     "expectedRootValueHex"
     "expectedGets"
-    "expectedMissing"))
+    "expectedMissing"
+    "expectedProofPrefixes"))
 
 (defparameter +trie-fixture-operation-fields+
   '("op" "keyHex" "keyAscii" "valueAscii" "valueHex"))
@@ -182,6 +186,9 @@
 
 (defparameter +trie-fixture-expected-missing-fields+
   '("keyHex" "keyAscii"))
+
+(defparameter +trie-fixture-expected-proof-prefix-fields+
+  '("keyHex" "keyAscii" "nodeRlps"))
 
 (defparameter +eest-trie-test-case-fields+
   '("in" "root" "secure"))
@@ -352,6 +359,31 @@
      (when (fixture-field-present-p expected "valueHex")
        (error "Trie fixture case ~A expectedMissing entry must not include valueHex"
               case-name)))))
+
+(defun validate-trie-fixture-expected-proof-prefix (expected case-name)
+  (unless (listp expected)
+    (error "Trie fixture case ~A expectedProofPrefixes entry must be a JSON object"
+           case-name))
+  (validate-trie-fixture-object-fields
+   expected
+   +trie-fixture-expected-proof-prefix-fields+
+   (format nil "Trie fixture case ~A expectedProofPrefixes entry" case-name))
+  (validate-trie-fixture-key-fields
+   expected
+   (format nil "Trie fixture case ~A expectedProofPrefixes entry"
+           case-name))
+  (let ((node-rlps (fixture-required-field expected "nodeRlps")))
+    (unless (and (listp node-rlps) node-rlps)
+      (error "Trie fixture case ~A expectedProofPrefixes nodeRlps must be a non-empty list"
+             case-name))
+    (dolist (node-rlp node-rlps)
+      (validate-trie-fixture-byte-field
+       node-rlp
+       (format nil "Trie fixture case ~A expectedProofPrefixes nodeRlp"
+               case-name))
+      (when (zerop (length (hex-to-bytes node-rlp)))
+        (error "Trie fixture case ~A expectedProofPrefixes nodeRlp must not be empty"
+               case-name)))))
 
 (defun validate-trie-fixture-expected-lookup-keys (case)
   (let ((seen-keys (make-hash-table :test 'equal))
@@ -571,6 +603,8 @@
       (validate-trie-fixture-expected-lookup expected name "expectedGets"))
     (dolist (expected (fixture-object-field case "expectedMissing"))
       (validate-trie-fixture-expected-lookup expected name "expectedMissing"))
+    (dolist (expected (fixture-object-field case "expectedProofPrefixes"))
+      (validate-trie-fixture-expected-proof-prefix expected name))
     (validate-trie-fixture-expected-lookup-keys case)))
 
 (defun validate-trie-fixture-case-coverage (cases)
@@ -2093,6 +2127,17 @@
     (is (null present-p))
     (is (null value))))
 
+(defun assert-trie-fixture-proof-prefixes (trie case)
+  (dolist (expected (fixture-object-field case "expectedProofPrefixes"))
+    (let* ((key (trie-fixture-trie-key case expected))
+           (proof (mpt-get-proof trie key))
+           (node-rlps (fixture-required-field expected "nodeRlps")))
+      (is (<= (length node-rlps) (length proof)))
+      (loop for expected-rlp in node-rlps
+            for actual-rlp in proof
+            do (is (string= expected-rlp
+                            (bytes-to-hex actual-rlp)))))))
+
 (defun assert-trie-fixture-lookups (trie case)
   (dolist (expected (fixture-object-field case "expectedGets"))
     (let ((key (trie-fixture-trie-key case expected))
@@ -3604,4 +3649,5 @@
                          (bytes-to-hex
                           (trie-fixture-root-value-bytes trie))))))
         (assert-trie-fixture-final-operation-lookups trie case)
+        (assert-trie-fixture-proof-prefixes trie case)
         (assert-trie-fixture-lookups trie case)))))

@@ -103,6 +103,33 @@
       ]
     },
     {
+      "name": "nethermind-partial-path-proof-nodes",
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "proof-node-rlp"],
+      "operations": [
+        { "op": "put", "keyHex": "0x00000000000000aa", "valueHex": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000001" },
+        { "op": "put", "keyHex": "0x00000000000000bb", "valueHex": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000001" },
+        { "op": "put", "keyHex": "0x00000000000011aa", "valueHex": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000001" }
+      ],
+      "expectedRoot": "0x0088834b3f9329cb071ca5feb15d5ffac9151b09d00c87d672ce5711d1512ecb",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyHex": "0x00000000000000aa", "valueHex": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000001" },
+        { "keyHex": "0x00000000000000bb", "valueHex": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000001" },
+        { "keyHex": "0x00000000000011aa", "valueHex": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000001" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyHex": "0x00000000000000aa",
+          "nodeRlps": [
+            "0xe98700000000000000a0651f4a047389788364f9da07e907614238cbbe902d722c9b3333a4300308a5ae",
+            "0xf851a0fc3531d07692f61463485d46bac9ad2785c14fc66929d156df6ffc8e7a298f0da0596473298079c2907c4de5a8646467ebb46d7b5066bce4dc0f653380fe958804808080808080808080808080808080"
+          ]
+        }
+      ]
+    },
+    {
       "name": "branch-extension-shared-prefix",
       "tags": ["extension-root", "hashed-child-reference", "lookup-assertions"],
       "operations": [

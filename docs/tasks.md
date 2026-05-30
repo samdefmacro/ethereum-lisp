@@ -2062,6 +2062,13 @@ splits can land after the Phase A smoke path closes.
     compressed extension root, hashed child reference, retained lookups, and
     deleted-key proofs so deletion replay is anchored to a geth reference
     sequence as well as local seed shapes.
+    Added fixture-driven proof-node RLP prefix assertions and a Nethermind
+    `GetBranchNodesWithPartialPath` seed case. The case replays Nethermind's
+    `_keysA` / `_keysB` / `_keysC` hex-key trie, locks the extension root and
+    final lookups, then compares the first proof nodes against Nethermind's
+    expected root-node RLP and branch-node RLP (noted there as matching geth
+    output), so node encoding compatibility is asserted directly instead of
+    only through root hashes.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
