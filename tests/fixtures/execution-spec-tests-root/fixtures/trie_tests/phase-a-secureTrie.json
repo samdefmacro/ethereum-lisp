@@ -22,12 +22,28 @@
     ],
     "root": "5f8d3f000e83f459e92adbebecb70ac84fc99fd16ee2e6b5a5b400b7d6e974b4"
   },
+  "phase-a-secure-branch-update-keeps-branch": {
+    "in": [
+      ["dog", "puppy"],
+      ["cat", "kitten"],
+      ["dog", "hound"]
+    ],
+    "root": "f853f5608648461d01d9b7df43a7723db3a35d69c80efb1482f9d5a093038f2d"
+  },
   "phase-a-secure-extension": {
     "in": [
       ["dog", "left"],
       ["beam", "right"]
     ],
     "root": "2c6f6489a6626f2f887d76882467e53e711032408473799352c0c2d192db7f80"
+  },
+  "phase-a-secure-extension-update-keeps-extension": {
+    "in": [
+      ["dog", "left"],
+      ["beam", "right"],
+      ["dog", "hound"]
+    ],
+    "root": "a2e17a0ab859cc7b48061c3cc6617389e39a5a12791460d6c14047a0d4b89f69"
   },
   "phase-a-secure-missing-delete-extension": {
     "in": [

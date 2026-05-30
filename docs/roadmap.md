@@ -305,9 +305,12 @@ and missing-slot proofs remain valid against the updated storage root.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch
-and path-compressed extension roots. The selected EEST-style trie subset also
-reports present/missing proof-key coverage for both secure and plain replay,
-so root-only fixture expansion cannot silently drop proof verification.
+and path-compressed extension roots. It also gates secure duplicate-key
+overwrites that preserve branch and extension roots, so update replay cannot be
+covered only by a single-key leaf overwrite. The selected EEST-style trie
+subset also reports present/missing proof-key coverage for both secure and
+plain replay, so root-only fixture expansion cannot silently drop proof
+verification.
 Persistence integration, deletion edge cases, and broader fixture
 compatibility remain.
 The selected EEST-style trie subset also covers secure hex byte-string

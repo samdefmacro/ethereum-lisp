@@ -1946,6 +1946,11 @@ splits can land after the Phase A smoke path closes.
     vectors and selected EEST-style secureTrie subset. The Phase A summary now
     gates duplicate overwrites on secure-key replay, locking that StateTrie-like
     hashed-key updates retain only the final value for a logical key.
+    Added selected secureTrie branch- and extension-root duplicate overwrite
+    coverage. These EEST-style cases replay a repeated write that changes one
+    key while preserving the non-leaf root shape, and the Phase A summary now
+    gates secure branch/extension overwrite roots separately from the existing
+    single-key leaf overwrite case.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
