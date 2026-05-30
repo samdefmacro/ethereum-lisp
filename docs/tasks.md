@@ -2115,6 +2115,11 @@ splits can land after the Phase A smoke path closes.
     `0x09c889feaafd53779755259beaa0ff41c32512c8cac45152af46fae7ebdef210`
     root and expanding branch-root coverage with long-key multi-leaf replay
     anchored to geth reference commit `8a0223e`.
+    Promoted the geth `TestReplication` replay into the seed trie vector
+    fixture with final lookup/missing assertions, root branch child
+    projections, and a geth-derived proof-node RLP prefix, so the long-key
+    branch/extension child shape is checked by the fixture runner as well as
+    the selected EEST-style root.
     Added the fixed geth `TestRandomCases` fuzz regression to the selected
     EEST-style trie subset. The new `geth-random-cases-sequence` case
     transcribes the update/delete steps that mutate trie state, including

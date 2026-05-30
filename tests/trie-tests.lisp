@@ -111,6 +111,7 @@
     "duplicate-key-overwrites-leaf-value"
     "geth-insert-shared-prefix"
     "geth-delete-sequence"
+    "geth-replication-sequence"
     "geth-random-cases-sequence"
     "nethermind-partial-path-proof-nodes"
     "branch-extension-shared-prefix"

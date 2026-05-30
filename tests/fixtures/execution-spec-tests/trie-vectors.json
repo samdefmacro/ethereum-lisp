@@ -236,6 +236,50 @@
       ]
     },
     {
+      "name": "geth-replication-sequence",
+      "tags": ["branch-root", "branch-child-references", "branch-children", "hashed-child-reference", "lookup-assertions", "proof-node-rlp"],
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "ether", "valueAscii": "wookiedoo" },
+        { "op": "put", "keyAscii": "horse", "valueAscii": "stallion" },
+        { "op": "put", "keyAscii": "shaman", "valueAscii": "horse" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "put", "keyAscii": "somethingveryoddindeedthis is", "valueAscii": "myothernodedata" }
+      ],
+      "expectedRoot": "0x09c889feaafd53779755259beaa0ff41c32512c8cac45152af46fae7ebdef210",
+      "expectedShape": "branch",
+      "expectedRootChildren": [6, 7],
+      "expectedRootChildReferences": {
+        "6": "hashed",
+        "7": "hashed"
+      },
+      "expectedRootChildShapes": {
+        "6": "branch",
+        "7": "extension"
+      },
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "ether", "valueAscii": "wookiedoo" },
+        { "keyAscii": "horse", "valueAscii": "stallion" },
+        { "keyAscii": "shaman", "valueAscii": "horse" },
+        { "keyAscii": "doge", "valueAscii": "coin" },
+        { "keyAscii": "dog", "valueAscii": "puppy" },
+        { "keyAscii": "somethingveryoddindeedthis is", "valueAscii": "myothernodedata" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "unknown" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyAscii": "dog",
+          "nodeRlps": [
+            "0xf851808080808080a0922301237fbbb24c0cf171190666e966fbd99d6d568dfa9a4dffd0f91888c26fa0adbfedafc33dc930b9a9f0c6345320b4d57016638332d2fa08fbfbdd01449c45808080808080808080"
+          ]
+        }
+      ]
+    },
+    {
       "name": "geth-random-cases-sequence",
       "tags": ["branch-root", "branch-child-references", "hashed-child-reference", "hex-key", "hex-value", "missing-delete-noop", "duplicate-overwrite", "lookup-assertions", "proof-node-rlp"],
       "operations": [
