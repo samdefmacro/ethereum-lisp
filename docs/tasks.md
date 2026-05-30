@@ -759,6 +759,13 @@ ones.
     `accessListWithCallDataVectorCount` plus
     `dynamicFeeAccessListWithCallDataVectorCount` so access-list intrinsic gas
     cannot drift independently from calldata intrinsic gas.
+  - Progress: tightened calldata summary coverage for typed empty access-list
+    message calls. Phase A/full selector gates now report and require
+    `emptyAccessListWithCallDataVectorCount`,
+    `accessListEmptyAccessListWithCallDataVectorCount`, and
+    `dynamicFeeEmptyAccessListWithCallDataVectorCount`, so the existing
+    EIP-2930 and EIP-1559 calldata vectors cannot be replaced by non-empty
+    access-list paths while preserving aggregate typed calldata counts.
   - Progress: added an EIP-1559 dynamic-fee address-only access-list vector
     with no storage keys to the seed envelope fixture and selected EEST-shaped
     Phase A/full subsets. The summary now gates

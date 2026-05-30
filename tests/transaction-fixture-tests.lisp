@@ -1308,7 +1308,10 @@
         (access-list-message-call-data-count 0)
         (dynamic-fee-message-call-data-count 0)
         (access-list-with-call-data-count 0)
-        (dynamic-fee-access-list-with-call-data-count 0))
+        (dynamic-fee-access-list-with-call-data-count 0)
+        (empty-access-list-with-call-data-count 0)
+        (access-list-empty-access-list-with-call-data-count 0)
+        (dynamic-fee-empty-access-list-with-call-data-count 0))
     (dolist (vector vectors)
       (let ((transaction
               (transaction-from-encoding
@@ -1326,7 +1329,14 @@
           (when (transaction-access-list transaction)
             (incf access-list-with-call-data-count)
             (when (typep transaction 'dynamic-fee-transaction)
-              (incf dynamic-fee-access-list-with-call-data-count))))))
+              (incf dynamic-fee-access-list-with-call-data-count)))
+          (when (and (not (typep transaction 'legacy-transaction))
+                     (null (transaction-access-list transaction)))
+            (incf empty-access-list-with-call-data-count)
+            (when (typep transaction 'access-list-transaction)
+              (incf access-list-empty-access-list-with-call-data-count))
+            (when (typep transaction 'dynamic-fee-transaction)
+              (incf dynamic-fee-empty-access-list-with-call-data-count))))))
     (list
      (cons "messageCallDataVectorCount" message-call-data-count)
      (cons "legacyMessageCallDataVectorCount"
@@ -1340,7 +1350,13 @@
      (cons "accessListWithCallDataVectorCount"
            access-list-with-call-data-count)
      (cons "dynamicFeeAccessListWithCallDataVectorCount"
-           dynamic-fee-access-list-with-call-data-count))))
+           dynamic-fee-access-list-with-call-data-count)
+     (cons "emptyAccessListWithCallDataVectorCount"
+           empty-access-list-with-call-data-count)
+     (cons "accessListEmptyAccessListWithCallDataVectorCount"
+           access-list-empty-access-list-with-call-data-count)
+     (cons "dynamicFeeEmptyAccessListWithCallDataVectorCount"
+           dynamic-fee-empty-access-list-with-call-data-count))))
 
 (defun transaction-fixture-dynamic-fee-summary (vectors)
   (let ((equal-fee-cap-count 0))
@@ -1609,7 +1625,19 @@
         (dynamic-fee-access-list-with-calldata-value
           (fixture-required-field
            summary
-           "dynamicFeeAccessListWithCallDataVectorCount")))
+           "dynamicFeeAccessListWithCallDataVectorCount"))
+        (empty-access-list-with-calldata-value
+          (fixture-required-field
+           summary
+           "emptyAccessListWithCallDataVectorCount"))
+        (access-list-empty-access-list-with-calldata-value
+          (fixture-required-field
+           summary
+           "accessListEmptyAccessListWithCallDataVectorCount"))
+        (dynamic-fee-empty-access-list-with-calldata-value
+          (fixture-required-field
+           summary
+           "dynamicFeeEmptyAccessListWithCallDataVectorCount")))
     (unless (and (integerp value) (not (minusp value)))
       (error "~A summary field messageCallDataVectorCount must be a non-negative integer"
              label))
@@ -1635,6 +1663,18 @@
                  (not (minusp dynamic-fee-access-list-with-calldata-value)))
       (error "~A summary field dynamicFeeAccessListWithCallDataVectorCount must be a non-negative integer"
              label))
+    (unless (and (integerp empty-access-list-with-calldata-value)
+                 (not (minusp empty-access-list-with-calldata-value)))
+      (error "~A summary field emptyAccessListWithCallDataVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp access-list-empty-access-list-with-calldata-value)
+                 (not (minusp access-list-empty-access-list-with-calldata-value)))
+      (error "~A summary field accessListEmptyAccessListWithCallDataVectorCount must be a non-negative integer"
+             label))
+    (unless (and (integerp dynamic-fee-empty-access-list-with-calldata-value)
+                 (not (minusp dynamic-fee-empty-access-list-with-calldata-value)))
+      (error "~A summary field dynamicFeeEmptyAccessListWithCallDataVectorCount must be a non-negative integer"
+             label))
     (when (zerop value)
       (error "~A summary is missing calldata message-call transaction coverage"
              label))
@@ -1655,6 +1695,15 @@
              label))
     (when (zerop dynamic-fee-access-list-with-calldata-value)
       (error "~A summary is missing combined dynamic-fee access-list calldata transaction coverage"
+             label))
+    (when (zerop empty-access-list-with-calldata-value)
+      (error "~A summary is missing empty access-list calldata transaction coverage"
+             label))
+    (when (zerop access-list-empty-access-list-with-calldata-value)
+      (error "~A summary is missing EIP-2930 empty access-list calldata transaction coverage"
+             label))
+    (when (zerop dynamic-fee-empty-access-list-with-calldata-value)
+      (error "~A summary is missing dynamic-fee empty access-list calldata transaction coverage"
              label)))
   summary)
 
@@ -4735,6 +4784,15 @@
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeAccessListWithCallDataVectorCount")))
+    (is (= 2 (fixture-object-field
+              all-summary
+              "emptyAccessListWithCallDataVectorCount")))
+    (is (= 1 (fixture-object-field
+              all-summary
+              "accessListEmptyAccessListWithCallDataVectorCount")))
+    (is (= 1 (fixture-object-field
+              all-summary
+              "dynamicFeeEmptyAccessListWithCallDataVectorCount")))
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeEqualFeeCapVectorCount")))
@@ -4828,6 +4886,15 @@
     (is (= 1 (fixture-object-field
               summary
               "dynamicFeeAccessListWithCallDataVectorCount")))
+    (is (= 2 (fixture-object-field
+              summary
+              "emptyAccessListWithCallDataVectorCount")))
+    (is (= 1 (fixture-object-field
+              summary
+              "accessListEmptyAccessListWithCallDataVectorCount")))
+    (is (= 1 (fixture-object-field
+              summary
+              "dynamicFeeEmptyAccessListWithCallDataVectorCount")))
     (is (= 1 (fixture-object-field
               summary
               "dynamicFeeEqualFeeCapVectorCount")))
@@ -5084,6 +5151,30 @@
       (validate-transaction-fixture-input-coverage
        (cons (cons "dynamicFeeAccessListWithCallDataVectorCount" 0)
              (remove "dynamicFeeAccessListWithCallDataVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-input-coverage
+       (cons (cons "emptyAccessListWithCallDataVectorCount" 0)
+             (remove "emptyAccessListWithCallDataVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-input-coverage
+       (cons (cons "accessListEmptyAccessListWithCallDataVectorCount" 0)
+             (remove "accessListEmptyAccessListWithCallDataVectorCount"
+                     summary
+                     :key #'car
+                     :test #'string=))
+       "Phase A EEST transaction"))
+    (signals error
+      (validate-transaction-fixture-input-coverage
+       (cons (cons "dynamicFeeEmptyAccessListWithCallDataVectorCount" 0)
+             (remove "dynamicFeeEmptyAccessListWithCallDataVectorCount"
                      summary
                      :key #'car
                      :test #'string=))

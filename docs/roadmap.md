@@ -204,7 +204,10 @@ fixes in those areas are allowed; expansion is not.
   dynamic-fee address warming cannot rely on the EIP-2930-only vector. The
   transaction fixture summaries now also distinguish
   typed empty-access-list payloads from non-empty access-list payloads, with
-  explicit EIP-2930 and EIP-1559 empty-list gates. It also gates an EIP-1559
+  explicit EIP-2930 and EIP-1559 empty-list gates. The calldata summary now
+  also gates typed empty-access-list message calls for both EIP-2930 and
+  EIP-1559, keeping empty-list `input` decoding distinct from non-empty
+  access-list calldata paths. It also gates an EIP-1559
   dynamic-fee message-call with equal priority and max fee caps, locking the
   fee-market decoded-field
   boundary where `maxPriorityFeePerGas == maxFeePerGas` remains valid. The
