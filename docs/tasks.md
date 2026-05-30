@@ -2376,6 +2376,14 @@ splits can land after the Phase A smoke path closes.
     requires those reference-derived account cases to retain fixture-provided
     present and missing final-output assertions, so imported trie-test output
     maps are checked on both account-RLP and secure account-trie replay paths.
+    Added geth `TestStackTrieInsertAndHash` coverage for the extension-child
+    size boundary. The new `geth-stacktrie-extension-child-boundary` case
+    replays the `0x000001` / `0x000002` / `0x000003` sequence with short and
+    28-byte values, locks geth's
+    `0x962c0fffdeef7612a4f7bff1950d67e3e81c878e48b9ae45b3b374253b050bd8`
+    root, verifies the compressed extension path and hashed child reference,
+    and checks exact present/missing proof nodes in both the seed fixture and
+    selected Phase A EEST-style trie subset.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

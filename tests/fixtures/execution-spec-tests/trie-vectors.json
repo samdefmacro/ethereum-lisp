@@ -535,6 +535,45 @@
       ]
     },
     {
+      "name": "geth-stacktrie-extension-child-boundary",
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "lookup-assertions", "proof-node-rlp"],
+      "operations": [
+        { "op": "put", "keyHex": "0x000001", "valueAscii": "ZZZZZZZZZ" },
+        { "op": "put", "keyHex": "0x000002", "valueAscii": "Y" },
+        { "op": "put", "keyHex": "0x000003", "valueAscii": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX" }
+      ],
+      "expectedRoot": "0x962c0fffdeef7612a4f7bff1950d67e3e81c878e48b9ae45b3b374253b050bd8",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [0, 0, 0, 0, 0],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyHex": "0x000001", "valueAscii": "ZZZZZZZZZ" },
+        { "keyHex": "0x000002", "valueAscii": "Y" },
+        { "keyHex": "0x000003", "valueAscii": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0x000004" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyHex": "0x000001",
+          "nodeRlps": [
+            "0xe583100000a0d0dcd3fc30ac4960f87bb64190217c1c36b6ce21ebdf08a1a57516aa74a5dc98",
+            "0xf83c80cb20895a5a5a5a5a5a5a5a5ac22059de209c5858585858585858585858585858585858585858585858585858585880808080808080808080808080"
+          ],
+          "exactLength": true
+        },
+        {
+          "keyHex": "0x000004",
+          "nodeRlps": [
+            "0xe583100000a0d0dcd3fc30ac4960f87bb64190217c1c36b6ce21ebdf08a1a57516aa74a5dc98",
+            "0xf83c80cb20895a5a5a5a5a5a5a5a5ac22059de209c5858585858585858585858585858585858585858585858585858585880808080808080808080808080"
+          ],
+          "exactLength": true
+        }
+      ]
+    },
+    {
       "name": "nethermind-partial-path-proof-nodes",
       "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "proof-node-rlp"],
       "operations": [

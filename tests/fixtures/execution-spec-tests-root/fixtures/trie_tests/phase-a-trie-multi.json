@@ -313,6 +313,20 @@
     ],
     "root": "380d56237a963e2c17a7c282142dc0b85d3236cd515d4f0348c787e70a68d24c"
   },
+  "geth-stacktrie-extension-child-boundary": {
+    "in": [
+      ["0x000001", "ZZZZZZZZZ"],
+      ["0x000002", "Y"],
+      ["0x000003", "XXXXXXXXXXXXXXXXXXXXXXXXXXXX"]
+    ],
+    "out": {
+      "0x000001": "ZZZZZZZZZ",
+      "0x000002": "Y",
+      "0x000003": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "0x000004": null
+    },
+    "root": "962c0fffdeef7612a4f7bff1950d67e3e81c878e48b9ae45b3b374253b050bd8"
+  },
   "hex-byte-value-leaf": {
     "in": [
       ["0x01", "0x0001ff"]
