@@ -294,6 +294,12 @@ ones.
     hash, signature, decoded access-list projection, and intrinsic gas, and
     the Phase A/full summary gates count the additional access-list entries
     instead of collapsing them.
+  - Progress: extended the Phase A EEST transaction selector with the matching
+    EIP-1559 duplicate access-list vector. The seed fixture and EEST-shaped
+    sample now replay a dynamic-fee message-call with duplicate access-list
+    address and storage-key occurrences, and the Phase A/full summary gates
+    require dynamic-fee duplicate access-list coverage rather than relying on
+    the EIP-2930-only path.
   - Progress: extended the Phase A EEST transaction selector with an EIP-1559
     dynamic-fee vector whose `maxPriorityFeePerGas` equals
     `maxFeePerGas`. The seed fixture and EEST-shaped sample now re-derive

@@ -156,12 +156,15 @@ fixes in those areas are allowed; expansion is not.
   together instead of only as separate fixture paths. It also gates an
   EIP-2930 duplicate access-list message-call so duplicate address and storage
   key entries remain charged and projected as source order occurrences rather
-  than collapsed sets. It also gates an EIP-2930 address-only access-list
-  message-call with no storage keys, keeping address warming cost visible
-  separately from storage-key warming cost. The selected Shanghai subset now
-  also gates the same address-only access-list boundary on an EIP-1559
-  dynamic-fee transaction, so dynamic-fee address warming cannot rely on the
-  EIP-2930-only vector. The transaction fixture summaries now also distinguish
+  than collapsed sets. It now gates the same duplicate access-list boundary on
+  an EIP-1559 dynamic-fee message-call, so dynamic-fee access-list projection
+  and intrinsic-gas accounting cannot rely on the EIP-2930-only vector. It
+  also gates an EIP-2930 address-only access-list message-call with no storage
+  keys, keeping address warming cost visible separately from storage-key
+  warming cost. The selected Shanghai subset now also gates the same
+  address-only access-list boundary on an EIP-1559 dynamic-fee transaction, so
+  dynamic-fee address warming cannot rely on the EIP-2930-only vector. The
+  transaction fixture summaries now also distinguish
   typed empty-access-list payloads from non-empty access-list payloads, with
   explicit EIP-2930 and EIP-1559 empty-list gates. It also gates an EIP-1559
   dynamic-fee message-call with equal priority and max fee caps, locking the
@@ -263,8 +266,9 @@ present. The Phase A transaction harness now replays protected/unprotected
 transfer and contract-creation legacy txbytes plus access-list transfer,
 access-list calldata, access-list calldata-with-storage-keys, and contract
 creation, and dynamic-fee transfer, calldata, access-list
-calldata-with-storage-keys, and contract creation typed txbytes through hash,
-sender, decoded payload, access-list projection, and intrinsic-gas checks.
+calldata-with-storage-keys, duplicate access-list, and contract creation typed
+txbytes through hash, sender, decoded payload, access-list projection, and
+intrinsic-gas checks.
 Blob sidecars now have a first-pass data
 shape and commitment-to-versioned-hash
 validation layer; callers that require KZG proof verification now fail
