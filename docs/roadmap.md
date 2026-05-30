@@ -593,6 +593,10 @@ and proof assertions. The selected EEST-style subset now gates plain hex byte
 values alongside secure hex byte values, including object-form plain byte
 values, and covers deletion of a child from a valueless plain root branch
 collapsing back to a leaf.
+The selected EEST-style account step-3 cases now carry explicit fixture `out`
+maps for both plain geth TinyTrie keys and secure geth account addresses,
+including present account RLP assertions and missing-account assertions gated
+as required reference-derived coverage.
 
 ## 4. EVM
 

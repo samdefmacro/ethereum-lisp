@@ -201,6 +201,10 @@
     ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3" . :secure)
     ("phase-a-secureTrie.json/phase-a-secure-zgeth-delete-sequence" . :secure)))
 
+(defparameter +phase-a-eest-trie-explicit-output-reference-case-names+
+  '("phase-a-trie-multi.json/geth-tiny-account-step-3"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"))
+
 (defparameter +trie-fixture-required-tags+
   '("leaf-root"
     "branch-root"
@@ -896,6 +900,36 @@
                      name
                      expected-mode
                      actual-mode))))))))
+
+(defun validate-trie-reference-explicit-output-requirements
+    (cases names label)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-names (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name names)
+      (when (gethash name seen-names)
+        (error "~A explicit-output reference list has duplicate name ~A"
+               label
+               name))
+      (setf (gethash name seen-names) t)
+      (let ((case (gethash name case-by-name)))
+        (unless case
+          (error "~A is missing explicit-output reference case ~A"
+                 label
+                 name))
+        (unless (fixture-field-present-p case "expectedOut")
+          (error "~A reference-derived trie case ~A must include explicit out assertions"
+                 label
+                 name))
+        (multiple-value-bind (present-count missing-count)
+            (eest-trie-test-explicit-output-counts case)
+          (unless (and (plusp present-count)
+                       (plusp missing-count))
+            (error "~A reference-derived trie case ~A explicit out must include present and missing keys"
+                   label
+                   name)))))))
 
 (defun validate-trie-fixture-cases (cases)
   (validate-trie-fixture-case-coverage cases)
@@ -2502,6 +2536,10 @@
   (validate-trie-reference-case-requirements
    cases
    +phase-a-eest-trie-reference-case-requirements+
+   "Phase A EEST trie subset")
+  (validate-trie-reference-explicit-output-requirements
+   cases
+   +phase-a-eest-trie-explicit-output-reference-case-names+
    "Phase A EEST trie subset")
   (let ((summary (eest-trie-test-case-summary cases)))
     (when (zerop (fixture-object-field summary "secureCaseCount"))
@@ -4202,6 +4240,20 @@
        selected-cases
        '(("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3" . :plain))
        "Phase A EEST trie subset"))
+    (validate-trie-reference-explicit-output-requirements
+     selected-cases
+     +phase-a-eest-trie-explicit-output-reference-case-names+
+     "Phase A EEST trie subset")
+    (signals error
+      (validate-trie-reference-explicit-output-requirements
+       selected-cases
+       '("phase-a-trie-multi.json/missing-geth-case")
+       "Phase A EEST trie subset"))
+    (signals error
+      (validate-trie-reference-explicit-output-requirements
+       selected-cases
+       '("phase-a-trie-multi.json/geth-tiny-account-step-2")
+       "Phase A EEST trie subset"))
     (let ((case-names
             (mapcar (lambda (case)
                       (fixture-object-field case "name"))
@@ -4397,16 +4449,16 @@
     (is (= 34 (fixture-object-field summary "proofMissingKeyCount")))
     (is (= 13 (fixture-object-field summary "secureProofMissingKeyCount")))
     (is (= 21 (fixture-object-field summary "plainProofMissingKeyCount")))
-    (is (= 4 (fixture-object-field summary "explicitOutputCaseCount")))
-    (is (= 2 (fixture-object-field summary "secureExplicitOutputCaseCount")))
-    (is (= 2 (fixture-object-field summary "plainExplicitOutputCaseCount")))
-    (is (= 11 (fixture-object-field summary "explicitOutputEntryCount")))
-    (is (= 7 (fixture-object-field summary "explicitOutputPresentKeyCount")))
-    (is (= 4 (fixture-object-field summary "secureExplicitOutputPresentKeyCount")))
-    (is (= 3 (fixture-object-field summary "plainExplicitOutputPresentKeyCount")))
-    (is (= 4 (fixture-object-field summary "explicitOutputMissingKeyCount")))
-    (is (= 2 (fixture-object-field summary "secureExplicitOutputMissingKeyCount")))
-    (is (= 2 (fixture-object-field summary "plainExplicitOutputMissingKeyCount")))
+    (is (= 6 (fixture-object-field summary "explicitOutputCaseCount")))
+    (is (= 3 (fixture-object-field summary "secureExplicitOutputCaseCount")))
+    (is (= 3 (fixture-object-field summary "plainExplicitOutputCaseCount")))
+    (is (= 19 (fixture-object-field summary "explicitOutputEntryCount")))
+    (is (= 13 (fixture-object-field summary "explicitOutputPresentKeyCount")))
+    (is (= 7 (fixture-object-field summary "secureExplicitOutputPresentKeyCount")))
+    (is (= 6 (fixture-object-field summary "plainExplicitOutputPresentKeyCount")))
+    (is (= 6 (fixture-object-field summary "explicitOutputMissingKeyCount")))
+    (is (= 3 (fixture-object-field summary "secureExplicitOutputMissingKeyCount")))
+    (is (= 3 (fixture-object-field summary "plainExplicitOutputMissingKeyCount")))
     (is (= 2 (fixture-object-field summary "objectFormExplicitOutputCaseCount")))
     (is (= 1 (fixture-object-field summary "secureObjectFormExplicitOutputCaseCount")))
     (is (= 1 (fixture-object-field summary "plainObjectFormExplicitOutputCaseCount")))

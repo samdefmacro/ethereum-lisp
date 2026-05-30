@@ -2371,6 +2371,11 @@ splits can land after the Phase A smoke path closes.
     empty-value, replication, random-case, range, and secure account/delete
     families plus the Nethermind partial-path proof-node case, and verifies
     each required family stays on the expected plain or secure trie path.
+    Added explicit `out` assertions to the selected plain and secure
+    geth-derived account step-3 EEST-style cases. The Phase A gate now
+    requires those reference-derived account cases to retain fixture-provided
+    present and missing final-output assertions, so imported trie-test output
+    maps are checked on both account-RLP and secure account-trie replay paths.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
