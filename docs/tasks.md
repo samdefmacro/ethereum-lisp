@@ -2282,6 +2282,10 @@ splits can land after the Phase A smoke path closes.
     updates only balances while preserving both accounts' code hashes, storage
     roots, account RLP projections, storage trie shapes, and branch-shaped
     state root child references.
+    Collapsed the public `eth_getProof` snapshot reconstruction path onto the
+    shared `chain-store-state-db` helper, and added a chain-store roundtrip
+    regression proving that a committed value-transfer state with non-empty
+    code and storage reconstructs to the exact original state root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

@@ -2974,6 +2974,65 @@
              (state-db-get-storage
               state storage-only storage-only-slot))))))
 
+(deftest chain-store-state-db-round-trips-nontrivial-state-root
+  (let* ((store (make-engine-payload-memory-store))
+         (sender
+           (address-from-hex "0x0000000000000000000000000000000000000411"))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000412"))
+         (sender-slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000011"))
+         (recipient-slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000012"))
+         (state (make-state-db))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 45
+                               :timestamp 450
+                               :gas-limit 30000000))))
+    (state-db-set-account
+     state sender (make-state-account :nonce 7 :balance 1000))
+    (state-db-set-code state sender #(96 1 96 0 85))
+    (state-db-set-storage state sender sender-slot 42)
+    (state-db-set-account
+     state recipient (make-state-account :nonce 3 :balance 5))
+    (state-db-set-code state recipient #(96 2 96 0 85))
+    (state-db-set-storage state recipient recipient-slot 99)
+    (ethereum-lisp.state::state-db-transfer-value
+     state sender recipient 37)
+    (setf (block-header-state-root (block-header block))
+          (state-db-root state))
+    (chain-store-put-block store block :state-available-p t)
+    (commit-state-db-to-chain-store store (block-hash block) state)
+    (let* ((reconstructed (chain-store-state-db store (block-hash block)))
+           (sender-account (state-db-get-account reconstructed sender))
+           (recipient-account
+             (state-db-get-account reconstructed recipient)))
+      (is (typep reconstructed 'state-db))
+      (is (string= (state-db-root-hex state)
+                   (state-db-root-hex reconstructed)))
+      (is (= 963 (state-account-balance sender-account)))
+      (is (= 42 (state-db-get-storage reconstructed sender sender-slot)))
+      (is (bytes= #(96 1 96 0 85)
+                  (state-db-get-code reconstructed sender)))
+      (is (bytes= (hash32-bytes (state-account-storage-root
+                                  (state-db-get-account state sender)))
+                  (hash32-bytes
+                   (state-account-storage-root sender-account))))
+      (is (= 42 (state-account-balance recipient-account)))
+      (is (= 99
+             (state-db-get-storage
+              reconstructed recipient recipient-slot)))
+      (is (bytes= #(96 2 96 0 85)
+                  (state-db-get-code reconstructed recipient)))
+      (is (bytes= (hash32-bytes (state-account-code-hash
+                                  (state-db-get-account state recipient)))
+                  (hash32-bytes
+                   (state-account-code-hash recipient-account)))))))
+
 (deftest execute-atomic-block-commit-commits-state-and-store-together
   (let* ((store (make-engine-payload-memory-store))
          (state (make-state-db))

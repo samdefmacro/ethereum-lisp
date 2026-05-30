@@ -488,20 +488,7 @@
          (quantity-to-hex (bytes-to-integer (hash32-bytes slot)))))))
 
 (defun eth-rpc-state-db-from-chain-store (store block-hash)
-  (let ((state (ethereum-lisp.state:make-state-db)))
-    (chain-store-for-each-account
-     store
-     block-hash
-     (lambda (account-address balance nonce code storage-entries)
-       (ethereum-lisp.state:state-db-set-account
-        state
-        account-address
-        (make-state-account :nonce nonce :balance balance))
-       (ethereum-lisp.state:state-db-set-code state account-address code)
-       (dolist (entry storage-entries)
-         (ethereum-lisp.state:state-db-set-storage
-          state account-address (car entry) (cdr entry)))))
-    state))
+  (ethereum-lisp.execution:chain-store-state-db store block-hash))
 
 (defun eth-rpc-proof-node-hex-list (proof)
   (mapcar #'bytes-to-hex proof))
