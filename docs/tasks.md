@@ -2268,6 +2268,11 @@ splits can land after the Phase A smoke path closes.
     interprets them as deletes, and the new case locks the same geth reference
     root, retained/missing lookups, and proof-node RLP prefixes as the explicit
     delete sequence behind an `empty-value-delete` coverage gate.
+    Added deterministic MPT final entry export through `mpt-entry-pairs` and
+    fixture-driven rebuild coverage modeled on geth `TestTinyTrie` iterator
+    replay. The geth three-account TinyTrie seed case now exports final
+    key/value pairs, rebuilds a fresh trie from them, and requires the same
+    reference root and lookups behind an `entry-pair-replay` gate.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

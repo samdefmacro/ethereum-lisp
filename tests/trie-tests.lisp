@@ -104,7 +104,8 @@
     "single-node-proof"
     "proof-node-rlp"
     "delete-proof-node-rlp"
-    "missing-proof-node-rlp"))
+    "missing-proof-node-rlp"
+    "entry-pair-replay"))
 
 (defparameter +trie-fixture-required-case-names+
   '("single-leaf"
@@ -182,7 +183,8 @@
     "single-node-proof"
     "proof-node-rlp"
     "delete-proof-node-rlp"
-    "missing-proof-node-rlp"))
+    "missing-proof-node-rlp"
+    "entry-pair-replay"))
 
 (defparameter +trie-fixture-root-shapes+
   '("empty" "leaf" "extension" "branch"))
@@ -2417,6 +2419,21 @@
           (is (bytes= value (mpt-get trie key)))
           (is (null (mpt-get trie key)))))))
 
+(defun trie-fixture-case-tag-p (case tag)
+  (not (null (member tag (fixture-object-field case "tags")
+                     :test #'string=))))
+
+(defun assert-trie-fixture-entry-pair-replay (trie case)
+  (when (trie-fixture-case-tag-p case "entry-pair-replay")
+    (let ((rebuilt (make-mpt)))
+      (dolist (entry (mpt-entry-pairs trie))
+        (mpt-put rebuilt (car entry) (cdr entry)))
+      (is (string= (mpt-root-hex trie)
+                   (mpt-root-hex rebuilt)))
+      (dolist (entry (mpt-entry-pairs trie))
+        (is (bytes= (cdr entry)
+                    (mpt-get rebuilt (car entry))))))))
+
 (defun assert-trie-fixture-proof-present (trie key expected-value)
   (multiple-value-bind (value present-p)
       (mpt-verify-proof (mpt-root-hash trie)
@@ -2474,6 +2491,19 @@
     (dolist (pair '(("horse" . "stallion") ("doge" . "coin") ("dog" . "puppy") ("do" . "verb")))
       (mpt-put right (ascii-to-bytes (car pair)) (ascii-to-bytes (cdr pair))))
     (is (string= (mpt-root-hex left) (mpt-root-hex right)))))
+
+(deftest trie-entry-pairs-rebuild-root
+  (let ((trie (make-mpt))
+        (rebuilt (make-mpt)))
+    (dolist (pair '(("dog" . "puppy") ("do" . "verb") ("horse" . "stallion")))
+      (mpt-put trie (ascii-to-bytes (car pair)) (ascii-to-bytes (cdr pair))))
+    (dolist (entry (mpt-entry-pairs trie))
+      (mpt-put rebuilt (car entry) (cdr entry)))
+    (is (string= (mpt-root-hex trie) (mpt-root-hex rebuilt)))
+    (is (equal '("646f" "646f67" "686f727365")
+               (mapcar (lambda (entry)
+                         (bytes-to-hex (car entry) :prefix nil))
+                       (mpt-entry-pairs trie))))))
 
 (deftest trie-delete-removes-key-and-collapses-to-empty-root
   (let ((trie (make-mpt)))
@@ -4096,5 +4126,6 @@
                          (bytes-to-hex
                           (trie-fixture-root-value-bytes trie))))))
         (assert-trie-fixture-final-operation-lookups trie case)
+        (assert-trie-fixture-entry-pair-replay trie case)
         (assert-trie-fixture-proof-prefixes trie case)
         (assert-trie-fixture-lookups trie case)))))

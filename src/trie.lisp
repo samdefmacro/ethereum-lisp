@@ -24,6 +24,15 @@
 (defun mpt-get (trie key)
   (gethash (trie-key-id key) (mpt-entries trie)))
 
+(defun mpt-entry-pairs (trie)
+  (let (entries)
+    (maphash (lambda (key-id value)
+               (push (cons key-id value) entries))
+             (mpt-entries trie))
+    (loop for entry in (sort entries #'string< :key #'car)
+          collect (cons (hex-to-bytes (car entry))
+                        (copy-seq (cdr entry))))))
+
 (defun hash-table-entries (table)
   (let (entries)
     (maphash (lambda (key value)
