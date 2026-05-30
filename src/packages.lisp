@@ -136,6 +136,7 @@
    #:mpt-delete
    #:mpt-get
    #:mpt-entry-pairs
+   #:mpt-entry-range
    #:mpt-get-proof
    #:mpt-verify-proof
    #:mpt-root-hash
@@ -1050,6 +1051,7 @@
    #:mpt-delete
    #:mpt-get
    #:mpt-entry-pairs
+   #:mpt-entry-range
    #:mpt-get-proof
    #:mpt-verify-proof
    #:mpt-root-hash
@@ -1895,6 +1897,7 @@
    #:mpt-delete
    #:mpt-get
    #:mpt-entry-pairs
+   #:mpt-entry-range
    #:mpt-get-proof
    #:mpt-verify-proof
    #:mpt-root-hash

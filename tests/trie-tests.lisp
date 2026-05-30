@@ -106,7 +106,8 @@
     "proof-node-rlp"
     "delete-proof-node-rlp"
     "missing-proof-node-rlp"
-    "entry-pair-replay"))
+    "entry-pair-replay"
+    "entry-range"))
 
 (defparameter +trie-fixture-required-case-names+
   '("single-leaf"
@@ -162,7 +163,8 @@
     "delete-root-branch-value-collapses-to-leaf"
     "delete-root-branch-child-without-value-collapses-to-leaf"
     "delete-root-branch-child-without-value-keeps-branch"
-    "delete-root-branch-child-collapses-to-root-value-leaf"))
+    "delete-root-branch-child-collapses-to-root-value-leaf"
+    "geth-general-range-iteration"))
 
 (defparameter +trie-fixture-required-tags+
   '("leaf-root"
@@ -186,7 +188,8 @@
     "proof-node-rlp"
     "delete-proof-node-rlp"
     "missing-proof-node-rlp"
-    "entry-pair-replay"))
+    "entry-pair-replay"
+    "entry-range"))
 
 (defparameter +trie-fixture-root-shapes+
   '("empty" "leaf" "extension" "branch"))
@@ -214,6 +217,7 @@
     "expectedGets"
     "expectedMissing"
     "expectedEntryPairs"
+    "expectedEntryRanges"
     "expectedProofPrefixes"))
 
 (defparameter +trie-fixture-operation-fields+
@@ -227,6 +231,12 @@
 
 (defparameter +trie-fixture-expected-entry-pair-fields+
   '("keyHex" "keyAscii" "valueAscii" "valueHex"))
+
+(defparameter +trie-fixture-expected-entry-range-fields+
+  '("startKeyHex" "startKeyAscii" "endKeyHex" "endKeyAscii" "expectedKeys"))
+
+(defparameter +trie-fixture-expected-entry-range-key-fields+
+  '("keyHex" "keyAscii"))
 
 (defparameter +trie-fixture-expected-proof-prefix-fields+
   '("keyHex" "keyAscii" "nodeRlps" "exactLength"))
@@ -451,6 +461,65 @@
    expected
    (format nil "Trie fixture case ~A expectedEntryPairs entry" case-name)))
 
+(defun validate-trie-fixture-entry-range-bound (expected case-name prefix)
+  (let* ((hex-field (format nil "~AKeyHex" prefix))
+         (ascii-field (format nil "~AKeyAscii" prefix))
+         (has-hex (fixture-field-present-p expected hex-field))
+         (has-ascii (fixture-field-present-p expected ascii-field))
+         (label (format nil "Trie fixture case ~A expectedEntryRanges ~A bound"
+                        case-name
+                        prefix)))
+    (when (and has-hex has-ascii)
+      (error "~A must not include both ~A and ~A"
+             label hex-field ascii-field))
+    (when has-hex
+      (validate-trie-fixture-byte-field
+       (fixture-object-field expected hex-field)
+       (format nil "~A ~A" label hex-field)))
+    (when has-ascii
+      (let ((key (fixture-object-field expected ascii-field)))
+        (validate-trie-fixture-non-empty-string
+         key
+         (format nil "~A ~A" label ascii-field))))))
+
+(defun validate-trie-fixture-entry-range-key (expected case-name)
+  (unless (listp expected)
+    (error "Trie fixture case ~A expectedEntryRanges expectedKeys entry must be a JSON object"
+           case-name))
+  (validate-trie-fixture-object-fields
+   expected
+   +trie-fixture-expected-entry-range-key-fields+
+   (format nil "Trie fixture case ~A expectedEntryRanges expectedKeys entry"
+           case-name))
+  (validate-trie-fixture-key-fields
+   expected
+   (format nil "Trie fixture case ~A expectedEntryRanges expectedKeys entry"
+           case-name)))
+
+(defun validate-trie-fixture-expected-entry-range (expected case-name)
+  (unless (listp expected)
+    (error "Trie fixture case ~A expectedEntryRanges entry must be a JSON object"
+           case-name))
+  (validate-trie-fixture-object-fields
+   expected
+   +trie-fixture-expected-entry-range-fields+
+   (format nil "Trie fixture case ~A expectedEntryRanges entry" case-name))
+  (validate-trie-fixture-entry-range-bound expected case-name "start")
+  (validate-trie-fixture-entry-range-bound expected case-name "end")
+  (let ((expected-keys (fixture-required-field expected "expectedKeys"))
+        (seen-keys (make-hash-table :test 'equal)))
+    (unless (listp expected-keys)
+      (error "Trie fixture case ~A expectedEntryRanges expectedKeys must be a list"
+             case-name))
+    (dolist (key-entry expected-keys)
+      (validate-trie-fixture-entry-range-key key-entry case-name)
+      (let ((key (bytes-to-hex (trie-fixture-key key-entry))))
+        (when (gethash key seen-keys)
+          (error "Trie fixture case ~A expectedEntryRanges has duplicate expected key ~A"
+                 case-name
+                 key))
+        (setf (gethash key seen-keys) t)))))
+
 (defun validate-trie-fixture-expected-lookup-keys (case)
   (let ((seen-keys (make-hash-table :test 'equal))
         (case-name (fixture-object-field case "name")))
@@ -671,6 +740,8 @@
       (validate-trie-fixture-expected-lookup expected name "expectedMissing"))
     (dolist (expected (fixture-object-field case "expectedEntryPairs"))
       (validate-trie-fixture-expected-entry-pair expected name))
+    (dolist (expected (fixture-object-field case "expectedEntryRanges"))
+      (validate-trie-fixture-expected-entry-range expected name))
     (dolist (expected (fixture-object-field case "expectedProofPrefixes"))
       (validate-trie-fixture-expected-proof-prefix expected name))
     (validate-trie-fixture-expected-lookup-keys case)))
@@ -685,6 +756,7 @@
         secure-branch-root-p
         secure-extension-root-p
         secure-entry-pair-replay-p
+        entry-range-p
         exact-proof-node-rlp-p)
     (dolist (case cases)
       (unless (listp case)
@@ -704,6 +776,11 @@
                            (fixture-object-field case "tags")
                            :test #'string=))
           (setf secure-entry-pair-replay-p t))
+        (when (and (member "entry-range"
+                           (fixture-object-field case "tags")
+                           :test #'string=)
+                   (fixture-object-field case "expectedEntryRanges"))
+          (setf entry-range-p t))
         (when (some (lambda (expected)
                       (fixture-object-field expected "exactLength"))
                     (fixture-object-field case "expectedProofPrefixes"))
@@ -728,6 +805,8 @@
       (error "Trie fixture must include a secure extension root case"))
     (unless secure-entry-pair-replay-p
       (error "Trie fixture must include a secure entry-pair replay case"))
+    (unless entry-range-p
+      (error "Trie fixture must include entry-range coverage"))
     (unless exact-proof-node-rlp-p
       (error "Trie fixture must include exact proof-node RLP coverage"))))
 
@@ -2534,6 +2613,18 @@
         (keccak-256 key)
         key)))
 
+(defun trie-fixture-entry-range-bound (case object prefix)
+  (let* ((hex-field (format nil "~AKeyHex" prefix))
+         (ascii-field (format nil "~AKeyAscii" prefix))
+         (key (or (let ((hex (fixture-object-field object hex-field)))
+                    (when hex (hex-to-bytes hex)))
+                  (let ((ascii (fixture-object-field object ascii-field)))
+                    (when ascii (ascii-to-bytes ascii))))))
+    (when key
+      (if (trie-fixture-secure-key-p case)
+          (keccak-256 key)
+          key))))
+
 (defun apply-trie-fixture-operation (trie case operation)
   (let ((op (fixture-object-field operation "op"))
         (key (trie-fixture-trie-key case operation)))
@@ -2598,6 +2689,22 @@
                                (car actual)))
                    (is (bytes= (trie-fixture-value expected)
                                (cdr actual)))))))))
+
+(defun assert-trie-fixture-entry-ranges (trie case)
+  (dolist (expected (fixture-object-field case "expectedEntryRanges"))
+    (let* ((start (trie-fixture-entry-range-bound case expected "start"))
+           (end (trie-fixture-entry-range-bound case expected "end"))
+           (actual-keys
+             (mapcar #'car
+                     (mpt-entry-range trie :start start :end end)))
+           (expected-keys
+             (mapcar (lambda (key-entry)
+                       (trie-fixture-trie-key case key-entry))
+                     (fixture-required-field expected "expectedKeys"))))
+      (is (= (length expected-keys) (length actual-keys)))
+      (loop for expected-key in expected-keys
+            for actual-key in actual-keys
+            do (is (bytes= expected-key actual-key))))))
 
 (defun assert-trie-fixture-proof-present (trie key expected-value)
   (multiple-value-bind (value present-p)
@@ -2671,6 +2778,42 @@
                (mapcar (lambda (entry)
                          (bytes-to-hex (car entry) :prefix nil))
                        (mpt-entry-pairs trie))))))
+
+(deftest trie-entry-range-uses-half-open-lexicographic-bounds
+  (let ((trie (make-mpt)))
+    (dolist (pair '(("apple" . "fruit1")
+                    ("apricot" . "fruit2")
+                    ("banana" . "fruit3")
+                    ("cherry" . "fruit4")
+                    ("date" . "fruit5")
+                    ("fig" . "fruit6")
+                    ("grape" . "fruit7")))
+      (mpt-put trie
+               (ascii-to-bytes (car pair))
+               (ascii-to-bytes (cdr pair))))
+    (is (equal '("banana" "cherry" "date")
+               (mapcar (lambda (entry)
+                         (bytes-to-ascii (car entry)))
+                       (mpt-entry-range
+                        trie
+                        :start (ascii-to-bytes "banana")
+                        :end (ascii-to-bytes "fig")))))
+    (is (equal '("apple" "apricot")
+               (mapcar (lambda (entry)
+                         (bytes-to-ascii (car entry)))
+                       (mpt-entry-range
+                        trie
+                        :end (ascii-to-bytes "banana")))))
+    (is (equal '("fig" "grape")
+               (mapcar (lambda (entry)
+                         (bytes-to-ascii (car entry)))
+                       (mpt-entry-range
+                        trie
+                        :start (ascii-to-bytes "fig")))))
+    (is (null (mpt-entry-range
+               trie
+               :start (ascii-to-bytes "banana")
+               :end (ascii-to-bytes "banana"))))))
 
 (deftest trie-delete-removes-key-and-collapses-to-empty-root
   (let ((trie (make-mpt)))
@@ -3353,6 +3496,13 @@
        (remove-if
         (lambda (case)
           (string= "geth-large-value-branch"
+                   (fixture-object-field case "name")))
+        cases)))
+    (signals error
+      (validate-trie-fixture-case-coverage
+       (remove-if
+        (lambda (case)
+          (string= "geth-general-range-iteration"
                    (fixture-object-field case "name")))
         cases)))
     (signals error
@@ -4343,5 +4493,6 @@
                           (trie-fixture-root-value-bytes trie))))))
         (assert-trie-fixture-final-operation-lookups trie case)
         (assert-trie-fixture-entry-pair-replay trie case)
+        (assert-trie-fixture-entry-ranges trie case)
         (assert-trie-fixture-proof-prefixes trie case)
         (assert-trie-fixture-lookups trie case)))))

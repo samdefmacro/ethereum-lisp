@@ -2329,6 +2329,11 @@ splits can land after the Phase A smoke path closes.
     sorted hashed-key export order, final account RLP values, rebuild root, and
     fixture coverage gate so StateTrie-style snapshot exports cannot be
     satisfied by the plain trie path alone.
+    Added `mpt-entry-range` with geth `NodeIteratorWithRange` half-open
+    semantics (`start <= key < end`) and fixture-driven coverage modeled on
+    geth `TestGeneralRangeIteration`. The new seed case gates bounded,
+    lower-unbounded, upper-unbounded, and empty equal-bound ranges against
+    deterministic final entry ordering.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

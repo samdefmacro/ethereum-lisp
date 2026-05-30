@@ -542,6 +542,9 @@ snapshot/rebuild coverage rather than only root/proof assertions.
 The seed trie fixture format now also accepts explicit `expectedEntryPairs`,
 and the geth three-account TinyTrie case locks the exported final leaf order
 and values directly before rebuilding from `mpt-entry-pairs`.
+The MPT export path now also supports geth-style half-open range iteration
+through `mpt-entry-range`, with fixture coverage for bounded and unbounded
+entry ranges before broader snapshot/export consumers depend on it.
 The secure-key counterpart now hashes geth's deterministic account addresses
 before replay and locks the one-, two-, and three-account roots
 `0xc8c796b39027107040d7bae53042070762d888d7ec5e8fa875c95bde2ab3e8a5`,

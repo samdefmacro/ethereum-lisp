@@ -116,6 +116,62 @@
       ]
     },
     {
+      "name": "geth-general-range-iteration",
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "lookup-assertions", "entry-range"],
+      "operations": [
+        { "op": "put", "keyAscii": "apple", "valueAscii": "fruit1" },
+        { "op": "put", "keyAscii": "apricot", "valueAscii": "fruit2" },
+        { "op": "put", "keyAscii": "banana", "valueAscii": "fruit3" },
+        { "op": "put", "keyAscii": "cherry", "valueAscii": "fruit4" },
+        { "op": "put", "keyAscii": "date", "valueAscii": "fruit5" },
+        { "op": "put", "keyAscii": "fig", "valueAscii": "fruit6" },
+        { "op": "put", "keyAscii": "grape", "valueAscii": "fruit7" }
+      ],
+      "expectedRoot": "0x1917325df3a64bc8d33c91b04ede4e231cdaa812d0a3526df168b4796acff864",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [6],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyAscii": "apple", "valueAscii": "fruit1" },
+        { "keyAscii": "apricot", "valueAscii": "fruit2" },
+        { "keyAscii": "banana", "valueAscii": "fruit3" },
+        { "keyAscii": "cherry", "valueAscii": "fruit4" },
+        { "keyAscii": "date", "valueAscii": "fruit5" },
+        { "keyAscii": "fig", "valueAscii": "fruit6" },
+        { "keyAscii": "grape", "valueAscii": "fruit7" }
+      ],
+      "expectedEntryRanges": [
+        {
+          "startKeyAscii": "banana",
+          "endKeyAscii": "fig",
+          "expectedKeys": [
+            { "keyAscii": "banana" },
+            { "keyAscii": "cherry" },
+            { "keyAscii": "date" }
+          ]
+        },
+        {
+          "endKeyAscii": "banana",
+          "expectedKeys": [
+            { "keyAscii": "apple" },
+            { "keyAscii": "apricot" }
+          ]
+        },
+        {
+          "startKeyAscii": "fig",
+          "expectedKeys": [
+            { "keyAscii": "fig" },
+            { "keyAscii": "grape" }
+          ]
+        },
+        {
+          "startKeyAscii": "banana",
+          "endKeyAscii": "banana",
+          "expectedKeys": []
+        }
+      ]
+    },
+    {
       "name": "geth-tiny-account-step-1",
       "tags": ["leaf-root", "path-compression", "hex-key", "hex-value", "lookup-assertions"],
       "operations": [
