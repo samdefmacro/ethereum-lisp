@@ -384,7 +384,9 @@ replays the same committed transfer snapshots by block hash for sender,
 recipient, and zero-value missing-recipient proofs. The fixture seed set also
 covers a branch-root account trie transfer, including the recipient proof below
 a hashed branch child, and retained-state RPC coverage now replays that
-branch-root transfer snapshot as well.
+branch-root transfer snapshot as well. The same branch-root proof boundary now
+locks the debited sender proof, so both sides of the transfer are checked
+through fixture replay and retained-state RPC.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.

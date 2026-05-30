@@ -2540,6 +2540,11 @@ splits can land after the Phase A smoke path closes.
     recipient creation, retained sibling account RLP, branch child shapes and
     references, and the final branch root; the matching state-proof vector locks
     the recipient proof through the hashed branch child.
+  - Progress: extended the same branch-root `transferValue` state-proof
+    boundary to the debited sender account. The fixture set now locks exact
+    geth-shaped proof nodes for both sides of the transfer below the hashed
+    branch child, and retained-state `eth_getProof` verifies both sender and
+    recipient proofs against the committed block-hash snapshot.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

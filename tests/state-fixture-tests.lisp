@@ -304,6 +304,7 @@
     "balance-add-zero-funded-account-proof"
     "balance-add-preserves-code-and-storage-proof"
     "value-transfer-recipient-proof"
+    "state-trie-branch-value-transfer-sender-proof"
     "state-trie-branch-value-transfer-recipient-proof"
     "state-trie-branch-balance-add-zero-missing-proof"
     "state-trie-branch-balance-add-zero-existing-proof"

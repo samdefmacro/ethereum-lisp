@@ -8567,6 +8567,17 @@
          store
          branch-transfer-state
          branch-transfer-block
+         branch-sender
+         nil
+         "0x4dd8ed5858a2fce6bf433fa35e5cc54821ad964aa7a2dd979ea34336ff8b6544"
+         63
+         1
+         0
+         :expected-account-proof-count 3)
+        (assert-transfer-proof
+         store
+         branch-transfer-state
+         branch-transfer-block
          branch-recipient
          nil
          "0x4dd8ed5858a2fce6bf433fa35e5cc54821ad964aa7a2dd979ea34336ff8b6544"
