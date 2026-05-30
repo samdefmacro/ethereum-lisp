@@ -1990,6 +1990,11 @@ splits can land after the Phase A smoke path closes.
     key while preserving the non-leaf root shape, and the Phase A summary now
     gates secure branch/extension overwrite roots separately from the existing
     single-key leaf overwrite case.
+    Added state-root code-update coverage across non-leaf account tries. The
+    fixture set now locks a code hash overwrite inside both branch-root and
+    extension-root state tries, including sibling account projections,
+    expected state roots, and root child shape/reference assertions, so
+    code-root changes cannot rely only on the single-account leaf case.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
