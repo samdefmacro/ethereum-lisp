@@ -798,6 +798,13 @@ ones.
     calldata EIP-7702 coverage, so the seed fixture cannot degrade to a single
     authorization or authorization-list-only transaction while preserving type
     coverage.
+  - Progress: added the first transcribed pinned `execution-spec-tests` v5.4.0
+    transaction-test file to the in-repo EEST root:
+    `prague/eip7702_set_code_tx/test_empty_authorization_list.json`. The root
+    loader now separates successful transaction vectors from invalid-only EEST
+    cases, accepts `_info` metadata and invalid exception results that include
+    `intrinsicGas`, and asserts the official empty EIP-7702 authorization-list
+    payload decodes as set-code then fails local set-code field validation.
 
 ## P0: Module Boundaries
 

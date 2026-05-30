@@ -221,7 +221,12 @@ fixes in those areas are allowed; expansion is not.
   The local envelope fixture entry point now applies those payload gates too,
   with blob coverage requiring access-list calldata and set-code coverage
   requiring multi-authorization plus access-list calldata rather than a single
-  authorization-only placeholder. The
+  authorization-only placeholder. The in-repo EEST transaction-test root now
+  also includes the first transcribed pinned v5.4.0 `execution-spec-tests`
+  invalid case for an empty EIP-7702 authorization list; the importer keeps
+  invalid-only cases separate from successful hash/sender vectors while still
+  decoding the official payload and checking that local set-code validation
+  rejects it. The
   Shanghai `engine_newPayloadV2` smoke now covers legacy transfer, access-list
   transfer, dynamic-fee typed transfer, contract creation, withdrawals,
   multi-transaction receipt ordering/cumulative gas, safe/finalized checkpoint

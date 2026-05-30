@@ -58,6 +58,9 @@
     "phase-a-sample.json/typed-eip7702-set-code-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip7702-set-code-sample"))
 
+(defparameter +invalid-eest-transaction-test-case-names+
+  '("prague/eip7702_set_code_tx/test_empty_authorization_list.json"))
+
 (defparameter +transaction-envelope-fixture-required-vector-names+
   '("legacy-eip155"
     "legacy-unprotected"
@@ -110,7 +113,10 @@
   '("TransactionException.TYPE_1_TX_PRE_FORK"
     "TransactionException.TYPE_2_TX_PRE_FORK"
     "TransactionException.TYPE_3_TX_PRE_FORK"
-    "TransactionException.TYPE_4_TX_PRE_FORK"))
+    "TransactionException.TYPE_4_TX_PRE_FORK"
+    "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST"
+    "TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE"
+    "TransactionException.TYPE_4_INVALID_AUTHORITY_SIGNATURE_S_TOO_HIGH"))
 
 (defparameter +transaction-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "referenceClients" "vectors"))
@@ -143,7 +149,7 @@
   '("chainId" "address" "nonce" "yParity" "r" "s"))
 
 (defparameter +eest-transaction-test-case-fields+
-  '("txbytes" "result"))
+  '("txbytes" "result" "_info"))
 
 (defparameter +eest-transaction-test-result-entry-fields+
   '("hash" "sender" "exception" "intrinsicGas"))
@@ -742,8 +748,10 @@
       (error "EEST transaction case ~A result for fork ~A cannot have sender without hash"
              case-name
              fork))
-    (when (and (not hash-present-p) intrinsic-gas-present-p)
-      (error "EEST transaction case ~A result for fork ~A cannot have intrinsicGas without hash"
+    (when (and (not hash-present-p)
+               intrinsic-gas-present-p
+               (blank-string-p exception))
+      (error "EEST transaction case ~A result for fork ~A cannot have intrinsicGas without hash or exception"
              case-name
              fork))
     (when (and (not (blank-string-p exception))
@@ -1121,10 +1129,21 @@
       (validate-transaction-fixture-decoded-vector vector)
       vector)))
 
+(defun eest-transaction-success-cases (cases)
+  (remove-if-not #'eest-transaction-case-success-result cases))
+
+(defun eest-transaction-invalid-cases (cases)
+  (remove-if #'eest-transaction-case-success-result cases))
+
+(defun load-eest-transaction-test-root-invalid-cases (root &key names)
+  (eest-transaction-invalid-cases
+   (load-eest-transaction-test-root-cases root :names names)))
+
 (defun load-eest-transaction-test-root-vectors (root &key names)
   (let ((vectors
           (mapcar #'convert-eest-transaction-case-to-vector
-                  (load-eest-transaction-test-root-cases root :names names))))
+                  (eest-transaction-success-cases
+                   (load-eest-transaction-test-root-cases root :names names)))))
     (validate-transaction-fixture-vector-set vectors)
     vectors))
 
@@ -2215,8 +2234,22 @@
                value previous (fixture-object-field vector "name"))))
     (setf (gethash value seen) (fixture-object-field vector "name"))))
 
+(defun transaction-fixture-exception-tokens (exception)
+  (let ((tokens nil)
+        (start 0))
+    (loop for separator = (position #\| exception :start start)
+          do (let ((token (subseq exception start separator)))
+               (when (blank-string-p token)
+                 (error "Transaction fixture exception contains an empty token"))
+               (push token tokens))
+          while separator
+          do (setf start (1+ separator)))
+    (nreverse tokens)))
+
 (defun transaction-fixture-known-exception-p (exception)
-  (member exception +transaction-fixture-known-exceptions+ :test #'string=))
+  (every (lambda (token)
+           (member token +transaction-fixture-known-exceptions+ :test #'string=))
+         (transaction-fixture-exception-tokens exception)))
 
 (defun transaction-fixture-type-valid-on-fork-p (type fork)
   (ecase type
@@ -4121,6 +4154,10 @@
                 "tests/fixtures/execution-spec-tests-root/"))
          (paths (eest-transaction-test-json-paths root))
          (cases (load-eest-transaction-test-root-cases root))
+         (invalid-cases
+           (load-eest-transaction-test-root-invalid-cases
+            root
+            :names +invalid-eest-transaction-test-case-names+))
          (selected-cases
            (load-eest-transaction-test-root-cases
             root
@@ -4280,8 +4317,9 @@
          (all-summary (transaction-fixture-vector-summary vectors))
          (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
-    (is (= 1 (length paths)))
-    (is (= 26 (length cases)))
+    (is (= 2 (length paths)))
+    (is (= 27 (length cases)))
+    (is (= 1 (length invalid-cases)))
     (is (= 22 (length selected-cases)))
     (is (= 26 (length vectors)))
     (is (= 22 (length selected-vectors)))
@@ -4298,6 +4336,28 @@
                 (lambda (vector)
                   (fixture-object-field vector "name"))
                 full-vectors)))
+    (let* ((invalid-case (first invalid-cases))
+           (invalid-result (fixture-required-field invalid-case "result"))
+           (prague-result (fixture-required-field invalid-result "Prague"))
+           (invalid-transaction
+             (transaction-from-encoding
+              (hex-to-bytes (fixture-required-field invalid-case "txbytes"))))
+           (message
+             (handler-case
+                 (progn
+                   (ethereum-lisp.execution::validate-set-code-transaction-fields
+                    invalid-transaction)
+                   nil)
+               (transaction-validation-error (condition)
+                 (format nil "~A" condition)))))
+      (is (string= "prague/eip7702_set_code_tx/test_empty_authorization_list.json"
+                   (fixture-object-field invalid-case "name")))
+      (is (string= "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST"
+                   (fixture-required-field prague-result "exception")))
+      (is (typep invalid-transaction 'set-code-transaction))
+      (is (null (set-code-transaction-authorization-list invalid-transaction)))
+      (is message)
+      (is (search "authorization list" message)))
     (is legacy-vector)
     (is (string= "phase-a-sample.json/legacy-eip155-sample"
                  (fixture-object-field legacy-vector "name")))
