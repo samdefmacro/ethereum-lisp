@@ -574,6 +574,44 @@
       ]
     },
     {
+      "name": "geth-stacktrie-short-branch-growth",
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "lookup-assertions", "intermediate-roots"],
+      "operations": [
+        { "op": "put", "keyHex": "0xa0", "valueAscii": "a" },
+        { "op": "put", "keyHex": "0xa1", "valueAscii": "b" },
+        { "op": "put", "keyHex": "0xa2", "valueAscii": "c" },
+        { "op": "put", "keyHex": "0xa3", "valueAscii": "d" },
+        { "op": "put", "keyHex": "0xa4", "valueAscii": "e" },
+        { "op": "put", "keyHex": "0xa5", "valueAscii": "f" },
+        { "op": "put", "keyHex": "0xa6", "valueAscii": "g" }
+      ],
+      "expectedIntermediateRoots": [
+        "0xa83e028cb1e4365935661a9fd36a5c65c30b9ab416eaa877424146ca2a69d088",
+        "0xf586a4639b07b01798ca65e05c253b75d51135ebfbf6f8d6e87c0435089e65f0",
+        "0x63e297c295c008e09a8d531e18d57f270b6bc403e23179b915429db948cd62e3",
+        "0x94a7b721535578e9381f1f4e4b6ec29f8bdc5f0458a30320684c562f5d47b4b5",
+        "0x4b7e66d1c81965cdbe8fab8295ef56bc57fefdc5733d4782d2f8baf630f083c6",
+        "0x2997e7b502198ce1783b5277faacf52b25844fb55a99b63e88bdbbafac573106",
+        "0xbee629dd27a40772b2e1a67ec6db270d26acdf8d3b674dfae27866ad6ae1f48b"
+      ],
+      "expectedRoot": "0xbee629dd27a40772b2e1a67ec6db270d26acdf8d3b674dfae27866ad6ae1f48b",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [10],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyHex": "0xa0", "valueAscii": "a" },
+        { "keyHex": "0xa1", "valueAscii": "b" },
+        { "keyHex": "0xa2", "valueAscii": "c" },
+        { "keyHex": "0xa3", "valueAscii": "d" },
+        { "keyHex": "0xa4", "valueAscii": "e" },
+        { "keyHex": "0xa5", "valueAscii": "f" },
+        { "keyHex": "0xa6", "valueAscii": "g" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0xa7" }
+      ]
+    },
+    {
       "name": "nethermind-partial-path-proof-nodes",
       "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "proof-node-rlp"],
       "operations": [

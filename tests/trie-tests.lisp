@@ -108,7 +108,8 @@
     "delete-proof-node-rlp"
     "missing-proof-node-rlp"
     "entry-pair-replay"
-    "entry-range"))
+    "entry-range"
+    "intermediate-roots"))
 
 (defparameter +trie-fixture-required-case-names+
   '("single-leaf"
@@ -127,6 +128,7 @@
     "geth-replication-sequence"
     "geth-random-cases-sequence"
     "geth-stacktrie-extension-child-boundary"
+    "geth-stacktrie-short-branch-growth"
     "nethermind-partial-path-proof-nodes"
     "branch-extension-shared-prefix"
     "branch-child-branch"
@@ -182,6 +184,7 @@
     ("geth-replication-sequence" . :plain)
     ("geth-random-cases-sequence" . :plain)
     ("geth-stacktrie-extension-child-boundary" . :plain)
+    ("geth-stacktrie-short-branch-growth" . :plain)
     ("nethermind-partial-path-proof-nodes" . :plain)
     ("geth-secure-account-step-1" . :secure)
     ("geth-secure-account-step-2" . :secure)
@@ -248,6 +251,7 @@
     "secure"
     "tags"
     "operations"
+    "expectedIntermediateRoots"
     "expectedRoot"
     "expectedShape"
     "expectedChildReference"
@@ -590,6 +594,29 @@
    "expectedRoot"
    "Trie fixture case"))
 
+(defun validate-trie-fixture-expected-intermediate-roots (case)
+  (when (fixture-field-present-p case "expectedIntermediateRoots")
+    (let ((roots (fixture-object-field case "expectedIntermediateRoots"))
+          (operations (fixture-object-field case "operations"))
+          (name (fixture-object-field case "name")))
+      (unless (listp roots)
+        (error "Trie fixture case ~A expectedIntermediateRoots must be a JSON array"
+               name))
+      (unless (= (length roots) (length operations))
+        (error "Trie fixture case ~A expectedIntermediateRoots must match operation count"
+               name))
+      (loop for root in roots
+            for index from 0
+            do (validate-trie-fixture-byte-field
+                root
+                (format nil "Trie fixture case ~A expectedIntermediateRoots ~D"
+                        name
+                        index))
+               (unless (= 32 (length (hex-to-bytes root)))
+                 (error "Trie fixture case ~A expectedIntermediateRoots ~D must be a 32-byte hash"
+                        name
+                        index))))))
+
 (defun validate-trie-fixture-expected-shape (case)
   (let ((shape (fixture-required-field case "expectedShape")))
     (unless (stringp shape)
@@ -704,6 +731,7 @@
 (defun validate-trie-fixture-expected-fields (case)
   (let ((shape (validate-trie-fixture-expected-shape case)))
     (validate-trie-fixture-expected-root case)
+    (validate-trie-fixture-expected-intermediate-roots case)
     (unless (or (not (fixture-field-present-p case "expectedChildReference"))
                 (string= shape "extension"))
       (error "Trie fixture case ~A expectedChildReference requires an extension root"
@@ -2835,11 +2863,16 @@
        (mpt-delete trie key))
       (t (error "Unknown trie fixture operation: ~A" op)))))
 
-(defun run-trie-fixture-case (case)
+(defun run-trie-fixture-case-with-root-history (case)
   (let ((trie (make-mpt)))
-    (dolist (operation (fixture-object-field case "operations"))
-      (apply-trie-fixture-operation trie case operation))
-    trie))
+    (values
+     trie
+     (loop for operation in (fixture-object-field case "operations")
+           do (apply-trie-fixture-operation trie case operation)
+           collect (mpt-root-hex trie)))))
+
+(defun run-trie-fixture-case (case)
+  (nth-value 0 (run-trie-fixture-case-with-root-history case)))
 
 (defun trie-fixture-final-operation-state (case)
   (let ((entries '()))
@@ -2867,6 +2900,15 @@
 (defun trie-fixture-case-tag-p (case tag)
   (not (null (member tag (fixture-object-field case "tags")
                      :test #'string=))))
+
+(defun assert-trie-fixture-intermediate-roots (roots case)
+  (let ((expected-roots
+          (fixture-object-field case "expectedIntermediateRoots")))
+    (when expected-roots
+      (is (= (length expected-roots) (length roots)))
+      (loop for expected-root in expected-roots
+            for actual-root in roots
+            do (is (string= expected-root actual-root))))))
 
 (defun assert-trie-fixture-entry-pair-replay (trie case)
   (when (trie-fixture-case-tag-p case "entry-pair-replay")
@@ -4708,7 +4750,9 @@
     (validate-trie-fixture-cases cases)
     (validate-trie-fixture-required-case-names cases)
     (dolist (case cases)
-      (let ((trie (run-trie-fixture-case case)))
+      (multiple-value-bind (trie roots)
+          (run-trie-fixture-case-with-root-history case)
+        (assert-trie-fixture-intermediate-roots roots case)
         (is (string= (fixture-object-field case "expectedRoot")
                      (mpt-root-hex trie)))
         (is (string= (fixture-object-field case "expectedShape")

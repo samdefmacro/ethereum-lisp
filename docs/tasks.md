@@ -2384,6 +2384,13 @@ splits can land after the Phase A smoke path closes.
     root, verifies the compressed extension path and hashed child reference,
     and checks exact present/missing proof nodes in both the seed fixture and
     selected Phase A EEST-style trie subset.
+    Extended the seed trie fixture format with `expectedIntermediateRoots`
+    so geth StackTrie sequences can lock every post-insert root rather than
+    only the final commitment. Added the geth short-branch-growth table case
+    (`0xa0` through `0xa6`) from `TestStackTrieInsertAndHash`, checking all
+    seven reference roots through
+    `0xbee629dd27a40772b2e1a67ec6db270d26acdf8d3b674dfae27866ad6ae1f48b`
+    plus the final compressed extension root and hashed child reference.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
