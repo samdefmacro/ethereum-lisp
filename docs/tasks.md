@@ -1893,6 +1893,10 @@ splits can land after the Phase A smoke path closes.
     state-root fixtures for zero-add over an empty state, a funded leaf account,
     and a branch-shaped state trie with a missing touched address, locking the
     unchanged roots/account projections behind required seed-case gates.
+    Extended zero-amount `addBalance` no-op coverage across extension-root and
+    branch-into-extension account tries, locking unchanged roots, retained
+    account RLP projections, compressed paths, hashed child references, and
+    missing touched-account non-creation behind required seed-case gates.
     Added a selected EEST-style secureTrie case that replays canonical hex
     byte-string keys and values, deletes one secure-hashed key, verifies the
     remaining non-empty root, and gates Phase A coverage on secure hex-value

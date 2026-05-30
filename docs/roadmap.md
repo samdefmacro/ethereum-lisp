@@ -206,7 +206,11 @@ fixes in those areas are allowed; expansion is not.
   non-leaf state-trie shape/reference invariants. Non-leaf `clearAccount`
   fixtures also prune accounts carrying both code and storage, locking
   branch/extension collapse outcomes and the branch-with-extension-child
-  compression back to an extension root.
+  compression back to an extension root. Zero-amount `addBalance` no-op
+  coverage now spans empty, leaf/funded, branch, extension, and
+  branch-with-extension account-trie layouts, so missing reward/withdrawal
+  targets cannot create empty accounts while preserving compressed paths and
+  child-reference projections.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing
