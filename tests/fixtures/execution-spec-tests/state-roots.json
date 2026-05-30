@@ -2156,6 +2156,84 @@
       "expectedRoot": "0xecf2fd9ae584c2eaa6dfda337876bad48f0aff966b721d9c70f3002d676e243a"
     },
     {
+      "name": "value-transfer-creates-recipient-account-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "balance-update",
+        "value-transfer",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000301",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "transferValue",
+          "address": "0x0000000000000000000000000000000000000301",
+          "recipient": "0x0000000000000000000000000000000000000302",
+          "amount": 37
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000301",
+          "nonce": 1,
+          "balance": 63,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf844013fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000302",
+          "nonce": 0,
+          "balance": 37,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448025a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedRoot": "0xeb1be297ad9e87812158dcb9b646fe55dfc2e89526b65cf76bd4fe3b40c68da9"
+    },
+    {
+      "name": "value-transfer-zero-missing-recipient-keeps-root",
+      "tags": [
+        "account-root",
+        "balance-update",
+        "value-transfer",
+        "account-projection"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000303",
+          "nonce": 2,
+          "balance": 100
+        },
+        {
+          "op": "transferValue",
+          "address": "0x0000000000000000000000000000000000000303",
+          "recipient": "0x0000000000000000000000000000000000000304",
+          "amount": 0
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000303",
+          "nonce": 2,
+          "balance": 100,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8440264a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "leaf",
+      "expectedRoot": "0x600e37f427a9f42ebe6b592ff989ec26a865aa3d89c955bb78dbf53890cbeb41"
+    },
+    {
       "name": "state-trie-branch-balance-add-keeps-sibling-root",
       "tags": [
         "account-root",

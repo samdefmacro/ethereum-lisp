@@ -439,6 +439,46 @@
       }
     },
     {
+      "name": "value-transfer-recipient-proof",
+      "tags": [
+        "present-account",
+        "balance-update-proof",
+        "value-transfer-proof",
+        "geth-shaped-result"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000301",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "transferValue",
+          "address": "0x0000000000000000000000000000000000000301",
+          "recipient": "0x0000000000000000000000000000000000000302",
+          "amount": 37
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000302",
+        "storageKeys": []
+      },
+      "expectedRoot": "0xeb1be297ad9e87812158dcb9b646fe55dfc2e89526b65cf76bd4fe3b40c68da9",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000302",
+        "accountProof": [
+          "0xf851808080808080a0a91ff5f4bec3927d6df0e83437713928262ab011d1ffb80ed339786c68b7cf578080808080a00747b2ae0856b310c16a8605a66ca0471684c2a12ce93217cfd8cca52bf9b66480808080",
+          "0xf869a03da416e432290b04525cba6be41ba9a1dfbcc216c7bc622364829a37f41945c9b846f8448025a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x25",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": []
+      }
+    },
+    {
       "name": "balance-add-zero-missing-account-proof",
       "tags": [
         "empty-state-proof",

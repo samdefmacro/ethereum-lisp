@@ -373,6 +373,10 @@ balance-add creation, zero-amount no-ops, branch/extension/branch-extension
 account-trie updates, and code/storage-preserving updates; retained-state
 `eth_getProof` also covers balance-add proofs across those nontrivial
 account-trie layouts.
+The same fixture path now covers transaction-like `transferValue` state
+updates, locking nonzero sender debit plus recipient-account creation and the
+zero-value missing-recipient no-op boundary, with a geth-shaped recipient
+state proof after transfer.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.

@@ -57,7 +57,8 @@
   '("key" "value" "proof"))
 
 (defparameter +state-root-fixture-operation-fields+
-  '("op" "address" "nonce" "balance" "amount" "slot" "value" "code"))
+  '("op" "address" "recipient" "nonce" "balance" "amount" "slot" "value"
+    "code"))
 
 (defparameter +state-root-fixture-storage-root-fields+
   '("address" "root"))
@@ -89,6 +90,7 @@
     "account-projection"
     "account-update"
     "balance-update"
+    "value-transfer"
     "account-prune"
     "account-clear-missing-noop"
     "storage-update"
@@ -125,6 +127,8 @@
     "balance-add-zero-missing-account-keeps-empty-root"
     "balance-add-zero-funded-account-keeps-account-root"
     "balance-add-preserves-code-and-storage-root"
+    "value-transfer-creates-recipient-account-root"
+    "value-transfer-zero-missing-recipient-keeps-root"
     "state-trie-branch-balance-add-zero-missing-keeps-root"
     "state-trie-branch-balance-add-zero-existing-keeps-root"
     "state-trie-branch-balance-add-keeps-sibling-root"
@@ -202,6 +206,7 @@
     "account-projection"
     "account-update"
     "balance-update"
+    "value-transfer"
     "account-prune"
     "account-clear-missing-noop"
     "storage-update"
@@ -248,6 +253,7 @@
     "storage-trie-delete-collapse-proof"
     "account-update-proof"
     "balance-update-proof"
+    "value-transfer-proof"
     "code-update-proof"
     "code-delete-proof"
     "state-trie-leaf-proof"
@@ -296,6 +302,7 @@
     "balance-add-zero-missing-account-proof"
     "balance-add-zero-funded-account-proof"
     "balance-add-preserves-code-and-storage-proof"
+    "value-transfer-recipient-proof"
     "state-trie-branch-balance-add-zero-missing-proof"
     "state-trie-branch-balance-add-zero-existing-proof"
     "state-trie-extension-balance-add-zero-missing-proof"
@@ -347,6 +354,7 @@
     "storage-trie-delete-collapse-proof"
     "account-update-proof"
     "balance-update-proof"
+    "value-transfer-proof"
     "code-update-proof"
     "code-delete-proof"
     "state-trie-leaf-proof"
@@ -447,6 +455,12 @@
    "address"
    "State root fixture operation"))
 
+(defun validate-state-root-fixture-recipient (operation)
+  (validate-state-root-fixture-address-field
+   operation
+   "recipient"
+   "State root fixture operation"))
+
 (defun validate-state-root-fixture-case-name (case seen-names)
   (let ((name (fixture-object-field case "name")))
     (validate-state-root-fixture-non-empty-string
@@ -493,6 +507,13 @@
         operation "amount" :required-p t)
        (validate-state-root-fixture-operation-absent-fields
         operation
+        '("recipient" "nonce" "balance" "slot" "value" "code")))
+      ((string= op "transferValue")
+       (validate-state-root-fixture-recipient operation)
+       (validate-state-root-fixture-non-negative-integer
+        operation "amount" :required-p t)
+       (validate-state-root-fixture-operation-absent-fields
+        operation
         '("nonce" "balance" "slot" "value" "code")))
       ((string= op "setStorage")
        (validate-state-root-fixture-hash-field
@@ -509,7 +530,7 @@
       ((string= op "clearAccount")
        (validate-state-root-fixture-operation-absent-fields
         operation
-        '("nonce" "balance" "slot" "value" "code")))
+        '("recipient" "nonce" "balance" "slot" "value" "code")))
       (t
        (error "Unknown state root fixture operation: ~A" op)))))
 
@@ -806,6 +827,12 @@
       ((string= op "addBalance")
        (state-db-add-balance
         state address (state-fixture-number operation "amount")))
+      ((string= op "transferValue")
+       (ethereum-lisp.state::state-db-transfer-value
+        state
+        address
+        (address-from-hex (fixture-object-field operation "recipient"))
+        (state-fixture-number operation "amount")))
       ((string= op "setStorage")
        (state-db-set-storage
         state address
@@ -881,6 +908,20 @@
          (setf (state-root-fixture-account-state-balance account-state)
                (+ (state-root-fixture-account-state-balance account-state)
                   (state-fixture-number operation "amount")))))
+      ((string= op "transferValue")
+       (let ((recipient (fixture-object-field operation "recipient"))
+             (amount (state-fixture-number operation "amount")))
+         (unless (or (zerop amount) (string= address recipient))
+           (let ((sender-state
+                   (state-root-fixture-account-state states address
+                                                     :create-p t))
+                 (recipient-state
+                   (state-root-fixture-account-state states recipient
+                                                     :create-p t)))
+             (decf (state-root-fixture-account-state-balance sender-state)
+                   amount)
+             (incf (state-root-fixture-account-state-balance recipient-state)
+                   amount)))))
       ((string= op "setStorage")
        (let* ((slot (fixture-object-field operation "slot"))
               (value (state-fixture-number operation "value"))
@@ -1789,7 +1830,18 @@
     (validate-state-root-fixture-operation-shape
      (list (cons "op" "setCode")
            (cons "address" "0x0000000000000000000000000000000000000001")
-           (cons "code" "0x0")))))
+           (cons "code" "0x0"))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "transferValue")
+           (cons "address" "0x0000000000000000000000000000000000000001")
+           (cons "amount" 1))))
+  (signals error
+    (validate-state-root-fixture-operation-shape
+     (list (cons "op" "transferValue")
+           (cons "address" "0x0000000000000000000000000000000000000001")
+           (cons "recipient" "0x0000000000000000000000000000000000000002")
+           (cons "amount" -1)))))
 
 (deftest state-root-fixture-vectors
   (let* ((fixture (load-handwritten-fixture-file +state-root-fixture-path+))

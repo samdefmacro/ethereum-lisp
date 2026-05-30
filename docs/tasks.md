@@ -2511,6 +2511,12 @@ splits can land after the Phase A smoke path closes.
     block-hash snapshots now build code and storage on the pruned account
     before `clearAccount`, then verify survivor and deleted-account proofs
     against the compressed roots.
+  - Progress: added fixture-driven `transferValue` state-root and state-proof
+    coverage. The state-root runner now replays transaction-like value
+    transfers that debit a funded sender, create the recipient account for
+    nonzero value, and leave zero-value transfers to missing recipients as
+    no-ops; the state-proof fixture set locks the geth-shaped recipient proof
+    after transfer with required case and tag gates.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
