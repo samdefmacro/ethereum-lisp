@@ -345,6 +345,10 @@ branch-to-leaf, extension-to-leaf, and branch-plus-extension-to-extension
 state root. Retained-state `eth_getProof` RPC coverage now verifies the same
 three account-trie delete-collapse snapshots by block hash, including both
 the surviving account and the pruned account's missing-proof result.
+The same proof/RPC boundary now covers pruned accounts that carried non-empty
+code and non-empty storage before `clearAccount`, locking both survivor proofs
+and deleted-account missing proofs after branch, extension, and
+branch-plus-extension compression.
 Code-update proof coverage now locks overwriting non-empty code with new
 non-empty code through both fixture replay and retained-state `eth_getProof`,
 including the updated account code hash and retained empty storage root.

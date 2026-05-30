@@ -2340,6 +2340,16 @@ splits can land after the Phase A smoke path closes.
     storage trie. The fixture and retained-state `eth_getProof` regression now
     lock the updated code hash, retained storage root, present storage proof,
     and missing storage proof after overwriting non-empty code.
+  - Progress: added state-proof fixture coverage for non-leaf `clearAccount`
+    pruning accounts that previously carried both non-empty code and non-empty
+    storage. Branch, extension, and branch-with-extension-child account tries
+    now lock both survivor proofs and deleted-account missing proofs after the
+    code/storage-bearing account is cleared and the trie compresses.
+  - Progress: extended retained-state `eth_getProof` RPC delete-collapse
+    coverage to the same code/storage-pruned account boundaries. The committed
+    block-hash snapshots now build code and storage on the pruned account
+    before `clearAccount`, then verify survivor and deleted-account proofs
+    against the compressed roots.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

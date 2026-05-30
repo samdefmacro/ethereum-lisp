@@ -8015,6 +8015,14 @@
               state
               (address-from-hex address)
               (make-state-account :nonce nonce :balance balance)))
+           (add-code-storage (state address)
+             (state-db-set-storage
+              state
+              address
+              (hash32-from-hex
+               "0x000000000000000000000000000000000000000000000000000000000000002a")
+              42)
+             (state-db-set-code state address #(96 1 96 0)))
            (commit-state-block (store state number timestamp)
              (let ((block
                      (make-block
@@ -8085,6 +8093,7 @@
       (add-account branch-state
                    "0x0000000000000000000000000000000000000211"
                    2 200)
+      (add-code-storage branch-state branch-deleted)
       (state-db-clear-account branch-state branch-deleted)
       (add-account extension-state
                    "0x0000000000000000000000000000000000000220"
@@ -8092,6 +8101,7 @@
       (add-account extension-state
                    "0x0000000000000000000000000000000000000225"
                    2 200)
+      (add-code-storage extension-state extension-deleted)
       (state-db-clear-account extension-state extension-deleted)
       (add-account branch-extension-state
                    "0x0000000000000000000000000000000000000220"
@@ -8102,6 +8112,7 @@
       (add-account branch-extension-state
                    "0x0000000000000000000000000000000000000203"
                    3 300)
+      (add-code-storage branch-extension-state branch-extension-deleted)
       (state-db-clear-account branch-extension-state branch-extension-deleted)
       (let ((branch-block (commit-state-block store branch-state 50 500))
             (extension-block (commit-state-block store extension-state 51 510))
