@@ -1148,6 +1148,23 @@
                    expected-root
                    actual-root)))))))
 
+(defun assert-eest-trie-test-entry-pair-replay (case trie)
+  (let ((name (fixture-required-field case "name"))
+        (rebuilt (make-mpt)))
+    (dolist (entry (mpt-entry-pairs trie))
+      (mpt-put rebuilt (car entry) (cdr entry)))
+    (unless (string= (mpt-root-hex trie) (mpt-root-hex rebuilt))
+      (error "EEST trie test case ~A entry-pair replay root mismatch: expected ~A, got ~A"
+             name
+             (mpt-root-hex trie)
+             (mpt-root-hex rebuilt)))
+    (dolist (entry (mpt-entry-pairs trie))
+      (let ((value (mpt-get rebuilt (car entry))))
+        (unless (bytes= (cdr entry) value)
+          (error "EEST trie test case ~A entry-pair replay value mismatch for key ~A"
+                 name
+                 (bytes-to-hex (car entry))))))))
+
 (defun assert-eest-trie-test-case-root (case)
   (let* ((trie (run-eest-trie-test-case case))
          (name (fixture-required-field case "name"))
@@ -1160,6 +1177,7 @@
              actual-root))
     (assert-eest-trie-test-case-lookups case trie)
     (assert-eest-trie-test-case-explicit-output case trie)
+    (assert-eest-trie-test-entry-pair-replay case trie)
     (assert-eest-trie-test-object-form-permutations case)
     trie))
 
@@ -1639,6 +1657,30 @@
                  count (and (not secure-p) non-empty-p)))
          (tries
            (mapcar #'run-eest-trie-test-case cases))
+         (final-entry-pair-counts
+           (mapcar (lambda (trie)
+                     (length (mpt-entry-pairs trie)))
+                   tries))
+         (secure-final-entry-pair-counts
+           (loop for secure-p in secure-flags
+                 for count in final-entry-pair-counts
+                 when secure-p
+                   collect count))
+         (plain-final-entry-pair-counts
+           (loop for secure-p in secure-flags
+                 for count in final-entry-pair-counts
+                 unless secure-p
+                   collect count))
+         (final-entry-pair-replay-case-count
+           (count-if #'plusp final-entry-pair-counts))
+         (secure-final-entry-pair-replay-case-count
+           (loop for secure-p in secure-flags
+                 for count in final-entry-pair-counts
+                 count (and secure-p (plusp count))))
+         (plain-final-entry-pair-replay-case-count
+           (loop for secure-p in secure-flags
+                 for count in final-entry-pair-counts
+                 count (and (not secure-p) (plusp count))))
          (root-shapes
            (mapcar #'trie-fixture-root-shape tries))
          (secure-branch-root-count
@@ -2085,6 +2127,19 @@
            secure-non-empty-delete-root-count)
      (cons "entryCounts" entry-counts)
      (cons "totalEntryCount" (reduce #'+ entry-counts :initial-value 0))
+     (cons "finalEntryPairCounts" final-entry-pair-counts)
+     (cons "finalEntryPairCount"
+           (reduce #'+ final-entry-pair-counts :initial-value 0))
+     (cons "finalEntryPairReplayCaseCount"
+           final-entry-pair-replay-case-count)
+     (cons "secureFinalEntryPairCount"
+           (reduce #'+ secure-final-entry-pair-counts :initial-value 0))
+     (cons "plainFinalEntryPairCount"
+           (reduce #'+ plain-final-entry-pair-counts :initial-value 0))
+     (cons "secureFinalEntryPairReplayCaseCount"
+           secure-final-entry-pair-replay-case-count)
+     (cons "plainFinalEntryPairReplayCaseCount"
+           plain-final-entry-pair-replay-case-count)
      (cons "writeEntryCounts" write-counts)
      (cons "totalWriteEntryCount" (reduce #'+ write-counts :initial-value 0))
      (cons "proofPresentKeyCounts" proof-present-counts)
@@ -2177,6 +2232,12 @@
       (error "Phase A EEST trie subset must include plain trie write entries"))
     (when (zerop (fixture-object-field summary "plainDeleteEntryCount"))
       (error "Phase A EEST trie subset must include plain trie delete entries"))
+    (when (zerop (fixture-object-field summary "finalEntryPairReplayCaseCount"))
+      (error "Phase A EEST trie subset must include final entry-pair replay"))
+    (when (zerop (fixture-object-field summary "secureFinalEntryPairReplayCaseCount"))
+      (error "Phase A EEST trie subset must include secure final entry-pair replay"))
+    (when (zerop (fixture-object-field summary "plainFinalEntryPairReplayCaseCount"))
+      (error "Phase A EEST trie subset must include plain final entry-pair replay"))
     (when (zerop (fixture-object-field summary "proofPresentKeyCount"))
       (error "Phase A EEST trie subset must include present-key proof coverage"))
     (when (zerop (fixture-object-field summary "proofMissingKeyCount"))
@@ -3824,6 +3885,16 @@
     (is (= 28 (fixture-object-field summary "nonEmptyDeleteRootCount")))
     (is (= 11 (fixture-object-field summary "secureNonEmptyDeleteRootCount")))
     (is (= 191 (fixture-object-field summary "totalEntryCount")))
+    (is (= 122 (fixture-object-field summary "finalEntryPairCount")))
+    (is (= 60 (fixture-object-field summary "finalEntryPairReplayCaseCount")))
+    (is (= 43 (fixture-object-field summary "secureFinalEntryPairCount")))
+    (is (= 79 (fixture-object-field summary "plainFinalEntryPairCount")))
+    (is (= 23 (fixture-object-field
+                summary
+                "secureFinalEntryPairReplayCaseCount")))
+    (is (= 37 (fixture-object-field
+                summary
+                "plainFinalEntryPairReplayCaseCount")))
     (is (= 155 (fixture-object-field summary "totalWriteEntryCount")))
     (is (= 122 (fixture-object-field summary "proofPresentKeyCount")))
     (is (= 43 (fixture-object-field summary "secureProofPresentKeyCount")))

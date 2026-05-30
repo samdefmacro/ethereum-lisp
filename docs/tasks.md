@@ -2290,6 +2290,12 @@ splits can land after the Phase A smoke path closes.
     account addresses and per-account storage slots before invoking callbacks,
     with regression coverage for out-of-order account and storage writes. This
     aligns retained-state snapshot replay with deterministic state DB export.
+    Added final entry-pair replay to the selected EEST-style trie subset. Each
+    replayed plain and secure trie case now exports its final `mpt-entry-pairs`,
+    rebuilds a fresh trie from those pairs, and requires the same root and
+    values; Phase A summaries now gate secure and plain final-entry replay
+    counts so external-style trie imports cannot lose deterministic
+    snapshot/rebuild coverage.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
