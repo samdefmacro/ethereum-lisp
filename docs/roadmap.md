@@ -145,7 +145,9 @@ fixes in those areas are allowed; expansion is not.
   together instead of only as separate fixture paths. It also gates an
   EIP-2930 duplicate access-list message-call so duplicate address and storage
   key entries remain charged and projected as source order occurrences rather
-  than collapsed sets. The
+  than collapsed sets. It also gates an EIP-1559 dynamic-fee message-call with
+  equal priority and max fee caps, locking the fee-market decoded-field
+  boundary where `maxPriorityFeePerGas == maxFeePerGas` remains valid. The
   full EEST transaction selector now also gates EIP-4844
   `blobVersionedHashes` payloads and EIP-7702 `authorizationList` payloads,
   so those post-Shanghai typed families cannot degrade to type-only coverage

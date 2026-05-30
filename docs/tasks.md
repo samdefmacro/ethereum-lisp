@@ -290,6 +290,12 @@ ones.
     hash, signature, decoded access-list projection, and intrinsic gas, and
     the Phase A/full summary gates count the additional access-list entries
     instead of collapsing them.
+  - Progress: extended the Phase A EEST transaction selector with an EIP-1559
+    dynamic-fee vector whose `maxPriorityFeePerGas` equals
+    `maxFeePerGas`. The seed fixture and EEST-shaped sample now re-derive
+    sender, hash, signature, decoded fee fields, and intrinsic gas for the
+    equal-fee-cap boundary, and the Phase A/full summary gate requires this
+    fee-market case explicitly.
   - Progress: added transaction type activation profile validation. The
     fixture runner now checks that legacy vectors are valid on every tracked
     fork, EIP-2930 vectors start at Berlin, EIP-1559 vectors start at London,
