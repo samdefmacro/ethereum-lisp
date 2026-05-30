@@ -1222,6 +1222,68 @@
       }
     },
     {
+      "name": "code-update-preserves-storage-proof",
+      "tags": ["present-account", "storage-present", "storage-missing", "code-update-proof", "state-trie-leaf-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x000000000000000000000000000000000000010b",
+          "nonce": 1,
+          "balance": 1000
+        },
+        {
+          "op": "setStorage",
+          "address": "0x000000000000000000000000000000000000010b",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000002c",
+          "value": 44
+        },
+        {
+          "op": "setCode",
+          "address": "0x000000000000000000000000000000000000010b",
+          "code": "0x60016000"
+        },
+        {
+          "op": "setCode",
+          "address": "0x000000000000000000000000000000000000010b",
+          "code": "0x6002600301"
+        }
+      ],
+      "request": {
+        "address": "0x000000000000000000000000000000000000010b",
+        "storageKeys": [
+          "0x000000000000000000000000000000000000000000000000000000000000002c",
+          "0x000000000000000000000000000000000000000000000000000000000000002d"
+        ]
+      },
+      "expectedRoot": "0xc7b8d640084dfe51710f52b73da6975f617c6c4503ec763c1e2a2eeef11b3f01",
+      "expectedProof": {
+        "address": "0x000000000000000000000000000000000000010b",
+        "accountProof": [
+          "0xf86ca12084766cd4d389d5b35bdf3f0dabc0e6d2d2ae4ff1c3ff16777f681ded65fbfb3db848f846018203e8a039b3b39f4dd43bd60944a54f2478267341aa89516ee9e8b5c9b6272b02cb0f75a048abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8"
+        ],
+        "balance": "0x3e8",
+        "codeHash": "0x48abe92ffee31cb0e817c289ade474df645fc4a59981b2046d362d1ea66003d8",
+        "nonce": "0x1",
+        "storageHash": "0x39b3b39f4dd43bd60944a54f2478267341aa89516ee9e8b5c9b6272b02cb0f75",
+        "storageProof": [
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000002c",
+            "value": "0x2c",
+            "proof": [
+              "0xe3a1207416c943b4a09859521022fd2e90eac0dd9026dad28fa317782a135f28a860912c"
+            ]
+          },
+          {
+            "key": "0x000000000000000000000000000000000000000000000000000000000000002d",
+            "value": "0x0",
+            "proof": [
+              "0xe3a1207416c943b4a09859521022fd2e90eac0dd9026dad28fa317782a135f28a860912c"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "state-trie-branch-code-update-proof",
       "tags": [
         "present-account",

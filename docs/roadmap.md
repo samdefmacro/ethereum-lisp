@@ -328,6 +328,9 @@ including the updated account code hash and retained empty storage root.
 The same code-update proof boundary now covers branch, extension, and
 branch-into-extension account-trie layouts, including expected proof depths in
 retained-state `eth_getProof` snapshots.
+Code-update proof coverage also includes the non-empty-storage account case,
+locking the updated code hash while retaining the storage root plus present
+and missing storage proofs after the code overwrite.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch

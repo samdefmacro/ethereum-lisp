@@ -257,6 +257,7 @@
     "storage-zero-write-funded-empty-storage-proof"
     "storage-zero-write-code-account-proof"
     "code-update-overwrites-code-hash-proof"
+    "code-update-preserves-storage-proof"
     "state-trie-branch-code-update-proof"
     "state-trie-extension-code-update-proof"
     "state-trie-branch-extension-code-update-proof"

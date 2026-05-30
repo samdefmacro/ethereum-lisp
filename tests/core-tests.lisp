@@ -8455,6 +8455,87 @@
         (is (state-db-verify-proof (state-db-root state)
                                    decoded-proof))))))
 
+(deftest eth-rpc-get-proof-code-update-preserves-storage
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (commit-state-block (store state number timestamp)
+             (let ((block
+                     (make-block
+                      :header (make-block-header
+                               :number number
+                               :timestamp timestamp
+                               :gas-limit 30000000
+                               :state-root (state-db-root state)))))
+               (chain-store-put-block store block :state-available-p t)
+               (commit-state-db-to-chain-store store (block-hash block) state)
+               block))
+           (proof-request (id address slots block)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getProof")
+                   (cons "params"
+                         (list (address-to-hex address)
+                               (mapcar #'hash32-to-hex slots)
+                               (hash32-to-hex (block-hash block)))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (address
+             (address-from-hex "0x000000000000000000000000000000000000010b"))
+           (present-slot
+             (hash32-from-hex
+              "0x000000000000000000000000000000000000000000000000000000000000002c"))
+           (missing-slot
+             (hash32-from-hex
+              "0x000000000000000000000000000000000000000000000000000000000000002d"))
+           (first-code #(96 1 96 0))
+           (final-code #(96 2 96 3 1))
+           (state (make-state-db)))
+      (state-db-set-account
+       state address (make-state-account :nonce 1 :balance 1000))
+      (state-db-set-storage state address present-slot #x2c)
+      (state-db-set-code state address first-code)
+      (state-db-set-code state address final-code)
+      (let* ((block (commit-state-block store state 54 540))
+             (slots (list present-slot missing-slot))
+             (response
+               (engine-rpc-handle-request
+                (proof-request 126 address slots block)
+                store
+                (make-chain-config)))
+             (proof (field response "result"))
+             (storage-proofs (field proof "storageProof"))
+             (present-storage-proof (first storage-proofs))
+             (missing-storage-proof (second storage-proofs))
+             (expected-proof (state-db-get-proof state address slots))
+             (decoded-proof
+               (state-proof-result-from-rpc-object proof)))
+        (is (string= "0xc7b8d640084dfe51710f52b73da6975f617c6c4503ec763c1e2a2eeef11b3f01"
+                     (state-db-root-hex state)))
+        (is (equal (state-proof-result-rpc-object expected-proof)
+                   proof))
+        (is (string= (address-to-hex address)
+                     (field proof "address")))
+        (is (string= (quantity-to-hex 1000)
+                     (field proof "balance")))
+        (is (string= (quantity-to-hex 1)
+                     (field proof "nonce")))
+        (is (string= (hash32-to-hex (keccak-256-hash final-code))
+                     (field proof "codeHash")))
+        (is (string= "0x39b3b39f4dd43bd60944a54f2478267341aa89516ee9e8b5c9b6272b02cb0f75"
+                     (field proof "storageHash")))
+        (is (= 2 (length storage-proofs)))
+        (is (string= (hash32-to-hex present-slot)
+                     (field present-storage-proof "key")))
+        (is (string= (quantity-to-hex #x2c)
+                     (field present-storage-proof "value")))
+        (is (= 1 (length (field present-storage-proof "proof"))))
+        (is (string= (hash32-to-hex missing-slot)
+                     (field missing-storage-proof "key")))
+        (is (string= (quantity-to-hex 0)
+                     (field missing-storage-proof "value")))
+        (is (= 1 (length (field missing-storage-proof "proof"))))
+        (is (state-db-verify-proof (state-db-root state)
+                                   decoded-proof))))))
+
 (deftest eth-rpc-get-proof-code-update-nontrivial-state-tries
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
