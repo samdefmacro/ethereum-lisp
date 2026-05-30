@@ -8453,7 +8453,8 @@
                                (hash32-to-hex (block-hash block))))))
            (assert-transfer-proof
              (store state block address storage-keys expected-root
-              expected-balance expected-nonce expected-storage-proof-count)
+              expected-balance expected-nonce expected-storage-proof-count
+              &key expected-account-proof-count)
              (let* ((response
                       (engine-rpc-handle-request
                        (proof-request 132 address storage-keys block)
@@ -8478,6 +8479,9 @@
                             (field proof "codeHash")))
                (is (string= (hash32-to-hex +empty-trie-hash+)
                             (field proof "storageHash")))
+               (when expected-account-proof-count
+                 (is (= expected-account-proof-count
+                        (length (field proof "accountProof")))))
                (is (= expected-storage-proof-count
                       (length (field proof "storageProof"))))
                (is (state-db-verify-proof (state-db-root state)
@@ -8494,8 +8498,15 @@
            (missing-slot
              (hash32-from-hex
               "0x0000000000000000000000000000000000000000000000000000000000000001"))
+           (branch-sender
+             (address-from-hex "0x0000000000000000000000000000000000000201"))
+           (branch-sibling
+             (address-from-hex "0x0000000000000000000000000000000000000211"))
+           (branch-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000202"))
            (transfer-state (make-state-db))
-           (zero-transfer-state (make-state-db)))
+           (zero-transfer-state (make-state-db))
+           (branch-transfer-state (make-state-db)))
       (state-db-set-account
        transfer-state sender (make-state-account :nonce 1 :balance 100))
       (ethereum-lisp.state::state-db-transfer-value
@@ -8506,10 +8517,22 @@
        (make-state-account :nonce 2 :balance 100))
       (ethereum-lisp.state::state-db-transfer-value
        zero-transfer-state zero-sender missing-recipient 0)
+      (state-db-set-account
+       branch-transfer-state
+       branch-sender
+       (make-state-account :nonce 1 :balance 100))
+      (state-db-set-account
+       branch-transfer-state
+       branch-sibling
+       (make-state-account :nonce 2 :balance 200))
+      (ethereum-lisp.state::state-db-transfer-value
+       branch-transfer-state branch-sender branch-recipient 37)
       (let ((transfer-block
               (commit-state-block store transfer-state 44 440))
             (zero-transfer-block
-              (commit-state-block store zero-transfer-state 45 450)))
+              (commit-state-block store zero-transfer-state 45 450))
+            (branch-transfer-block
+              (commit-state-block store branch-transfer-state 46 460)))
         (assert-transfer-proof
          store
          transfer-state
@@ -8539,7 +8562,18 @@
          "0x600e37f427a9f42ebe6b592ff989ec26a865aa3d89c955bb78dbf53890cbeb41"
          0
          0
-         1)))))
+         1)
+        (assert-transfer-proof
+         store
+         branch-transfer-state
+         branch-transfer-block
+         branch-recipient
+         nil
+         "0x4dd8ed5858a2fce6bf433fa35e5cc54821ad964aa7a2dd979ea34336ff8b6544"
+         37
+         0
+         0
+         :expected-account-proof-count 3)))))
 
 (deftest eth-rpc-get-proof-zero-storage-writes
   (labels ((field (object name)

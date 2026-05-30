@@ -2486,6 +2486,13 @@ splits can land after the Phase A smoke path closes.
     snapshots by block hash, compares geth-shaped account proofs with the
     shared state proof primitive, and verifies decoded proofs against the
     compressed state roots.
+  - Progress: extended retained-state `eth_getProof` RPC coverage for
+    `transferValue` to the branch-root account-trie fixture. The RPC
+    regression now commits a sender/sibling/recipient transfer snapshot by
+    block hash, verifies the branch-root state root, compares the recipient
+    proof returned through RPC with `state-db-get-proof`, checks proof depth
+    below the branch child, and verifies the decoded geth-shaped proof against
+    the committed root.
   - Progress: added deleted-account proof coverage for the same account-trie
     delete-collapse boundaries. The state-proof fixture set now locks
     missing-account proofs for the pruned account after branch-to-leaf,
