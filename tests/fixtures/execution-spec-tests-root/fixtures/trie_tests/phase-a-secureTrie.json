@@ -78,6 +78,13 @@
     ],
     "root": "c0613970ee4545b8b874a3720590eadfc7258e9232a3edd82d6fef1a86db614f"
   },
+  "phase-a-secure-duplicate-overwrite": {
+    "in": [
+      ["dog", "puppy"],
+      ["dog", "hound"]
+    ],
+    "root": "293455756e50fb29ac430e499f8596798349a543f1a1dbba37880701b5a9c8fc"
+  },
   "phase-a-secure-insert": {
     "in": [
       ["dog", "puppy"]

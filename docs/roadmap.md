@@ -122,7 +122,9 @@ fixes in those areas are allowed; expansion is not.
   semantics covered outside the array-of-pairs adapter path. The importer now
   preserves the exact empty-value source as well, and the Phase A summary
   gates `0x`, string `""`, and object-form string empty-value deletes
-  separately.
+  separately. The selected secure trie subset now also gates duplicate-key
+  overwrites, so secure-key replay keeps the StateTrie-like final-write-wins
+  boundary distinct from plain trie overwrite coverage.
   The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so

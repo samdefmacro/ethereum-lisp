@@ -1932,6 +1932,10 @@ splits can land after the Phase A smoke path closes.
     string `""` empty-value deletes, and object-form string empty-value deletes
     are all represented distinctly before pinned trie vectors replace the
     in-repo samples.
+    Added secure duplicate-key overwrite coverage to both the seed trie
+    vectors and selected EEST-style secureTrie subset. The Phase A summary now
+    gates duplicate overwrites on secure-key replay, locking that StateTrie-like
+    hashed-key updates retain only the final value for a logical key.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
