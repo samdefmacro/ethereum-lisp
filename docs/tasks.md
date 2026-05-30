@@ -1700,6 +1700,11 @@ splits can land after the Phase A smoke path closes.
     shape, account RLP projections, and branch-root child references so storage
     deletion cannot accidentally prune or rewrite unrelated state-trie
     siblings.
+    Added matching multi-account extension-root and branch-with-extension-child
+    state fixtures for the same storage write-then-zero deletion path, locking
+    sibling account projections, restored empty storage roots, path-compressed
+    root nibbles, and hashed child references across the state trie shapes used
+    by Phase A proof/root work.
     Added a secureTrie object-form hex byte-string case to the selected
     EEST-style trie subset, with a dedicated summary counter and gate requiring
     secure object-valued `0x` byte values. This keeps byte-string normalization

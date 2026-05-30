@@ -586,6 +586,81 @@
       "expectedStateTrieChildReference": "hashed"
     },
     {
+      "name": "state-trie-extension-storage-delete-keeps-sibling-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-delete",
+        "storage-update-delete",
+        "storage-root-projection",
+        "storage-trie-delete-to-empty",
+        "multi-account",
+        "account-projection",
+        "state-trie-extension",
+        "state-trie-extension-child-reference"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000220",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "value": 42
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000220",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "value": 0
+        }
+      ],
+      "expectedRoot": "0x107571af3beeb3b5f3d1b49b593066ac344ab7e98f657ee27670315fcbde6509",
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8450281c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "shape": "empty"
+        }
+      ],
+      "expectedStateTrieShape": "extension",
+      "expectedStateTrieRootPathNibbles": [13, 7],
+      "expectedStateTrieChildReference": "hashed"
+    },
+    {
       "name": "state-trie-extension-account-update-keeps-sibling-root",
       "tags": [
         "account-root",
@@ -812,6 +887,104 @@
           "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
           "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
           "rlp": "0xf8460382012ca056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [12, 13],
+      "expectedStateTrieRootChildShapes": {
+        "12": "leaf",
+        "13": "extension"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "12": "hashed",
+        "13": "hashed"
+      }
+    },
+    {
+      "name": "state-trie-branch-extension-storage-delete-keeps-sibling-root",
+      "tags": [
+        "account-root",
+        "storage-root",
+        "storage-delete",
+        "storage-update-delete",
+        "storage-root-projection",
+        "storage-trie-delete-to-empty",
+        "multi-account",
+        "account-projection",
+        "state-trie-branch",
+        "state-trie-branch-child-references",
+        "state-trie-extension",
+        "state-trie-branch-extension"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000220",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "value": 42
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000220",
+          "slot": "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "value": 0
+        }
+      ],
+      "expectedRoot": "0x08767738cc4d52da0973b6f2030046afe8e67bea9da3b1ea31d19aacf59d077b",
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "nonce": 1,
+          "balance": 100,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8440164a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000225",
+          "nonce": 2,
+          "balance": 200,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8450281c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000203",
+          "nonce": 3,
+          "balance": 300,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8460382012ca056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000220",
+          "shape": "empty"
         }
       ],
       "expectedStateTrieShape": "branch",

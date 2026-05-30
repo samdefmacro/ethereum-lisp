@@ -125,9 +125,10 @@ fixes in those areas are allowed; expansion is not.
   separately. The selected secure trie subset now also gates duplicate-key
   overwrites, so secure-key replay keeps the StateTrie-like final-write-wins
   boundary distinct from plain trie overwrite coverage. State-root fixtures now
-  also cover storage write-then-zero deletion inside a multi-account branch
-  root, asserting the touched account's storage trie returns to empty while
-  sibling account projections and state branch child references remain stable.
+  also cover storage write-then-zero deletion inside multi-account branch,
+  extension, and branch-with-extension-child state roots, asserting the touched
+  account's storage trie returns to empty while sibling account projections,
+  path-compressed root nibbles, and state child references remain stable.
   The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so
