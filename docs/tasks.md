@@ -685,6 +685,13 @@ ones.
     sparse EEST result expansion, seed/EEST alignment, and a dedicated summary
     gate requiring access-list contract-creation coverage alongside the
     dynamic-fee gate.
+  - Progress: added EIP-2930 empty-access-list contract-creation coverage to
+    the seed envelope fixture and selected EEST-shaped Phase A/full subsets.
+    The new vector locks `to = null`, initcode payload, omitted/empty
+    access-list projection, derived `contractAddress`, sender recovery,
+    Shanghai intrinsic gas, sparse EEST result expansion, and selector summary
+    counts so typed contract creation cannot rely only on non-empty
+    access-list fixtures.
   - Progress: added EIP-1559 dynamic-fee access-list contract-creation
     coverage to the seed envelope fixture and selected EEST-shaped Phase A/full
     subsets. The new vector combines type-2 fee fields, `to = null`, initcode,

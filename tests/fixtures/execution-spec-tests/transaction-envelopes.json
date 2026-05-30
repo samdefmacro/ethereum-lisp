@@ -775,6 +775,81 @@
       }
     },
     {
+      "name": "eip2930-empty-access-list-contract-creation",
+      "type": "access-list",
+      "chainId": 1,
+      "txbytes": "0x01f853010801830186a080808560006000f3c001a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a00bea02d49c744f777df289704846c779c7af67be1a99e7d3a590330b14488ec9",
+      "hash": "0xa12cb5e91be0bf4966d1cc066824938a936f066cd0e32a7bbcc672674f7a2201",
+      "sender": "0x193b7014b46674a75f34d585d7c5e9a0468142f4",
+      "contractAddress": "0x3430739421c2980e911ddb9f0385fdaaae473144",
+      "signature": {
+        "yParity": "0x1",
+        "r": "0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "s": "0xbea02d49c744f777df289704846c779c7af67be1a99e7d3a590330b14488ec9"
+      },
+      "decoded": {
+        "nonce": "0x8",
+        "gasLimit": "0x186a0",
+        "to": null,
+        "value": "0x0",
+        "input": "0x60006000f3",
+        "gasPrice": "0x1"
+      },
+      "result": {
+        "Frontier": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Homestead": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "EIP150": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "EIP158": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Byzantium": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Constantinople": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Istanbul": {
+          "exception": "TransactionException.TYPE_1_TX_PRE_FORK"
+        },
+        "Berlin": {
+          "hash": "0xa12cb5e91be0bf4966d1cc066824938a936f066cd0e32a7bbcc672674f7a2201",
+          "sender": "0x193b7014b46674a75f34d585d7c5e9a0468142f4",
+          "intrinsicGas": "0xcf42"
+        },
+        "London": {
+          "hash": "0xa12cb5e91be0bf4966d1cc066824938a936f066cd0e32a7bbcc672674f7a2201",
+          "sender": "0x193b7014b46674a75f34d585d7c5e9a0468142f4",
+          "intrinsicGas": "0xcf42"
+        },
+        "Paris": {
+          "hash": "0xa12cb5e91be0bf4966d1cc066824938a936f066cd0e32a7bbcc672674f7a2201",
+          "sender": "0x193b7014b46674a75f34d585d7c5e9a0468142f4",
+          "intrinsicGas": "0xcf42"
+        },
+        "Shanghai": {
+          "hash": "0xa12cb5e91be0bf4966d1cc066824938a936f066cd0e32a7bbcc672674f7a2201",
+          "sender": "0x193b7014b46674a75f34d585d7c5e9a0468142f4",
+          "intrinsicGas": "0xcf42"
+        },
+        "Cancun": {
+          "hash": "0xa12cb5e91be0bf4966d1cc066824938a936f066cd0e32a7bbcc672674f7a2201",
+          "sender": "0x193b7014b46674a75f34d585d7c5e9a0468142f4",
+          "intrinsicGas": "0xcf42"
+        },
+        "Prague": {
+          "hash": "0xa12cb5e91be0bf4966d1cc066824938a936f066cd0e32a7bbcc672674f7a2201",
+          "sender": "0x193b7014b46674a75f34d585d7c5e9a0468142f4",
+          "intrinsicGas": "0xcf42"
+        }
+      }
+    },
+    {
       "name": "eip1559-dynamic-fee",
       "type": "dynamic-fee",
       "chainId": 1,

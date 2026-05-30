@@ -140,6 +140,9 @@ fixes in those areas are allowed; expansion is not.
   EIP-1559 dynamic-fee access-list contract-creation path, including
   non-empty access-list projection, `to = null`, initcode, and derived
   contract-address checks in one vector. It also gates a typed EIP-2930
+  empty-access-list contract creation vector, so type-1 `to = null` and
+  initcode coverage now covers both empty and non-empty access-list payloads.
+  It also gates a typed EIP-2930
   message-call with non-empty calldata, and the summary gate now requires that
   access-list calldata count explicitly so typed `input` decoding and calldata
   intrinsic gas are covered separately from legacy and EIP-1559 calldata. The same
