@@ -140,6 +140,10 @@
     "geth-stacktrie-zero-prefix-extension-fanout"
     "geth-stacktrie-f-prefix-nested-right-branch"
     "geth-stacktrie-ff-prefix-nested-left-branch"
+    "geth-stacktrie-shared-prefix-tail-fanout"
+    "geth-stacktrie-shared-prefix-shortens-to-two-nibbles"
+    "geth-stacktrie-shared-prefix-shortens-to-one-nibble"
+    "geth-stacktrie-shared-prefix-splits-to-root-branch"
     "nethermind-partial-path-proof-nodes"
     "branch-extension-shared-prefix"
     "branch-child-branch"
@@ -207,6 +211,10 @@
     ("geth-stacktrie-zero-prefix-extension-fanout" . :plain)
     ("geth-stacktrie-f-prefix-nested-right-branch" . :plain)
     ("geth-stacktrie-ff-prefix-nested-left-branch" . :plain)
+    ("geth-stacktrie-shared-prefix-tail-fanout" . :plain)
+    ("geth-stacktrie-shared-prefix-shortens-to-two-nibbles" . :plain)
+    ("geth-stacktrie-shared-prefix-shortens-to-one-nibble" . :plain)
+    ("geth-stacktrie-shared-prefix-splits-to-root-branch" . :plain)
     ("nethermind-partial-path-proof-nodes" . :plain)
     ("geth-secure-account-step-1" . :secure)
     ("geth-secure-account-step-2" . :secure)

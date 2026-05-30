@@ -2411,6 +2411,10 @@ splits can land after the Phase A smoke path closes.
     fanout cases for the `0x0`, `0xf`, and `0xff` prefixes. These lock every
     post-insert StackTrie root plus final extension paths `[0]`, `[15]`, and
     `[15, 15]` with hashed child references.
+    Added four geth StackTrie shared-prefix divergence cases covering final
+    extension paths `[1, 2, 3]`, `[1, 2]`, and `[1]`, plus the matching split
+    to a root branch with hashed extension/leaf children. Each vector locks all
+    post-insert roots from geth reference commit `8a0223e`.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
