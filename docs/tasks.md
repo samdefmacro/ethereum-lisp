@@ -2262,6 +2262,11 @@ splits can land after the Phase A smoke path closes.
     non-empty code, including the updated code hash, retained empty storage
     root, and missing storage proof; retained-state `eth_getProof` now verifies
     the same committed block-hash snapshot through the RPC path.
+  - Progress: extended code-update proof coverage across branch, extension,
+    and branch-into-extension account-trie layouts. The fixture set now locks
+    geth-shaped account proof nodes for each nontrivial trie shape after a
+    non-empty-code overwrite, and retained-state `eth_getProof` verifies the
+    same committed block-hash snapshots with expected proof depths.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

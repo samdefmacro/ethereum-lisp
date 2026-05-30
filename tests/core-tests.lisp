@@ -8455,6 +8455,147 @@
         (is (state-db-verify-proof (state-db-root state)
                                    decoded-proof))))))
 
+(deftest eth-rpc-get-proof-code-update-nontrivial-state-tries
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (proof-node-hex-list (proof)
+             (mapcar #'bytes-to-hex proof))
+           (add-account (state address nonce balance)
+             (state-db-set-account
+              state
+              (address-from-hex address)
+              (make-state-account :nonce nonce :balance balance)))
+           (set-updated-code (state address)
+             (let ((target (address-from-hex address)))
+               (state-db-set-code state target #(96 1 96 0))
+               (state-db-set-code state target #(96 2 96 3 1))))
+           (commit-state-block (store state number timestamp)
+             (let ((block
+                     (make-block
+                      :header (make-block-header
+                               :number number
+                               :timestamp timestamp
+                               :gas-limit 30000000
+                               :state-root (state-db-root state)))))
+               (chain-store-put-block store block :state-available-p t)
+               (commit-state-db-to-chain-store store (block-hash block) state)
+               block))
+           (proof-request (id address slot block)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getProof")
+                   (cons "params"
+                         (list (address-to-hex address)
+                               (list (hash32-to-hex slot))
+                               (hash32-to-hex (block-hash block))))))
+           (assert-code-update-proof
+               (store state block target slot expected-root expected-nodes)
+             (let* ((response
+                      (engine-rpc-handle-request
+                       (proof-request 125 target slot block)
+                       store
+                       (make-chain-config)))
+                    (proof (field response "result"))
+                    (storage-proof (first (field proof "storageProof")))
+                    (expected-proof
+                      (state-db-get-proof state target (list slot)))
+                    (expected-storage-proof
+                      (first (state-proof-result-storage-proofs
+                              expected-proof)))
+                    (decoded-proof
+                      (state-proof-result-from-rpc-object proof)))
+               (is (string= expected-root
+                            (state-db-root-hex state)))
+               (is (string= (address-to-hex target)
+                            (field proof "address")))
+               (is (string= (quantity-to-hex 1000)
+                            (field proof "balance")))
+               (is (string= (quantity-to-hex 1)
+                            (field proof "nonce")))
+               (is (string= (hash32-to-hex
+                             (keccak-256-hash #(96 2 96 3 1)))
+                            (field proof "codeHash")))
+               (is (string= (hash32-to-hex +empty-trie-hash+)
+                            (field proof "storageHash")))
+               (is (= expected-nodes
+                      (length (field proof "accountProof"))))
+               (is (= 1 (length (field proof "storageProof"))))
+               (is (string= (hash32-to-hex slot)
+                            (field storage-proof "key")))
+               (is (string= (quantity-to-hex 0)
+                            (field storage-proof "value")))
+               (is (null (field storage-proof "proof")))
+               (is (equal (proof-node-hex-list
+                           (state-proof-result-account-proof expected-proof))
+                          (field proof "accountProof")))
+               (is (equal (proof-node-hex-list
+                           (state-storage-proof-proof expected-storage-proof))
+                          (field storage-proof "proof")))
+               (is (state-db-verify-proof (state-db-root state)
+                                          decoded-proof)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (branch-target
+             (address-from-hex "0x0000000000000000000000000000000000000201"))
+           (extension-target
+             (address-from-hex "0x0000000000000000000000000000000000000220"))
+           (slot
+             (hash32-from-hex
+              "0x000000000000000000000000000000000000000000000000000000000000000b"))
+           (branch-state (make-state-db))
+           (extension-state (make-state-db))
+           (branch-extension-state (make-state-db)))
+      (add-account branch-state
+                   "0x0000000000000000000000000000000000000201"
+                   1 1000)
+      (set-updated-code branch-state
+                        "0x0000000000000000000000000000000000000201")
+      (add-account branch-state
+                   "0x0000000000000000000000000000000000000211"
+                   2 200)
+      (add-account extension-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 1000)
+      (set-updated-code extension-state
+                        "0x0000000000000000000000000000000000000220")
+      (add-account extension-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000220"
+                   1 1000)
+      (set-updated-code branch-extension-state
+                        "0x0000000000000000000000000000000000000220")
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000225"
+                   2 200)
+      (add-account branch-extension-state
+                   "0x0000000000000000000000000000000000000203"
+                   3 300)
+      (assert-code-update-proof
+       store
+       branch-state
+       (commit-state-block store branch-state 54 540)
+       branch-target
+       slot
+       "0x6ab69fa5095659c9578b4dc266ea51d9e5288674f3a60ba0058189667c74786e"
+       2)
+      (assert-code-update-proof
+       store
+       extension-state
+       (commit-state-block store extension-state 55 550)
+       extension-target
+       slot
+       "0x258d8cdbcaf278008d357941227e1b102cad65026083bde2621e843cb7c00c85"
+       3)
+      (assert-code-update-proof
+       store
+       branch-extension-state
+       (commit-state-block store branch-extension-state 56 560)
+       extension-target
+       slot
+       "0xa53fa7b005c9d7d484bc1130c751b0e743bb907657e3d646aa31cc456680f193"
+       4))))
+
 (deftest eth-rpc-get-proof-code-deletion
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

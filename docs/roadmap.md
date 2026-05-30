@@ -322,6 +322,9 @@ the surviving account and the pruned account's missing-proof result.
 Code-update proof coverage now locks overwriting non-empty code with new
 non-empty code through both fixture replay and retained-state `eth_getProof`,
 including the updated account code hash and retained empty storage root.
+The same code-update proof boundary now covers branch, extension, and
+branch-into-extension account-trie layouts, including expected proof depths in
+retained-state `eth_getProof` snapshots.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch
