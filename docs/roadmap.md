@@ -124,7 +124,10 @@ fixes in those areas are allowed; expansion is not.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the
-  branch-preserving delete path.
+  branch-preserving delete path. It now also includes geth `TestReplication`,
+  adding a long-key multi-leaf branch-root replay that locks
+  `0x09c889feaafd53779755259beaa0ff41c32512c8cac45152af46fae7ebdef210`
+  against geth reference commit `8a0223e`.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now

@@ -2108,6 +2108,13 @@ splits can land after the Phase A smoke path closes.
     empty string updates for `ether` and `shaman`, locking geth's final
     `0x5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84`
     root and gating empty-value deletes through branch-preserving deletion.
+    Added geth `TestReplication` to the selected EEST-style trie subset. The
+    new `geth-replication-sequence` case replays `do`, `ether`, `horse`,
+    `shaman`, `doge`, `dog`, and the long key
+    `somethingveryoddindeedthis is`, locking geth's
+    `0x09c889feaafd53779755259beaa0ff41c32512c8cac45152af46fae7ebdef210`
+    root and expanding branch-root coverage with long-key multi-leaf replay
+    anchored to geth reference commit `8a0223e`.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
