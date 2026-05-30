@@ -2420,6 +2420,11 @@ splits can land after the Phase A smoke path closes.
     plus the long-prefix split to a root branch with hashed extension/leaf
     children. These continue the geth `TestStackTrieInsertAndHash`
     path-compression table at reference commit `8a0223e`.
+    Promoted those five long shared-prefix StackTrie cases into the selected
+    EEST-style trie-test root, with explicit `out` maps for retained and
+    missing keys. The Phase A selector and reference-family gates now require
+    these root vectors on the external fixture adapter path as well as the
+    seed trie-vector runner.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
