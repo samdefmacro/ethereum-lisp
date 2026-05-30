@@ -8121,6 +8121,76 @@
         (is (= -32602 (field invalid-params-error "code")))
         (is (= -32602 (field too-many-storage-keys-error "code")))))))
 
+(deftest eth-rpc-get-proof-geth-secure-account-state
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (add-account (state address nonce balance)
+             (state-db-set-account
+              state
+              (address-from-hex address)
+              (make-state-account :nonce nonce :balance balance)))
+           (commit-state-block (store state number timestamp)
+             (let ((block
+                     (make-block
+                      :header (make-block-header
+                               :number number
+                               :timestamp timestamp
+                               :gas-limit 30000000
+                               :state-root (state-db-root state)))))
+               (chain-store-put-block store block :state-available-p t)
+               (commit-state-db-to-chain-store store (block-hash block) state)
+               block))
+           (proof-request (address block)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 104)
+                   (cons "method" "eth_getProof")
+                   (cons "params"
+                         (list (address-to-hex address)
+                               nil
+                               (hash32-to-hex (block-hash block)))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (state (make-state-db))
+           (address
+             (address-from-hex "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f")))
+      (add-account state
+                   "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f"
+                   2339563716805116249
+                   13231285807645419471)
+      (add-account state
+                   "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0"
+                   7259475919510918339
+                   1420263156754097894072208833565313120560341020854497370086991)
+      (add-account state
+                   "0xb10d394651850fd4a178892ee285ece151145578"
+                   2217592893536642650
+                   668036214256246407260665125299057)
+      (let* ((block (commit-state-block store state 30 300))
+             (response (engine-rpc-handle-request
+                        (proof-request address block)
+                        store
+                        (make-chain-config)))
+             (proof (field response "result"))
+             (expected-proof (state-db-get-proof state address nil))
+             (decoded-proof (state-proof-result-from-rpc-object proof)))
+        (is (string= "0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d"
+                     (state-db-root-hex state)))
+        (is (equal (state-proof-result-rpc-object expected-proof)
+                   proof))
+        (is (string= (address-to-hex address)
+                     (field proof "address")))
+        (is (string= "0xb79ef856f65f67cf"
+                     (field proof "balance")))
+        (is (string= "0x2077ccce0d8fc159"
+                     (field proof "nonce")))
+        (is (string= (hash32-to-hex +empty-code-hash+)
+                     (field proof "codeHash")))
+        (is (string= (hash32-to-hex +empty-trie-hash+)
+                     (field proof "storageHash")))
+        (is (= 2 (length (field proof "accountProof"))))
+        (is (null (field proof "storageProof")))
+        (is (state-db-verify-proof (state-db-root state)
+                                   decoded-proof))))))
+
 (deftest eth-rpc-get-proof-missing-clear-nontrivial-state-tries
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

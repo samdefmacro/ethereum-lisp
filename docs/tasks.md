@@ -2749,6 +2749,12 @@ splits can land after the Phase A smoke path closes.
     `0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d`,
     and verifies the exact geth-shaped account proof nodes for the first
     account behind a required seed-case/tag gate.
+  - Progress: extended retained-state `eth_getProof` RPC coverage to the same
+    geth-derived secure account state root. The RPC regression commits the
+    deterministic geth `makeAccounts` account snapshot by block hash, compares
+    the returned geth-shaped proof with `state-db-get-proof`, checks account
+    fields and proof depth, and verifies the decoded proof against the
+    committed root.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
