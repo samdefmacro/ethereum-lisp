@@ -260,7 +260,13 @@ fixes in those areas are allowed; expansion is not.
   unprotected legacy transaction payload transcribed from pinned v5.4.0
   `blockchain_tests_engine/frontier/validation/test_tx_nonce.json`, locking
   nonce/gas decoding, signature, sender/hash recovery, intrinsic gas,
-  unprotected-signature classification, and all tracked-fork validity. The
+  unprotected-signature classification, and all tracked-fork validity. It now
+  includes a valid EIP-4844 blob transaction payload transcribed from pinned
+  v5.4.0
+  `blockchain_tests_engine/cancun/eip4844_blobs/test_valid_blob_tx_combinations.json`,
+  locking blob fee decoding, versioned hash payloads, signature, sender/hash
+  recovery, intrinsic gas, empty access-list projection, Cancun/Prague
+  validity, and pre-Cancun typed-transaction rejections. The
   Shanghai
   `engine_newPayloadV2` smoke now
   covers legacy transfer, access-list

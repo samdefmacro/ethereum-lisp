@@ -865,6 +865,54 @@
       }
     }
   },
+  "typed-eip4844-pinned-blockchain-valid-sample": {
+    "txbytes": "03f885018080078252089493fd8ec9883a18fc285c73bd22eb4c95c60180650180c001e1a0010000000000000000000000000000000000000000000000000000000000000001a0f659b6c62cf183d972d58c0e15390ae7e201f0650fb201a55f65a284b71b6f84a074fe6cb5751ff0d9b41a8a0cf6d570f17f13bbb9dbd20f3b218262954ee05b1e",
+    "result": {
+      "Frontier": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "Homestead": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "EIP150": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "EIP158": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "Byzantium": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "Constantinople": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "Istanbul": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "Berlin": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "London": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "Paris": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "Shanghai": {
+        "exception": "TransactionException.TYPE_3_TX_PRE_FORK"
+      },
+      "Cancun": {
+        "hash": "40d3ea27be683b48c8d436face524076a56c03d488b601efa8130163c04cf990",
+        "sender": "ee361e7d30249cd97a91c1b427a1826d620b4985",
+        "intrinsicGas": "0x5208"
+      },
+      "Prague": {
+        "hash": "40d3ea27be683b48c8d436face524076a56c03d488b601efa8130163c04cf990",
+        "sender": "ee361e7d30249cd97a91c1b427a1826d620b4985",
+        "intrinsicGas": "0x5208"
+      }
+    }
+  },
   "typed-eip4844-blob-access-list-calldata-sample": {
     "txbytes": "03f90112820539016485174876e800830186a094b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a84deadbeeff85bf859940000000000000000000000000000000000000101f842a00000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000283020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943801a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a05720eecc7e6aa015b3b72ac7f85450f2161fb48b03aa2b0735cdd0ec29290fa9",
     "result": {

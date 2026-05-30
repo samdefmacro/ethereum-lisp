@@ -60,6 +60,7 @@
     "phase-a-sample.json/typed-eip1559-empty-access-list-contract-creation-sample"
     "phase-a-sample.json/typed-eip1559-access-list-contract-creation-sample"
     "phase-a-sample.json/typed-eip4844-blob-sample"
+    "phase-a-sample.json/typed-eip4844-pinned-blockchain-valid-sample"
     "phase-a-sample.json/typed-eip4844-blob-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip7702-set-code-access-list-calldata-sample"
     "phase-a-sample.json/typed-eip7702-set-code-sample"))
@@ -105,6 +106,7 @@
     "eip1559-empty-access-list-contract-creation"
     "eip1559-access-list-contract-creation"
     "eip4844-blob"
+    "eip4844-pinned-blockchain-valid"
     "eip4844-blob-access-list-calldata"
     "eip7702-set-code-access-list-calldata"
     "eip7702-set-code"))
@@ -4459,6 +4461,13 @@
                  :test #'string=
                  :key (lambda (candidate)
                         (fixture-object-field candidate "name"))))
+         (blob-pinned-blockchain-vector
+           (find
+            "phase-a-sample.json/typed-eip4844-pinned-blockchain-valid-sample"
+            vectors
+            :test #'string=
+            :key (lambda (candidate)
+                   (fixture-object-field candidate "name"))))
          (blob-access-list-calldata-vector
            (find
             "phase-a-sample.json/typed-eip4844-blob-access-list-calldata-sample"
@@ -4483,12 +4492,12 @@
          (full-summary (transaction-fixture-vector-summary full-vectors))
          (summary (transaction-fixture-vector-summary selected-vectors)))
     (is (= 13 (length paths)))
-    (is (= 82 (length cases)))
+    (is (= 83 (length cases)))
     (is (= 53 (length invalid-cases)))
     (is (= 25 (length selected-cases)))
-    (is (= 29 (length vectors)))
+    (is (= 30 (length vectors)))
     (is (= 25 (length selected-vectors)))
-    (is (= 29 (length full-vectors)))
+    (is (= 30 (length full-vectors)))
     (validate-transaction-fixture-vector-set vectors :require-required-types t)
     (assert-transaction-fixture-vectors-replay vectors)
     (is (equal +phase-a-eest-transaction-test-case-names+
@@ -5046,6 +5055,32 @@
     (is blob-vector)
     (is (string= "blob"
                  (fixture-object-field blob-vector "type")))
+    (is blob-pinned-blockchain-vector)
+    (is (string= "blob"
+                 (fixture-object-field blob-pinned-blockchain-vector "type")))
+    (is (equal
+         (list
+          (cons "nonce" "0x0")
+          (cons "gasLimit" "0x5208")
+          (cons "to" "0x93fd8ec9883a18fc285c73bd22eb4c95c6018065")
+          (cons "value" "0x1")
+          (cons "input" "0x")
+          (cons "maxPriorityFeePerGas" "0x0")
+          (cons "maxFeePerGas" "0x7")
+          (cons "maxFeePerBlobGas" "0x1")
+          (cons "blobVersionedHashes"
+                '("0x0100000000000000000000000000000000000000000000000000000000000000")))
+         (fixture-object-field blob-pinned-blockchain-vector "decoded")))
+    (is (not (fixture-field-present-p
+              blob-pinned-blockchain-vector
+              "accessList")))
+    (is (string= "0x5208"
+                 (fixture-object-field
+                  (fixture-object-field
+                   (fixture-object-field blob-pinned-blockchain-vector
+                                         "result")
+                   "Cancun")
+                  "intrinsicGas")))
     (is blob-access-list-calldata-vector)
     (is (string= "blob"
                  (fixture-object-field blob-access-list-calldata-vector
@@ -5105,22 +5140,22 @@
     (is set-code-vector)
     (is (string= "set-code"
                  (fixture-object-field set-code-vector "type")))
-    (is (= 29 (fixture-object-field all-summary "count")))
+    (is (= 30 (fixture-object-field all-summary "count")))
     (is (equal '((:legacy . 6)
                  (:access-list . 8)
                  (:dynamic-fee . 11)
-                 (:blob . 2)
+                 (:blob . 3)
                  (:set-code . 2))
                (fixture-object-field all-summary "types")))
-    (is (= 29 (fixture-object-field all-summary "decodedVectorCount")))
-    (is (= 29 (fixture-object-field all-summary "signatureVectorCount")))
+    (is (= 30 (fixture-object-field all-summary "decodedVectorCount")))
+    (is (= 30 (fixture-object-field all-summary "signatureVectorCount")))
     (is (= 12 (fixture-object-field all-summary "accessListVectorCount")))
     (is (= 5 (fixture-object-field all-summary "dynamicFeeAccessListVectorCount")))
     (is (= 2 (fixture-object-field all-summary "duplicateAccessListVectorCount")))
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeDuplicateAccessListVectorCount")))
-    (is (= 11 (fixture-object-field all-summary "typedEmptyAccessListVectorCount")))
+    (is (= 12 (fixture-object-field all-summary "typedEmptyAccessListVectorCount")))
     (is (= 3 (fixture-object-field all-summary "accessListEmptyAccessListVectorCount")))
     (is (= 6 (fixture-object-field all-summary "dynamicFeeEmptyAccessListVectorCount")))
     (is (= 2 (fixture-object-field all-summary "accessListAddressOnlyVectorCount")))
@@ -5166,8 +5201,8 @@
     (is (= 1 (fixture-object-field
               all-summary
               "dynamicFeeEqualFeeCapVectorCount")))
-    (is (= 2 (fixture-object-field all-summary "blobVersionedHashVectorCount")))
-    (is (= 4 (fixture-object-field all-summary "blobVersionedHashCount")))
+    (is (= 3 (fixture-object-field all-summary "blobVersionedHashVectorCount")))
+    (is (= 5 (fixture-object-field all-summary "blobVersionedHashCount")))
     (is (= 1 (fixture-object-field all-summary "blobAccessListVectorCount")))
     (is (= 1 (fixture-object-field all-summary "blobMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field
@@ -5182,8 +5217,8 @@
               "setCodeAccessListMessageCallDataVectorCount")))
     (is (= 3 (fixture-object-field all-summary "protectedLegacyVectorCount")))
     (is (= 3 (fixture-object-field all-summary "unprotectedLegacyVectorCount")))
-    (is (= 187 (fixture-object-field all-summary "validResultCount")))
-    (is (= 190 (fixture-object-field all-summary "exceptionResultCount")))
+    (is (= 189 (fixture-object-field all-summary "validResultCount")))
+    (is (= 201 (fixture-object-field all-summary "exceptionResultCount")))
     (is (equal '(("Frontier" . 6)
                  ("Homestead" . 6)
                  ("EIP150" . 6)
@@ -5195,20 +5230,20 @@
                  ("London" . 25)
                  ("Paris" . 25)
                  ("Shanghai" . 25)
-                 ("Cancun" . 27)
-                 ("Prague" . 29))
+                 ("Cancun" . 28)
+                 ("Prague" . 30))
                (fixture-object-field all-summary "validForkCounts")))
-    (is (equal '(("Frontier" . 23)
-                 ("Homestead" . 23)
-                 ("EIP150" . 23)
-                 ("EIP158" . 23)
-                 ("Byzantium" . 23)
-                 ("Constantinople" . 23)
-                 ("Istanbul" . 23)
-                 ("Berlin" . 15)
-                 ("London" . 4)
-                 ("Paris" . 4)
-                 ("Shanghai" . 4)
+    (is (equal '(("Frontier" . 24)
+                 ("Homestead" . 24)
+                 ("EIP150" . 24)
+                 ("EIP158" . 24)
+                 ("Byzantium" . 24)
+                 ("Constantinople" . 24)
+                 ("Istanbul" . 24)
+                 ("Berlin" . 16)
+                 ("London" . 5)
+                 ("Paris" . 5)
+                 ("Shanghai" . 5)
                  ("Cancun" . 2))
                (fixture-object-field all-summary "exceptionForkCounts")))
     (is (= 25 (fixture-object-field summary "count")))
@@ -5341,8 +5376,8 @@
     (is (equal full-summary
                (validate-full-eest-transaction-vector-summary
                 full-vectors)))
-    (is (= 2 (fixture-object-field full-summary "blobVersionedHashVectorCount")))
-    (is (= 4 (fixture-object-field full-summary "blobVersionedHashCount")))
+    (is (= 3 (fixture-object-field full-summary "blobVersionedHashVectorCount")))
+    (is (= 5 (fixture-object-field full-summary "blobVersionedHashCount")))
     (is (= 1 (fixture-object-field full-summary "blobAccessListVectorCount")))
     (is (= 1 (fixture-object-field full-summary "blobMessageCallDataVectorCount")))
     (is (= 1 (fixture-object-field

@@ -201,6 +201,14 @@ ones.
     replay path now locks its txbytes, hash, recovered sender, decoded legacy
     gas fields, signature, intrinsic gas, unprotected-signature classification,
     and all tracked-fork validity.
+  - Progress: added a valid EIP-4844 type-3 blob transaction transcribed from
+    pinned v5.4.0
+    `fixtures/blockchain_tests_engine/cancun/eip4844_blobs/test_valid_blob_tx_combinations.json`
+    into the full EEST-shaped sample root and seed envelope fixture. The
+    replay path now locks its txbytes, hash, recovered sender, decoded blob
+    fee fields, versioned hash payload, signature, intrinsic gas, empty
+    access-list projection, Cancun/Prague validity, and pre-Cancun rejection
+    checks.
   - Progress: added an in-repo external-style transaction envelope vector
     runner covering legacy EIP-155, EIP-2930, EIP-1559, EIP-4844, and
     EIP-7702 raw encodings, transaction hashes, sender recovery, and
