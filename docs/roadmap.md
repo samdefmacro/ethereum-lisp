@@ -146,9 +146,11 @@ fixes in those areas are allowed; expansion is not.
   and checking both present-key and missing-key proof-node prefixes in the
   seed fixture. The geth one-element proof boundary is represented as well,
   locking the single leaf proof node for present and missing lookups around
-  `k` -> `v`. Proof verification now also rejects a tampered referenced node
-  in that geth large-value proof shape, so proof-node hash binding is covered
-  directly.
+  `k` -> `v`. That one-element boundary now uses exact-length proof-node
+  assertions, so a generated proof cannot grow extra nodes while preserving
+  the same first RLP node. Proof verification now also rejects a tampered
+  referenced node in that geth large-value proof shape, so proof-node hash
+  binding is covered directly.
   Geth `TestSecureDelete` is now represented in both the seed trie fixture and
   selected secureTrie subset, locking the secure-key update/delete replay to
   root `0x29b235a58c3c25ab83010c327d5932bcf05324b7d6b1185e650798034783ca9d`

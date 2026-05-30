@@ -20,7 +20,7 @@
     },
     {
       "name": "geth-one-element-proof",
-      "tags": ["leaf-root", "path-compression", "lookup-assertions", "single-node-proof", "proof-node-rlp", "missing-proof-node-rlp"],
+      "tags": ["leaf-root", "path-compression", "lookup-assertions", "single-node-proof", "exact-proof-node-rlp", "proof-node-rlp", "missing-proof-node-rlp"],
       "operations": [
         { "op": "put", "keyAscii": "k", "valueAscii": "v" }
       ],
@@ -40,22 +40,27 @@
       "expectedProofPrefixes": [
         {
           "keyAscii": "k",
+          "exactLength": true,
           "nodeRlps": ["0xc482206b76"]
         },
         {
           "keyAscii": "a",
+          "exactLength": true,
           "nodeRlps": ["0xc482206b76"]
         },
         {
           "keyAscii": "j",
+          "exactLength": true,
           "nodeRlps": ["0xc482206b76"]
         },
         {
           "keyAscii": "l",
+          "exactLength": true,
           "nodeRlps": ["0xc482206b76"]
         },
         {
           "keyAscii": "z",
+          "exactLength": true,
           "nodeRlps": ["0xc482206b76"]
         }
       ]

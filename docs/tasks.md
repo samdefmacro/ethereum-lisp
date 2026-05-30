@@ -2266,6 +2266,11 @@ splits can land after the Phase A smoke path closes.
     single leaf proof node for both present-key and missing-key lookups
     (`a`, `j`, `l`, `z`), and the fixture coverage gate now requires this
     single-node proof boundary.
+    Added explicit exact-length proof-node assertions to the trie fixture
+    schema. The geth one-element present/missing proof vectors now require the
+    generated proof to contain exactly the transcribed single RLP node, so
+    single-leaf proofs cannot regress into longer proofs that merely share the
+    same prefix.
     Added a geth `TestBadProof`-style verifier regression: a deterministic
     large-value proof now has its referenced branch node mutated and
     `mpt-verify-proof` must reject it, locking proof-node hash binding beyond

@@ -102,6 +102,7 @@
     "lookup-assertions"
     "empty-value-delete"
     "single-node-proof"
+    "exact-proof-node-rlp"
     "proof-node-rlp"
     "delete-proof-node-rlp"
     "missing-proof-node-rlp"
@@ -181,6 +182,7 @@
     "lookup-assertions"
     "empty-value-delete"
     "single-node-proof"
+    "exact-proof-node-rlp"
     "proof-node-rlp"
     "delete-proof-node-rlp"
     "missing-proof-node-rlp"
@@ -227,7 +229,7 @@
   '("keyHex" "keyAscii" "valueAscii" "valueHex"))
 
 (defparameter +trie-fixture-expected-proof-prefix-fields+
-  '("keyHex" "keyAscii" "nodeRlps"))
+  '("keyHex" "keyAscii" "nodeRlps" "exactLength"))
 
 (defparameter +eest-trie-test-case-fields+
   '("in" "out" "root" "secure"))
@@ -416,6 +418,11 @@
    expected
    (format nil "Trie fixture case ~A expectedProofPrefixes entry"
            case-name))
+  (when (fixture-field-present-p expected "exactLength")
+    (let ((exact-length (fixture-object-field expected "exactLength")))
+      (unless (or (eq exact-length t) (null exact-length))
+        (error "Trie fixture case ~A expectedProofPrefixes exactLength must be a boolean"
+               case-name))))
   (let ((node-rlps (fixture-required-field expected "nodeRlps")))
     (unless (and (listp node-rlps) node-rlps)
       (error "Trie fixture case ~A expectedProofPrefixes nodeRlps must be a non-empty list"
@@ -677,7 +684,8 @@
         secure-delete-to-empty-p
         secure-branch-root-p
         secure-extension-root-p
-        secure-entry-pair-replay-p)
+        secure-entry-pair-replay-p
+        exact-proof-node-rlp-p)
     (dolist (case cases)
       (unless (listp case)
         (error "Trie fixture case must be a JSON object"))
@@ -696,6 +704,10 @@
                            (fixture-object-field case "tags")
                            :test #'string=))
           (setf secure-entry-pair-replay-p t))
+        (when (some (lambda (expected)
+                      (fixture-object-field expected "exactLength"))
+                    (fixture-object-field case "expectedProofPrefixes"))
+          (setf exact-proof-node-rlp-p t))
         (when (and secure-p
                    (stringp shape)
                    (string= shape "empty")
@@ -715,7 +727,9 @@
     (unless secure-extension-root-p
       (error "Trie fixture must include a secure extension root case"))
     (unless secure-entry-pair-replay-p
-      (error "Trie fixture must include a secure entry-pair replay case"))))
+      (error "Trie fixture must include a secure entry-pair replay case"))
+    (unless exact-proof-node-rlp-p
+      (error "Trie fixture must include exact proof-node RLP coverage"))))
 
 (defun validate-trie-fixture-cases (cases)
   (validate-trie-fixture-case-coverage cases)
@@ -2606,7 +2620,9 @@
     (let* ((key (trie-fixture-trie-key case expected))
            (proof (mpt-get-proof trie key))
            (node-rlps (fixture-required-field expected "nodeRlps")))
-      (is (<= (length node-rlps) (length proof)))
+      (if (fixture-object-field expected "exactLength")
+          (is (= (length node-rlps) (length proof)))
+          (is (<= (length node-rlps) (length proof))))
       (loop for expected-rlp in node-rlps
             for actual-rlp in proof
             do (is (string= expected-rlp
@@ -3255,7 +3271,22 @@
                              (cons "keyAscii" "dog"))))
            (cons "expectedMissing"
                  (list (list (cons "keyAscii" "dog")
-                             (cons "proof" nil))))))))
+                             (cons "proof" nil)))))))
+  (signals error
+    (validate-trie-fixture-case-shape
+     (list (cons "name" "non-boolean-exact-proof")
+           (cons "expectedRoot"
+                 "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278")
+           (cons "expectedShape" "leaf")
+           (cons "operations"
+                 (list (list (cons "op" "put")
+                             (cons "keyAscii" "dog")
+                             (cons "valueAscii" "puppy"))))
+           (cons "expectedProofPrefixes"
+                 (list (list (cons "keyAscii" "dog")
+                             (cons "exactLength" "yes")
+                             (cons "nodeRlps"
+                                   (list "0xc88320646f67857075707079")))))))))
 
 (deftest trie-fixture-tag-validation-rejects-duplicates
   (signals error
