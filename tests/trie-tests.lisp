@@ -1631,6 +1631,34 @@
                  for count in explicit-output-missing-counts
                  unless secure-p
                    collect count))
+         (object-form-explicit-output-case-count
+           (loop for input-form in input-forms
+                 for output-p in explicit-output-flags
+                 count (and (string= "object" input-form) output-p)))
+         (secure-object-form-explicit-output-case-count
+           (loop for secure-p in secure-flags
+                 for input-form in input-forms
+                 for output-p in explicit-output-flags
+                 count (and secure-p
+                            (string= "object" input-form)
+                            output-p)))
+         (plain-object-form-explicit-output-case-count
+           (loop for secure-p in secure-flags
+                 for input-form in input-forms
+                 for output-p in explicit-output-flags
+                 count (and (not secure-p)
+                            (string= "object" input-form)
+                            output-p)))
+         (object-form-explicit-output-present-counts
+           (loop for input-form in input-forms
+                 for count in explicit-output-present-counts
+                 when (string= "object" input-form)
+                   collect count))
+         (object-form-explicit-output-missing-counts
+           (loop for input-form in input-forms
+                 for count in explicit-output-missing-counts
+                 when (string= "object" input-form)
+                   collect count))
          (secure-proof-present-counts
            (loop for secure-p in secure-flags
                  for count in proof-present-counts
@@ -2207,6 +2235,18 @@
            (reduce #'+ secure-explicit-output-missing-counts :initial-value 0))
      (cons "plainExplicitOutputMissingKeyCount"
            (reduce #'+ plain-explicit-output-missing-counts :initial-value 0))
+     (cons "objectFormExplicitOutputCaseCount"
+           object-form-explicit-output-case-count)
+     (cons "secureObjectFormExplicitOutputCaseCount"
+           secure-object-form-explicit-output-case-count)
+     (cons "plainObjectFormExplicitOutputCaseCount"
+           plain-object-form-explicit-output-case-count)
+     (cons "objectFormExplicitOutputPresentKeyCount"
+           (reduce #'+ object-form-explicit-output-present-counts
+                   :initial-value 0))
+     (cons "objectFormExplicitOutputMissingKeyCount"
+           (reduce #'+ object-form-explicit-output-missing-counts
+                   :initial-value 0))
      (cons "secureWriteEntryCount"
            (reduce #'+ secure-write-counts :initial-value 0))
      (cons "plainWriteEntryCount"
@@ -2289,6 +2329,16 @@
       (error "Phase A EEST trie subset must include present-key explicit out assertions"))
     (when (zerop (fixture-object-field summary "explicitOutputMissingKeyCount"))
       (error "Phase A EEST trie subset must include missing-key explicit out assertions"))
+    (when (zerop (fixture-object-field summary "objectFormExplicitOutputCaseCount"))
+      (error "Phase A EEST trie subset must include object-form explicit out assertions"))
+    (when (zerop (fixture-object-field summary "secureObjectFormExplicitOutputCaseCount"))
+      (error "Phase A EEST trie subset must include secure object-form explicit out assertions"))
+    (when (zerop (fixture-object-field summary "plainObjectFormExplicitOutputCaseCount"))
+      (error "Phase A EEST trie subset must include plain object-form explicit out assertions"))
+    (when (zerop (fixture-object-field summary "objectFormExplicitOutputPresentKeyCount"))
+      (error "Phase A EEST trie subset must include object-form present-key explicit out assertions"))
+    (when (zerop (fixture-object-field summary "objectFormExplicitOutputMissingKeyCount"))
+      (error "Phase A EEST trie subset must include object-form missing-key explicit out assertions"))
     (when (zerop (fixture-object-field summary "secureNonEmptyRootCount"))
       (error "Phase A EEST trie subset must include a non-empty secure trie root"))
     (when (zerop (fixture-object-field summary "secureBranchRootCount"))
@@ -3961,16 +4011,21 @@
     (is (= 34 (fixture-object-field summary "proofMissingKeyCount")))
     (is (= 13 (fixture-object-field summary "secureProofMissingKeyCount")))
     (is (= 21 (fixture-object-field summary "plainProofMissingKeyCount")))
-    (is (= 2 (fixture-object-field summary "explicitOutputCaseCount")))
-    (is (= 1 (fixture-object-field summary "secureExplicitOutputCaseCount")))
-    (is (= 1 (fixture-object-field summary "plainExplicitOutputCaseCount")))
-    (is (= 5 (fixture-object-field summary "explicitOutputEntryCount")))
-    (is (= 3 (fixture-object-field summary "explicitOutputPresentKeyCount")))
-    (is (= 2 (fixture-object-field summary "secureExplicitOutputPresentKeyCount")))
-    (is (= 1 (fixture-object-field summary "plainExplicitOutputPresentKeyCount")))
-    (is (= 2 (fixture-object-field summary "explicitOutputMissingKeyCount")))
-    (is (= 1 (fixture-object-field summary "secureExplicitOutputMissingKeyCount")))
-    (is (= 1 (fixture-object-field summary "plainExplicitOutputMissingKeyCount")))
+    (is (= 4 (fixture-object-field summary "explicitOutputCaseCount")))
+    (is (= 2 (fixture-object-field summary "secureExplicitOutputCaseCount")))
+    (is (= 2 (fixture-object-field summary "plainExplicitOutputCaseCount")))
+    (is (= 11 (fixture-object-field summary "explicitOutputEntryCount")))
+    (is (= 7 (fixture-object-field summary "explicitOutputPresentKeyCount")))
+    (is (= 4 (fixture-object-field summary "secureExplicitOutputPresentKeyCount")))
+    (is (= 3 (fixture-object-field summary "plainExplicitOutputPresentKeyCount")))
+    (is (= 4 (fixture-object-field summary "explicitOutputMissingKeyCount")))
+    (is (= 2 (fixture-object-field summary "secureExplicitOutputMissingKeyCount")))
+    (is (= 2 (fixture-object-field summary "plainExplicitOutputMissingKeyCount")))
+    (is (= 2 (fixture-object-field summary "objectFormExplicitOutputCaseCount")))
+    (is (= 1 (fixture-object-field summary "secureObjectFormExplicitOutputCaseCount")))
+    (is (= 1 (fixture-object-field summary "plainObjectFormExplicitOutputCaseCount")))
+    (is (= 4 (fixture-object-field summary "objectFormExplicitOutputPresentKeyCount")))
+    (is (= 2 (fixture-object-field summary "objectFormExplicitOutputMissingKeyCount")))
     (is (= 54 (fixture-object-field summary "secureWriteEntryCount")))
     (is (= 101 (fixture-object-field summary "plainWriteEntryCount")))
     (is (= 36 (fixture-object-field summary "totalDeleteEntryCount")))

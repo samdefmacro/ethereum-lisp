@@ -164,9 +164,13 @@ fixes in those areas are allowed; expansion is not.
   explicit present/missing output keys with trie lookup plus proof
   verification after root replay; those maps must cover every replay-derived
   final present key, with `null` entries reserved for extra missing-key
-  assertions. Object-form trie-test inputs now also replay
-  all key/value entry permutations, matching Nethermind's unordered
-  `trieanyorder` treatment before broader pinned trie imports are enabled. The
+  assertions. That explicit final-output gate now also covers object-form
+  `in` cases on both plain and secure replay, including present and missing
+  key assertions, so imported Nethermind/geth-style object-form fixtures cannot
+  bypass fixture-provided lookup expectations. Object-form trie-test inputs
+  now also replay all key/value entry permutations, matching Nethermind's
+  unordered `trieanyorder` treatment before broader pinned trie imports are
+  enabled. The
   selected secure trie subset now also
   gates duplicate-key
   overwrites, so secure-key replay keeps the StateTrie-like final-write-wins
