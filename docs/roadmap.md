@@ -117,6 +117,10 @@ fixes in those areas are allowed; expansion is not.
   It also gates the secure-key counterpart for a branch root whose child
   resolves to an extension, so both nested branch and nested extension child
   shapes are represented before pinned trie vectors replace the seed set.
+  The geth-derived secure account-RLP trie coverage now also locks the first
+  proof node for the three-account branch-root case against geth's root-node
+  RLP, adding direct proof encoding coverage on top of the secure account root
+  hashes.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now

@@ -2097,6 +2097,11 @@ splits can land after the Phase A smoke path closes.
     `0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d`.
     This keeps account-trie RLP compatibility covered on the secure-key path,
     including hashed branch child references for multiple account leaves.
+    Added a geth proof-node RLP prefix check for the three-account secure
+    account trie. The seed fixture now verifies the first proof node for the
+    first deterministic account address against geth's root-node RLP from
+    commit `8a0223e`, so the secure account branch encoding is locked by a
+    direct proof-node comparison as well as by the root hash.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
