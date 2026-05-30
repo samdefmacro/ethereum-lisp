@@ -136,7 +136,11 @@ fixes in those areas are allowed; expansion is not.
   `0x380d56237a963e2c17a7c282142dc0b85d3236cd515d4f0348c787e70a68d24c`.
   That regression is now also present in the seed trie vector fixture with
   lookup/missing checks, root branch child projections, and a geth-derived
-  proof-node RLP prefix for a retained hex key.
+  proof-node RLP prefix for a retained hex key. The geth `TestLargeValue`
+  boundary is now represented too, locking the `key1` / `key2` trie with a
+  32-byte value against
+  `0xafebee6cfce72f9d2a7a4f5926ac11f2a79bd75f3a9ae6358a08252ba5dce3be`
+  and checking the extension-root proof-node prefix in the seed fixture.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now

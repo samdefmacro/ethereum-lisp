@@ -33,6 +33,35 @@
       ]
     },
     {
+      "name": "geth-large-value-branch",
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-value", "lookup-assertions", "proof-node-rlp"],
+      "operations": [
+        { "op": "put", "keyAscii": "key1", "valueHex": "0x63636363" },
+        { "op": "put", "keyAscii": "key2", "valueHex": "0x0101010101010101010101010101010101010101010101010101010101010101" }
+      ],
+      "expectedRoot": "0xafebee6cfce72f9d2a7a4f5926ac11f2a79bd75f3a9ae6358a08252ba5dce3be",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [6, 11, 6, 5, 7, 9, 3],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyAscii": "key1", "valueHex": "0x63636363" },
+        { "keyAscii": "key2", "valueHex": "0x0101010101010101010101010101010101010101010101010101010101010101" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "key3" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyAscii": "key2",
+          "nodeRlps": [
+            "0xe68416b65793a0fc74138bf1e512b527f5d71c5a4bcaae8d4bdf17c0e31e4eb58166e7ea0da029",
+            "0xf780c6208463636363a03c2eb6f8f766784d300e3f9381cbc58aa53fbddd979c5b5dde0b52c21d7acf4e8080808080808080808080808080",
+            "0xe220a00101010101010101010101010101010101010101010101010101010101010101"
+          ]
+        }
+      ]
+    },
+    {
       "name": "geth-tiny-account-step-1",
       "tags": ["leaf-root", "path-compression", "hex-key", "hex-value", "lookup-assertions"],
       "operations": [

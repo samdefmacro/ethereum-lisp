@@ -2132,6 +2132,12 @@ splits can land after the Phase A smoke path closes.
     projections, and a direct proof-node RLP prefix for the retained
     `d51b...` key, so the geth fuzz regression now gates node encoding and
     proof replay as well as the selected EEST-style root.
+    Added geth `TestLargeValue` branch coverage to both the seed trie fixture
+    and selected EEST-style trie subset. The new `key1` / `key2` case locks
+    geth's `0xafebee6cfce72f9d2a7a4f5926ac11f2a79bd75f3a9ae6358a08252ba5dce3be`
+    root for the 32-byte value boundary, verifies retained/missing lookups,
+    and checks the extension-root proof-node RLP prefix so exact-threshold
+    value encoding is anchored to geth reference commit `8a0223e`.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
