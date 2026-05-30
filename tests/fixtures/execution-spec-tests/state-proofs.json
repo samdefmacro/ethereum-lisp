@@ -151,6 +151,59 @@
       }
     },
     {
+      "name": "storage-overwrite-to-zero-prunes-slot-proof",
+      "tags": ["present-account", "storage-missing", "storage-deleted-missing", "storage-overwrite-delete-proof", "geth-shaped-result"],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000104",
+          "balance": 1
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000104",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
+          "value": 99
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000104",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
+          "value": 100
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000104",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000009",
+          "value": 0
+        }
+      ],
+      "request": {
+        "address": "0x0000000000000000000000000000000000000104",
+        "storageKeys": [
+          "0x0000000000000000000000000000000000000000000000000000000000000009"
+        ]
+      },
+      "expectedRoot": "0x6439f64edbc9131a808f8c5ae56c2d0b71d938b485f7c523570181f3a4d79e6b",
+      "expectedProof": {
+        "address": "0x0000000000000000000000000000000000000104",
+        "accountProof": [
+          "0xf86aa1204c933a84259efbd4fb5d1522b5255e6118da186a2c71ec5efaa5c203067690b7b846f8448001a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        ],
+        "balance": "0x1",
+        "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "nonce": "0x0",
+        "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "storageProof": [
+          {
+            "key": "0x0000000000000000000000000000000000000000000000000000000000000009",
+            "value": "0x0",
+            "proof": null
+          }
+        ]
+      }
+    },
+    {
       "name": "present-account-without-storage-key-request",
       "tags": ["present-account", "no-storage-request", "geth-shaped-result"],
       "operations": [

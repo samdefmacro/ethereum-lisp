@@ -176,7 +176,10 @@ fixes in those areas are allowed; expansion is not.
   back to zero, the funded account must retain an empty storage root/trie, and
   after a three-slot secure storage trie deletes one present child, retained
   hashed child references, compressed paths, account RLPs, storage roots, and
-  final state roots must still match the two-slot non-collapsed outcomes.
+  final state roots must still match the two-slot non-collapsed outcomes. The
+  retained-state proof path now also locks that overwrite-then-zero boundary as
+  a geth-shaped `eth_getProof` response with an empty storage hash and null
+  missing-slot proof for the pruned slot.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing

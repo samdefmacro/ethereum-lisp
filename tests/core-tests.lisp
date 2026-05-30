@@ -8396,6 +8396,83 @@
         (is (state-db-verify-proof (state-db-root state)
                                    decoded-proof))))))
 
+(deftest eth-rpc-get-proof-storage-overwrite-to-zero
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (commit-state-block (store state number timestamp)
+             (let ((block
+                     (make-block
+                      :header (make-block-header
+                               :number number
+                               :timestamp timestamp
+                               :gas-limit 30000000
+                               :state-root (state-db-root state)))))
+               (chain-store-put-block store block :state-available-p t)
+               (commit-state-db-to-chain-store store (block-hash block) state)
+               block))
+           (proof-request (id address slots block)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "eth_getProof")
+                   (cons "params"
+                         (list (address-to-hex address)
+                               (mapcar #'hash32-to-hex slots)
+                               (hash32-to-hex (block-hash block))))))
+           (proof-node-hex-list (proof)
+             (mapcar #'bytes-to-hex proof)))
+    (let* ((store (make-engine-payload-memory-store))
+           (address
+             (address-from-hex "0x0000000000000000000000000000000000000104"))
+           (slot
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000009"))
+           (state (make-state-db)))
+      (state-db-set-account state address (make-state-account :balance 1))
+      (state-db-set-storage state address slot 99)
+      (state-db-set-storage state address slot 100)
+      (state-db-set-storage state address slot 0)
+      (let* ((block (commit-state-block store state 47 470))
+             (response
+               (engine-rpc-handle-request
+                (proof-request 122 address (list slot) block)
+                store
+                (make-chain-config)))
+             (proof (field response "result"))
+             (storage-proofs (field proof "storageProof"))
+             (storage-proof (first storage-proofs))
+             (expected-proof
+               (state-db-get-proof state address (list slot)))
+             (expected-storage-proof
+               (first (state-proof-result-storage-proofs expected-proof)))
+             (decoded-proof
+               (state-proof-result-from-rpc-object proof)))
+        (is (equal (state-proof-result-rpc-object expected-proof)
+                   proof))
+        (is (string= (address-to-hex address)
+                     (field proof "address")))
+        (is (string= (quantity-to-hex 1)
+                     (field proof "balance")))
+        (is (string= (quantity-to-hex 0)
+                     (field proof "nonce")))
+        (is (string= (hash32-to-hex +empty-code-hash+)
+                     (field proof "codeHash")))
+        (is (string= (hash32-to-hex +empty-trie-hash+)
+                     (field proof "storageHash")))
+        (is (equal (proof-node-hex-list
+                    (state-proof-result-account-proof expected-proof))
+                   (field proof "accountProof")))
+        (is (= 1 (length storage-proofs)))
+        (is (string= (hash32-to-hex slot)
+                     (field storage-proof "key")))
+        (is (string= (quantity-to-hex 0)
+                     (field storage-proof "value")))
+        (is (null (field storage-proof "proof")))
+        (is (equal (proof-node-hex-list
+                    (state-storage-proof-proof expected-storage-proof))
+                   (field storage-proof "proof")))
+        (is (state-db-verify-proof (state-db-root state)
+                                   decoded-proof))))))
+
 (deftest eth-rpc-get-proof-storage-delete-boundaries
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
