@@ -478,7 +478,10 @@
                       (gethash slot (state-object-storage object)))))
 
 (defun state-proof-key-id (key)
-  (bytes-to-hex (ensure-byte-vector key) :prefix nil))
+  (bytes-to-hex (if (hash32-p key)
+                    (hash32-bytes key)
+                    (ensure-byte-vector key))
+                :prefix nil))
 
 (defun state-proof-key-in-range-p (proof-key start end)
   (let ((key-id (state-proof-key-id proof-key))

@@ -4114,7 +4114,9 @@
         "storage-root",
         "storage-root-projection",
         "code-root",
-        "account-projection"
+        "account-projection",
+        "account-range",
+        "storage-range"
       ],
       "operations": [
         {
@@ -4166,6 +4168,62 @@
         {
           "address": "0x0000000000000000000000000000000000000202",
           "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+        }
+      ],
+      "expectedAccountRanges": [
+        {
+          "expectedAccounts": [
+            {
+              "proofKey": "0xd254df98feb1a4a9b40713ad982aa3fe267734cfc905a38248271d509a6b2487",
+              "address": "0x0000000000000000000000000000000000000202",
+              "rlp": "0xf8448003a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d",
+              "code": "0x6001600201",
+              "storage": []
+            },
+            {
+              "proofKey": "0xd8537d8c61b5b671c520f767533666ce1cfd1dcbd6513bab30b3af087f68c707",
+              "address": "0x0000000000000000000000000000000000000201",
+              "rlp": "0xf8440102a02e7827dc2c61c322f13f77e6f25dd18844ccc48426dde70301d2d57d138fced8a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+              "code": "0x",
+              "storage": [
+                {
+                  "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                  "value": 7
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "startProofKey": "0xd254df98feb1a4a9b40713ad982aa3fe267734cfc905a38248271d509a6b2487",
+          "endProofKey": "0xd8537d8c61b5b671c520f767533666ce1cfd1dcbd6513bab30b3af087f68c707",
+          "expectedAccounts": [
+            {
+              "proofKey": "0xd254df98feb1a4a9b40713ad982aa3fe267734cfc905a38248271d509a6b2487",
+              "address": "0x0000000000000000000000000000000000000202",
+              "rlp": "0xf8448003a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0decae447f2d47ba6808e14c600b3b7611ce1cc9a632546acfd1130ca42c07c4d",
+              "code": "0x6001600201",
+              "storage": []
+            }
+          ]
+        }
+      ],
+      "expectedStorageRanges": [
+        {
+          "address": "0x0000000000000000000000000000000000000201",
+          "expectedStorage": [
+            {
+              "proofKey": "0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6",
+              "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+              "value": 7
+            }
+          ]
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000201",
+          "startProofKey": "0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6",
+          "endProofKey": "0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6",
+          "expectedStorage": []
         }
       ],
       "expectedRoot": "0x135f5309d81f52a9be75830a47a92edf04c45be79614d98bffd993c08d1bac01"

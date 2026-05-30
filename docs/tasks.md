@@ -2339,6 +2339,11 @@ splits can land after the Phase A smoke path closes.
     range entries now export their proof trie keys with half-open bounds,
     account/code/storage projections, and deterministic ordering for later
     Snap-style range workloads and retained-state snapshot consumers.
+    Extended the state-root fixture harness with explicit account/storage
+    range expectations. The multi-account secure state seed now locks full and
+    bounded account proof-key ranges plus storage range/equal-bound behavior,
+    so snapshot range regressions are caught at the fixture layer as well as
+    direct unit coverage.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

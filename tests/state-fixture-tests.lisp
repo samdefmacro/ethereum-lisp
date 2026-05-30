@@ -25,6 +25,8 @@
     "expectedRoot"
     "expectedStorageRoots"
     "expectedAccounts"
+    "expectedAccountRanges"
+    "expectedStorageRanges"
     "expectedStorageTrieShapes"
     "expectedStateTrieShape"
     "expectedStateTrieRootPathNibbles"
@@ -75,6 +77,21 @@
 (defparameter +state-root-fixture-account-fields+
   '("address" "nonce" "balance" "storageRoot" "codeHash" "rlp"))
 
+(defparameter +state-root-fixture-account-range-fields+
+  '("startProofKey" "endProofKey" "expectedAccounts"))
+
+(defparameter +state-root-fixture-account-range-account-fields+
+  '("proofKey" "address" "rlp" "code" "storage"))
+
+(defparameter +state-root-fixture-account-range-storage-fields+
+  '("slot" "value"))
+
+(defparameter +state-root-fixture-storage-range-fields+
+  '("address" "startProofKey" "endProofKey" "expectedStorage"))
+
+(defparameter +state-root-fixture-storage-range-entry-fields+
+  '("proofKey" "slot" "value"))
+
 (defparameter +state-root-fixture-known-tags+
   '("empty-state-root"
     "account-root"
@@ -88,6 +105,8 @@
     "code-update"
     "multi-account"
     "account-projection"
+    "account-range"
+    "storage-range"
     "account-update"
     "balance-update"
     "value-transfer"
@@ -208,6 +227,8 @@
     "code-update"
     "multi-account"
     "account-projection"
+    "account-range"
+    "storage-range"
     "account-update"
     "balance-update"
     "value-transfer"
@@ -631,6 +652,170 @@
      "rlp"
      "State root fixture expectedAccounts entry")))
 
+(defun validate-state-root-fixture-account-range-storage-shape
+    (expected case-name)
+  (unless (listp expected)
+    (error "State root fixture case ~A expectedAccountRanges storage entry must be a JSON object"
+           case-name))
+  (validate-state-root-fixture-object-fields
+   expected
+   +state-root-fixture-account-range-storage-fields+
+   (format nil "State root fixture case ~A expectedAccountRanges storage entry"
+           case-name))
+  (validate-state-root-fixture-hash-field
+   expected
+   "slot"
+   "State root fixture expectedAccountRanges storage entry")
+  (validate-state-root-fixture-non-negative-integer
+   expected
+   "value"
+   :required-p t))
+
+(defun validate-state-root-fixture-account-range-account-shape
+    (expected case-name)
+  (unless (listp expected)
+    (error "State root fixture case ~A expectedAccountRanges account entry must be a JSON object"
+           case-name))
+  (validate-state-root-fixture-object-fields
+   expected
+   +state-root-fixture-account-range-account-fields+
+   (format nil "State root fixture case ~A expectedAccountRanges account entry"
+           case-name))
+  (validate-state-root-fixture-hash-field
+   expected
+   "proofKey"
+   "State root fixture expectedAccountRanges account entry")
+  (validate-state-root-fixture-address-field
+   expected
+   "address"
+   "State root fixture expectedAccountRanges account entry")
+  (validate-state-root-fixture-hex-field
+   expected
+   "rlp"
+   "State root fixture expectedAccountRanges account entry")
+  (validate-state-root-fixture-hex-field
+   expected
+   "code"
+   "State root fixture expectedAccountRanges account entry")
+  (let ((storage (fixture-required-field expected "storage")))
+    (unless (listp storage)
+      (error "State root fixture case ~A expectedAccountRanges storage must be a JSON array"
+             case-name))
+    (let ((seen-slots (make-hash-table :test 'equal)))
+      (dolist (entry storage)
+        (validate-state-root-fixture-account-range-storage-shape
+         entry case-name)
+        (let ((slot (fixture-required-field entry "slot")))
+          (when (gethash slot seen-slots)
+            (error "State root fixture case ~A expectedAccountRanges has duplicate storage slot ~A"
+                   case-name slot))
+          (setf (gethash slot seen-slots) t))))))
+
+(defun validate-state-root-fixture-account-range-shape (expected case-name)
+  (unless (listp expected)
+    (error "State root fixture case ~A expectedAccountRanges entry must be a JSON object"
+           case-name))
+  (validate-state-root-fixture-object-fields
+   expected
+   +state-root-fixture-account-range-fields+
+   (format nil "State root fixture case ~A expectedAccountRanges entry"
+           case-name))
+  (when (fixture-field-present-p expected "startProofKey")
+    (validate-state-root-fixture-hash-field
+     expected
+     "startProofKey"
+     "State root fixture expectedAccountRanges entry"))
+  (when (fixture-field-present-p expected "endProofKey")
+    (validate-state-root-fixture-hash-field
+     expected
+     "endProofKey"
+     "State root fixture expectedAccountRanges entry"))
+  (let ((accounts (fixture-required-field expected "expectedAccounts"))
+        (seen-proof-keys (make-hash-table :test 'equal))
+        (previous-proof-key nil))
+    (unless (listp accounts)
+      (error "State root fixture case ~A expectedAccountRanges expectedAccounts must be a JSON array"
+             case-name))
+    (dolist (account accounts)
+      (validate-state-root-fixture-account-range-account-shape
+       account case-name)
+      (let ((proof-key (fixture-required-field account "proofKey")))
+        (when (gethash proof-key seen-proof-keys)
+          (error "State root fixture case ~A expectedAccountRanges has duplicate proofKey ~A"
+                 case-name proof-key))
+        (when (and previous-proof-key
+                   (string< proof-key previous-proof-key))
+          (error "State root fixture case ~A expectedAccountRanges proofKeys must be sorted"
+                 case-name))
+        (setf (gethash proof-key seen-proof-keys) t
+              previous-proof-key proof-key)))))
+
+(defun validate-state-root-fixture-storage-range-entry-shape
+    (expected case-name)
+  (unless (listp expected)
+    (error "State root fixture case ~A expectedStorageRanges entry item must be a JSON object"
+           case-name))
+  (validate-state-root-fixture-object-fields
+   expected
+   +state-root-fixture-storage-range-entry-fields+
+   (format nil "State root fixture case ~A expectedStorageRanges entry item"
+           case-name))
+  (validate-state-root-fixture-hash-field
+   expected
+   "proofKey"
+   "State root fixture expectedStorageRanges entry")
+  (validate-state-root-fixture-hash-field
+   expected
+   "slot"
+   "State root fixture expectedStorageRanges entry")
+  (validate-state-root-fixture-non-negative-integer
+   expected
+   "value"
+   :required-p t))
+
+(defun validate-state-root-fixture-storage-range-shape (expected case-name)
+  (unless (listp expected)
+    (error "State root fixture case ~A expectedStorageRanges entry must be a JSON object"
+           case-name))
+  (validate-state-root-fixture-object-fields
+   expected
+   +state-root-fixture-storage-range-fields+
+   (format nil "State root fixture case ~A expectedStorageRanges entry"
+           case-name))
+  (validate-state-root-fixture-address-field
+   expected
+   "address"
+   "State root fixture expectedStorageRanges entry")
+  (when (fixture-field-present-p expected "startProofKey")
+    (validate-state-root-fixture-hash-field
+     expected
+     "startProofKey"
+     "State root fixture expectedStorageRanges entry"))
+  (when (fixture-field-present-p expected "endProofKey")
+    (validate-state-root-fixture-hash-field
+     expected
+     "endProofKey"
+     "State root fixture expectedStorageRanges entry"))
+  (let ((storage (fixture-required-field expected "expectedStorage"))
+        (seen-proof-keys (make-hash-table :test 'equal))
+        (previous-proof-key nil))
+    (unless (listp storage)
+      (error "State root fixture case ~A expectedStorageRanges expectedStorage must be a JSON array"
+             case-name))
+    (dolist (entry storage)
+      (validate-state-root-fixture-storage-range-entry-shape
+       entry case-name)
+      (let ((proof-key (fixture-required-field entry "proofKey")))
+        (when (gethash proof-key seen-proof-keys)
+          (error "State root fixture case ~A expectedStorageRanges has duplicate proofKey ~A"
+                 case-name proof-key))
+        (when (and previous-proof-key
+                   (string< proof-key previous-proof-key))
+          (error "State root fixture case ~A expectedStorageRanges proofKeys must be sorted"
+                 case-name))
+        (setf (gethash proof-key seen-proof-keys) t
+              previous-proof-key proof-key)))))
+
 (defun validate-state-root-fixture-trie-shape-field (case)
   (when (fixture-field-present-p case "expectedStateTrieShape")
     (let ((shape (fixture-object-field case "expectedStateTrieShape")))
@@ -793,6 +978,24 @@
             (error "State root fixture case has duplicate expectedAccounts address ~A"
                    address))
           (setf (gethash address-id seen-addresses) t)))))
+  (when (fixture-field-present-p case "expectedAccountRanges")
+    (let ((expected-account-ranges
+            (fixture-object-field case "expectedAccountRanges")))
+      (unless (listp expected-account-ranges)
+        (error "State root fixture case expectedAccountRanges must be a JSON array"))
+      (dolist (expected expected-account-ranges)
+        (validate-state-root-fixture-account-range-shape
+         expected
+         (fixture-required-field case "name")))))
+  (when (fixture-field-present-p case "expectedStorageRanges")
+    (let ((expected-storage-ranges
+            (fixture-object-field case "expectedStorageRanges")))
+      (unless (listp expected-storage-ranges)
+        (error "State root fixture case expectedStorageRanges must be a JSON array"))
+      (dolist (expected expected-storage-ranges)
+        (validate-state-root-fixture-storage-range-shape
+         expected
+         (fixture-required-field case "name")))))
   (validate-state-root-fixture-state-trie-expectations case))
 
 (defun validate-state-root-fixture-cases (cases)
@@ -1081,6 +1284,85 @@
         (when rlp
           (is (string= rlp
                        (bytes-to-hex (state-account-rlp account)))))))))
+
+(defun state-root-fixture-optional-proof-key (object field)
+  (when (fixture-field-present-p object field)
+    (hash32-bytes (hash32-from-hex (fixture-object-field object field)))))
+
+(defun state-root-fixture-account-range-storage (entry)
+  (sort (mapcar (lambda (storage)
+                  (list (hash32-to-hex (car storage))
+                        (cdr storage)))
+                (state-account-range-entry-storage-entries entry))
+        #'string<
+        :key #'first))
+
+(defun state-root-fixture-expected-account-range-storage (expected)
+  (mapcar (lambda (storage)
+            (list (fixture-required-field storage "slot")
+                  (fixture-required-field storage "value")))
+          (fixture-required-field expected "storage")))
+
+(defun assert-state-root-fixture-account-ranges (state case)
+  (dolist (expected-range (fixture-object-field case "expectedAccountRanges"))
+    (let* ((entries
+             (state-db-account-range
+              state
+              :start (state-root-fixture-optional-proof-key
+                      expected-range "startProofKey")
+              :end (state-root-fixture-optional-proof-key
+                    expected-range "endProofKey")))
+           (expected-accounts
+             (fixture-required-field expected-range "expectedAccounts")))
+      (is (= (length expected-accounts) (length entries)))
+      (loop for expected in expected-accounts
+            for entry in entries
+            do (progn
+                 (is (string= (fixture-required-field expected "proofKey")
+                              (bytes-to-hex
+                               (state-account-range-entry-proof-key entry))))
+                 (is (string= (fixture-required-field expected "address")
+                              (address-to-hex
+                               (state-account-range-entry-address entry))))
+                 (is (string= (fixture-required-field expected "rlp")
+                              (bytes-to-hex
+                               (state-account-rlp
+                                (state-account-range-entry-account entry)))))
+                 (is (string= (fixture-required-field expected "code")
+                              (bytes-to-hex
+                               (state-account-range-entry-code entry))))
+                 (is (equal
+                      (state-root-fixture-expected-account-range-storage
+                       expected)
+                      (state-root-fixture-account-range-storage entry))))))))
+
+(defun assert-state-root-fixture-storage-ranges (state case)
+  (dolist (expected-range (fixture-object-field case "expectedStorageRanges"))
+    (let* ((address
+             (address-from-hex
+              (fixture-required-field expected-range "address")))
+           (entries
+             (state-db-storage-range
+              state
+              address
+              :start (state-root-fixture-optional-proof-key
+                      expected-range "startProofKey")
+              :end (state-root-fixture-optional-proof-key
+                    expected-range "endProofKey")))
+           (expected-storage
+             (fixture-required-field expected-range "expectedStorage")))
+      (is (= (length expected-storage) (length entries)))
+      (loop for expected in expected-storage
+            for entry in entries
+            do (progn
+                 (is (string= (fixture-required-field expected "proofKey")
+                              (bytes-to-hex
+                               (state-storage-range-entry-proof-key entry))))
+                 (is (string= (fixture-required-field expected "slot")
+                              (hash32-to-hex
+                               (state-storage-range-entry-slot entry))))
+                 (is (= (fixture-required-field expected "value")
+                        (state-storage-range-entry-value entry))))))))
 
 (defun state-root-fixture-state-trie (state)
   (ethereum-lisp.state::state-db-state-trie state))
@@ -1867,6 +2149,8 @@
         (assert-state-root-fixture-storage-roots state case)
         (assert-state-root-fixture-storage-tries state case)
         (assert-state-root-fixture-accounts state case)
+        (assert-state-root-fixture-account-ranges state case)
+        (assert-state-root-fixture-storage-ranges state case)
         (assert-state-root-fixture-state-trie state case)))))
 
 (deftest state-proof-fixture-shape-validation
