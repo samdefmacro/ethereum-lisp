@@ -128,6 +128,7 @@
     "balance-add-zero-funded-account-keeps-account-root"
     "balance-add-preserves-code-and-storage-root"
     "value-transfer-creates-recipient-account-root"
+    "value-transfer-preserves-code-and-storage-root"
     "value-transfer-zero-missing-recipient-keeps-root"
     "state-trie-branch-value-transfer-creates-recipient-root"
     "state-trie-branch-balance-add-zero-missing-keeps-root"

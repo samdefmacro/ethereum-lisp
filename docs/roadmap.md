@@ -175,6 +175,10 @@ fixes in those areas are allowed; expansion is not.
   extension, and branch-with-extension-child state roots, asserting the touched
   account's storage trie returns to empty while sibling account projections,
   path-compressed root nibbles, and state child references remain stable.
+  Value-transfer state-root coverage now also locks transfers between
+  accounts that already carry code and storage, so balance-only movement must
+  preserve both accounts' code hashes, storage roots, and branch-shaped
+  account-trie references.
   The selected Phase A transaction subset
   now gates access-list and dynamic-fee contract creation alongside legacy
   creation, including derived `contractAddress` checks from sender/nonce, so

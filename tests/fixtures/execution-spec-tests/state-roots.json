@@ -2199,6 +2199,112 @@
       "expectedRoot": "0xeb1be297ad9e87812158dcb9b646fe55dfc2e89526b65cf76bd4fe3b40c68da9"
     },
     {
+      "name": "value-transfer-preserves-code-and-storage-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "balance-update",
+        "value-transfer",
+        "account-projection",
+        "storage-root",
+        "storage-root-projection",
+        "code-root",
+        "state-trie-branch",
+        "state-trie-branch-child-references"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000311",
+          "nonce": 7,
+          "balance": 1000
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000311",
+          "code": "0x6001600055"
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000311",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": 42
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000312",
+          "nonce": 3,
+          "balance": 5
+        },
+        {
+          "op": "setCode",
+          "address": "0x0000000000000000000000000000000000000312",
+          "code": "0x6002600055"
+        },
+        {
+          "op": "setStorage",
+          "address": "0x0000000000000000000000000000000000000312",
+          "slot": "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "value": 99
+        },
+        {
+          "op": "transferValue",
+          "address": "0x0000000000000000000000000000000000000311",
+          "recipient": "0x0000000000000000000000000000000000000312",
+          "amount": 37
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000311",
+          "nonce": 7,
+          "balance": 963,
+          "storageRoot": "0xfcbdb9e7191a6bc6efbe2e1903a50bd3c79312366db1e46acf7e94788c2b4c3e",
+          "codeHash": "0x7efcce47028dabcb0d42f3a7eda8820bf6f7f4e618398c2547d52f703cafb073",
+          "rlp": "0xf846078203c3a0fcbdb9e7191a6bc6efbe2e1903a50bd3c79312366db1e46acf7e94788c2b4c3ea07efcce47028dabcb0d42f3a7eda8820bf6f7f4e618398c2547d52f703cafb073"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000312",
+          "nonce": 3,
+          "balance": 42,
+          "storageRoot": "0x05e72bbdbc399b5daf4803ea47ddcca13a8d4271df76d5d4ef5e35c16e9db2c2",
+          "codeHash": "0x813fab83fb9005f904e9c8b0a1b888d11da0c2d570ad641e2e89d55155d93de5",
+          "rlp": "0xf844032aa005e72bbdbc399b5daf4803ea47ddcca13a8d4271df76d5d4ef5e35c16e9db2c2a0813fab83fb9005f904e9c8b0a1b888d11da0c2d570ad641e2e89d55155d93de5"
+        }
+      ],
+      "expectedStorageRoots": [
+        {
+          "address": "0x0000000000000000000000000000000000000311",
+          "root": "0xfcbdb9e7191a6bc6efbe2e1903a50bd3c79312366db1e46acf7e94788c2b4c3e"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000312",
+          "root": "0x05e72bbdbc399b5daf4803ea47ddcca13a8d4271df76d5d4ef5e35c16e9db2c2"
+        }
+      ],
+      "expectedStorageTrieShapes": [
+        {
+          "address": "0x0000000000000000000000000000000000000311",
+          "shape": "leaf"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000312",
+          "shape": "leaf"
+        }
+      ],
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [1, 13],
+      "expectedStateTrieRootChildShapes": {
+        "1": "leaf",
+        "13": "leaf"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "1": "hashed",
+        "13": "hashed"
+      },
+      "expectedRoot": "0xe7a56ba829b77af0333cee21912cd914b89c1e43e25654125b27b9efe0b70c3c"
+    },
+    {
       "name": "value-transfer-zero-missing-recipient-keeps-root",
       "tags": [
         "account-root",

@@ -2277,6 +2277,11 @@ splits can land after the Phase A smoke path closes.
     addresses and per-account storage slots before invoking snapshot/replay
     callbacks. This keeps chain-store state snapshot commits and fixture
     exports independent of Common Lisp hash-table iteration order.
+    Added a value-transfer state-root fixture where both sender and recipient
+    already have code and storage. The seed gate now locks that value transfer
+    updates only balances while preserving both accounts' code hashes, storage
+    roots, account RLP projections, storage trie shapes, and branch-shaped
+    state root child references.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
