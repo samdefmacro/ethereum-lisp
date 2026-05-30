@@ -2087,6 +2087,16 @@ splits can land after the Phase A smoke path closes.
     The fixture gates the single-account leaf root and the transition into
     hashed extension children with multiple account RLP leaves, using geth
     reference commit `8a0223e`.
+    Added the matching geth-derived secure account-RLP trie coverage for the
+    deterministic `makeAccounts` addresses. The new seed vectors and selected
+    secureTrie cases hash addresses before replay, locking the one-, two-, and
+    three-account roots
+    `0xc8c796b39027107040d7bae53042070762d888d7ec5e8fa875c95bde2ab3e8a5`,
+    `0x95e5d195992feeb1c07e0725456fde075005f3fe3ae2270b0b956004049de80f`,
+    and
+    `0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d`.
+    This keeps account-trie RLP compatibility covered on the secure-key path,
+    including hashed branch child references for multiple account leaves.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
