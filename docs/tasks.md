@@ -2147,6 +2147,10 @@ splits can land after the Phase A smoke path closes.
     single leaf proof node for both present-key and missing-key lookups
     (`a`, `j`, `l`, `z`), and the fixture coverage gate now requires this
     single-node proof boundary.
+    Added a geth `TestBadProof`-style verifier regression: a deterministic
+    large-value proof now has its referenced branch node mutated and
+    `mpt-verify-proof` must reject it, locking proof-node hash binding beyond
+    wrong-root and extra-node checks.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

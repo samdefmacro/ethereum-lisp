@@ -143,7 +143,9 @@ fixes in those areas are allowed; expansion is not.
   and checking both present-key and missing-key proof-node prefixes in the
   seed fixture. The geth one-element proof boundary is represented as well,
   locking the single leaf proof node for present and missing lookups around
-  `k` -> `v`.
+  `k` -> `v`. Proof verification now also rejects a tampered referenced node
+  in that geth large-value proof shape, so proof-node hash binding is covered
+  directly.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now

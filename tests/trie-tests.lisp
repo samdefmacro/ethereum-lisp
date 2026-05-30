@@ -2236,6 +2236,26 @@
        (append (mpt-get-proof trie (ascii-to-bytes "dog"))
                (mpt-get-proof trie (ascii-to-bytes "horse")))))))
 
+(deftest trie-proof-rejects-tampered-referenced-node
+  (let ((trie (make-mpt)))
+    (mpt-put trie (ascii-to-bytes "key1") (hex-to-bytes "0x63636363"))
+    (mpt-put trie
+             (ascii-to-bytes "key2")
+             (hex-to-bytes
+              "0x0101010101010101010101010101010101010101010101010101010101010101"))
+    (let* ((proof (mpt-get-proof trie (ascii-to-bytes "key2")))
+           (tampered-node (copy-seq (second proof)))
+           (tampered-proof (copy-list proof)))
+      (is (>= (length proof) 2))
+      (setf (aref tampered-node 0)
+            (logxor (aref tampered-node 0) #x01))
+      (setf (second tampered-proof) tampered-node)
+      (signals error
+        (mpt-verify-proof
+         (mpt-root-hash trie)
+         (ascii-to-bytes "key2")
+         tampered-proof)))))
+
 (deftest trie-proof-verifies-empty-root-absence
   (multiple-value-bind (value present-p)
       (mpt-verify-proof
