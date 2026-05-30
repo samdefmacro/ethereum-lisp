@@ -200,7 +200,10 @@ fixes in those areas are allowed; expansion is not.
   Code-update and code-delete state-root fixtures now also cover branch-root,
   extension-root, and branch-with-extension-child account tries, asserting the
   updated or cleared code hash, retained sibling account projection, and
-  non-leaf state-trie shape/reference invariants.
+  non-leaf state-trie shape/reference invariants. Non-leaf `clearAccount`
+  fixtures also prune accounts carrying both code and storage, locking
+  branch/extension collapse outcomes and the branch-with-extension-child
+  compression back to an extension root.
 
 The long status paragraphs below preserve current implementation history. New
 large status updates should either replace them with concise Done/Partial/Missing

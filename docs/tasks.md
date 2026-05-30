@@ -2002,6 +2002,11 @@ splits can land after the Phase A smoke path closes.
     extension, and branch-with-extension-child fixtures that assert the empty
     code hash, retained sibling account projections, final state roots, and
     non-leaf trie shape/reference invariants.
+    Added non-leaf `clearAccount` fixtures where the pruned account carries
+    both code and storage. Branch and extension roots now prove cleanup
+    collapse to a retained leaf, while the branch-with-extension-child layout
+    proves cleanup compression back to an extension root with surviving
+    sibling account projections.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
