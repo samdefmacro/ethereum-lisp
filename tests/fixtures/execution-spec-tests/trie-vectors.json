@@ -236,6 +236,50 @@
       ]
     },
     {
+      "name": "geth-random-cases-sequence",
+      "tags": ["branch-root", "branch-child-references", "hashed-child-reference", "hex-key", "hex-value", "missing-delete-noop", "duplicate-overwrite", "lookup-assertions", "proof-node-rlp"],
+      "operations": [
+        { "op": "put", "keyHex": "0xd51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd", "valueHex": "0x0000000000000002" },
+        { "op": "put", "keyHex": "0xc2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e", "valueHex": "0x0000000000000008" },
+        { "op": "put", "keyHex": "0xd51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd", "valueHex": "0x0000000000000009" },
+        { "op": "put", "keyHex": "0xfd", "valueHex": "0x000000000000000d" },
+        { "op": "delete", "keyHex": "0xc2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e" },
+        { "op": "put", "keyHex": "0xc2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e", "valueHex": "0x0000000000000011" },
+        { "op": "put", "keyHex": "0xd51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd", "valueHex": "0x0000000000000014" },
+        { "op": "put", "keyHex": "0xd51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd", "valueHex": "0x0000000000000015" },
+        { "op": "put", "keyHex": "0xc2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e", "valueHex": "0x0000000000000016" },
+        { "op": "delete", "keyHex": "0x980c393656413a15c8da01978ed9f89feb80b502f58f2d640e3a2f5f7a99a7018f1b573befd92053ac6f78fca4a87268" },
+        { "op": "delete", "keyHex": "0xfd" }
+      ],
+      "expectedRoot": "0x380d56237a963e2c17a7c282142dc0b85d3236cd515d4f0348c787e70a68d24c",
+      "expectedShape": "branch",
+      "expectedRootChildren": [12, 13],
+      "expectedRootChildReferences": {
+        "12": "hashed",
+        "13": "hashed"
+      },
+      "expectedRootChildShapes": {
+        "12": "leaf",
+        "13": "leaf"
+      },
+      "expectedGets": [
+        { "keyHex": "0xc2a38512b83107d665c65235b0250002882ac2022eb00711552354832c5f1d030d0e408e", "valueHex": "0x0000000000000016" },
+        { "keyHex": "0xd51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd", "valueHex": "0x0000000000000015" }
+      ],
+      "expectedMissing": [
+        { "keyHex": "0x980c393656413a15c8da01978ed9f89feb80b502f58f2d640e3a2f5f7a99a7018f1b573befd92053ac6f78fca4a87268" },
+        { "keyHex": "0xfd" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyHex": "0xd51b182b95d677e5f1c82508c0228de96b73092d78ce78b2230cd948674f66fd1483bd",
+          "nodeRlps": [
+            "0xf851808080808080808080808080a073a3df53f5045f63152149d5d482eeb83d69bec7ab9130184455e7abb98438a8a0cfa936a9a71fc65d13fcb5099ac805ab966031816f18b1b4de3bbae2fcb7c92d808080"
+          ]
+        }
+      ]
+    },
+    {
       "name": "nethermind-partial-path-proof-nodes",
       "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "proof-node-rlp"],
       "operations": [

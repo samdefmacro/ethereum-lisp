@@ -2122,6 +2122,11 @@ splits can land after the Phase A smoke path closes.
     key, locking geth's final
     `0x380d56237a963e2c17a7c282142dc0b85d3236cd515d4f0348c787e70a68d24c`
     branch root against reference commit `8a0223e`.
+    Promoted the same geth `TestRandomCases` regression into the seed trie
+    vector fixture with final lookup/missing assertions, root branch child
+    projections, and a direct proof-node RLP prefix for the retained
+    `d51b...` key, so the geth fuzz regression now gates node encoding and
+    proof replay as well as the selected EEST-style root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
