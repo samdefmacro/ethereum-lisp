@@ -2407,6 +2407,10 @@ splits can land after the Phase A smoke path closes.
     plus the `0x8800` deep extension-to-branch sequence. The new vectors lock
     every post-insert StackTrie root, final extension paths, and final
     branch-child shape projections.
+    Added three further geth `TestStackTrieInsertAndHash` table-head extension
+    fanout cases for the `0x0`, `0xf`, and `0xff` prefixes. These lock every
+    post-insert StackTrie root plus final extension paths `[0]`, `[15]`, and
+    `[15, 15]` with hashed child references.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
