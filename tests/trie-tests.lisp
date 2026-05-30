@@ -144,6 +144,11 @@
     "geth-stacktrie-shared-prefix-shortens-to-two-nibbles"
     "geth-stacktrie-shared-prefix-shortens-to-one-nibble"
     "geth-stacktrie-shared-prefix-splits-to-root-branch"
+    "geth-stacktrie-long-shared-prefix-tail-fanout"
+    "geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles"
+    "geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles"
+    "geth-stacktrie-long-shared-prefix-shortens-to-one-nibble"
+    "geth-stacktrie-long-shared-prefix-splits-to-root-branch"
     "nethermind-partial-path-proof-nodes"
     "branch-extension-shared-prefix"
     "branch-child-branch"
@@ -215,6 +220,11 @@
     ("geth-stacktrie-shared-prefix-shortens-to-two-nibbles" . :plain)
     ("geth-stacktrie-shared-prefix-shortens-to-one-nibble" . :plain)
     ("geth-stacktrie-shared-prefix-splits-to-root-branch" . :plain)
+    ("geth-stacktrie-long-shared-prefix-tail-fanout" . :plain)
+    ("geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles" . :plain)
+    ("geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles" . :plain)
+    ("geth-stacktrie-long-shared-prefix-shortens-to-one-nibble" . :plain)
+    ("geth-stacktrie-long-shared-prefix-splits-to-root-branch" . :plain)
     ("nethermind-partial-path-proof-nodes" . :plain)
     ("geth-secure-account-step-1" . :secure)
     ("geth-secure-account-step-2" . :secure)
