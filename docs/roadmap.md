@@ -397,6 +397,12 @@ The same seed/EEST-style trie path now includes geth's long leaf-value
 `TestInsert` case for key `A` with a 50-byte value, locking the
 `0xd23786fb4a010da3ce639d66d5e904a11dbc02746d1ce25029e53290cabf28ab`
 root and leaf value projection.
+It also carries geth `TestTinyTrie` account-trie roots for keys ending
+`0x1337`, `0x1338`, and `0x1339`, including deterministic RLP account
+values and the progressive single-leaf-to-extension transition rooted at
+`0x8c6a85a4d9fda98feff88450299e574e5378e32391f75a055d470ac0653f1005`,
+`0xec63b967e98a5720e7f720482151963982890d82c9093c0d486b7eb8883a66b1`,
+and `0x0608c1d1dc3905fa22204c7a0e43644831c3b6d3def0f274be623a948197e64a`.
 Trie-vector fixtures can now assert proof-node RLP prefixes as well, and the
 seed set locks Nethermind's `GetBranchNodesWithPartialPath` root and branch
 node encodings for the shared-prefix hex-key case, including the branch RLP

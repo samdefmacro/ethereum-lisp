@@ -2076,6 +2076,17 @@ splits can land after the Phase A smoke path closes.
     root, verifies the leaf path/value projection, and bumps the Phase A
     selected trie summary so long leaf-value encoding is represented alongside
     shared-prefix insertion and deletion shapes.
+    Added geth `TestTinyTrie` account-trie coverage to the seed trie fixture
+    and selected EEST-style trie subset. The new three-step sequence uses
+    geth's deterministic RLP account values for keys ending `0x1337`,
+    `0x1338`, and `0x1339`, locking the progressive roots
+    `0x8c6a85a4d9fda98feff88450299e574e5378e32391f75a055d470ac0653f1005`,
+    `0xec63b967e98a5720e7f720482151963982890d82c9093c0d486b7eb8883a66b1`,
+    and
+    `0x0608c1d1dc3905fa22204c7a0e43644831c3b6d3def0f274be623a948197e64a`.
+    The fixture gates the single-account leaf root and the transition into
+    hashed extension children with multiple account RLP leaves, using geth
+    reference commit `8a0223e`.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
