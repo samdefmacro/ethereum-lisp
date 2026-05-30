@@ -2251,6 +2251,12 @@ splits can land after the Phase A smoke path closes.
     snapshots by block hash, compares geth-shaped account proofs with the
     shared state proof primitive, and verifies decoded proofs against the
     compressed state roots.
+  - Progress: added deleted-account proof coverage for the same account-trie
+    delete-collapse boundaries. The state-proof fixture set now locks
+    missing-account proofs for the pruned account after branch-to-leaf,
+    extension-to-leaf, and branch-plus-extension-to-extension compression, and
+    retained-state `eth_getProof` verifies both the survivor and deleted
+    account against the same committed block-hash snapshots.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

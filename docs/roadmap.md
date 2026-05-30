@@ -317,7 +317,8 @@ State-proof fixtures now also lock account-trie delete-collapse proofs for
 branch-to-leaf, extension-to-leaf, and branch-plus-extension-to-extension
 `clearAccount` outcomes, proving the surviving account against the compressed
 state root. Retained-state `eth_getProof` RPC coverage now verifies the same
-three account-trie delete-collapse snapshots by block hash.
+three account-trie delete-collapse snapshots by block hash, including both
+the surviving account and the pruned account's missing-proof result.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch
