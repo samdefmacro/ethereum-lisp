@@ -150,7 +150,10 @@ fixes in those areas are allowed; expansion is not.
   intrinsic gas are covered separately from legacy and EIP-1559 calldata. The same
   gate now also requires legacy calldata count explicitly, so the selected
   Shanghai subset keeps legacy, EIP-2930, and EIP-1559 calldata message-call
-  paths distinct before pinned transaction-test replacement. It now also gates
+  paths distinct before pinned transaction-test replacement. The legacy
+  calldata path now includes both unprotected and EIP-155 protected message
+  calls, keeping protected sender recovery and non-empty input intrinsic gas
+  covered together. It now also gates
   EIP-2930 and EIP-1559 access-list transactions that carry non-empty calldata,
   so access-list warming costs and calldata intrinsic-gas costs are exercised
   together instead of only as separate fixture paths. It also gates an
@@ -272,9 +275,10 @@ encoding/hashing, legacy EIP-155 plus unprotected signing hash and sender
 recovery, and EIP-2930/EIP-1559/EIP-4844/EIP-7702 typed signing hash plus
 sender recovery; EIP-7702 authorization tuple authority recovery is also
 present. The Phase A transaction harness now replays protected/unprotected
-transfer and contract-creation legacy txbytes plus access-list transfer,
-access-list calldata, access-list calldata-with-storage-keys, and contract
-creation, and dynamic-fee transfer, calldata, access-list
+transfer, protected calldata, and contract-creation legacy txbytes plus
+access-list transfer, access-list calldata, access-list
+calldata-with-storage-keys, and contract creation, and dynamic-fee transfer,
+calldata, access-list
 calldata-with-storage-keys, duplicate access-list, and contract creation typed
 txbytes through hash, sender, decoded payload, access-list projection, and
 intrinsic-gas checks.

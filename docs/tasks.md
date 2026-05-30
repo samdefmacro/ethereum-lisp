@@ -735,6 +735,12 @@ ones.
     `legacyMessageCallDataVectorCount`, so the Phase A/full selectors must
     keep legacy, EIP-2930 access-list, and EIP-1559 dynamic-fee calldata
     message-call paths distinct before pinned transaction-test replacement.
+  - Progress: added protected legacy calldata message-call coverage to the
+    seed envelope fixture and EEST-shaped Phase A/full subsets. The new vector
+    keeps EIP-155 protected sender recovery, non-empty input decoding, value
+    transfer, Shanghai intrinsic gas, seed/EEST alignment, and the legacy
+    calldata summary gate covered separately from the unprotected legacy
+    calldata path.
   - Progress: added combined access-list plus calldata coverage for both
     EIP-2930 and EIP-1559 transaction vectors. The seed envelope fixture and
     EEST-shaped Phase A/full subsets now include non-empty calldata with one

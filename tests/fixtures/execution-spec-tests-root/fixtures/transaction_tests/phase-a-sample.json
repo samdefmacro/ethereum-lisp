@@ -79,6 +79,16 @@
       }
     }
   },
+  "legacy-protected-calldata-sample": {
+    "txbytes": "f8630b018261a894b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a84deadbeef25a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a06bc40aa409a09147653e1e93670c2c91d23dd1632607f54e2a5f0e306b750bd9",
+    "result": {
+      "Shanghai": {
+        "hash": "1b3b67819bf32f5ef8595c6932d26affd49ccd8be6b2bd066890b853844f10c7",
+        "sender": "7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intrinsicGas": "0x5248"
+      }
+    }
+  },
   "legacy-contract-creation-sample": {
     "txbytes": "f8550a84b2d05e00830186a080808560006000f326a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a00761c24ce4afcc327e43b898785f9721e36233622bfa7c77109035ed9daafc7e",
     "result": {
