@@ -536,6 +536,9 @@ before replay and locks the one-, two-, and three-account roots
 `0xc8c796b39027107040d7bae53042070762d888d7ec5e8fa875c95bde2ab3e8a5`,
 `0x95e5d195992feeb1c07e0725456fde075005f3fe3ae2270b0b956004049de80f`,
 and `0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d`.
+That secure three-account case now also locks the sorted hashed-key
+`mpt-entry-pairs` export and rebuilds from those exact final account RLP
+values, with seed coverage requiring a secure entry-pair replay case.
 Trie-vector fixtures can now assert proof-node RLP prefixes as well, and the
 seed set locks Nethermind's `GetBranchNodesWithPartialPath` root and branch
 node encodings for the shared-prefix hex-key case, including the branch RLP

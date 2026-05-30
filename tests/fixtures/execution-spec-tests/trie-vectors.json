@@ -201,7 +201,7 @@
     {
       "name": "geth-secure-account-step-3",
       "secure": true,
-      "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions"],
+      "tags": ["secure-key", "branch-root", "branch-child-references", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "entry-pair-replay"],
       "operations": [
         { "op": "put", "keyHex": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f", "valueHex": "0xf854882077ccce0d8fc15988b79ef856f65f67cfa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "op": "put", "keyHex": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0", "valueHex": "0xf8658864bed6e2edf354c399e242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
@@ -232,6 +232,11 @@
         { "keyHex": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f", "valueHex": "0xf854882077ccce0d8fc15988b79ef856f65f67cfa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "keyHex": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0", "valueHex": "0xf8658864bed6e2edf354c399e242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "keyHex": "0xb10d394651850fd4a178892ee285ece151145578", "valueHex": "0xf85a881ec678fcc3aea65a8e20efcd6cea84b6925e607be06371a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" }
+      ],
+      "expectedEntryPairs": [
+        { "keyHex": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0", "valueHex": "0xf8658864bed6e2edf354c399e242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
+        { "keyHex": "0xb10d394651850fd4a178892ee285ece151145578", "valueHex": "0xf85a881ec678fcc3aea65a8e20efcd6cea84b6925e607be06371a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
+        { "keyHex": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f", "valueHex": "0xf854882077ccce0d8fc15988b79ef856f65f67cfa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" }
       ]
     },
     {

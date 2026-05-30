@@ -676,7 +676,8 @@
         secure-leaf-root-p
         secure-delete-to-empty-p
         secure-branch-root-p
-        secure-extension-root-p)
+        secure-extension-root-p
+        secure-entry-pair-replay-p)
     (dolist (case cases)
       (unless (listp case)
         (error "Trie fixture case must be a JSON object"))
@@ -690,6 +691,11 @@
           (setf secure-extension-root-p t))
         (when (and secure-p (stringp shape) (string= shape "leaf"))
           (setf secure-leaf-root-p t))
+        (when (and secure-p
+                   (member "entry-pair-replay"
+                           (fixture-object-field case "tags")
+                           :test #'string=))
+          (setf secure-entry-pair-replay-p t))
         (when (and secure-p
                    (stringp shape)
                    (string= shape "empty")
@@ -707,7 +713,9 @@
     (unless secure-branch-root-p
       (error "Trie fixture must include a secure branch root case"))
     (unless secure-extension-root-p
-      (error "Trie fixture must include a secure extension root case"))))
+      (error "Trie fixture must include a secure extension root case"))
+    (unless secure-entry-pair-replay-p
+      (error "Trie fixture must include a secure entry-pair replay case"))))
 
 (defun validate-trie-fixture-cases (cases)
   (validate-trie-fixture-case-coverage cases)
@@ -3236,6 +3244,13 @@
        (remove-if
         (lambda (case)
           (string= "secure-delete-last-entry-empty-root"
+                   (fixture-object-field case "name")))
+        cases)))
+    (signals error
+      (validate-trie-fixture-case-coverage
+       (remove-if
+        (lambda (case)
+          (string= "geth-secure-account-step-3"
                    (fixture-object-field case "name")))
         cases)))
     (signals error

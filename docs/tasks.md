@@ -2302,6 +2302,11 @@ splits can land after the Phase A smoke path closes.
     exported final leaves directly before rebuilding, so iterator-style
     snapshot regressions fail on the exact exported key/value pair rather than
     only on a rebuilt root mismatch.
+    Added the same explicit final entry-pair assertion to the secure-key
+    geth account-trie seed case. The secure three-account vector now locks the
+    sorted hashed-key export order, final account RLP values, rebuild root, and
+    fixture coverage gate so StateTrie-style snapshot exports cannot be
+    satisfied by the plain trie path alone.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
