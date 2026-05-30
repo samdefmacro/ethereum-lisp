@@ -176,6 +176,17 @@ ones.
     drawn from the pinned release. Sender recovery is exercised on every
     typed transaction case so the result feeds `SENDER-RECOVERY-ENFORCEMENT`.
   - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Progress: inspected the pinned `execution-spec-tests` v5.4.0 stable
+    archive and confirmed its `transaction_tests` payload only contains the
+    Prague EIP-7702 invalid group already represented locally. Added a valid
+    EIP-2930 type-1 transaction transcribed from
+    `fixtures/blockchain_tests_engine/berlin/eip2930_access_list/test_eip2930_tx_validity.json`
+    into both the Phase A EEST-shaped sample root and seed envelope fixture,
+    locking its txbytes, hash, recovered sender, decoded fields, signature,
+    intrinsic gas, and Berlin-through-Prague fork validity through the existing
+    seed-alignment replay path. Remaining work: continue replacing/extending
+    seed vectors with pinned release payloads where the stable archive exposes
+    usable transaction bytes.
   - Progress: added an in-repo external-style transaction envelope vector
     runner covering legacy EIP-155, EIP-2930, EIP-1559, EIP-4844, and
     EIP-7702 raw encodings, transaction hashes, sender recovery, and
