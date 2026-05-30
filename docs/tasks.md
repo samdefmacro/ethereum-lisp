@@ -2142,6 +2142,11 @@ splits can land after the Phase A smoke path closes.
     vector: the absent `key3` lookup now checks the exact extension and
     branch proof nodes, and the fixture coverage gate requires at least one
     missing proof-node RLP case.
+    Added geth `TestOneElementProof` / `TestMissingKeyProof` coverage to the
+    seed trie fixture. The new one-element `k` -> `v` vector locks the exact
+    single leaf proof node for both present-key and missing-key lookups
+    (`a`, `j`, `l`, `z`), and the fixture coverage gate now requires this
+    single-node proof boundary.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

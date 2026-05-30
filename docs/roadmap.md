@@ -141,7 +141,9 @@ fixes in those areas are allowed; expansion is not.
   32-byte value against
   `0xafebee6cfce72f9d2a7a4f5926ac11f2a79bd75f3a9ae6358a08252ba5dce3be`
   and checking both present-key and missing-key proof-node prefixes in the
-  seed fixture.
+  seed fixture. The geth one-element proof boundary is represented as well,
+  locking the single leaf proof node for present and missing lookups around
+  `k` -> `v`.
   The same selected EEST-style trie subset now gates object-form empty-value
   deletes on both secure and plain paths, keeping `""` / `"0x"` delete
   semantics covered outside the array-of-pairs adapter path. The importer now

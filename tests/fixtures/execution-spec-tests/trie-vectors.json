@@ -19,6 +19,48 @@
       "expectedRootPathNibbles": [6, 4, 6, 15, 6, 7, 16]
     },
     {
+      "name": "geth-one-element-proof",
+      "tags": ["leaf-root", "path-compression", "lookup-assertions", "single-node-proof", "proof-node-rlp", "missing-proof-node-rlp"],
+      "operations": [
+        { "op": "put", "keyAscii": "k", "valueAscii": "v" }
+      ],
+      "expectedRoot": "0x6675ca087d4e4344aa1348e54d5b39e1657b57287eb207107a04ffae79e88215",
+      "expectedShape": "leaf",
+      "expectedRootPathNibbles": [6, 11, 16],
+      "expectedRootValueAscii": "v",
+      "expectedGets": [
+        { "keyAscii": "k", "valueAscii": "v" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "a" },
+        { "keyAscii": "j" },
+        { "keyAscii": "l" },
+        { "keyAscii": "z" }
+      ],
+      "expectedProofPrefixes": [
+        {
+          "keyAscii": "k",
+          "nodeRlps": ["0xc482206b76"]
+        },
+        {
+          "keyAscii": "a",
+          "nodeRlps": ["0xc482206b76"]
+        },
+        {
+          "keyAscii": "j",
+          "nodeRlps": ["0xc482206b76"]
+        },
+        {
+          "keyAscii": "l",
+          "nodeRlps": ["0xc482206b76"]
+        },
+        {
+          "keyAscii": "z",
+          "nodeRlps": ["0xc482206b76"]
+        }
+      ]
+    },
+    {
       "name": "geth-long-leaf-value",
       "tags": ["leaf-root", "path-compression", "lookup-assertions"],
       "operations": [
