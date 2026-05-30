@@ -134,6 +134,9 @@
     "geth-stacktrie-sparse-root-branch-long-values"
     "geth-stacktrie-root-branch-nested-right-branch"
     "geth-stacktrie-root-branch-nested-left-branch"
+    "geth-stacktrie-root-branch-extension-child"
+    "geth-stacktrie-root-branch-left-extension-child"
+    "geth-stacktrie-deep-extension-branch"
     "nethermind-partial-path-proof-nodes"
     "branch-extension-shared-prefix"
     "branch-child-branch"
@@ -195,6 +198,9 @@
     ("geth-stacktrie-sparse-root-branch-long-values" . :plain)
     ("geth-stacktrie-root-branch-nested-right-branch" . :plain)
     ("geth-stacktrie-root-branch-nested-left-branch" . :plain)
+    ("geth-stacktrie-root-branch-extension-child" . :plain)
+    ("geth-stacktrie-root-branch-left-extension-child" . :plain)
+    ("geth-stacktrie-deep-extension-branch" . :plain)
     ("nethermind-partial-path-proof-nodes" . :plain)
     ("geth-secure-account-step-1" . :secure)
     ("geth-secure-account-step-2" . :secure)

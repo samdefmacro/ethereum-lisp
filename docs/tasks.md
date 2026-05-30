@@ -2402,6 +2402,11 @@ splits can land after the Phase A smoke path closes.
     plus two root-branch cases where one root child is itself a hashed branch
     and the sibling remains a hashed leaf. Each case locks all post-insert
     StackTrie reference roots and final child-shape projections.
+    Added the next three geth `TestStackTrieInsertAndHash` table-head seed
+    cases: two root-branch layouts whose child subtries are hashed extensions,
+    plus the `0x8800` deep extension-to-branch sequence. The new vectors lock
+    every post-insert StackTrie root, final extension paths, and final
+    branch-child shape projections.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
