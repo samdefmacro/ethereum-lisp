@@ -2047,6 +2047,13 @@ splits can land after the Phase A smoke path closes.
     collapse to a retained leaf, while the branch-with-extension-child layout
     proves cleanup compression back to an extension root with surviving
     sibling account projections.
+    Added the geth `TestInsert` shared-prefix vector to both the seed trie
+    fixture and selected EEST-style trie subset. The new `doe` / `dog` /
+    `dogglesworth` case locks the geth root
+    `0x8aad789dff2f538bca5d8ea56e8abe10f4c7ba3a5dea95fea4cd6e7c3a1168d3`,
+    compressed root path, hashed extension child reference, and final lookup
+    proofs, broadening trie-grade coverage with a reference-client insertion
+    shape rather than another local-only sample.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

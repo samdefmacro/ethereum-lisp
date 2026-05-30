@@ -386,7 +386,10 @@ overwrites that preserve branch and extension roots, so update replay cannot be
 covered only by a single-key leaf overwrite. The selected EEST-style trie
 subset also reports present/missing proof-key coverage for both secure and
 plain replay, so root-only fixture expansion cannot silently drop proof
-verification.
+verification. It also carries the geth `TestInsert` shared-prefix case for
+`doe` / `dog` / `dogglesworth`, locking the reference root, compressed
+extension path, hashed child reference, and final lookups in both seed and
+EEST-style replay.
 Persistence integration, deletion edge cases, and broader fixture
 compatibility remain.
 The selected EEST-style trie subset also covers secure hex byte-string
