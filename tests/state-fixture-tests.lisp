@@ -153,6 +153,7 @@
     "multi-account-secure-state-root"
     "nethermind-state-trie-leaf-root"
     "nethermind-state-trie-branch-root"
+    "state-trie-branch-storage-delete-keeps-sibling-root"
     "nethermind-state-trie-extension-root"
     "nethermind-state-trie-branch-into-extension-root"
     "state-trie-branch-delete-collapses-to-leaf-root"

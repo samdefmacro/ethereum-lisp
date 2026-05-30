@@ -1694,6 +1694,12 @@ splits can land after the Phase A smoke path closes.
     and gates. Phase A now requires object-valued secure-key replay for both
     pure writes and `null` deletes, keeping the secure path aligned with
     plain trie object-form coverage.
+    Added a multi-account branch-root state fixture where one account writes a
+    storage slot and then deletes it by writing zero while a sibling account
+    remains. The case locks the restored empty storage root, empty storage-trie
+    shape, account RLP projections, and branch-root child references so storage
+    deletion cannot accidentally prune or rewrite unrelated state-trie
+    siblings.
     Added a secureTrie object-form hex byte-string case to the selected
     EEST-style trie subset, with a dedicated summary counter and gate requiring
     secure object-valued `0x` byte values. This keeps byte-string normalization
