@@ -2234,6 +2234,75 @@
       "expectedRoot": "0x600e37f427a9f42ebe6b592ff989ec26a865aa3d89c955bb78dbf53890cbeb41"
     },
     {
+      "name": "state-trie-branch-value-transfer-creates-recipient-root",
+      "tags": [
+        "account-root",
+        "multi-account",
+        "balance-update",
+        "value-transfer",
+        "account-projection",
+        "state-trie-branch",
+        "state-trie-branch-child-references"
+      ],
+      "operations": [
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 100
+        },
+        {
+          "op": "setAccount",
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200
+        },
+        {
+          "op": "transferValue",
+          "address": "0x0000000000000000000000000000000000000201",
+          "recipient": "0x0000000000000000000000000000000000000202",
+          "amount": 37
+        }
+      ],
+      "expectedAccounts": [
+        {
+          "address": "0x0000000000000000000000000000000000000201",
+          "nonce": 1,
+          "balance": 63,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf844013fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000202",
+          "nonce": 0,
+          "balance": 37,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8448025a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        },
+        {
+          "address": "0x0000000000000000000000000000000000000211",
+          "nonce": 2,
+          "balance": 200,
+          "storageRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          "rlp": "0xf8450281c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+        }
+      ],
+      "expectedStateTrieShape": "branch",
+      "expectedStateTrieRootChildren": [11, 13],
+      "expectedStateTrieRootChildShapes": {
+        "11": "leaf",
+        "13": "branch"
+      },
+      "expectedStateTrieRootChildReferences": {
+        "11": "hashed",
+        "13": "hashed"
+      },
+      "expectedRoot": "0x4dd8ed5858a2fce6bf433fa35e5cc54821ad964aa7a2dd979ea34336ff8b6544"
+    },
+    {
       "name": "state-trie-branch-balance-add-keeps-sibling-root",
       "tags": [
         "account-root",

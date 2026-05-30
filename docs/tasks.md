@@ -2523,6 +2523,11 @@ splits can land after the Phase A smoke path closes.
     `state-db-get-proof`, and separately proves that a zero-value transfer to
     a missing recipient remains a missing-account proof against the unchanged
     root.
+  - Progress: extended fixture-driven `transferValue` coverage into a non-leaf
+    branch-root account trie. The state-root fixture now locks sender debit,
+    recipient creation, retained sibling account RLP, branch child shapes and
+    references, and the final branch root; the matching state-proof vector locks
+    the recipient proof through the hashed branch child.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

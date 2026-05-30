@@ -378,7 +378,9 @@ updates, locking nonzero sender debit plus recipient-account creation and the
 zero-value missing-recipient no-op boundary, with a geth-shaped recipient
 state proof after transfer. Retained-state `eth_getProof` RPC coverage now
 replays the same committed transfer snapshots by block hash for sender,
-recipient, and zero-value missing-recipient proofs.
+recipient, and zero-value missing-recipient proofs. The fixture seed set also
+covers a branch-root account trie transfer, including the recipient proof below
+a hashed branch child.
 Storage-root fixtures now lock zero-value
 writes to absent storage slots as no-ops for missing accounts, funded accounts
 with empty storage, and branch-shaped / extension-shaped secure storage tries.
