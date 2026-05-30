@@ -75,6 +75,34 @@
       ]
     },
     {
+      "name": "geth-delete-sequence",
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "delete-collapse", "lookup-assertions"],
+      "operations": [
+        { "op": "put", "keyAscii": "do", "valueAscii": "verb" },
+        { "op": "put", "keyAscii": "ether", "valueAscii": "wookiedoo" },
+        { "op": "put", "keyAscii": "horse", "valueAscii": "stallion" },
+        { "op": "put", "keyAscii": "shaman", "valueAscii": "horse" },
+        { "op": "put", "keyAscii": "doge", "valueAscii": "coin" },
+        { "op": "delete", "keyAscii": "ether" },
+        { "op": "put", "keyAscii": "dog", "valueAscii": "puppy" },
+        { "op": "delete", "keyAscii": "shaman" }
+      ],
+      "expectedRoot": "0x5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84",
+      "expectedShape": "extension",
+      "expectedRootPathNibbles": [6],
+      "expectedChildReference": "hashed",
+      "expectedGets": [
+        { "keyAscii": "do", "valueAscii": "verb" },
+        { "keyAscii": "horse", "valueAscii": "stallion" },
+        { "keyAscii": "doge", "valueAscii": "coin" },
+        { "keyAscii": "dog", "valueAscii": "puppy" }
+      ],
+      "expectedMissing": [
+        { "keyAscii": "ether" },
+        { "keyAscii": "shaman" }
+      ]
+    },
+    {
       "name": "branch-extension-shared-prefix",
       "tags": ["extension-root", "hashed-child-reference", "lookup-assertions"],
       "operations": [

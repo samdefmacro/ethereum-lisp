@@ -2054,6 +2054,14 @@ splits can land after the Phase A smoke path closes.
     compressed root path, hashed extension child reference, and final lookup
     proofs, broadening trie-grade coverage with a reference-client insertion
     shape rather than another local-only sample.
+    Added the geth `TestDelete` update/delete sequence to the seed trie
+    fixture and selected EEST-style trie subset. The new case replays
+    `do`, `ether`, `horse`, `shaman`, `doge`, deleted `ether`, `dog`, and
+    deleted `shaman`, then locks the reference root
+    `0x5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84`,
+    compressed extension root, hashed child reference, retained lookups, and
+    deleted-key proofs so deletion replay is anchored to a geth reference
+    sequence as well as local seed shapes.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
