@@ -313,6 +313,10 @@ coverage for both the surviving slot and the deleted missing slot.
 State-proof coverage also locks branch- and extension-shaped storage-trie
 updates where one secure-hashed slot is overwritten while sibling present-slot
 and missing-slot proofs remain valid against the updated storage root.
+State-proof fixtures now also lock account-trie delete-collapse proofs for
+branch-to-leaf, extension-to-leaf, and branch-plus-extension-to-extension
+`clearAccount` outcomes, proving the surviving account against the compressed
+state root.
 The trie harness now covers secure-key branch, extension, delete-collapse,
 delete-to-empty, and missing-delete no-op replay in both seed vectors and
 selected EEST-style secureTrie samples, including no-op deletion over branch

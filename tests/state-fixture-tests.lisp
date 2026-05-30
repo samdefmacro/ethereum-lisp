@@ -240,6 +240,7 @@
     "state-trie-extension-missing-after-clear-proof"
     "state-trie-branch-extension-proof"
     "state-trie-branch-extension-missing-after-clear-proof"
+    "state-trie-delete-collapse-proof"
     "geth-shaped-result"))
 
 (defparameter +state-proof-fixture-required-case-names+
@@ -276,6 +277,9 @@
     "state-trie-branch-account-update-preserves-code-storage-proof"
     "state-trie-extension-account-update-preserves-code-storage-proof"
     "state-trie-branch-extension-account-update-preserves-code-storage-proof"
+    "state-trie-branch-delete-collapse-survivor-proof"
+    "state-trie-extension-delete-collapse-survivor-proof"
+    "state-trie-branch-extension-delete-collapse-survivor-proof"
     "nethermind-state-trie-leaf-account-proof"
     "nethermind-state-trie-branch-account-proof"
     "state-trie-branch-missing-account-after-clear-proof"
@@ -310,6 +314,7 @@
     "state-trie-extension-missing-after-clear-proof"
     "state-trie-branch-extension-proof"
     "state-trie-branch-extension-missing-after-clear-proof"
+    "state-trie-delete-collapse-proof"
     "geth-shaped-result"))
 
 (defun validate-state-root-fixture-object-fields

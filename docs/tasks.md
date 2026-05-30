@@ -2238,6 +2238,13 @@ splits can land after the Phase A smoke path closes.
     vectors overwrite one secure-hashed slot while preserving sibling slots,
     lock present and missing proof depths through the updated storage roots,
     and verify decoded RPC proofs against committed state roots.
+  - Progress: added state-trie delete-collapse state-proof fixtures for the
+    branch-to-leaf, extension-to-leaf, and branch-plus-extension-to-extension
+    account-prune boundaries. The new geth-shaped proof vectors lock the
+    surviving account proof nodes after `clearAccount` compresses the account
+    trie, with required seed-case and tag gates so these state-root deletion
+    shapes stay represented before pinned proof vectors replace the in-repo
+    samples.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.
