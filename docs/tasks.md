@@ -764,6 +764,12 @@ ones.
     transactions with empty access lists, plus EIP-2930 and EIP-1559 empty
     access-list cases, so non-empty warming coverage cannot mask the empty-list
     typed payload boundary before pinned transaction-test replacement.
+  - Progress: added EIP-4844 blob access-list plus calldata coverage to the
+    full transaction fixture subset. The new vector keeps blob hashes,
+    non-empty calldata, non-empty access-list projection, sender recovery,
+    Cancun intrinsic gas, and pre-Cancun rejection covered together, and the
+    full/seed summary gate now requires blob access-list calldata coverage
+    instead of accepting a blob hash-only transaction.
   - Progress: tightened the local transaction envelope coverage entry point to
     run the same dynamic-fee, blob, set-code, legacy-protection, decoded,
     signature, access-list, contract-creation, input, and fork-result
