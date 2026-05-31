@@ -47,6 +47,22 @@
   (is (null (execution-spec-tests-transaction-test-root
              (probe-file "tests/fixtures/execution-spec-tests/")))))
 
+(deftest execution-spec-tests-blockchain-root-discovers-known-layouts
+  (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
+        (geth-root (probe-file "tests/fixtures/geth-spec-tests-root/")))
+    (is (execution-spec-tests-blockchain-test-root direct-root))
+    (is (execution-spec-tests-blockchain-test-root geth-root))))
+
+(deftest execution-spec-tests-blockchain-root-prefers-engine-layout
+  (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/")))
+    (is (search "blockchain_tests_engine"
+                (namestring
+                 (execution-spec-tests-blockchain-test-root direct-root))))))
+
+(deftest execution-spec-tests-blockchain-root-ignores-missing-layout
+  (is (null (execution-spec-tests-blockchain-test-root
+             (probe-file "tests/fixtures/execution-spec-tests/")))))
+
 (deftest execution-spec-tests-trie-root-discovers-known-layouts
   (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
         (geth-root (probe-file "tests/fixtures/geth-spec-tests-root/")))
@@ -65,6 +81,16 @@
     (signals test-skipped
       (with-execution-spec-tests-trie-test-root (root)
         (error "Trie fixture body should not run when the root is absent: ~S"
+               root)))))
+
+(deftest optional-execution-spec-tests-blockchain-fixtures-skip-cleanly
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (declare (ignore name))
+            nil)))
+    (signals test-skipped
+      (with-execution-spec-tests-blockchain-test-root (root)
+        (error "Blockchain fixture body should not run when the root is absent: ~S"
                root)))))
 
 (deftest fixture-format-validation-rejects-non-string-values

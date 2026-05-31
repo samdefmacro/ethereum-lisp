@@ -336,7 +336,11 @@ fixes in those areas are allowed; expansion is not.
   validity, and pre-Cancun typed-transaction rejections. Seed, Phase A, and
   full EEST-style transaction selectors now explicitly gate those transcribed
   pinned valid families, while the pinned EIP-7702 invalid group gates the
-  set-code transaction-test side of the stable archive. The
+  set-code transaction-test side of the stable archive. Fixture root discovery
+  now also covers `blockchain_tests_engine` and generic `blockchain_tests`
+  layouts for both direct execution-spec-tests stable archive roots and
+  geth-style `spec-tests/fixtures` checkouts, preferring the Engine layout
+  that feeds the Phase A `engine_newPayloadV2` smoke path. The
   Shanghai
   `engine_newPayloadV2` smoke now
   covers legacy transfer, access-list

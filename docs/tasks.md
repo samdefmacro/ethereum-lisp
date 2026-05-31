@@ -162,6 +162,24 @@ ones.
     name, network, source, block count, and expected status through the current
     test runner.
 
+- [x] `HARNESS-BLOCKCHAIN-FIXTURE-ROOT`: Discover pinned blockchain fixture
+  roots.
+  - Milestone: 8
+  - Dependencies: `HARNESS-FIXTURE-ROOT`.
+  - References: Ethereum execution-spec-tests stable archive layout and geth
+    checked-out fixture layout.
+  - Acceptance: tests can discover `blockchain_tests_engine` and
+    `blockchain_tests` directories from both direct execution-spec-tests
+    fixture roots and geth-style `spec-tests/fixtures` roots, and optional
+    tests skip cleanly when the directories are absent.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added `execution-spec-tests-blockchain-test-root` plus a matching
+    optional-root macro. The discovery order prefers
+    `blockchain_tests_engine` before generic `blockchain_tests`, matching the
+    Engine-focused Phase A smoke path, and covers both direct
+    `fixtures/...` archives and geth-style `spec-tests/fixtures/...`
+    checkouts.
+
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
   - Milestone: 2 / 8

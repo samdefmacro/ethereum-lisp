@@ -11,9 +11,11 @@
    #:test-skipped-reason
    #:skip-test
    #:execution-spec-tests-fixture-root
+   #:execution-spec-tests-blockchain-test-root
    #:execution-spec-tests-transaction-test-root
    #:execution-spec-tests-trie-test-root
    #:with-execution-spec-tests-fixture-root
+   #:with-execution-spec-tests-blockchain-test-root
    #:with-execution-spec-tests-transaction-test-root
    #:with-execution-spec-tests-trie-test-root))
 
@@ -38,6 +40,12 @@
 (defparameter +execution-spec-tests-trie-test-subdirs+
   '("fixtures/trie_tests/"
     "spec-tests/fixtures/trie_tests/"))
+
+(defparameter +execution-spec-tests-blockchain-test-subdirs+
+  '("fixtures/blockchain_tests_engine/"
+    "fixtures/blockchain_tests/"
+    "spec-tests/fixtures/blockchain_tests_engine/"
+    "spec-tests/fixtures/blockchain_tests/"))
 
 (defun default-environment-reader (name)
   #+sbcl (sb-ext:posix-getenv name)
@@ -146,21 +154,30 @@
 (defun execution-spec-tests-subdirectory (root subdir)
   (probe-file (merge-pathnames subdir (pathname root))))
 
+(defun execution-spec-tests-first-existing-subdirectory (root subdirs)
+  (when root
+    (dolist (subdir subdirs)
+      (let ((candidate (execution-spec-tests-subdirectory root subdir)))
+        (when candidate
+          (return candidate))))))
+
+(defun execution-spec-tests-blockchain-test-root (&optional root)
+  (let ((base (or root (execution-spec-tests-fixture-root))))
+    (execution-spec-tests-first-existing-subdirectory
+     base
+     +execution-spec-tests-blockchain-test-subdirs+)))
+
 (defun execution-spec-tests-transaction-test-root (&optional root)
   (let ((base (or root (execution-spec-tests-fixture-root))))
-    (when base
-      (dolist (subdir +execution-spec-tests-transaction-test-subdirs+)
-        (let ((candidate (execution-spec-tests-subdirectory base subdir)))
-          (when candidate
-            (return candidate)))))))
+    (execution-spec-tests-first-existing-subdirectory
+     base
+     +execution-spec-tests-transaction-test-subdirs+)))
 
 (defun execution-spec-tests-trie-test-root (&optional root)
   (let ((base (or root (execution-spec-tests-fixture-root))))
-    (when base
-      (dolist (subdir +execution-spec-tests-trie-test-subdirs+)
-        (let ((candidate (execution-spec-tests-subdirectory base subdir)))
-          (when candidate
-            (return candidate)))))))
+    (execution-spec-tests-first-existing-subdirectory
+     base
+     +execution-spec-tests-trie-test-subdirs+)))
 
 (defmacro with-execution-spec-tests-fixture-root ((root) &body body)
   `(let ((,root (execution-spec-tests-fixture-root)))
@@ -168,6 +185,15 @@
        (skip-test
         (format nil
                 "Set ~A to an execution-spec-tests fixture root to run this test"
+                +execution-spec-tests-fixture-root-env+)))
+     ,@body))
+
+(defmacro with-execution-spec-tests-blockchain-test-root ((root) &body body)
+  `(let ((,root (execution-spec-tests-blockchain-test-root)))
+     (unless ,root
+       (skip-test
+        (format nil
+                "Set ~A to an execution-spec-tests fixture root containing blockchain_tests_engine or blockchain_tests to run this test"
                 +execution-spec-tests-fixture-root-env+)))
      ,@body))
 
