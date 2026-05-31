@@ -2319,6 +2319,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (engine-payload-store-remove-pending-transaction
                 store
                 (transaction-hash transaction))
+               (engine-payload-store-remove-pending-conflict
+                store
+                transaction)
                (when receipt
                  (incf log-index-start
                        (length (receipt-logs receipt))))))
@@ -3005,6 +3008,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (remhash key (engine-pending-txpool-transactions txpool)))
     transaction))
 
+(defun engine-pending-txpool-remove-pending-conflict (txpool transaction)
+  (when (transaction-sender transaction)
+    (let ((conflict
+            (engine-pending-txpool-pending-conflict txpool transaction)))
+      (when conflict
+        (engine-pending-txpool-remove-pending-transaction
+         txpool
+         (transaction-hash conflict))))))
+
 (defun engine-pending-txpool-replacement-price-bumped-p
     (old-transaction new-transaction price-function)
   (let ((old-price (funcall price-function old-transaction))
@@ -3141,6 +3153,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-pending-txpool-remove-pending-transaction
    (engine-payload-store-txpool store)
    hash))
+
+(defun engine-payload-store-remove-pending-conflict (store transaction)
+  (engine-pending-txpool-remove-pending-conflict
+   (engine-payload-store-txpool store)
+   transaction))
 
 (defun engine-payload-store-notify-pending-transaction-filters
     (store transaction)

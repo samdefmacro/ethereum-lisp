@@ -3537,6 +3537,68 @@
       (is (null sender-transactions))
       (is (zerop (hash-table-count sender-index))))))
 
+(deftest engine-payload-store-removes-pending-sender-nonce-on-block-import
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (private-key 1)
+         (pending-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 4
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (mined-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 4
+             :gas-price 110
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (sender-key
+           (address-to-hex
+            (or (transaction-sender pending-transaction)
+                (zero-address))))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-used 0)
+            :transactions (list mined-transaction))))
+    (is (not (string= (hash32-to-hex (transaction-hash pending-transaction))
+                      (hash32-to-hex (transaction-hash mined-transaction)))))
+    (is (bytes= (address-bytes (transaction-sender pending-transaction))
+                (address-bytes (transaction-sender mined-transaction))))
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store pending-transaction)
+    (engine-payload-store-put-block store block)
+    (let* ((sender-index
+             (ethereum-lisp.core::engine-payload-store-pending-transactions-by-sender
+              store))
+           (sender-transactions (gethash sender-key sender-index))
+           (location
+             (chain-store-transaction-location
+              store
+              (transaction-hash mined-transaction))))
+      (is (= 0
+             (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+              store)))
+      (is (null
+           (ethereum-lisp.core::engine-payload-store-pending-transaction
+            store
+            (transaction-hash pending-transaction))))
+      (is (null sender-transactions))
+      (is (typep location 'engine-transaction-location))
+      (is (eq mined-transaction
+              (engine-transaction-location-transaction location))))))
+
 (deftest engine-payload-store-replaces-same-sender-nonce-with-price-bump
   (let* ((store (make-engine-payload-memory-store))
          (recipient
