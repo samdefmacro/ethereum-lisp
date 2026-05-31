@@ -37,6 +37,14 @@
     (is (null (secp256k1-recover-address hash v 0 s)))
     (is (null (secp256k1-recover-address hash v r 0)))))
 
+(deftest secp256k1-private-key-address-vector
+  (is (string= "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"
+               (address-to-hex
+                (secp256k1-private-key-address
+                 (hex-to-quantity
+                  "0x4646464646464646464646464646464646464646464646464646464646464646")))))
+  (signals error (secp256k1-private-key-address 0)))
+
 (deftest kzg-commitment-versioned-hash
   (let* ((commitment (make-byte-vector +kzg-commitment-size+))
          (versioned-hash

@@ -561,6 +561,25 @@
        (or (not low-s-p)
            (<= s +secp256k1-half-n+))))
 
+(defun secp256k1-public-key-address (public-key)
+  (let ((address (make-byte-vector 20))
+        (hashed (keccak-256 public-key)))
+    (replace address hashed :start2 12)
+    (make-address address)))
+
+(defun secp256k1-private-key-address (private-key)
+  "Derive the Ethereum address for a secp256k1 private key scalar."
+  (unless (and (integerp private-key)
+               (< 0 private-key)
+               (< private-key +secp256k1-n+))
+    (error "secp256k1 private key must be in [1, n-1]"))
+  (let* ((generator (secp256k1-point +secp256k1-gx+ +secp256k1-gy+))
+         (public-point (secp256k1-scalar-multiply private-key generator)))
+    (secp256k1-public-key-address
+     (concat-bytes
+      (integer-to-fixed-bytes (secp256k1-point-x public-point) 32)
+      (integer-to-fixed-bytes (secp256k1-point-y public-point) 32)))))
+
 (defun secp256k1-recover-public-key (hash v r s)
   "Recover a 64-byte uncompressed secp256k1 public key body from HASH/V/R/S.
 Returns NIL when the signature is invalid or unrecoverable."
@@ -589,10 +608,7 @@ Returns NIL when the signature is invalid or unrecoverable."
   "Recover the Ethereum address for HASH/V/R/S, or NIL if unrecoverable."
   (let ((public-key (secp256k1-recover-public-key hash v r s)))
     (when public-key
-      (let ((address (make-byte-vector 20))
-            (hashed (keccak-256 public-key)))
-        (replace address hashed :start2 12)
-        (make-address address)))))
+      (secp256k1-public-key-address public-key))))
 
 (defparameter +empty-code-hash+ (keccak-256-hash #()))
 (defparameter +empty-trie-hash+ (keccak-256-hash #(128)))

@@ -10,7 +10,7 @@
       "previousHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
     },
     "pre": {
-      "0x1000000000000000000000000000000000000000": {
+      "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f": {
         "balance": "0xde0b6b3a7640000",
         "code": "0x",
         "nonce": "0x0",
@@ -41,18 +41,18 @@
     "post": {
       "London": [
         {
-          "hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "hash": "0x86ad8216f19d2b16e6ef4c14ca4b053921422eee47b15b7f8a0465198ee57965",
           "indexes": {
             "data": 0,
             "gas": 0,
             "value": 0
           },
-          "logs": "0x"
+          "logs": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
         }
       ]
     },
     "_info": {
-      "comment": "Small upstream-shaped GeneralStateTest sample for state_tests root discovery only."
+      "comment": "Small upstream-shaped GeneralStateTest sample for state_tests root discovery and replay."
     }
   },
   "phase_a_berlin_state_sample": {

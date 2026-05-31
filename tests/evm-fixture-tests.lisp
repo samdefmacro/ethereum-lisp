@@ -459,6 +459,119 @@
             :timestamp (evm-state-fixture-quantity env "timestamp"))))
     (values state receipt)))
 
+(defun eest-state-test-post-entry (case fork)
+  (let* ((post (fixture-required-field
+                (fixture-required-field case "fixture")
+                "post"))
+         (entries (fixture-required-field post fork)))
+    (unless (and (listp entries) (= 1 (length entries)))
+      (error "EEST state test case ~A must have one ~A post entry"
+             (fixture-required-field case "name")
+             fork))
+    (first entries)))
+
+(defun eest-state-test-indexed-transaction-value
+    (transaction field indexes index-name)
+  (let* ((values (fixture-required-field transaction field))
+         (index (fixture-required-field indexes index-name)))
+    (unless (and (integerp index)
+                 (<= 0 index)
+                 (< index (length values)))
+      (error "EEST state transaction index ~A is out of range" index-name))
+    (nth index values)))
+
+(defun eest-state-test-transaction (case post-entry)
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (transaction (fixture-required-field fixture "transaction"))
+         (indexes (fixture-required-field post-entry "indexes"))
+         (to (fixture-required-field transaction "to")))
+    (make-legacy-transaction
+     :nonce (evm-state-fixture-quantity transaction "nonce")
+     :gas-price (evm-state-fixture-quantity transaction "gasPrice")
+     :gas-limit
+     (evm-state-fixture-quantity-string
+      (eest-state-test-indexed-transaction-value
+       transaction "gasLimit" indexes "gas")
+      "EEST state test transaction gasLimit")
+     :to (unless (blank-string-p to)
+           (address-from-hex to))
+     :value
+     (evm-state-fixture-quantity-string
+      (eest-state-test-indexed-transaction-value
+       transaction "value" indexes "value")
+      "EEST state test transaction value")
+     :data
+     (hex-to-bytes
+      (eest-state-test-indexed-transaction-value
+       transaction "data" indexes "data")))))
+
+(defun eest-state-test-sender (case)
+  (let* ((transaction (fixture-required-field
+                       (fixture-required-field case "fixture")
+                       "transaction"))
+         (secret-key (fixture-required-field transaction "secretKey")))
+    (secp256k1-private-key-address (hex-to-quantity secret-key))))
+
+(defun eest-state-test-logs-hash (logs)
+  (keccak-256-hash
+   (rlp-encode
+    (mapcar
+     (lambda (log)
+       (make-rlp-list
+        (address-bytes (log-entry-address log))
+        (mapcar #'hash32-bytes (log-entry-topics log))
+        (log-entry-data log)))
+     logs))))
+
+(defun execute-eest-state-test-case (case &key (fork "London"))
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (env (fixture-required-field fixture "env"))
+         (post-entry (eest-state-test-post-entry case fork))
+         (state (make-state-db))
+         (sender (eest-state-test-sender case))
+         (tx (eest-state-test-transaction case post-entry))
+         (rules (make-chain-rules :chain-id 1
+                                  :homestead-p t
+                                  :eip150-p t
+                                  :eip155-p t
+                                  :eip158-p t
+                                  :byzantium-p t
+                                  :constantinople-p t
+                                  :petersburg-p t
+                                  :istanbul-p t
+                                  :berlin-p t
+                                  :london-p t)))
+    (dolist (entry (fixture-required-field fixture "pre"))
+      (apply-evm-state-fixture-account state (car entry) (cdr entry)))
+    (let ((receipt
+            (apply-message
+             state sender tx
+             :chain-id 1
+             :chain-rules rules
+             :base-fee
+             (hex-to-quantity
+              (or (fixture-object-field env "currentBaseFee") "0x0"))
+             :coinbase
+             (address-from-hex
+              (fixture-required-field env "currentCoinbase"))
+             :block-number
+             (hex-to-quantity (fixture-required-field env "currentNumber"))
+             :timestamp
+             (hex-to-quantity (fixture-required-field env "currentTimestamp"))
+             :difficulty
+             (hex-to-quantity
+              (or (fixture-object-field env "currentDifficulty") "0x0")))))
+      (values state receipt post-entry))))
+
+(defun assert-eest-state-test-case (case &key (fork "London"))
+  (multiple-value-bind (state receipt post-entry)
+      (execute-eest-state-test-case case :fork fork)
+    (is (string= (fixture-required-field post-entry "hash")
+                 (state-db-root-hex state)))
+    (is (string= (fixture-required-field post-entry "logs")
+                 (hash32-to-hex
+                  (eest-state-test-logs-hash (receipt-logs receipt)))))))
+
 (defun assert-evm-state-fixture-account (state address-hex expected)
   (let* ((address (address-from-hex address-hex))
          (account (state-db-get-account state address))
@@ -656,3 +769,12 @@
           (assert-evm-state-fixture-receipt
            receipt
            (fixture-object-field expect "receipt")))))))
+
+(deftest eest-state-test-root-london-vector-executes
+  (let* ((root (execution-spec-tests-state-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (case (first
+                (load-eest-state-test-root-cases
+                 root
+                 :names '("london/phase-a-state-sample.json/phase_a_london_state_sample")))))
+    (assert-eest-state-test-case case)))

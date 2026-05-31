@@ -3368,6 +3368,22 @@ splits can land after the Phase A smoke path closes.
     start from discovered source selectors instead of adding one-off bespoke
     fixtures.
 
+- [x] Execute an upstream-shaped EEST `state_tests` vector.
+  - Milestone: 4 / 8
+  - Dependencies: pinned execution-spec `state_tests` root discovery.
+  - References: Ethereum execution-spec-tests GeneralStateTest format, geth
+    state-test runner shape, Nethermind EVM/state-test fixture ingestion.
+  - Acceptance: a discovered `state_tests` case can derive its sender from
+    `secretKey`, select transaction `data`/`gasLimit`/`value` by post indexes,
+    execute through the Common Lisp state/EVM path, and compare the resulting
+    post-state root and logs hash against the upstream-style post entry.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added `secp256k1-private-key-address` for fixture sender
+    derivation and a London GeneralStateTest replay path that runs the
+    upstream-shaped sample without converting it to the bespoke EVM wrapper.
+    The replay builds pre-state accounts/code/storage, executes the indexed
+    legacy transaction, and verifies both `post[*].hash` and `post[*].logs`.
+
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
   - References: geth `core/vm`, Nethermind EVM, revm behavior.
