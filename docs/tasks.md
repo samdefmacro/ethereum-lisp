@@ -331,6 +331,14 @@ ones.
     `postState` account data. The local v5.4.0 run against
     `/private/tmp/eest-v5.4.0-extract/fixtures` passed with 578 tests passing
     and 4 skipped.
+  - Result: added `scripts/phase-a-fixture-report.lisp`, a single fixture
+    ingestion report entry point that loads an EEST suite root, discovers and
+    validates the Phase A `state_tests` selector summary, discovers or validates
+    the Phase A blockchain replay selector table, and prints the state /
+    blockchain selector strings plus summary counts. Against the in-repo
+    EEST-shaped root it reports 4 state selectors, 7 state transaction
+    combinations, 3 blockchain replay cases, one decoded block, and the
+    `blockRlp` / `engineNewPayloadV2` materialization split.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
