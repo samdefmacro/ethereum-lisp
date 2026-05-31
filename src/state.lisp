@@ -397,7 +397,18 @@
 (defun state-proof-rpc-storage-key (value)
   (unless (stringp value)
     (error "Storage proof key must be a string"))
-  (let ((bytes (hex-to-bytes value)))
+  (let* ((digits (if (and (>= (length value) 2)
+                          (char= (char value 0) #\0)
+                          (member (char value 1) '(#\x #\X)))
+                     (subseq value 2)
+                     value))
+         (normalized
+           (concatenate 'string
+                        "0x"
+                        (if (oddp (length digits))
+                            (concatenate 'string "0" digits)
+                            digits)))
+         (bytes (hex-to-bytes normalized)))
     (when (> (length bytes) 32)
       (error "Storage proof key is wider than 32 bytes"))
     (let ((padded (make-byte-vector 32)))

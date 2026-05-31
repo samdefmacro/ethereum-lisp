@@ -6,17 +6,26 @@
 (defparameter +state-proof-fixture-path+
   "tests/fixtures/execution-spec-tests/state-proofs.json")
 
+(defparameter +state-proof-reference-fixture-path+
+  "tests/fixtures/execution-spec-tests/state-proofs-reference.json")
+
 (defparameter +state-root-fixture-format+
   "ethereum-lisp/state-root-fixture-v1")
 
 (defparameter +state-proof-fixture-format+
   "ethereum-lisp/state-proof-fixture-v1")
 
+(defparameter +state-proof-reference-fixture-format+
+  "ethereum-lisp/reference-state-proof-fixture-v1")
+
 (defparameter +state-root-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "cases"))
 
 (defparameter +state-proof-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "cases"))
+
+(defparameter +state-proof-reference-fixture-top-level-fields+
+  '("format" "source" "references" "cases"))
 
 (defparameter +state-root-fixture-case-fields+
   '("name"
@@ -42,6 +51,12 @@
     "request"
     "expectedRoot"
     "expectedProof"))
+
+(defparameter +state-proof-reference-fixture-case-fields+
+  '("name" "reference" "expectedRoot" "expectedProof"))
+
+(defparameter +state-proof-reference-fields+
+  '("client" "commit" "path" "test"))
 
 (defparameter +state-proof-fixture-request-fields+
   '("address" "storageKeys"))
@@ -1423,6 +1438,33 @@
    "State proof fixture source")
   (validate-fixture-pinned-eest-source fixture))
 
+(defun validate-state-proof-reference-source (source label)
+  (validate-fixture-object-fields
+   source
+   +state-proof-reference-fields+
+   label)
+  (dolist (field +state-proof-reference-fields+)
+    (validate-state-root-fixture-non-empty-string
+     (fixture-required-field source field)
+     (format nil "~A ~A" label field))))
+
+(defun validate-state-proof-reference-fixture-metadata (fixture)
+  (validate-fixture-object-fields
+   fixture
+   +state-proof-reference-fixture-top-level-fields+
+   "State proof reference fixture")
+  (validate-fixture-format fixture +state-proof-reference-fixture-format+)
+  (validate-state-root-fixture-non-empty-string
+   (fixture-required-field fixture "source")
+   "State proof reference fixture source")
+  (let ((references (fixture-required-field fixture "references")))
+    (unless (and (listp references) references)
+      (error "State proof reference fixture references must be a non-empty array"))
+    (dolist (source references)
+      (validate-state-proof-reference-source
+       source
+       "State proof reference fixture reference"))))
+
 (defun validate-state-proof-fixture-case-name (case seen-names)
   (let ((name (fixture-object-field case "name")))
     (validate-state-root-fixture-non-empty-string
@@ -1570,12 +1612,52 @@
        nodes
        "State proof fixture storage proof"))))
 
+(defun validate-state-proof-reference-storage-proof-shape
+    (proof &optional storage-hash)
+  (validate-fixture-object-fields
+   proof
+   +state-proof-fixture-storage-proof-fields+
+   "State proof reference fixture storageProof entry")
+  (let ((key (fixture-required-field proof "key")))
+    (handler-case
+        (ethereum-lisp.state::state-proof-rpc-storage-key key)
+      (error ()
+        (error "State proof reference fixture storageProof key is invalid"))))
+  (validate-state-proof-fixture-canonical-quantity-field
+   proof
+   "value"
+   "State proof reference fixture storageProof value")
+  (let ((value (hex-to-quantity (fixture-required-field proof "value")))
+        (nodes (fixture-required-field proof "proof")))
+    (when (and (plusp value)
+               (not nodes))
+      (error "State proof reference fixture storageProof entry with non-zero value must include proof nodes"))
+    (when (and storage-hash
+               (not (state-proof-fixture-empty-storage-root-p storage-hash))
+               (not nodes))
+      (error "State proof reference fixture storageProof entry against a non-empty storageHash must include proof nodes"))
+    (when nodes
+      (validate-state-proof-fixture-proof-node-list
+       nodes
+       "State proof reference fixture storage proof"))))
+
 (defun validate-state-proof-fixture-storage-proof-uniqueness (storage-proof)
   (let ((seen (make-hash-table :test 'equal)))
     (dolist (entry storage-proof)
       (let ((key (fixture-required-field entry "key")))
         (when (gethash key seen)
           (error "State proof fixture storageProof has duplicate key ~A"
+                 key))
+        (setf (gethash key seen) t)))))
+
+(defun validate-state-proof-reference-storage-proof-uniqueness (storage-proof)
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (entry storage-proof)
+      (let ((key (hash32-to-hex
+                  (ethereum-lisp.state::state-proof-rpc-storage-key
+                   (fixture-required-field entry "key")))))
+        (when (gethash key seen)
+          (error "State proof reference fixture storageProof has duplicate key ~A"
                  key))
         (setf (gethash key seen) t)))))
 
@@ -1636,6 +1718,47 @@
         (validate-state-proof-fixture-storage-proof-shape entry storage-hash))
       (validate-state-proof-fixture-storage-proof-uniqueness storage-proof))))
 
+(defun validate-state-proof-reference-proof-shape (proof)
+  (validate-fixture-object-fields
+   proof
+   +state-proof-fixture-proof-fields+
+   "State proof reference fixture expectedProof")
+  (validate-state-proof-fixture-canonical-address-field
+   proof
+   "address"
+   "State proof reference fixture expectedProof address")
+  (validate-state-proof-fixture-canonical-quantity-field
+   proof
+   "balance"
+   "State proof reference fixture expectedProof balance")
+  (validate-state-proof-fixture-canonical-hash-field
+   proof
+   "codeHash"
+   "State proof reference fixture expectedProof codeHash")
+  (validate-state-proof-fixture-canonical-quantity-field
+   proof
+   "nonce"
+   "State proof reference fixture expectedProof nonce")
+  (validate-state-proof-fixture-canonical-hash-field
+   proof
+   "storageHash"
+   "State proof reference fixture expectedProof storageHash")
+  (let ((account-proof (fixture-required-field proof "accountProof"))
+        (storage-hash
+          (hash32-from-hex (fixture-required-field proof "storageHash"))))
+    (validate-state-proof-fixture-proof-node-list
+     account-proof
+     "State proof reference fixture accountProof")
+    (let ((storage-proof (fixture-required-field proof "storageProof")))
+      (unless (listp storage-proof)
+        (error "State proof reference fixture storageProof must be a JSON array"))
+      (dolist (entry storage-proof)
+        (validate-state-proof-reference-storage-proof-shape
+         entry
+         storage-hash))
+      (validate-state-proof-reference-storage-proof-uniqueness
+       storage-proof))))
+
 (defun validate-state-proof-fixture-request-proof-alignment (request proof)
   (unless (bytes= (address-bytes
                    (address-from-hex
@@ -1682,6 +1805,24 @@
      "State proof fixture case")
     (validate-state-proof-fixture-proof-shape proof)
     (validate-state-proof-fixture-request-proof-alignment request proof)))
+
+(defun validate-state-proof-reference-fixture-case-shape (case)
+  (validate-fixture-object-fields
+   case
+   +state-proof-reference-fixture-case-fields+
+   "State proof reference fixture case")
+  (validate-state-root-fixture-non-empty-string
+   (fixture-required-field case "name")
+   "State proof reference fixture case name")
+  (validate-state-proof-reference-source
+   (fixture-required-field case "reference")
+   "State proof reference fixture case reference")
+  (validate-state-root-fixture-hash-field
+   case
+   "expectedRoot"
+   "State proof reference fixture case")
+  (validate-state-proof-reference-proof-shape
+   (fixture-required-field case "expectedProof")))
 
 (defun validate-state-proof-fixture-cases (cases)
   (unless (listp cases)
@@ -2505,3 +2646,21 @@
         (is (state-db-verify-proof (state-db-root state) proof))
         (is (equal (fixture-object-field case "expectedProof")
                    (state-proof-result-rpc-object proof)))))))
+
+(deftest state-proof-reference-fixture-vectors
+  (let* ((fixture
+           (load-handwritten-fixture-file
+            +state-proof-reference-fixture-path+))
+         (cases (fixture-object-field fixture "cases")))
+    (validate-state-proof-reference-fixture-metadata fixture)
+    (unless (and (listp cases) cases)
+      (error "State proof reference fixture cases must be a non-empty array"))
+    (dolist (case cases)
+      (validate-state-proof-reference-fixture-case-shape case)
+      (let* ((expected-root
+               (hash32-from-hex
+                (fixture-required-field case "expectedRoot")))
+             (decoded-proof
+               (state-proof-result-from-rpc-object
+                (fixture-required-field case "expectedProof"))))
+        (is (state-db-verify-proof expected-root decoded-proof))))))

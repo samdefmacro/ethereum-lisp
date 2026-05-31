@@ -2742,12 +2742,13 @@ splits can land after the Phase A smoke path closes.
     while failing against the mutated root. Added a named seed-case coverage
     gate for the state-proof fixture set, locking the present-account,
     missing-account, deleted-storage, and multi-storage proof vectors before
-    they are replaced with transcribed reference output. Remaining work:
-    replace the seed
-    proof vectors with
-    transcribed
-    geth proof workload output or pinned execution-spec-tests proof fixtures
-    once available.
+    they are replaced with transcribed reference output. Added a separate
+    reference-client proof fixture runner and a pinned Nethermind
+    `eth_getProof` output from commit `1c72a72`, so odd-width short storage
+    proof keys such as `0x1` are decoded and verified against real client
+    output instead of synthetic seed shape. Remaining work: continue replacing
+    seed proof vectors with transcribed geth/Nethermind proof workload output
+    or pinned execution-spec-tests proof fixtures once available.
   - Progress: added an empty-state proof vector for a missing account plus
     missing storage key. The fixture now locks the empty trie root,
     empty-account `eth_getProof` fields, empty account proof list, and null
