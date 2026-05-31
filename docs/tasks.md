@@ -255,6 +255,12 @@ ones.
     Shanghai cases, include both embedded `engineNewPayloadV2` and standard
     `blocks[].rlp` materialization paths, and include decoded block coverage
     before the selected root can be treated as the Phase A replay set.
+  - Progress: added an external-root selector bridge for the Phase A blockchain
+    replay path. A real local EEST root can now provide
+    `ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS` as comma-separated
+    `source-style-selector=materialization-kind` pairs, so the optional replay
+    harness loads, validates, and materializes exactly those upstream selectors
+    instead of requiring more in-repo seed case names.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

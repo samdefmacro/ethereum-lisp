@@ -16,6 +16,12 @@
 (defparameter +eest-blockchain-standard-block-fields+
   '("rlp" "blockHeader" "expectException" "uncleHeaders"))
 
+(defconstant +phase-a-eest-blockchain-replay-selectors-env+
+  "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
+
+(defparameter +phase-a-eest-blockchain-replay-materialization-kind-names+
+  '("engineNewPayloadV2" "blockRlp"))
+
 (defparameter +phase-a-eest-blockchain-replay-materialization-kinds+
   '(("shanghai/phase-a-empty-engine.json" . "engineNewPayloadV2")
     ("shanghai/phase-a-empty-standard.json" . "blockRlp")))
@@ -88,6 +94,62 @@
          append (load-eest-blockchain-test-root-file-cases root path))
    names
    "EEST blockchain test"))
+
+(defun eest-blockchain-trim-string (value)
+  (string-trim '(#\Space #\Tab #\Newline #\Return) value))
+
+(defun eest-blockchain-split-string (value delimiter)
+  (let ((parts '())
+        (start 0))
+    (loop
+      for position = (position delimiter value :start start)
+      do (push (subseq value start position) parts)
+      if position
+        do (setf start (1+ position))
+      else
+        do (return (nreverse parts)))))
+
+(defun parse-phase-a-eest-blockchain-replay-selector (value)
+  (let* ((selector (eest-blockchain-trim-string value))
+         (separator (position #\= selector)))
+    (unless separator
+      (error "Phase A EEST blockchain replay selector ~A must use name=kind"
+             selector))
+    (let ((name (eest-blockchain-trim-string
+                 (subseq selector 0 separator)))
+          (kind (eest-blockchain-trim-string
+                 (subseq selector (1+ separator)))))
+      (validate-eest-blockchain-selector-list (list name))
+      (unless (member kind
+                      +phase-a-eest-blockchain-replay-materialization-kind-names+
+                      :test #'string=)
+        (error "Phase A EEST blockchain replay selector ~A has unsupported materialization kind ~A"
+               name
+               kind))
+      (cons name kind))))
+
+(defun parse-phase-a-eest-blockchain-replay-selectors (value)
+  (unless (stringp value)
+    (error "Phase A EEST blockchain replay selectors must be a string"))
+  (when (blank-string-p value)
+    (return-from parse-phase-a-eest-blockchain-replay-selectors nil))
+  (let ((selectors
+          (mapcar #'parse-phase-a-eest-blockchain-replay-selector
+                  (eest-blockchain-split-string value #\,))))
+    (validate-eest-blockchain-selector-list (mapcar #'car selectors))
+    selectors))
+
+(defun phase-a-eest-blockchain-replay-env-materialization-kinds ()
+  (let ((value (funcall *fixture-root-environment-reader*
+                        +phase-a-eest-blockchain-replay-selectors-env+)))
+    (cond
+      ((null value) nil)
+      ((not (stringp value))
+       (error "~A must be a string"
+              +phase-a-eest-blockchain-replay-selectors-env+))
+      ((blank-string-p value) nil)
+      (t
+       (parse-phase-a-eest-blockchain-replay-selectors value)))))
 
 (defun eest-blockchain-replay-materialization-kind (case)
   (let ((fixture (fixture-required-field case "fixture")))
@@ -191,14 +253,30 @@
       (error "Phase A EEST blockchain replay is missing decoded block coverage"))
     summary))
 
-(defun load-phase-a-eest-blockchain-replay-cases (root)
+(defun load-phase-a-eest-blockchain-replay-cases
+    (root &key
+          (expected-kinds
+           +phase-a-eest-blockchain-replay-materialization-kinds+))
   (let ((cases (load-eest-blockchain-test-root-cases
                 root
-                :names (mapcar
-                        #'car
-                        +phase-a-eest-blockchain-replay-materialization-kinds+))))
-    (validate-phase-a-eest-blockchain-replay-summary cases)
+                :names (mapcar #'car expected-kinds))))
+    (validate-phase-a-eest-blockchain-replay-summary
+     cases
+     :expected-kinds expected-kinds)
     cases))
+
+(defun load-optional-phase-a-eest-blockchain-replay-cases ()
+  (with-execution-spec-tests-blockchain-test-root (root)
+    (let ((expected-kinds
+            (phase-a-eest-blockchain-replay-env-materialization-kinds)))
+      (unless expected-kinds
+        (skip-test
+         (format nil
+                 "Set ~A to comma-separated selector=kind pairs to run Phase A blockchain replay against an external root"
+                 +phase-a-eest-blockchain-replay-selectors-env+)))
+      (load-phase-a-eest-blockchain-replay-cases
+       root
+       :expected-kinds expected-kinds))))
 
 (defun report-eest-blockchain-test-root-case (case)
   (let ((fixture (fixture-required-field case "fixture")))
@@ -539,6 +617,28 @@
     (signals error
       (eest-blockchain-test-root-json-paths root))))
 
+(deftest phase-a-eest-blockchain-replay-selector-parsing
+  (let ((selectors
+          (parse-phase-a-eest-blockchain-replay-selectors
+           "shanghai/phase-a-empty-engine.json=engineNewPayloadV2, shanghai/phase-a-empty-standard.json=blockRlp")))
+    (is (equal +phase-a-eest-blockchain-replay-materialization-kinds+
+               selectors)))
+  (signals error
+    (parse-phase-a-eest-blockchain-replay-selectors
+     "shanghai/phase-a-empty-engine.json"))
+  (signals error
+    (parse-phase-a-eest-blockchain-replay-selectors
+     "shanghai/phase-a-empty-engine.json=unsupported"))
+  (signals error
+    (parse-phase-a-eest-blockchain-replay-selectors
+     "shanghai/phase-a-empty-engine.json=engineNewPayloadV2,shanghai/phase-a-empty-engine.json=blockRlp"))
+  (signals error
+    (let ((*fixture-root-environment-reader*
+            (lambda (name)
+              (declare (ignore name))
+              42)))
+      (phase-a-eest-blockchain-replay-env-materialization-kinds))))
+
 (deftest eest-blockchain-test-root-case-loading
   (let* ((root (execution-spec-tests-blockchain-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
@@ -629,3 +729,25 @@
       (signals error
         (validate-phase-a-eest-blockchain-replay-summary
          (list bad-case (second phase-a-cases)))))))
+
+(deftest optional-phase-a-eest-blockchain-replay-cases
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (cond
+              ((string= name +execution-spec-tests-fixture-root-env+)
+               "tests/fixtures/execution-spec-tests-root/")
+              ((string= name +phase-a-eest-blockchain-replay-selectors-env+)
+               "shanghai/phase-a-empty-engine.json=engineNewPayloadV2,shanghai/phase-a-empty-standard.json=blockRlp")
+              (t nil)))))
+    (let ((cases (load-optional-phase-a-eest-blockchain-replay-cases)))
+      (is (= 2 (length cases)))))
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (cond
+              ((string= name +execution-spec-tests-fixture-root-env+)
+               "tests/fixtures/execution-spec-tests-root/")
+              ((string= name +phase-a-eest-blockchain-replay-selectors-env+)
+               nil)
+              (t nil)))))
+    (signals test-skipped
+      (load-optional-phase-a-eest-blockchain-replay-cases))))
