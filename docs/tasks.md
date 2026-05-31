@@ -2453,6 +2453,12 @@ splits can land after the Phase A smoke path closes.
     three-account plain and secure-key seed cases. The seed gate now requires
     those account-derived reference cases to keep exact-length proof coverage,
     not only root, lookup, and entry-pair replay.
+    Added explicit `out` assertions to the selected plain geth TinyTrie
+    account step-1 and step-2 EEST-style cases, then extended the Phase A
+    explicit-output gate to require the full plain and secure account
+    progression. The external adapter path now checks present and missing
+    lookups/proofs for the one-account leaf and two-account branch transition,
+    not only the final three-account root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

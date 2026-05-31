@@ -307,7 +307,9 @@
     ("phase-a-secureTrie.json/phase-a-secure-zgeth-delete-sequence" . :secure)))
 
 (defparameter +phase-a-eest-trie-explicit-output-reference-case-names+
-  '("phase-a-trie-multi.json/geth-tiny-account-step-3"
+  '("phase-a-trie-multi.json/geth-tiny-account-step-1"
+    "phase-a-trie-multi.json/geth-tiny-account-step-2"
+    "phase-a-trie-multi.json/geth-tiny-account-step-3"
     "phase-a-trie-multi.json/geth-stacktrie-short-branch-growth"
     "phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth"
     "phase-a-trie-multi.json/geth-stacktrie-extension-branch-short-long-growth"
@@ -4544,8 +4546,13 @@
        "Phase A EEST trie subset"))
     (signals error
       (validate-trie-reference-explicit-output-requirements
-       selected-cases
-       '("phase-a-trie-multi.json/geth-tiny-account-step-2")
+       (mapcar (lambda (case)
+                 (if (string= "phase-a-trie-multi.json/geth-tiny-account-step-1"
+                              (fixture-object-field case "name"))
+                     (remove "expectedOut" case :key #'car :test #'string=)
+                     case))
+               selected-cases)
+       '("phase-a-trie-multi.json/geth-tiny-account-step-1")
        "Phase A EEST trie subset"))
     (let ((case-names
             (mapcar (lambda (case)
@@ -4784,16 +4791,16 @@
     (is (= 34 (fixture-object-field summary "proofMissingKeyCount")))
     (is (= 13 (fixture-object-field summary "secureProofMissingKeyCount")))
     (is (= 21 (fixture-object-field summary "plainProofMissingKeyCount")))
-    (is (= 30 (fixture-object-field summary "explicitOutputCaseCount")))
+    (is (= 32 (fixture-object-field summary "explicitOutputCaseCount")))
     (is (= 5 (fixture-object-field summary "secureExplicitOutputCaseCount")))
-    (is (= 25 (fixture-object-field summary "plainExplicitOutputCaseCount")))
-    (is (= 118 (fixture-object-field summary "explicitOutputEntryCount")))
-    (is (= 88 (fixture-object-field summary "explicitOutputPresentKeyCount")))
+    (is (= 27 (fixture-object-field summary "plainExplicitOutputCaseCount")))
+    (is (= 123 (fixture-object-field summary "explicitOutputEntryCount")))
+    (is (= 91 (fixture-object-field summary "explicitOutputPresentKeyCount")))
     (is (= 10 (fixture-object-field summary "secureExplicitOutputPresentKeyCount")))
-    (is (= 78 (fixture-object-field summary "plainExplicitOutputPresentKeyCount")))
-    (is (= 30 (fixture-object-field summary "explicitOutputMissingKeyCount")))
+    (is (= 81 (fixture-object-field summary "plainExplicitOutputPresentKeyCount")))
+    (is (= 32 (fixture-object-field summary "explicitOutputMissingKeyCount")))
     (is (= 5 (fixture-object-field summary "secureExplicitOutputMissingKeyCount")))
-    (is (= 25 (fixture-object-field summary "plainExplicitOutputMissingKeyCount")))
+    (is (= 27 (fixture-object-field summary "plainExplicitOutputMissingKeyCount")))
     (is (= 2 (fixture-object-field summary "objectFormExplicitOutputCaseCount")))
     (is (= 1 (fixture-object-field summary "secureObjectFormExplicitOutputCaseCount")))
     (is (= 1 (fixture-object-field summary "plainObjectFormExplicitOutputCaseCount")))

@@ -133,7 +133,11 @@ fixes in those areas are allowed; expansion is not.
   progression on both plain and secure-key replay paths.
   The same geth TinyTrie account progression now pins exact present and
   missing proof-node RLPs for every plain and secure-key step, so account-trie
-  proof encoding is locked alongside the root and entry-order checks.
+  proof encoding is locked alongside the root and entry-order checks. The
+  selected EEST-style path now also carries explicit `out` maps for every
+  plain and secure geth TinyTrie account step, so present/missing
+  lookup/proof replay covers the leaf, branch-transition, and final
+  three-account roots on the external adapter path.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the
