@@ -39,6 +39,12 @@
       (error "Fixture helper ~A is unavailable" name))
     (apply (symbol-function symbol) args)))
 
+(defun fixture-report-variable (name)
+  (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))
+    (unless (and symbol (boundp symbol))
+      (error "Fixture variable ~A is unavailable" name))
+    (symbol-value symbol)))
+
 (defun fixture-report-field (object name)
   (cdr (assoc name object :test #'string=)))
 
@@ -81,14 +87,50 @@
        (cons "selectors" nil)
        (cons "selectorString" ""))))
 
+(defun fixture-report-transaction-object
+    (transaction-root transaction-selectors transaction-summary)
+  (if transaction-root
+      (list
+       (cons "status" "ok")
+       (cons "root" (namestring transaction-root))
+       (cons "count" (fixture-report-field transaction-summary "count"))
+       (cons "types" (fixture-report-field transaction-summary "types"))
+       (cons "signatureVectorCount"
+             (fixture-report-field transaction-summary "signatureVectorCount"))
+       (cons "accessListVectorCount"
+             (fixture-report-field transaction-summary "accessListVectorCount"))
+       (cons "contractCreationVectorCount"
+             (fixture-report-field transaction-summary
+                                   "contractCreationVectorCount"))
+       (cons "selectors" transaction-selectors)
+       (cons "selectorString"
+             (fixture-report-call
+              "phase-a-eest-transaction-test-selector-string"
+              transaction-selectors)))
+      (list
+       (cons "status" "missing")
+       (cons "root" nil)
+       (cons "count" 0)
+       (cons "types" nil)
+       (cons "signatureVectorCount" 0)
+       (cons "accessListVectorCount" 0)
+       (cons "contractCreationVectorCount" 0)
+       (cons "selectors" nil)
+       (cons "selectorString" ""))))
+
 (defun fixture-report-report-object
     (suite-root mode state-root state-selectors state-summary
+     transaction-root transaction-selectors transaction-summary
      blockchain-root blockchain-kinds blockchain-summary)
   (list
    (cons "suiteRoot" suite-root)
    (cons "mode" mode)
    (cons "state" (fixture-report-state-object
                   state-root state-selectors state-summary))
+   (cons "transaction" (fixture-report-transaction-object
+                        transaction-root
+                        transaction-selectors
+                        transaction-summary))
    (cons "blockchain"
          (list
           (cons "root" (namestring blockchain-root))
@@ -105,6 +147,7 @@
 
 (defun fixture-report-print-text (report)
   (let ((state (fixture-report-field report "state"))
+        (transaction (fixture-report-field report "transaction"))
         (blockchain (fixture-report-field report "blockchain")))
     (format t "~&suiteRoot=~A~%" (fixture-report-field report "suiteRoot"))
     (format t "mode=~A~%" (fixture-report-field report "mode"))
@@ -116,6 +159,22 @@
             (fixture-report-field state "transactionCombinationCount"))
     (format t "stateSelectors=~A~%"
             (fixture-report-field state "selectorString"))
+    (format t "transactionStatus=~A~%"
+            (fixture-report-field transaction "status"))
+    (format t "transactionRoot=~A~%"
+            (or (fixture-report-field transaction "root") "missing"))
+    (format t "transactionCount=~D~%"
+            (fixture-report-field transaction "count"))
+    (format t "transactionTypes=~S~%"
+            (fixture-report-field transaction "types"))
+    (format t "transactionSignatureVectors=~D~%"
+            (fixture-report-field transaction "signatureVectorCount"))
+    (format t "transactionAccessListVectors=~D~%"
+            (fixture-report-field transaction "accessListVectorCount"))
+    (format t "transactionContractCreationVectors=~D~%"
+            (fixture-report-field transaction "contractCreationVectorCount"))
+    (format t "transactionSelectors=~A~%"
+            (fixture-report-field transaction "selectorString"))
     (format t "blockchainRoot=~A~%"
             (fixture-report-field blockchain "root"))
     (format t "blockchainCount=~D~%"
@@ -142,6 +201,12 @@
                                     root-argument)
                (fixture-report-call
                 "execution-spec-tests-state-test-root")))
+         (transaction-root
+           (if root-argument
+               (fixture-report-call "execution-spec-tests-transaction-test-root"
+                                    root-argument)
+               (fixture-report-call
+                "execution-spec-tests-transaction-test-root")))
          (blockchain-root
            (if root-argument
                (fixture-report-call
@@ -168,6 +233,20 @@
                 "validate-phase-a-eest-state-test-summary"
                 state-cases
                 :expected-names state-selectors)))
+           (transaction-selectors
+             (when transaction-root
+               (fixture-report-variable
+                "+phase-a-eest-transaction-test-case-names+")))
+           (transaction-vectors
+             (when transaction-root
+               (fixture-report-call
+                "load-phase-a-eest-transaction-test-root-vectors"
+                transaction-root)))
+           (transaction-summary
+             (when transaction-root
+               (fixture-report-call
+                "validate-phase-a-eest-transaction-vector-summary"
+                transaction-vectors)))
            (blockchain-kinds
              (if pinned-p
                  (fixture-report-call
@@ -189,6 +268,8 @@
       (when (and state-root (not state-selectors))
         (error "No materializable Phase A state_tests selectors found under ~A"
                state-root))
+      (when (and transaction-root (not transaction-selectors))
+        (error "No Phase A transaction_tests selectors are configured"))
       (unless blockchain-kinds
         (error "No materializable Phase A blockchain selectors found under ~A"
                blockchain-root))
@@ -199,6 +280,9 @@
                state-root
                state-selectors
                state-summary
+               transaction-root
+               transaction-selectors
+               transaction-summary
                blockchain-root
                blockchain-kinds
                blockchain-summary)))

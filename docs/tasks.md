@@ -347,6 +347,15 @@ ones.
     `stateStatus=missing` / JSON `"status":"missing"` and still validates the
     pinned v5.4.0 blockchain replay selector table instead of exiting before
     the available upstream suite can be checked.
+  - Result: extended the Phase A fixture report to cover the transaction
+    selector table alongside state and blockchain ingestion. The report now
+    validates the Phase A `transaction_tests` selector set when the suite is
+    present, prints and JSON-encodes transaction counts, type counts,
+    signature/access-list/contract-creation coverage, and emits
+    `transactionStatus=missing` when a real stable archive lacks the suite.
+    Added `scripts/list-transaction-test-selectors.lisp` so the transaction
+    selector list can be reproduced from the same fixture-driven path instead
+    of being copied out of source by hand.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

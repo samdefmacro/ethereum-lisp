@@ -988,6 +988,17 @@
    name
    :allow-nested-case-name t))
 
+(defun phase-a-eest-transaction-test-selector-string
+    (&optional (names +phase-a-eest-transaction-test-case-names+))
+  (validate-eest-transaction-selector-list names)
+  (with-output-to-string (stream)
+    (loop for name in names
+          for first-p = t then nil
+          do (progn
+               (unless first-p
+                 (write-char #\, stream))
+               (write-string name stream)))))
+
 (defun load-eest-transaction-test-root-cases (root &key names)
   (when names
     (validate-eest-transaction-selector-list names))
