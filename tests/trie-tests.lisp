@@ -313,6 +313,8 @@
     "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-two-nibbles"
     "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble"
     "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"))
 
 (defparameter +trie-fixture-required-tags+
@@ -4640,15 +4642,15 @@
     (is (= 34 (fixture-object-field summary "proofMissingKeyCount")))
     (is (= 13 (fixture-object-field summary "secureProofMissingKeyCount")))
     (is (= 21 (fixture-object-field summary "plainProofMissingKeyCount")))
-    (is (= 28 (fixture-object-field summary "explicitOutputCaseCount")))
-    (is (= 3 (fixture-object-field summary "secureExplicitOutputCaseCount")))
+    (is (= 30 (fixture-object-field summary "explicitOutputCaseCount")))
+    (is (= 5 (fixture-object-field summary "secureExplicitOutputCaseCount")))
     (is (= 25 (fixture-object-field summary "plainExplicitOutputCaseCount")))
-    (is (= 113 (fixture-object-field summary "explicitOutputEntryCount")))
-    (is (= 85 (fixture-object-field summary "explicitOutputPresentKeyCount")))
-    (is (= 7 (fixture-object-field summary "secureExplicitOutputPresentKeyCount")))
+    (is (= 118 (fixture-object-field summary "explicitOutputEntryCount")))
+    (is (= 88 (fixture-object-field summary "explicitOutputPresentKeyCount")))
+    (is (= 10 (fixture-object-field summary "secureExplicitOutputPresentKeyCount")))
     (is (= 78 (fixture-object-field summary "plainExplicitOutputPresentKeyCount")))
-    (is (= 28 (fixture-object-field summary "explicitOutputMissingKeyCount")))
-    (is (= 3 (fixture-object-field summary "secureExplicitOutputMissingKeyCount")))
+    (is (= 30 (fixture-object-field summary "explicitOutputMissingKeyCount")))
+    (is (= 5 (fixture-object-field summary "secureExplicitOutputMissingKeyCount")))
     (is (= 25 (fixture-object-field summary "plainExplicitOutputMissingKeyCount")))
     (is (= 2 (fixture-object-field summary "objectFormExplicitOutputCaseCount")))
     (is (= 1 (fixture-object-field summary "secureObjectFormExplicitOutputCaseCount")))

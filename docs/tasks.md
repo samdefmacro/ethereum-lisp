@@ -2438,6 +2438,12 @@ splits can land after the Phase A smoke path closes.
     children that resolve to extensions, and the deep extension-to-branch
     case with explicit retained/missing `out` maps, so all current
     StackTrie seed reference roots are represented by external-style replay.
+    Added the geth `TestTinyTrie` secure account roots as progressive
+    state-root fixtures for the one-account leaf and two-account branch
+    transitions, and added explicit retained/missing `out` maps to the
+    matching selected secureTrie account steps. The state-root and EEST-style
+    gates now require the geth-derived account-RLP sequence before and after
+    the branch transition, not only the final three-account root.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
