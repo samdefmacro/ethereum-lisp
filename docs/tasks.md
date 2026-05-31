@@ -216,7 +216,7 @@ ones.
     discovered JSON files into selectable cases and report the selected case
     name, fixture format, network, and block count.
 
-- [~] `HARNESS-BLOCKCHAIN-FIXTURE-REPLAY`: Materialize selected blockchain
+- [x] `HARNESS-BLOCKCHAIN-FIXTURE-REPLAY`: Materialize selected blockchain
   fixtures into Engine import cases.
   - Milestone: 8
   - Dependencies: `HARNESS-BLOCKCHAIN-FIXTURE-LOADER`,
@@ -321,6 +321,14 @@ ones.
     materializable Shanghai selector set against the checked-in v5.4.0 table
     before loading and executing it. `auto` remains available for discovery,
     but the pinned mode gives automation a drift-detecting replay contract.
+  - Result: complete for the Phase A gate. The pinned v5.4.0 Shanghai EIP-2930
+    blockchain replay selector can be reproduced with
+    `scripts/list-blockchain-replay-selectors.lisp -- --pinned-v5.4.0`, and
+    the optional replay harness executes it through `engine_newPayloadV2` while
+    comparing status, state root, receipts root, gas used, and official
+    `postState` account data. The local v5.4.0 run against
+    `/private/tmp/eest-v5.4.0-extract/fixtures` passed with 578 tests passing
+    and 4 skipped.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
