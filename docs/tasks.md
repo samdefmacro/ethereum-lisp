@@ -315,6 +315,12 @@ ones.
     roots even without a trailing slash. The blockchain selector script also
     accepts the common `-- root` argument form, making the pinned v5.4.0 replay
     selector table reproducible from the command line.
+  - Progress: added a pinned v5.4.0 selector mode for the real Phase A
+    blockchain replay path. `ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS`
+    can now be set to `pinned-v5.4.0`, which validates the current discovered
+    materializable Shanghai selector set against the checked-in v5.4.0 table
+    before loading and executing it. `auto` remains available for discovery,
+    but the pinned mode gives automation a drift-detecting replay contract.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
