@@ -349,6 +349,10 @@
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
 
+(defparameter +phase-a-eest-trie-explicit-range-reference-case-names+
+  '("phase-a-trie-multi.json/geth-tiny-account-five-step"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
+
 (defparameter +trie-fixture-required-tags+
   '("leaf-root"
     "branch-root"
@@ -426,7 +430,10 @@
   '("keyHex" "keyAscii" "nodeRlps" "exactLength"))
 
 (defparameter +eest-trie-test-case-fields+
-  '("in" "out" "root" "secure"))
+  '("in" "out" "ranges" "root" "secure"))
+
+(defparameter +eest-trie-test-range-fields+
+  '("start" "end" "keys"))
 
 (defun validate-trie-fixture-object-fields (object allowed-fields label)
   (unless (listp object)
@@ -1100,6 +1107,33 @@
                    label
                    name)))))))
 
+(defun validate-trie-reference-explicit-range-requirements
+    (cases names label)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-names (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name names)
+      (when (gethash name seen-names)
+        (error "~A explicit-range reference list has duplicate name ~A"
+               label
+               name))
+      (setf (gethash name seen-names) t)
+      (let ((case (gethash name case-by-name)))
+        (unless case
+          (error "~A is missing explicit-range reference case ~A"
+                 label
+                 name))
+        (unless (fixture-field-present-p case "expectedRanges")
+          (error "~A reference-derived trie case ~A must include explicit range assertions"
+                 label
+                 name))
+        (unless (fixture-object-field case "expectedRanges")
+          (error "~A reference-derived trie case ~A explicit ranges must not be empty"
+                 label
+                 name))))))
+
 (defun validate-trie-fixture-entry-pair-reference-cases
     (cases names label)
   (let ((case-by-name (make-hash-table :test #'equal))
@@ -1257,6 +1291,69 @@
         (bytes-to-hex bytes)
         value)))
 
+(defun eest-trie-test-normalize-optional-byte-string
+    (case-name object field index)
+  (when (fixture-field-present-p object field)
+    (let ((value (fixture-object-field object field)))
+      (unless (or (null value) (stringp value))
+        (error "EEST trie test case ~A ranges entry ~D ~A must be a string or null"
+               case-name
+               index
+               field))
+      (when value
+        (cons field
+              (eest-trie-test-normalized-byte-string
+               value
+               (format nil "EEST trie test case ~A ranges entry ~D ~A"
+                       case-name
+                       index
+                       field)))))))
+
+(defun normalize-eest-trie-test-range (case-name range index)
+  (validate-trie-fixture-object-fields
+   range
+   +eest-trie-test-range-fields+
+   (format nil "EEST trie test case ~A ranges entry ~D"
+           case-name
+           index))
+  (let ((keys (fixture-required-field range "keys")))
+    (unless (listp keys)
+      (error "EEST trie test case ~A ranges entry ~D keys must be a JSON array"
+             case-name
+             index))
+    (append
+     (remove nil
+             (list
+              (eest-trie-test-normalize-optional-byte-string
+               case-name range "start" index)
+              (eest-trie-test-normalize-optional-byte-string
+               case-name range "end" index)))
+     (list
+      (cons "keys"
+            (loop for key in keys
+                  for key-index from 0
+                  collect
+                  (progn
+                    (unless (stringp key)
+                      (error "EEST trie test case ~A ranges entry ~D key ~D must be a string"
+                             case-name
+                             index
+                             key-index))
+                    (eest-trie-test-normalized-byte-string
+                     key
+                     (format nil "EEST trie test case ~A ranges entry ~D key ~D"
+                             case-name
+                             index
+                             key-index)))))))))
+
+(defun normalize-eest-trie-test-ranges (case-name ranges)
+  (unless (listp ranges)
+    (error "EEST trie test case ~A ranges must be a JSON array"
+           case-name))
+  (loop for range in ranges
+        for index from 0
+        collect (normalize-eest-trie-test-range case-name range index)))
+
 (defun normalize-eest-trie-test-case (name case &optional default-secure-p)
   (unless (stringp name)
     (error "EEST trie test case name must be a string"))
@@ -1291,7 +1388,13 @@
         (cons "expectedOut"
               (normalize-eest-trie-test-output-entries
                name
-               (fixture-object-field case "out"))))))))
+               (fixture-object-field case "out")))))
+     (when (fixture-field-present-p case "ranges")
+       (list
+        (cons "expectedRanges"
+              (normalize-eest-trie-test-ranges
+               name
+               (fixture-object-field case "ranges"))))))))
 
 (defun eest-trie-test-normalized-secure-p
     (case-name case &optional default-secure-p)
@@ -1432,6 +1535,19 @@
             for index from 0
             collect (normalize-eest-trie-test-entry case-name entry index))))
 
+(defun eest-trie-test-key-trie-key (case key label)
+  (let ((key (eest-trie-test-byte-string key label)))
+    (if (fixture-object-field case "secure")
+        (keccak-256 key)
+        key)))
+
+(defun eest-trie-test-entry-trie-key (case entry)
+  (eest-trie-test-key-trie-key
+   case
+   (fixture-required-field entry "key")
+   (format nil "EEST trie test case ~A in entry key"
+           (fixture-required-field case "name"))))
+
 (defun run-eest-trie-test-entries (case entries)
   (let ((trie (make-mpt)))
     (dolist (entry entries)
@@ -1451,14 +1567,23 @@
    case
    (fixture-required-field case "entries")))
 
-(defun eest-trie-test-entry-trie-key (case entry)
-  (let ((key (eest-trie-test-byte-string
-              (fixture-required-field entry "key")
-              (format nil "EEST trie test case ~A in entry key"
-                      (fixture-required-field case "name")))))
-    (if (fixture-object-field case "secure")
-        (keccak-256 key)
-        key)))
+(defun eest-trie-test-range-bound (case range field)
+  (when (fixture-field-present-p range field)
+    (eest-trie-test-key-trie-key
+     case
+     (fixture-object-field range field)
+     (format nil "EEST trie test case ~A range ~A"
+             (fixture-required-field case "name")
+             field))))
+
+(defun eest-trie-test-range-expected-keys (case range)
+  (mapcar (lambda (key)
+            (eest-trie-test-key-trie-key
+             case
+             key
+             (format nil "EEST trie test case ~A range expected key"
+                     (fixture-required-field case "name"))))
+          (fixture-required-field range "keys")))
 
 (defun eest-trie-test-final-entry-map (case)
   (let ((final (make-hash-table :test 'equal)))
@@ -1689,6 +1814,30 @@
            last-key
            (subseq entries 1 (1- entry-count))))))))
 
+(defun assert-eest-trie-test-explicit-entry-ranges (case trie)
+  (loop for range in (fixture-object-field case "expectedRanges")
+        for index from 0
+        for start = (eest-trie-test-range-bound case range "start")
+        for end = (eest-trie-test-range-bound case range "end")
+        for actual-keys =
+          (mapcar #'car (mpt-entry-range trie :start start :end end))
+        for expected-keys = (eest-trie-test-range-expected-keys case range)
+        do
+           (unless (= (length expected-keys) (length actual-keys))
+             (error "EEST trie test case ~A explicit range ~D mismatch: expected ~A keys, got ~A"
+                    (fixture-required-field case "name")
+                    index
+                    (length expected-keys)
+                    (length actual-keys)))
+           (loop for expected-key in expected-keys
+                 for actual-key in actual-keys
+                 unless (bytes= expected-key actual-key)
+                   do (error "EEST trie test case ~A explicit range ~D key mismatch: expected ~A, got ~A"
+                             (fixture-required-field case "name")
+                             index
+                             (bytes-to-hex expected-key)
+                             (bytes-to-hex actual-key)))))
+
 (defun assert-eest-trie-test-case-root (case)
   (let* ((trie (run-eest-trie-test-case case))
          (name (fixture-required-field case "name"))
@@ -1703,6 +1852,7 @@
     (assert-eest-trie-test-case-explicit-output case trie)
     (assert-eest-trie-test-entry-pair-replay case trie)
     (assert-eest-trie-test-entry-ranges case trie)
+    (assert-eest-trie-test-explicit-entry-ranges case trie)
     (assert-eest-trie-test-object-form-permutations case)
     trie))
 
@@ -2099,6 +2249,24 @@
                      (eest-trie-test-explicit-output-counts case)
                    (declare (ignore present-count))
                    missing-count)))
+         (explicit-range-flags
+           (mapcar (lambda (case)
+                     (fixture-field-present-p case "expectedRanges"))
+                   cases))
+         (explicit-range-counts
+           (mapcar (lambda (case)
+                     (if (fixture-field-present-p case "expectedRanges")
+                         (length (fixture-object-field case "expectedRanges"))
+                         0))
+                   cases))
+         (secure-explicit-range-case-count
+           (loop for secure-p in secure-flags
+                 for range-p in explicit-range-flags
+                 count (and secure-p range-p)))
+         (plain-explicit-range-case-count
+           (loop for secure-p in secure-flags
+                 for range-p in explicit-range-flags
+                 count (and (not secure-p) range-p)))
          (secure-explicit-output-case-count
            (loop for secure-p in secure-flags
                  for output-p in explicit-output-flags
@@ -2719,6 +2887,14 @@
            secure-entry-range-replay-case-count)
      (cons "plainEntryRangeReplayCaseCount"
            plain-entry-range-replay-case-count)
+     (cons "explicitEntryRangeCaseCount"
+           (count t explicit-range-flags))
+     (cons "secureExplicitEntryRangeCaseCount"
+           secure-explicit-range-case-count)
+     (cons "plainExplicitEntryRangeCaseCount"
+           plain-explicit-range-case-count)
+     (cons "explicitEntryRangeCount"
+           (reduce #'+ explicit-range-counts :initial-value 0))
      (cons "writeEntryCounts" write-counts)
      (cons "totalWriteEntryCount" (reduce #'+ write-counts :initial-value 0))
      (cons "proofPresentKeyCounts" proof-present-counts)
@@ -2792,6 +2968,10 @@
    cases
    +phase-a-eest-trie-explicit-output-reference-case-names+
    "Phase A EEST trie subset")
+  (validate-trie-reference-explicit-range-requirements
+   cases
+   +phase-a-eest-trie-explicit-range-reference-case-names+
+   "Phase A EEST trie subset")
   (let ((summary (eest-trie-test-case-summary cases)))
     (when (zerop (fixture-object-field summary "secureCaseCount"))
       (error "Phase A EEST trie subset must include a secure trie case"))
@@ -2847,6 +3027,12 @@
       (error "Phase A EEST trie subset must include secure entry range replay"))
     (when (zerop (fixture-object-field summary "plainEntryRangeReplayCaseCount"))
       (error "Phase A EEST trie subset must include plain entry range replay"))
+    (when (zerop (fixture-object-field summary "explicitEntryRangeCaseCount"))
+      (error "Phase A EEST trie subset must include explicit entry range assertions"))
+    (when (zerop (fixture-object-field summary "secureExplicitEntryRangeCaseCount"))
+      (error "Phase A EEST trie subset must include secure explicit entry range assertions"))
+    (when (zerop (fixture-object-field summary "plainExplicitEntryRangeCaseCount"))
+      (error "Phase A EEST trie subset must include plain explicit entry range assertions"))
     (when (zerop (fixture-object-field summary "proofPresentKeyCount"))
       (error "Phase A EEST trie subset must include present-key proof coverage"))
     (when (zerop (fixture-object-field summary "proofMissingKeyCount"))
@@ -4402,6 +4588,24 @@
     (is (fixture-object-field delete-entry "delete"))
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
+  (let* ((case (normalize-eest-trie-test-case
+                "explicit-range"
+                (list (cons "in" (list (list "apple" "fruit1")
+                                       (list "banana" "fruit2")
+                                       (list "cherry" "fruit3")))
+                      (cons "ranges"
+                            (list (list (cons "start" "banana")
+                                        (cons "end" "date")
+                                        (cons "keys" (list "banana" "cherry")))
+                                  (list (cons "start" "banana")
+                                        (cons "end" "banana")
+                                        (cons "keys" nil))))
+                    (cons "root"
+                          "1105d1b6b4ba5b18a93daeffa42f4a2409cc9906efd03206f55bd12b9840ea1e"))))
+         (ranges (fixture-required-field case "expectedRanges")))
+    (is (= 2 (length ranges)))
+    (is (string= "banana" (fixture-object-field (first ranges) "start")))
+    (assert-eest-trie-test-case-root case))
   (is (handler-case
           (progn
             (assert-eest-trie-test-case-root
@@ -4479,6 +4683,13 @@
     (normalize-eest-trie-test-case
      "bad-entry-value-hex"
      (list (cons "in" (list (list "dog" "0x0")))
+           (cons "root"
+                 "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
+  (signals error
+    (normalize-eest-trie-test-case
+     "bad-range-key"
+     (list (cons "in" (list (list "dog" "puppy")))
+           (cons "ranges" (list (list (cons "keys" (list 42)))))
            (cons "root"
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
@@ -4575,6 +4786,25 @@
                      case))
                selected-cases)
        '("phase-a-trie-multi.json/geth-tiny-account-step-1")
+       "Phase A EEST trie subset"))
+    (validate-trie-reference-explicit-range-requirements
+     selected-cases
+     +phase-a-eest-trie-explicit-range-reference-case-names+
+     "Phase A EEST trie subset")
+    (signals error
+      (validate-trie-reference-explicit-range-requirements
+       selected-cases
+       '("phase-a-trie-multi.json/missing-geth-case")
+       "Phase A EEST trie subset"))
+    (signals error
+      (validate-trie-reference-explicit-range-requirements
+       (mapcar (lambda (case)
+                 (if (string= "phase-a-trie-multi.json/geth-tiny-account-five-step"
+                              (fixture-object-field case "name"))
+                     (remove "expectedRanges" case :key #'car :test #'string=)
+                     case))
+               selected-cases)
+       '("phase-a-trie-multi.json/geth-tiny-account-five-step")
        "Phase A EEST trie subset"))
     (let ((case-names
             (mapcar (lambda (case)
@@ -4818,6 +5048,10 @@
     (is (= 60 (fixture-object-field
                summary
                 "plainEntryRangeReplayCaseCount")))
+    (is (= 2 (fixture-object-field summary "explicitEntryRangeCaseCount")))
+    (is (= 1 (fixture-object-field summary "secureExplicitEntryRangeCaseCount")))
+    (is (= 1 (fixture-object-field summary "plainExplicitEntryRangeCaseCount")))
+    (is (= 10 (fixture-object-field summary "explicitEntryRangeCount")))
     (is (= 237 (fixture-object-field summary "totalWriteEntryCount")))
     (is (= 204 (fixture-object-field summary "proofPresentKeyCount")))
     (is (= 48 (fixture-object-field summary "secureProofPresentKeyCount")))

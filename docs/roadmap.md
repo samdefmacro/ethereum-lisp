@@ -143,7 +143,10 @@ fixes in those areas are allowed; expansion is not.
   entry-export order, and explicit output-map replay beyond the original
   three-step sequence. Those five-account seed cases now also assert bounded
   and open-ended half-open `mpt-entry-range` iteration for both raw-key and
-  secure hashed-key account tries.
+  secure hashed-key account tries. The selected EEST-style plain and secure
+  five-account account cases now carry explicit fixture-provided range maps
+  and gate them through the adapter, so external-style replay checks the same
+  half-open iterator semantics as the seed vectors.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the

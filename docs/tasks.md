@@ -2472,6 +2472,13 @@ splits can land after the Phase A smoke path closes.
     and lock half-open range order across raw-key and secure hashed-key
     iteration. Reference availability: geth `8a0223e`, Nethermind `1c72a72`;
     local Reth clone absent.
+  - Progress: extended the EEST-style trie-test adapter with explicit `ranges`
+    assertions and lifted the five-account geth TinyTrie account range checks
+    onto the selected plain and secure account cases. The Phase A EEST trie
+    gate now requires those fixture-provided range assertions, so
+    external-style fixture replay covers the same half-open raw-key and secure
+    hashed-key iteration as the seed vectors. Reference availability: geth
+    `8a0223e`, Nethermind `1c72a72`; local Reth clone absent.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
