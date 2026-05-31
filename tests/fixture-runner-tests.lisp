@@ -35,6 +35,16 @@
   '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"
     "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"))
 
+(defconstant +phase-a-eest-state-test-selectors-env+
+  "ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS")
+
+(defconstant +phase-a-eest-state-test-auto-selector+ "auto")
+
+(defparameter +phase-a-eest-state-test-case-names+
+  '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample"
+    "london/phase-a-state-sample.json/phase_a_london_dynamic_fee_state_sample"
+    "london/phase-a-state-sample.json/phase_a_london_state_sample"))
+
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
 
@@ -278,10 +288,10 @@
         (cons "transactionCombinations"
               (eest-state-test-transaction-combination-count case))))
 
-(defun eest-blockchain-trim-string (value)
+(defun eest-fixture-trim-string (value)
   (string-trim '(#\Space #\Tab #\Newline #\Return) value))
 
-(defun eest-blockchain-split-string (value delimiter)
+(defun eest-fixture-split-string (value delimiter)
   (let ((parts '())
         (start 0))
     (loop
@@ -292,15 +302,110 @@
       else
         do (return (nreverse parts)))))
 
+(defun parse-phase-a-eest-state-test-selectors (value)
+  (unless (stringp value)
+    (error "Phase A EEST state test selectors must be a string"))
+  (when (blank-string-p value)
+    (return-from parse-phase-a-eest-state-test-selectors nil))
+  (let ((selectors
+          (mapcar #'eest-fixture-trim-string
+                  (eest-fixture-split-string value #\,))))
+    (validate-eest-state-selector-list selectors)
+    selectors))
+
+(defun phase-a-eest-state-test-env-selectors (&optional root)
+  (let ((value (funcall *fixture-root-environment-reader*
+                        +phase-a-eest-state-test-selectors-env+)))
+    (cond
+      ((null value) nil)
+      ((not (stringp value))
+       (error "~A must be a string" +phase-a-eest-state-test-selectors-env+))
+      ((blank-string-p value) nil)
+      ((string= +phase-a-eest-state-test-auto-selector+
+                (string-downcase (eest-fixture-trim-string value)))
+       (unless root
+         (error "~A=auto requires an EEST state_tests root"
+                +phase-a-eest-state-test-selectors-env+))
+       (let ((selectors (discover-phase-a-eest-state-test-selectors root)))
+         (unless selectors
+           (error "~A=auto found no materializable Phase A state_tests selectors"
+                  +phase-a-eest-state-test-selectors-env+))
+         selectors))
+      (t
+       (parse-phase-a-eest-state-test-selectors value)))))
+
+(defun phase-a-eest-state-test-selector-string (selectors &key limit)
+  (validate-eest-state-selector-list selectors)
+  (let ((bounded-selectors
+          (if (and limit (> (length selectors) limit))
+              (subseq selectors 0 limit)
+              selectors)))
+    (format nil "~{~A~^,~}" bounded-selectors)))
+
+(defun validate-phase-a-eest-state-test-summary
+    (cases &key (expected-names +phase-a-eest-state-test-case-names+))
+  (validate-eest-state-selector-list expected-names)
+  (unless (and (listp cases) cases)
+    (error "Phase A EEST state_tests cases must be a non-empty list"))
+  (let* ((summary (eest-state-test-root-summary cases))
+         (count (fixture-required-field summary "count"))
+         (names (fixture-required-field summary "names"))
+         (fork-counts (fixture-required-field summary "forkCounts"))
+         (combination-count
+           (fixture-required-field summary "transactionCombinationCount")))
+    (unless (= count (length expected-names))
+      (error "Phase A EEST state_tests selector count ~A loaded ~A cases"
+             (length expected-names)
+             count))
+    (unless (equal names expected-names)
+      (error "Phase A EEST state_tests names ~S do not match selectors ~S"
+             names
+             expected-names))
+    (unless (= count (or (fixture-object-field fork-counts "London") 0))
+      (error "Phase A EEST state_tests replay currently supports only London cases"))
+    (unless (plusp combination-count)
+      (error "Phase A EEST state_tests replay must include transaction combinations"))
+    summary))
+
+(defun load-phase-a-eest-state-test-root-cases
+    (root &key (expected-names +phase-a-eest-state-test-case-names+))
+  (let ((cases (load-eest-state-test-root-cases
+                root
+                :names expected-names)))
+    (validate-phase-a-eest-state-test-summary
+     cases
+     :expected-names expected-names)
+    cases))
+
+(defun load-optional-phase-a-eest-state-test-root-cases ()
+  (with-execution-spec-tests-state-test-root (root)
+    (let ((expected-names (phase-a-eest-state-test-env-selectors root)))
+      (unless expected-names
+        (let ((candidates (discover-phase-a-eest-state-test-selectors root)))
+          (skip-test
+           (if candidates
+               (format nil
+                       "Set ~A to auto or comma-separated selectors such as ~A to run Phase A state_tests replay against this external root"
+                       +phase-a-eest-state-test-selectors-env+
+                       (phase-a-eest-state-test-selector-string
+                        candidates
+                        :limit 10))
+               (format nil
+                       "Set ~A to comma-separated selectors to run Phase A state_tests replay against an external root"
+                       +phase-a-eest-state-test-selectors-env+)))))
+      (load-phase-a-eest-state-test-root-cases
+       root
+       :expected-names expected-names))))
+
 (defun parse-phase-a-eest-blockchain-replay-selector (value)
-  (let* ((selector (eest-blockchain-trim-string value))
+  (let* ((selector (eest-fixture-trim-string value))
          (separator (position #\= selector)))
     (unless separator
       (error "Phase A EEST blockchain replay selector ~A must use name=kind"
              selector))
-    (let ((name (eest-blockchain-trim-string
+    (let ((name (eest-fixture-trim-string
                  (subseq selector 0 separator)))
-          (kind (eest-blockchain-trim-string
+          (kind (eest-fixture-trim-string
                  (subseq selector (1+ separator)))))
       (validate-eest-blockchain-selector-list (list name))
       (unless (member kind
@@ -318,7 +423,7 @@
     (return-from parse-phase-a-eest-blockchain-replay-selectors nil))
   (let ((selectors
           (mapcar #'parse-phase-a-eest-blockchain-replay-selector
-                  (eest-blockchain-split-string value #\,))))
+                  (eest-fixture-split-string value #\,))))
     (validate-eest-blockchain-selector-list (mapcar #'car selectors))
     selectors))
 
@@ -333,7 +438,7 @@
               +phase-a-eest-blockchain-replay-selectors-env+))
       ((blank-string-p value) nil)
       ((string= +phase-a-eest-blockchain-replay-auto-selector+
-                (string-downcase (eest-blockchain-trim-string value)))
+                (string-downcase (eest-fixture-trim-string value)))
        (unless root
          (error "~A=auto requires an EEST blockchain root"
                 +phase-a-eest-blockchain-replay-selectors-env+))
@@ -344,7 +449,7 @@
                   +phase-a-eest-blockchain-replay-selectors-env+))
          selectors))
       ((string= +phase-a-eest-blockchain-replay-pinned-selector+
-                (string-downcase (eest-blockchain-trim-string value)))
+                (string-downcase (eest-fixture-trim-string value)))
        (unless root
          (error "~A=~A requires an EEST blockchain root"
                 +phase-a-eest-blockchain-replay-selectors-env+
@@ -1081,16 +1186,18 @@
                 "tests/fixtures/execution-spec-tests-root/"))
          (cases (load-eest-state-test-root-cases root))
          (selectors (discover-phase-a-eest-state-test-selectors root))
+         (phase-a-cases (load-phase-a-eest-state-test-root-cases root))
          (selected (load-eest-state-test-root-cases
                     root
                     :names '("london/phase-a-state-sample.json/phase_a_london_state_sample")))
+         (phase-a-summary
+           (validate-phase-a-eest-state-test-summary phase-a-cases))
          (summary (eest-state-test-root-summary cases))
          (report (report-eest-state-test-root-case (first selected))))
     (is (= 4 (length cases)))
-    (is (equal '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample"
-                 "london/phase-a-state-sample.json/phase_a_london_dynamic_fee_state_sample"
-                 "london/phase-a-state-sample.json/phase_a_london_state_sample")
-               selectors))
+    (is (equal +phase-a-eest-state-test-case-names+ selectors))
+    (is (equal +phase-a-eest-state-test-case-names+
+               (fixture-object-field phase-a-summary "names")))
     (is (= 4 (fixture-object-field summary "count")))
     (is (= 3 (fixture-object-field
               (fixture-object-field summary "forkCounts")
@@ -1106,6 +1213,37 @@
       (load-eest-state-test-root-file-cases
        "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/"
        "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json"))))
+
+(deftest phase-a-eest-state-test-selector-workflow
+  (let ((selectors
+          (parse-phase-a-eest-state-test-selectors
+           "london/phase-a-state-sample.json/phase_a_london_access_list_state_sample, london/phase-a-state-sample.json/phase_a_london_state_sample")))
+    (is (equal '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample"
+                 "london/phase-a-state-sample.json/phase_a_london_state_sample")
+               selectors))
+    (is (string= "london/phase-a-state-sample.json/phase_a_london_access_list_state_sample,london/phase-a-state-sample.json/phase_a_london_state_sample"
+                 (phase-a-eest-state-test-selector-string selectors))))
+  (signals error
+    (parse-phase-a-eest-state-test-selectors
+     "london/phase-a-state-sample.json"))
+  (signals error
+    (parse-phase-a-eest-state-test-selectors
+     "london/phase-a-state-sample.json/phase_a_london_state_sample, london/phase-a-state-sample.json/phase_a_london_state_sample"))
+  (let* ((*fixture-root-environment-reader*
+           (lambda (name)
+             (when (string= name +phase-a-eest-state-test-selectors-env+)
+               "auto")))
+         (root (execution-spec-tests-state-test-root
+                "tests/fixtures/execution-spec-tests-root/")))
+    (is (equal +phase-a-eest-state-test-case-names+
+               (phase-a-eest-state-test-env-selectors root))))
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (when (string= name +phase-a-eest-state-test-selectors-env+)
+              (phase-a-eest-state-test-selector-string
+               +phase-a-eest-state-test-case-names+)))))
+    (is (equal +phase-a-eest-state-test-case-names+
+               (phase-a-eest-state-test-env-selectors)))))
 
 (deftest phase-a-eest-blockchain-replay-selector-parsing
   (let ((selectors

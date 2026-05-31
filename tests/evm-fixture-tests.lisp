@@ -832,29 +832,12 @@
            receipt
            (fixture-object-field expect "receipt")))))))
 
-(deftest eest-state-test-root-london-vector-executes
-  (let* ((root (execution-spec-tests-state-test-root
-                "tests/fixtures/execution-spec-tests-root/"))
-         (case (first
-                (load-eest-state-test-root-cases
-                 root
-                 :names '("london/phase-a-state-sample.json/phase_a_london_state_sample")))))
-    (assert-eest-state-test-case case)))
+(deftest phase-a-eest-state-test-root-vectors-execute
+  (let ((root (execution-spec-tests-state-test-root
+               "tests/fixtures/execution-spec-tests-root/")))
+    (dolist (case (load-phase-a-eest-state-test-root-cases root))
+      (assert-eest-state-test-case case))))
 
-(deftest eest-state-test-root-london-access-list-vector-executes
-  (let* ((root (execution-spec-tests-state-test-root
-                "tests/fixtures/execution-spec-tests-root/"))
-         (case (first
-                (load-eest-state-test-root-cases
-                 root
-                 :names '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample")))))
-    (assert-eest-state-test-case case)))
-
-(deftest eest-state-test-root-london-dynamic-fee-vector-executes
-  (let* ((root (execution-spec-tests-state-test-root
-                "tests/fixtures/execution-spec-tests-root/"))
-         (case (first
-                (load-eest-state-test-root-cases
-                 root
-                 :names '("london/phase-a-state-sample.json/phase_a_london_dynamic_fee_state_sample")))))
+(deftest optional-phase-a-eest-state-test-root-vectors-execute
+  (dolist (case (load-optional-phase-a-eest-state-test-root-cases))
     (assert-eest-state-test-case case)))

@@ -3432,6 +3432,25 @@ splits can land after the Phase A smoke path closes.
     combinations with different `value` indexes to exercise the upstream
     multi-entry shape.
 
+- [x] Add selector-driven Phase A EEST `state_tests` replay.
+  - Milestone: 4 / 8
+  - Dependencies: upstream-shaped EEST `state_tests` vector replay.
+  - References: geth `tests/state_test.go` and `tests/state_test_util.go`
+    at `8a0223e`, Nethermind `JsonToEthereumTest.Convert` and
+    `StateTestRunner` at `1c72a72`.
+  - Acceptance: Phase A `state_tests` replay uses an explicit selector set,
+    validates loaded case names/forks/combination counts through a summary
+    gate, supports external-root selector discovery through `auto`, and
+    exposes a scriptable selector-listing entry point for real EEST roots.
+  - Validation: `scripts/list-state-test-selectors.lisp` against the in-repo
+    EEST-shaped root plus `sbcl --script tests/run-tests.lisp`.
+  - Result: the three London state-test vectors now execute through a single
+    selector-gated replay path instead of separate case-specific tests.
+    `ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS=auto` discovers materializable
+    external-root candidates, explicit comma-separated selector lists are
+    accepted for optional replay, and `scripts/list-state-test-selectors.lisp`
+    prints the reproducible selector table for a root.
+
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
   - References: geth `core/vm`, Nethermind EVM, revm behavior.
