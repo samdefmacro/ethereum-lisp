@@ -743,11 +743,30 @@
                  (length authorization-list)))
     gas))
 
+(defun maybe-apply-legacy-transactions-through-message-executor
+    (state sender transactions)
+  (when (fboundp 'apply-message-list)
+    (multiple-value-bind (receipts gas-used)
+        (funcall (symbol-function 'apply-message-list)
+                 state
+                 sender
+                 transactions)
+      (declare (ignore gas-used))
+      receipts)))
+
 (defun apply-legacy-transaction (state sender transaction)
   "Apply a minimal legacy transfer transaction.
 
-This does not recover signatures, deploy contracts, execute recipient code, or
-refund unused gas yet. It is the first deterministic state-transition spine."
+When the full execution module is loaded, delegate through the EVM-backed
+message executor. The transfer-only fallback remains for standalone state
+loading during early bootstrapping."
+  (let ((receipts
+          (maybe-apply-legacy-transactions-through-message-executor
+           state
+           sender
+           (list transaction))))
+    (when receipts
+      (return-from apply-legacy-transaction (first receipts))))
   (unless (legacy-transaction-to transaction)
     (transaction-fail "Contract creation transactions are not implemented yet"))
   (let* ((sender-account (state-db-account-or-empty state sender))
@@ -781,18 +800,24 @@ refund unused gas yet. It is the first deterministic state-transition spine."
   receipts-root)
 
 (defun execute-legacy-transactions (state sender transactions)
-  (let ((receipts '())
-        (cumulative-gas 0))
-    (dolist (transaction transactions)
-      (let ((receipt (apply-legacy-transaction state sender transaction)))
-        (incf cumulative-gas (receipt-cumulative-gas-used receipt))
-        (push (make-receipt :status (receipt-status receipt)
-                            :cumulative-gas-used cumulative-gas
-                            :logs (receipt-logs receipt))
-              receipts)))
-    (let ((receipts (nreverse receipts)))
-      (make-execution-result
-       :receipts receipts
-       :state-root (state-db-root state)
-       :transactions-root (transaction-list-root transactions)
-       :receipts-root (transaction-receipt-list-root transactions receipts)))))
+  (let ((receipts
+          (maybe-apply-legacy-transactions-through-message-executor
+           state
+           sender
+           transactions)))
+    (unless receipts
+      (let ((fallback-receipts '())
+            (cumulative-gas 0))
+        (dolist (transaction transactions)
+          (let ((receipt (apply-legacy-transaction state sender transaction)))
+            (incf cumulative-gas (receipt-cumulative-gas-used receipt))
+            (push (make-receipt :status (receipt-status receipt)
+                                :cumulative-gas-used cumulative-gas
+                                :logs (receipt-logs receipt))
+                  fallback-receipts)))
+        (setf receipts (nreverse fallback-receipts))))
+    (make-execution-result
+     :receipts receipts
+     :state-root (state-db-root state)
+     :transactions-root (transaction-list-root transactions)
+     :receipts-root (transaction-receipt-list-root transactions receipts))))

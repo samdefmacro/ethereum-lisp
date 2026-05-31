@@ -1251,6 +1251,39 @@
        (make-legacy-transaction :nonce 1 :gas-price 1 :gas-limit 21000
                                 :to recipient :value 1)))))
 
+(deftest legacy-transaction-contract-creation-uses-message-executor
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (initcode #(96 0 96 0 83 96 1 96 0 243))
+         (contract
+           (make-address
+            (subseq
+             (keccak-256
+              (rlp-encode
+               (make-rlp-list (address-bytes sender) 0)))
+             12 32)))
+         (tx (make-legacy-transaction :nonce 0
+                                      :gas-price 1
+                                      :gas-limit 80000
+                                      :to nil
+                                      :value 7
+                                      :data initcode)))
+    (state-db-set-account state sender
+                          (make-state-account :nonce 0 :balance 100000))
+    (let ((receipt (apply-legacy-transaction state sender tx)))
+      (is (= 1 (receipt-status receipt)))
+      (is (= (+ (transaction-intrinsic-gas tx) 18 200)
+             (receipt-cumulative-gas-used receipt)))
+      (is (= 1 (state-account-nonce
+                (state-db-get-account state sender))))
+      (is (= (- 100000
+                (receipt-cumulative-gas-used receipt)
+                (legacy-transaction-value tx))
+             (state-account-balance (state-db-get-account state sender))))
+      (is (= 7 (state-account-balance
+                (state-db-get-account state contract))))
+      (is (bytes= #(0) (state-db-get-code state contract))))))
+
 (deftest legacy-transaction-list-execution-roots
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -1271,3 +1304,48 @@
       (is (hash32-p (execution-result-receipts-root result)))
       (is (= 30 (state-account-balance
                  (state-db-get-account state recipient)))))))
+
+(deftest legacy-transaction-list-executes-contract-creation
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (initcode #(96 0 96 0 83 96 1 96 0 243))
+         (contract
+           (make-address
+            (subseq
+             (keccak-256
+              (rlp-encode
+               (make-rlp-list (address-bytes sender) 0)))
+             12 32)))
+         (creation (make-legacy-transaction :nonce 0
+                                            :gas-price 1
+                                            :gas-limit 80000
+                                            :to nil
+                                            :value 7
+                                            :data initcode))
+         (transfer (make-legacy-transaction :nonce 1
+                                            :gas-price 1
+                                            :gas-limit 21000
+                                            :to recipient
+                                            :value 3))
+         (txs (list creation transfer)))
+    (state-db-set-account state sender
+                          (make-state-account :nonce 0 :balance 200000))
+    (let* ((result (execute-legacy-transactions state sender txs))
+           (receipts (execution-result-receipts result)))
+      (is (= 2 (length receipts)))
+      (is (= (+ (transaction-intrinsic-gas creation) 18 200)
+             (receipt-cumulative-gas-used (first receipts))))
+      (is (= (+ (receipt-cumulative-gas-used (first receipts))
+                (transaction-intrinsic-gas transfer))
+             (receipt-cumulative-gas-used (second receipts))))
+      (is (hash32-p (execution-result-state-root result)))
+      (is (hash32-p (execution-result-transactions-root result)))
+      (is (hash32-p (execution-result-receipts-root result)))
+      (is (bytes= #(0) (state-db-get-code state contract)))
+      (is (= 7 (state-account-balance
+                (state-db-get-account state contract))))
+      (is (= 3 (state-account-balance
+                (state-db-get-account state recipient))))
+      (is (= 2 (state-account-nonce
+                (state-db-get-account state sender)))))))
