@@ -4354,6 +4354,55 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (block-validation-fail "HTTP content length is invalid"))
           (subseq body 0 length))))))
 
+(defun engine-rpc-request-methods (request)
+  (cond
+    ((json-object-p request)
+     (let ((method (genesis-object-field request "method")))
+       (and (stringp method) (list method))))
+    ((listp request)
+     (loop for item in request
+           when (json-object-p item)
+             append (engine-rpc-request-methods item)))
+    (t nil)))
+
+(defun engine-rpc-method-summary (methods)
+  (with-output-to-string (stream)
+    (loop for method in methods
+          for first-p = t then nil
+          do (progn
+               (unless first-p
+                 (write-char #\, stream))
+               (write-string method stream)))))
+
+(defun engine-rpc-http-request-telemetry-fields (request)
+  (handler-case
+      (multiple-value-bind (boundary boundary-length)
+          (engine-rpc-http-header-boundary request)
+        (let* ((head (subseq request 0 boundary))
+               (body (subseq request (+ boundary boundary-length)))
+               (lines (engine-rpc-http-split-lines head)))
+          (unless lines
+            (return-from engine-rpc-http-request-telemetry-fields nil))
+          (multiple-value-bind (http-method target)
+              (engine-rpc-http-request-target (first lines))
+            (declare (ignore target))
+            (let* ((headers (engine-rpc-http-headers (rest lines)))
+                   (body (engine-rpc-http-body body headers))
+                   (methods
+                     (and (plusp (length body))
+                          (engine-rpc-request-methods (parse-json body)))))
+              (append
+               (list (cons "httpMethod" http-method))
+               (when methods
+                 (list (cons "rpcMethods"
+                             (engine-rpc-method-summary methods)))))))))
+    (error () nil)))
+
+(defun engine-rpc-http-response-status-code (response)
+  (handler-case
+      (parse-integer response :start 9 :end 12 :junk-allowed nil)
+    (error () nil)))
+
 (defun engine-rpc-http-content-length (headers)
   (let ((content-lengths (engine-rpc-http-header-values headers "content-length")))
     (cond
@@ -4457,21 +4506,36 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-http-stream
     (input-stream output-stream store config
      &key jwt-secret now import-function
-          (allowed-method-p #'engine-rpc-any-method-p))
-  (let ((response
+          (allowed-method-p #'engine-rpc-any-method-p)
+          telemetry-sink telemetry-fields)
+  (let* ((request nil)
+         (response
           (handler-case
-              (engine-rpc-handle-http-request-string
-               (engine-rpc-read-http-request-string input-stream)
-               store
-               config
-               :jwt-secret jwt-secret
-               :now now
-               :import-function import-function
-               :allowed-method-p allowed-method-p)
+              (progn
+                (setf request (engine-rpc-read-http-request-string input-stream))
+                (engine-rpc-handle-http-request-string
+                 request
+                 store
+                 config
+                 :jwt-secret jwt-secret
+                 :now now
+                 :import-function import-function
+                 :allowed-method-p allowed-method-p))
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
-               (format nil "~A" condition))))))
+               (format nil "~A" condition)))))
+         (status-code (engine-rpc-http-response-status-code response)))
+    (ethereum-lisp.telemetry:telemetry-log
+     :info
+     "engine.rpc.http.request"
+     :sink telemetry-sink
+     :fields
+     (append telemetry-fields
+             (and request
+                  (engine-rpc-http-request-telemetry-fields request))
+             (when status-code
+               (list (cons "status" (format nil "~D" status-code))))))
     (write-string response output-stream)
     response))
 
@@ -4499,7 +4563,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           :now (funcall (engine-rpc-http-service-now-provider service))
           :import-function (engine-rpc-http-service-import-function service)
           :allowed-method-p
-          (engine-rpc-http-service-allowed-method-p service))
+          (engine-rpc-http-service-allowed-method-p service)
+          :telemetry-sink sink
+          :telemetry-fields fields)
       (ethereum-lisp.telemetry:telemetry-metric
        "engine.rpc.http.streams"
        1

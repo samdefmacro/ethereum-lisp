@@ -12895,19 +12895,32 @@ Content-Type: application/json
         (is (= 20 (field rpc-response "id")))
         (is (string= "ethereum-lisp" (field local "name"))))
       (let ((events (ethereum-lisp.telemetry:telemetry-events sink)))
-        (is (= 3 (length events)))
+        (is (= 4 (length events)))
         (is (string= "engine.rpc.http.stream.start"
                      (ethereum-lisp.telemetry:telemetry-event-name
                       (first events))))
-        (is (string= "engine.rpc.http.streams"
+        (is (string= "engine.rpc.http.request"
                      (ethereum-lisp.telemetry:telemetry-event-name
                       (second events))))
-        (is (= 1
-               (ethereum-lisp.telemetry:telemetry-event-value
-                (second events))))
-        (is (string= "engine.rpc.http.stream.finish"
+        (is (string= "200"
+                     (cdr (assoc "status"
+                                 (ethereum-lisp.telemetry:telemetry-event-fields
+                                  (second events))
+                                 :test #'string=))))
+        (is (string= "engine_getClientVersionV1"
+                     (cdr (assoc "rpcMethods"
+                                 (ethereum-lisp.telemetry:telemetry-event-fields
+                                  (second events))
+                                 :test #'string=))))
+        (is (string= "engine.rpc.http.streams"
                      (ethereum-lisp.telemetry:telemetry-event-name
                       (third events))))
+        (is (= 1
+               (ethereum-lisp.telemetry:telemetry-event-value
+                (third events))))
+        (is (string= "engine.rpc.http.stream.finish"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (fourth events))))
         (is (string= "127.0.0.1:8551"
                      (cdr (assoc "endpoint"
                                  (ethereum-lisp.telemetry:telemetry-event-fields
@@ -12983,25 +12996,38 @@ Content-Type: application/json
         (is (= 21 (field rpc-a "id")))
         (is (= 22 (field rpc-b "id"))))
       (let ((events (ethereum-lisp.telemetry:telemetry-events sink)))
-        (is (= 9 (length events)))
+        (is (= 11 (length events)))
         (is (string= "engine.rpc.http.listener.start"
                      (ethereum-lisp.telemetry:telemetry-event-name
                       (first events))))
         (is (string= "engine.rpc.http.stream.start"
                      (ethereum-lisp.telemetry:telemetry-event-name
                       (second events))))
+        (is (string= "engine.rpc.http.request"
+                     (ethereum-lisp.telemetry:telemetry-event-name
+                      (third events))))
+        (is (string= "200"
+                     (cdr (assoc "status"
+                                 (ethereum-lisp.telemetry:telemetry-event-fields
+                                  (third events))
+                                 :test #'string=))))
+        (is (string= "engine_getClientVersionV1"
+                     (cdr (assoc "rpcMethods"
+                                 (ethereum-lisp.telemetry:telemetry-event-fields
+                                  (third events))
+                                 :test #'string=))))
         (is (string= "engine.rpc.http.stream.finish"
                      (ethereum-lisp.telemetry:telemetry-event-name
-                      (fourth events))))
+                      (fifth events))))
         (is (string= "engine.rpc.http.listener.connections"
                      (ethereum-lisp.telemetry:telemetry-event-name
-                      (eighth events))))
+                      (tenth events))))
         (is (= 2
                (ethereum-lisp.telemetry:telemetry-event-value
-                (eighth events))))
+                (tenth events))))
         (is (string= "engine.rpc.http.listener.finish"
                      (ethereum-lisp.telemetry:telemetry-event-name
-                      (ninth events)))))
+                      (nth 10 events)))))
       (signals block-validation-error
         (engine-rpc-http-listener-accept
          (make-engine-rpc-http-listener
