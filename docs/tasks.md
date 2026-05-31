@@ -3384,6 +3384,23 @@ splits can land after the Phase A smoke path closes.
     The replay builds pre-state accounts/code/storage, executes the indexed
     legacy transaction, and verifies both `post[*].hash` and `post[*].logs`.
 
+- [x] Replay access-list EEST `state_tests` transactions.
+  - Milestone: 4 / 8
+  - Dependencies: upstream-shaped EEST `state_tests` vector replay.
+  - References: Ethereum execution-spec-tests GeneralStateTest format, geth
+    state-test transaction materialization, Nethermind state-test import path.
+  - Acceptance: the state-test root loader recognizes optional
+    `transaction.accessLists`, includes it in transaction-combination metadata,
+    and the replay path selects `post[*].indexes.accessList` to execute a
+    type-1 EIP-2930 transaction through the same state/EVM path as legacy
+    vectors.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added optional `accessLists` handling to EEST state-test discovery
+    and a London access-list GeneralStateTest sample. Replay now builds
+    `make-access-list-transaction` directly from the upstream-shaped fixture,
+    applies the indexed access list, and verifies the resulting state root and
+    logs hash.
+
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
   - References: geth `core/vm`, Nethermind EVM, revm behavior.

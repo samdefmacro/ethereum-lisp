@@ -32,7 +32,8 @@
   '("env" "pre" "transaction" "post" "_info"))
 
 (defparameter +eest-state-test-transaction-fields+
-  '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"))
+  '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"
+    "accessLists"))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
@@ -225,9 +226,17 @@
           (error "EEST state test case ~A transaction ~A must be a non-empty JSON array"
                  (fixture-required-field case "name")
                  field))))
-    (* (length (fixture-required-field transaction "data"))
-       (length (fixture-required-field transaction "gasLimit"))
-       (length (fixture-required-field transaction "value")))))
+    (let ((access-lists (fixture-object-field transaction "accessLists")))
+      (when (fixture-field-present-p transaction "accessLists")
+        (unless (and (listp access-lists) access-lists)
+          (error "EEST state test case ~A transaction accessLists must be a non-empty JSON array"
+                 (fixture-required-field case "name"))))
+      (* (length (fixture-required-field transaction "data"))
+         (length (fixture-required-field transaction "gasLimit"))
+         (length (fixture-required-field transaction "value"))
+         (if (fixture-field-present-p transaction "accessLists")
+             (length access-lists)
+             1)))))
 
 (defun phase-a-eest-state-materializable-case-p (case)
   (handler-case
@@ -1077,14 +1086,15 @@
                     :names '("london/phase-a-state-sample.json/phase_a_london_state_sample")))
          (summary (eest-state-test-root-summary cases))
          (report (report-eest-state-test-root-case (first selected))))
-    (is (= 2 (length cases)))
-    (is (equal '("london/phase-a-state-sample.json/phase_a_london_state_sample")
+    (is (= 3 (length cases)))
+    (is (equal '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample"
+                 "london/phase-a-state-sample.json/phase_a_london_state_sample")
                selectors))
-    (is (= 2 (fixture-object-field summary "count")))
-    (is (= 1 (fixture-object-field
+    (is (= 3 (fixture-object-field summary "count")))
+    (is (= 2 (fixture-object-field
               (fixture-object-field summary "forkCounts")
               "London")))
-    (is (= 2 (fixture-object-field summary "transactionCombinationCount")))
+    (is (= 3 (fixture-object-field summary "transactionCombinationCount")))
     (is (equal '("London") (fixture-object-field report "forks")))
     (is (= 1 (fixture-object-field report "transactionCombinations")))
     (signals error

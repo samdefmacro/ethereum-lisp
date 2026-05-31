@@ -480,30 +480,62 @@
       (error "EEST state transaction index ~A is out of range" index-name))
     (nth index values)))
 
+(defun eest-state-test-access-list-entry (entry)
+  (make-access-list-entry
+   :address (address-from-hex (fixture-required-field entry "address"))
+   :storage-keys
+   (mapcar #'hash32-from-hex
+           (fixture-required-field entry "storageKeys"))))
+
+(defun eest-state-test-selected-access-list (transaction indexes)
+  (when (fixture-field-present-p transaction "accessLists")
+    (mapcar #'eest-state-test-access-list-entry
+            (eest-state-test-indexed-transaction-value
+             transaction
+             "accessLists"
+             indexes
+             "accessList"))))
+
 (defun eest-state-test-transaction (case post-entry)
   (let* ((fixture (fixture-required-field case "fixture"))
          (transaction (fixture-required-field fixture "transaction"))
          (indexes (fixture-required-field post-entry "indexes"))
-         (to (fixture-required-field transaction "to")))
-    (make-legacy-transaction
-     :nonce (evm-state-fixture-quantity transaction "nonce")
-     :gas-price (evm-state-fixture-quantity transaction "gasPrice")
-     :gas-limit
-     (evm-state-fixture-quantity-string
-      (eest-state-test-indexed-transaction-value
-       transaction "gasLimit" indexes "gas")
-      "EEST state test transaction gasLimit")
-     :to (unless (blank-string-p to)
-           (address-from-hex to))
-     :value
-     (evm-state-fixture-quantity-string
-      (eest-state-test-indexed-transaction-value
-       transaction "value" indexes "value")
-      "EEST state test transaction value")
-     :data
-     (hex-to-bytes
-      (eest-state-test-indexed-transaction-value
-       transaction "data" indexes "data")))))
+         (to (fixture-required-field transaction "to"))
+         (gas-limit
+           (evm-state-fixture-quantity-string
+            (eest-state-test-indexed-transaction-value
+             transaction "gasLimit" indexes "gas")
+            "EEST state test transaction gasLimit"))
+         (value
+           (evm-state-fixture-quantity-string
+            (eest-state-test-indexed-transaction-value
+             transaction "value" indexes "value")
+            "EEST state test transaction value"))
+         (data
+           (hex-to-bytes
+            (eest-state-test-indexed-transaction-value
+             transaction "data" indexes "data")))
+         (recipient (unless (blank-string-p to)
+                      (address-from-hex to))))
+    (if (fixture-field-present-p transaction "accessLists")
+        (make-access-list-transaction
+         :chain-id 1
+         :nonce (evm-state-fixture-quantity transaction "nonce")
+         :gas-price (evm-state-fixture-quantity transaction "gasPrice")
+         :gas-limit gas-limit
+         :to recipient
+         :value value
+         :data data
+         :access-list (eest-state-test-selected-access-list
+                       transaction
+                       indexes))
+        (make-legacy-transaction
+         :nonce (evm-state-fixture-quantity transaction "nonce")
+         :gas-price (evm-state-fixture-quantity transaction "gasPrice")
+         :gas-limit gas-limit
+         :to recipient
+         :value value
+         :data data))))
 
 (defun eest-state-test-sender (case)
   (let* ((transaction (fixture-required-field
@@ -777,4 +809,13 @@
                 (load-eest-state-test-root-cases
                  root
                  :names '("london/phase-a-state-sample.json/phase_a_london_state_sample")))))
+    (assert-eest-state-test-case case)))
+
+(deftest eest-state-test-root-london-access-list-vector-executes
+  (let* ((root (execution-spec-tests-state-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (case (first
+                (load-eest-state-test-root-cases
+                 root
+                 :names '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample")))))
     (assert-eest-state-test-case case)))
