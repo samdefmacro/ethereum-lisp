@@ -261,6 +261,13 @@ ones.
     `source-style-selector=materialization-kind` pairs, so the optional replay
     harness loads, validates, and materializes exactly those upstream selectors
     instead of requiring more in-repo seed case names.
+  - Progress: added selector candidate discovery for external blockchain roots.
+    When a real root is configured but the selector env var is absent, the
+    optional replay harness now scans Shanghai cases, keeps only cases the
+    current `engineNewPayloadV2` / block-RLP materializers can consume, and
+    reports a ready-to-copy selector string. This moves fixture ingestion
+    toward an explicit upstream selector table rather than ad hoc hand-written
+    local replay cases.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

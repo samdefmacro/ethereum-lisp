@@ -151,6 +151,19 @@
       (t
        (parse-phase-a-eest-blockchain-replay-selectors value)))))
 
+(defun phase-a-eest-blockchain-replay-selector-string
+    (selectors &key limit)
+  (validate-eest-blockchain-selector-list (mapcar #'car selectors))
+  (let* ((bounded-selectors
+           (if (and limit (> (length selectors) limit))
+               (subseq selectors 0 limit)
+               selectors))
+         (entries
+           (mapcar (lambda (selector)
+                     (format nil "~A=~A" (car selector) (cdr selector)))
+                   bounded-selectors)))
+    (format nil "~{~A~^,~}" entries)))
+
 (defun eest-blockchain-replay-materialization-kind (case)
   (let ((fixture (fixture-required-field case "fixture")))
     (cond
@@ -163,6 +176,29 @@
        "blockRlp")
       (t
        "unsupported"))))
+
+(defun phase-a-eest-blockchain-replay-materializable-kind (case)
+  (handler-case
+      (let* ((fixture (fixture-required-field case "fixture"))
+             (network (fixture-object-field fixture "network"))
+             (kind (eest-blockchain-replay-materialization-kind case)))
+        (when (and (stringp network)
+                   (string= "Shanghai" network))
+          (cond
+            ((string= "engineNewPayloadV2" kind)
+             (validate-eest-blockchain-engine-newpayload-v2-case case)
+             kind)
+            ((string= "blockRlp" kind)
+             (validate-eest-blockchain-standard-newpayload-v2-case case)
+             kind)
+            (t nil))))
+    (error () nil)))
+
+(defun discover-phase-a-eest-blockchain-replay-selectors (root)
+  (loop for case in (load-eest-blockchain-test-root-cases root)
+        for kind = (phase-a-eest-blockchain-replay-materializable-kind case)
+        when kind
+          collect (cons (fixture-required-field case "name") kind)))
 
 (defun eest-blockchain-count-by-string (values)
   (let ((counts (make-hash-table :test 'equal)))
@@ -270,10 +306,19 @@
     (let ((expected-kinds
             (phase-a-eest-blockchain-replay-env-materialization-kinds)))
       (unless expected-kinds
-        (skip-test
-         (format nil
-                 "Set ~A to comma-separated selector=kind pairs to run Phase A blockchain replay against an external root"
-                 +phase-a-eest-blockchain-replay-selectors-env+)))
+        (let ((candidates
+                (discover-phase-a-eest-blockchain-replay-selectors root)))
+          (skip-test
+           (if candidates
+               (format nil
+                       "Set ~A to comma-separated selector=kind pairs such as ~A to run Phase A blockchain replay against this external root"
+                       +phase-a-eest-blockchain-replay-selectors-env+
+                       (phase-a-eest-blockchain-replay-selector-string
+                        candidates
+                        :limit 10))
+               (format nil
+                       "Set ~A to comma-separated selector=kind pairs to run Phase A blockchain replay against an external root"
+                       +phase-a-eest-blockchain-replay-selectors-env+)))))
       (load-phase-a-eest-blockchain-replay-cases
        root
        :expected-kinds expected-kinds))))
@@ -646,6 +691,7 @@
          (phase-a-cases (load-phase-a-eest-blockchain-replay-cases root))
          (summary
            (validate-phase-a-eest-blockchain-replay-summary phase-a-cases))
+         (selectors (discover-phase-a-eest-blockchain-replay-selectors root))
          (selected (load-eest-blockchain-test-root-cases
                     root
                     :names '("shanghai/phase-a-empty-engine.json")))
@@ -660,6 +706,11 @@
     (is (equal '("shanghai/phase-a-empty-engine.json"
                  "shanghai/phase-a-empty-standard.json")
                (fixture-object-field summary "names")))
+    (is (equal +phase-a-eest-blockchain-replay-materialization-kinds+
+               selectors))
+    (is (string=
+         "shanghai/phase-a-empty-engine.json=engineNewPayloadV2,shanghai/phase-a-empty-standard.json=blockRlp"
+         (phase-a-eest-blockchain-replay-selector-string selectors)))
     (is (= 1 (fixture-object-field
               (fixture-object-field summary "materializationKindCounts")
               "engineNewPayloadV2")))
@@ -726,6 +777,8 @@
     (let* ((bad-case (copy-tree (first phase-a-cases)))
            (bad-fixture (fixture-required-field bad-case "fixture")))
       (setf (cdr (assoc "network" bad-fixture :test #'string=)) "Cancun")
+      (is (null (phase-a-eest-blockchain-replay-materializable-kind
+                 bad-case)))
       (signals error
         (validate-phase-a-eest-blockchain-replay-summary
          (list bad-case (second phase-a-cases)))))))
