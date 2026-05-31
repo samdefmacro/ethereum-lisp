@@ -3973,7 +3973,9 @@ splits can land after the Phase A smoke path closes.
     ready-file JSON, and `devnet.ready` telemetry. This keeps external
     runners from seeing configured placeholder ports such as `:0` when a
     socket listener binds to an ephemeral port, while `--no-serve` keeps the
-    previous configuration-summary behavior.
+    previous configuration-summary behavior. `devnet.shutdown` telemetry now
+    reuses the same bound endpoint values so lifecycle log records remain
+    consistent from startup through shutdown.
   - Result: split the devnet process model into Engine and public RPC service
     objects, matching geth's authenticated HTTP endpoint and Nethermind's
     EngineHost/EnginePort/JwtSecretFile configuration shape. The Engine

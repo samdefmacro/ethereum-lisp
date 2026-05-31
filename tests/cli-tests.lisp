@@ -582,10 +582,12 @@
   #+sbcl
   (let* ((ready-path
            (devnet-cli-temp-path "ethereum-lisp-devnet-bound-ready" "json"))
+         (sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
          (node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+
                 :port 0
-                :public-port 0))
+                :public-port 0
+                :telemetry-sink sink))
          (callback-called-p nil)
          (engine-listener
            (make-engine-rpc-http-listener
@@ -613,10 +615,24 @@
                      :engine-endpoint
                      (engine-rpc-http-listener-endpoint engine)
                      :rpc-endpoint
+                     (engine-rpc-http-listener-endpoint public))
+                    (ethereum-lisp.cli::devnet-cli-log-event
+                     node
+                     "devnet.ready"
+                     :engine-endpoint
+                     (engine-rpc-http-listener-endpoint engine)
+                     :rpc-endpoint
                      (engine-rpc-http-listener-endpoint public))))))
            (is callback-called-p)
            (is (= 0 (getf summary :engine-connections)))
            (is (= 0 (getf summary :public-connections)))
+           (ethereum-lisp.cli::devnet-cli-log-event
+            node
+            "devnet.shutdown"
+            :engine-endpoint
+            (engine-rpc-http-listener-endpoint engine-listener)
+            :rpc-endpoint
+            (engine-rpc-http-listener-endpoint public-listener))
            (let ((ready-summary
                    (parse-json (devnet-cli-file-string ready-path))))
              (is (string= "127.0.0.1:18551"
@@ -624,7 +640,26 @@
                                                 "engineEndpoint")))
              (is (string= "127.0.0.1:18545"
                           (fixture-object-field ready-summary
-                                                "rpcEndpoint")))))
+                                                "rpcEndpoint"))))
+           (let ((events
+                   (remove-if-not
+                    (lambda (event)
+                      (member
+                       (ethereum-lisp.telemetry:telemetry-event-name event)
+                       '("devnet.ready" "devnet.shutdown")
+                       :test #'string=))
+                    (ethereum-lisp.telemetry:telemetry-events sink))))
+             (is (= 2 (length events)))
+             (dolist (event events)
+               (let ((fields
+                       (ethereum-lisp.telemetry:telemetry-event-fields
+                        event)))
+                 (is (string= "127.0.0.1:18551"
+                              (cdr (assoc "engineEndpoint" fields
+                                          :test #'string=))))
+                 (is (string= "127.0.0.1:18545"
+                              (cdr (assoc "rpcEndpoint" fields
+                                          :test #'string=))))))))
       (when (probe-file ready-path)
         (delete-file ready-path)))))
 

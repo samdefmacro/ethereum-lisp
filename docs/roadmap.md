@@ -639,8 +639,9 @@ first pass, but interfaces must not block that path.
   namespace-filtered Engine/public service wiring, request/status/error-code
   and payload-status telemetry hooks, and a devnet CLI shell that loads
   genesis, serves both split listeners, atomically emits JSON readiness/head
-  summaries for process runners using actual bound listener endpoints in
-  serve mode, maps SIGINT/SIGTERM into coordinated split-listener shutdown, and
+  summaries and lifecycle telemetry for process runners using actual bound
+  listener endpoints in serve mode, maps SIGINT/SIGTERM into coordinated
+  split-listener shutdown, and
   has a split-listener smoke covering authenticated Engine JSON-RPC,
   `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, and unauthenticated public latest-state reads.
