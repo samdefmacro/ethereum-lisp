@@ -4403,6 +4403,80 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (parse-integer response :start 9 :end 12 :junk-allowed nil)
     (error () nil)))
 
+(defun engine-rpc-http-response-body (response)
+  (handler-case
+      (multiple-value-bind (boundary boundary-length)
+          (engine-rpc-http-header-boundary response)
+        (let* ((head (subseq response 0 boundary))
+               (body (subseq response (+ boundary boundary-length)))
+               (lines (engine-rpc-http-split-lines head)))
+          (engine-rpc-http-body body (engine-rpc-http-headers (rest lines)))))
+    (error () nil)))
+
+(defun engine-rpc-telemetry-summary (values)
+  (with-output-to-string (stream)
+    (loop for value in values
+          for first-p = t then nil
+          do (progn
+               (unless first-p
+                 (write-char #\, stream))
+               (write-string value stream)))))
+
+(defun engine-rpc-response-error-codes (response)
+  (cond
+    ((json-object-p response)
+     (let ((error (genesis-object-field response "error")))
+       (when (json-object-p error)
+         (let ((code (genesis-object-field error "code")))
+           (when (integerp code)
+             (list (format nil "~D" code)))))))
+    ((listp response)
+     (loop for item in response
+           append (engine-rpc-response-error-codes item)))
+    (t nil)))
+
+(defun engine-rpc-response-payload-statuses (response)
+  (labels ((result-status (result)
+             (when (json-object-p result)
+               (let ((status (genesis-object-field result "status"))
+                     (payload-status
+                       (genesis-object-field result "payloadStatus")))
+                 (cond
+                   ((stringp status)
+                    (list status))
+                   ((json-object-p payload-status)
+                    (let ((status
+                            (genesis-object-field payload-status "status")))
+                      (when (stringp status)
+                        (list status))))
+                   (t nil))))))
+    (cond
+      ((json-object-p response)
+       (result-status (genesis-object-field response "result")))
+      ((listp response)
+       (loop for item in response
+             append (engine-rpc-response-payload-statuses item)))
+      (t nil))))
+
+(defun engine-rpc-http-response-telemetry-fields (response)
+  (handler-case
+      (let ((body (engine-rpc-http-response-body response)))
+        (when (and body (plusp (length body)))
+          (let* ((rpc-response (parse-json body))
+                 (error-codes
+                   (engine-rpc-response-error-codes rpc-response))
+                 (payload-statuses
+                   (engine-rpc-response-payload-statuses rpc-response)))
+            (append
+             (when error-codes
+               (list (cons "rpcErrorCode"
+                           (engine-rpc-telemetry-summary error-codes))))
+             (when payload-statuses
+               (list (cons "rpcPayloadStatus"
+                           (engine-rpc-telemetry-summary
+                            payload-statuses))))))))
+    (error () nil)))
+
 (defun engine-rpc-http-content-length (headers)
   (let ((content-lengths (engine-rpc-http-header-values headers "content-length")))
     (cond
@@ -4535,7 +4609,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (and request
                   (engine-rpc-http-request-telemetry-fields request))
              (when status-code
-               (list (cons "status" (format nil "~D" status-code))))))
+               (list (cons "status" (format nil "~D" status-code))))
+             (engine-rpc-http-response-telemetry-fields response)))
     (write-string response output-stream)
     response))
 

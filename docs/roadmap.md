@@ -636,9 +636,10 @@ first pass, but interfaces must not block that path.
   through the atomic signed-block path, forkchoice canonical-head switching,
   public read RPCs over retained state, polling filters, local raw-transaction
   admission, HTTP stream/listener serving, JWT-authenticated and
-  namespace-filtered Engine/public service wiring, request/status telemetry
-  hooks, and a devnet CLI shell that loads genesis, serves both split
-  listeners, atomically emits JSON readiness/head summaries for process
+  namespace-filtered Engine/public service wiring, request/status/error-code
+  and payload-status telemetry hooks, and a devnet CLI shell that loads
+  genesis, serves both split listeners, atomically emits JSON readiness/head
+  summaries for process
   runners, maps SIGINT/SIGTERM into coordinated split-listener shutdown, and
   has a split-listener smoke covering authenticated Engine JSON-RPC,
   `engine_newPayloadV2` import,

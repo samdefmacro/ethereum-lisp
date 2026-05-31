@@ -12830,6 +12830,66 @@ Content-Type: application/json
        (make-chain-config))
       (is (= 400 (http-status (get-output-stream-string output)))))))
 
+(deftest engine-rpc-http-request-telemetry-includes-response-outcome
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (http-body (response)
+             (let ((boundary (search (format nil "~C~C~C~C"
+                                             #\Return #\Newline
+                                             #\Return #\Newline)
+                                     response)))
+               (subseq response (+ boundary 4))))
+           (request (body)
+             (format nil
+                     "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body)))
+    (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+           (head-hash
+             "0x1111111111111111111111111111111111111111111111111111111111111111")
+           (zero-hash
+             "0x0000000000000000000000000000000000000000000000000000000000000000")
+           (body
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":30,"
+              "\"method\":\"engine_forkchoiceUpdatedV1\","
+              "\"params\":[{\"headBlockHash\":\"" head-hash "\","
+              "\"safeBlockHash\":\"" zero-hash "\","
+              "\"finalizedBlockHash\":\"" zero-hash "\"},null]}"))
+           (input (make-string-input-stream (request body)))
+           (output (make-string-output-stream))
+           (response
+             (engine-rpc-handle-http-stream
+              input output
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :telemetry-sink sink))
+           (rpc-response (parse-json (http-body response)))
+           (fields
+             (ethereum-lisp.telemetry:telemetry-event-fields
+              (first (ethereum-lisp.telemetry:telemetry-events sink)))))
+      (is (string= +payload-status-syncing+
+                   (field (field (field rpc-response "result")
+                                 "payloadStatus")
+                          "status")))
+      (is (string= +payload-status-syncing+
+                   (field fields "rpcPayloadStatus"))))
+    (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+           (body
+             "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"engine_missingMethod\",\"params\":[]}")
+           (input (make-string-input-stream (request body)))
+           (output (make-string-output-stream)))
+      (engine-rpc-handle-http-stream
+       input output
+       (make-engine-payload-memory-store)
+       (make-chain-config)
+       :telemetry-sink sink)
+      (let ((fields
+              (ethereum-lisp.telemetry:telemetry-event-fields
+               (first (ethereum-lisp.telemetry:telemetry-events sink)))))
+        (is (string= "-32601" (field fields "rpcErrorCode")))))))
+
 (deftest engine-rpc-http-service-wraps-stream-configuration
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

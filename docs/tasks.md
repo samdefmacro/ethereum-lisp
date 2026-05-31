@@ -3940,7 +3940,8 @@ splits can land after the Phase A smoke path closes.
     metric events, dynamic default sink binding, and unit tests for disabled,
     memory-backed, malformed-field, stream-output, and invalid-stream behavior.
     Engine RPC HTTP services can carry an injectable telemetry sink and emit
-    stream start/finish, per-stream count, per-request method/status, listener
+    stream start/finish, per-stream count, per-request method/status plus
+    JSON-RPC error-code and Engine payload-status outcomes, listener
     start/finish, and listener connection-count events without hardcoding a
     backend.
 
