@@ -122,6 +122,67 @@
       "comment": "Small upstream-shaped GeneralStateTest access-list sample for type-1 state_tests replay."
     }
   },
+  "phase_a_london_dynamic_fee_state_sample": {
+    "env": {
+      "currentBaseFee": "0x7",
+      "currentCoinbase": "0x0000000000000000000000000000000000000000",
+      "currentDifficulty": "0x0",
+      "currentGasLimit": "0x1000000",
+      "currentNumber": "0x1",
+      "currentTimestamp": "0x2",
+      "previousHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "pre": {
+      "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f": {
+        "balance": "0xde0b6b3a7640000",
+        "code": "0x",
+        "nonce": "0x0",
+        "storage": {}
+      },
+      "0x2000000000000000000000000000000000000000": {
+        "balance": "0x0",
+        "code": "0x600160005500",
+        "nonce": "0x0",
+        "storage": {}
+      }
+    },
+    "transaction": {
+      "accessLists": [
+        []
+      ],
+      "data": [
+        "0x"
+      ],
+      "gasLimit": [
+        "0x100000"
+      ],
+      "maxFeePerGas": "0xa",
+      "maxPriorityFeePerGas": "0x1",
+      "nonce": "0x0",
+      "secretKey": "0x4646464646464646464646464646464646464646464646464646464646464646",
+      "to": "0x2000000000000000000000000000000000000000",
+      "value": [
+        "0x0"
+      ]
+    },
+    "post": {
+      "London": [
+        {
+          "hash": "0x50585e17f4aad178397994de6567573155e7e66d01826358f53ee3cc9e0f60eb",
+          "indexes": {
+            "accessList": 0,
+            "data": 0,
+            "gas": 0,
+            "value": 0
+          },
+          "logs": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+        }
+      ]
+    },
+    "_info": {
+      "comment": "Small upstream-shaped GeneralStateTest dynamic-fee sample for type-2 state_tests replay."
+    }
+  },
   "phase_a_berlin_state_sample": {
     "env": {
       "currentCoinbase": "0x0000000000000000000000000000000000000000",

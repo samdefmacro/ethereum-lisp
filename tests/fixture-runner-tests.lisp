@@ -33,7 +33,7 @@
 
 (defparameter +eest-state-test-transaction-fields+
   '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"
-    "accessLists"))
+    "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
@@ -1086,15 +1086,16 @@
                     :names '("london/phase-a-state-sample.json/phase_a_london_state_sample")))
          (summary (eest-state-test-root-summary cases))
          (report (report-eest-state-test-root-case (first selected))))
-    (is (= 3 (length cases)))
+    (is (= 4 (length cases)))
     (is (equal '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample"
+                 "london/phase-a-state-sample.json/phase_a_london_dynamic_fee_state_sample"
                  "london/phase-a-state-sample.json/phase_a_london_state_sample")
                selectors))
-    (is (= 3 (fixture-object-field summary "count")))
-    (is (= 2 (fixture-object-field
+    (is (= 4 (fixture-object-field summary "count")))
+    (is (= 3 (fixture-object-field
               (fixture-object-field summary "forkCounts")
               "London")))
-    (is (= 3 (fixture-object-field summary "transactionCombinationCount")))
+    (is (= 4 (fixture-object-field summary "transactionCombinationCount")))
     (is (equal '("London") (fixture-object-field report "forks")))
     (is (= 1 (fixture-object-field report "transactionCombinations")))
     (signals error

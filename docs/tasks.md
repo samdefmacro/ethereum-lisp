@@ -3401,6 +3401,21 @@ splits can land after the Phase A smoke path closes.
     applies the indexed access list, and verifies the resulting state root and
     logs hash.
 
+- [x] Replay dynamic-fee EEST `state_tests` transactions.
+  - Milestone: 4 / 8
+  - Dependencies: upstream-shaped EEST `state_tests` vector replay.
+  - References: Ethereum execution-spec-tests GeneralStateTest format, geth
+    state-test transaction materialization, Nethermind state-test import path.
+  - Acceptance: the state-test root loader accepts EIP-1559 fee cap fields,
+    and the replay path materializes `maxFeePerGas` /
+    `maxPriorityFeePerGas` cases as type-2 transactions while preserving
+    indexed `data` / `gasLimit` / `value` / `accessLists` selection.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: EEST state-test replay now detects dynamic-fee cases from the
+    upstream-shaped fee cap fields, builds `make-dynamic-fee-transaction`,
+    carries the indexed access list, and verifies a London type-2 state root
+    plus logs hash through the same execution path.
+
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
   - References: geth `core/vm`, Nethermind EVM, revm behavior.

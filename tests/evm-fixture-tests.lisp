@@ -496,6 +496,10 @@
              indexes
              "accessList"))))
 
+(defun eest-state-test-dynamic-fee-transaction-p (transaction)
+  (or (fixture-field-present-p transaction "maxFeePerGas")
+      (fixture-field-present-p transaction "maxPriorityFeePerGas")))
+
 (defun eest-state-test-transaction (case post-entry)
   (let* ((fixture (fixture-required-field case "fixture"))
          (transaction (fixture-required-field fixture "transaction"))
@@ -517,25 +521,43 @@
              transaction "data" indexes "data")))
          (recipient (unless (blank-string-p to)
                       (address-from-hex to))))
-    (if (fixture-field-present-p transaction "accessLists")
-        (make-access-list-transaction
-         :chain-id 1
-         :nonce (evm-state-fixture-quantity transaction "nonce")
-         :gas-price (evm-state-fixture-quantity transaction "gasPrice")
-         :gas-limit gas-limit
-         :to recipient
-         :value value
-         :data data
-         :access-list (eest-state-test-selected-access-list
-                       transaction
-                       indexes))
-        (make-legacy-transaction
-         :nonce (evm-state-fixture-quantity transaction "nonce")
-         :gas-price (evm-state-fixture-quantity transaction "gasPrice")
-         :gas-limit gas-limit
-         :to recipient
-         :value value
-         :data data))))
+    (cond
+      ((eest-state-test-dynamic-fee-transaction-p transaction)
+       (make-dynamic-fee-transaction
+        :chain-id 1
+        :nonce (evm-state-fixture-quantity transaction "nonce")
+        :max-priority-fee-per-gas
+        (evm-state-fixture-quantity transaction "maxPriorityFeePerGas")
+        :max-fee-per-gas
+        (evm-state-fixture-quantity transaction "maxFeePerGas")
+        :gas-limit gas-limit
+        :to recipient
+        :value value
+        :data data
+        :access-list (or (eest-state-test-selected-access-list
+                          transaction
+                          indexes)
+                         '())))
+      ((fixture-field-present-p transaction "accessLists")
+       (make-access-list-transaction
+        :chain-id 1
+        :nonce (evm-state-fixture-quantity transaction "nonce")
+        :gas-price (evm-state-fixture-quantity transaction "gasPrice")
+        :gas-limit gas-limit
+        :to recipient
+        :value value
+        :data data
+        :access-list (eest-state-test-selected-access-list
+                      transaction
+                      indexes)))
+      (t
+       (make-legacy-transaction
+        :nonce (evm-state-fixture-quantity transaction "nonce")
+        :gas-price (evm-state-fixture-quantity transaction "gasPrice")
+        :gas-limit gas-limit
+        :to recipient
+        :value value
+        :data data)))))
 
 (defun eest-state-test-sender (case)
   (let* ((transaction (fixture-required-field
@@ -818,4 +840,13 @@
                 (load-eest-state-test-root-cases
                  root
                  :names '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample")))))
+    (assert-eest-state-test-case case)))
+
+(deftest eest-state-test-root-london-dynamic-fee-vector-executes
+  (let* ((root (execution-spec-tests-state-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (case (first
+                (load-eest-state-test-root-cases
+                 root
+                 :names '("london/phase-a-state-sample.json/phase_a_london_dynamic_fee_state_sample")))))
     (assert-eest-state-test-case case)))
