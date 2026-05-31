@@ -2425,6 +2425,12 @@ splits can land after the Phase A smoke path closes.
     missing keys. The Phase A selector and reference-family gates now require
     these root vectors on the external fixture adapter path as well as the
     seed trie-vector runner.
+    Promoted seven more geth StackTrie prefix fanout and shared-prefix
+    divergence cases into the selected EEST-style trie-test root. The selected
+    adapter path now gates the `0x0`, `0xf`, and `0xff` fanout roots plus the
+    shorter shared-prefix split roots with explicit retained/missing `out`
+    maps, closing the gap between recent seed StackTrie coverage and
+    external-style fixture replay.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
