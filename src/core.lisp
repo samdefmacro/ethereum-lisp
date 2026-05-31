@@ -4739,7 +4739,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (when invalid-status
         (return-from engine-new-payload-memory-status
           (values invalid-status nil)))
-      (when known-block
+      (when (and known-block
+                 (chain-store-state-available-p store hash))
         (return-from engine-new-payload-memory-status
           (values (make-payload-status
                    :status +payload-status-valid+
