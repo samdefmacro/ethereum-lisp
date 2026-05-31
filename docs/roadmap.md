@@ -679,7 +679,8 @@ behavior.
   storage, and precompile coverage through the current Phase A smoke needs.
 - *Partial:* fixture-backed CALL/CREATE/precompile breadth, exact gas parity
   for all edge cases, EIP-7702 delegated-code execution beyond the covered
-  paths, and stopgap BN254 pairing behavior until a full pairing library lands.
+  paths, and stopgap BN254 pairing behavior behind an explicit backend boundary
+  until a full pairing library lands.
 - *Missing for Phase A:* broader pinned execution-spec state fixtures, real
   KZG point-evaluation verification before Cancun blob execution can enter the
   Phase A gate, and any EOF support until an explicit activated-fork rule is
@@ -776,7 +777,10 @@ relations, and non-cancelled non-zero inputs that return false instead of a
 precompile failure, including a geth `bn256Pairing.json` two-pair false
 vector; G2 pairing inputs now receive first-pass field-coordinate and
 twist-curve validation for those skipped pairs, with oversized-coordinate and
-off-curve failure coverage. BLAKE2F is present for
+off-curve failure coverage. The pairing product decision is factored behind a
+backend function so the current cancellation model can be replaced by a real
+optimal Ate implementation without changing the precompile parsing/gas shell.
+BLAKE2F is present for
 EIP-152 valid and malformed-input paths. The Cancun KZG point-evaluation
 precompile address is now recognized with the fixed 50,000 gas cost, 192-byte
 input length validation, and versioned-hash/commitment mismatch failure

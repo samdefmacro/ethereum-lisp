@@ -1671,6 +1671,17 @@
            geth-jeff6-false)
         (is (bytes= (make-byte-vector 32) output))
         (is (= (+ 45000 (* 34000 2)) gas)))
+      (let ((backend-pairs nil))
+        (let ((ethereum-lisp.evm::*bn254-pairing-checker*
+                (lambda (pairs)
+                  (setf backend-pairs pairs)
+                  t)))
+          (multiple-value-bind (output gas)
+              (ethereum-lisp.evm::run-bn254-pairing-precompile
+               (concat-bytes g (make-byte-vector 128) g g2))
+            (is (= 1 (aref output 31)))
+            (is (= (+ 45000 (* 34000 2)) gas))
+            (is (= 1 (length backend-pairs))))))
       (is (= 0 (first (evm-result-stack invalid-g2-coordinate-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data invalid-g2-coordinate-result)))

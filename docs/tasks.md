@@ -3249,6 +3249,11 @@ splits can land after the Phase A smoke path closes.
     (`jeff6`) as direct precompile coverage. This locks output and Istanbul
     two-pair gas for an external reference-client vector while the remaining
     arbitrary true vectors still require full optimal Ate pairing.
+  - Progress: factored the current cancellation-only pairing model behind an
+    explicit backend boundary. The precompile shell still owns input sizing,
+    point parsing, zero-pair skipping, gas accounting, and output encoding; the
+    remaining work is now isolated to replacing the backend with a real
+    library-backed optimal Ate pairing check plus subgroup validation.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5
