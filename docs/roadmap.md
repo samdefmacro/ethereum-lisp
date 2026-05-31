@@ -138,6 +138,10 @@ fixes in those areas are allowed; expansion is not.
   plain and secure geth TinyTrie account step, so present/missing
   lookup/proof replay covers the leaf, branch-transition, and final
   three-account roots on the external adapter path.
+  The same account-RLP coverage now extends to five geth-derived accounts on
+  both plain TinyTrie and secure-key paths, pinning wider root, proof-node RLP,
+  entry-export order, and explicit output-map replay beyond the original
+  three-step sequence.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the

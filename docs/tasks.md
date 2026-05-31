@@ -2459,6 +2459,13 @@ splits can land after the Phase A smoke path closes.
     progression. The external adapter path now checks present and missing
     lookups/proofs for the one-account leaf and two-account branch transition,
     not only the final three-account root.
+  - Progress: extended geth-derived account-RLP coverage from three to five
+    accounts on both plain TinyTrie and secure-key account paths. The seed
+    fixture now locks five-account roots, exact proof-node RLPs, expected
+    entry-pair export/rebuild order, and present/missing lookups; the selected
+    EEST-style trie roots carry explicit `out` maps for the same five-account
+    coverage. Reference availability: geth `8a0223e`, Nethermind `1c72a72`;
+    local Reth clone absent.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
