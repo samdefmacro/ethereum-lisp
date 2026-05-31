@@ -3742,7 +3742,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (forkchoice-state-zero-head-status))
       ((engine-payload-store-invalid-ancestor-status
         store head-hash head-hash))
-      ((chain-store-known-block store head-hash)
+      ((and (chain-store-known-block store head-hash)
+            (chain-store-state-available-p store head-hash))
        (make-payload-status
         :status +payload-status-valid+
         :latest-valid-hash head-hash))

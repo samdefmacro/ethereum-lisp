@@ -5970,6 +5970,13 @@
                                          :number 33
                                          :timestamp 33
                                          :gas-limit 30000000)))
+           (unprocessed-block
+             (make-block
+              :header (make-block-header :parent-hash
+                                         (block-hash head-block)
+                                         :number 34
+                                         :timestamp 34
+                                         :gas-limit 30000000)))
            (unknown-hash
              (hash32-from-hex
               "0x1111111111111111111111111111111111111111111111111111111111111111")))
@@ -5983,6 +5990,7 @@
        store head-block :state-available-p t)
       (engine-payload-store-put-block
        store non-head-block :state-available-p t)
+      (engine-payload-store-put-block store unprocessed-block)
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -6156,6 +6164,22 @@
         (is (string= +payload-status-syncing+
                      (field payload-status "status")))
         (is (not (field payload-status "latestValidHash"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 37
+                 (forkchoice-state-object (block-hash unprocessed-block)))
+                store
+                config))
+             (payload-status
+               (field (field response "result") "payloadStatus")))
+        (is (string= +payload-status-syncing+
+                     (field payload-status "status")))
+        (is (not (field payload-status "latestValidHash")))
+        (is (not (chain-store-canonical-hash
+                  store
+                  (block-header-number
+                   (block-header unprocessed-block))))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
