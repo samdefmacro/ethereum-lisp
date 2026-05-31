@@ -681,6 +681,9 @@ Detailed historical implementation notes for this section now live in
   the selected state/transaction/blockchain ingestion tables for a suite root,
   and it can still validate the pinned v5.4.0 blockchain replay table when the
   stable archive extraction lacks `state_tests` or `transaction_tests` suites.
+  The individual state, transaction, and blockchain selector-listing scripts
+  now also emit JSON so selector drift checks can consume structured output
+  directly.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

@@ -1,6 +1,8 @@
 (defparameter *ethereum-lisp-selector-script-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(defconstant +selector-script-json-flag+ "--json")
+
 (defun selector-script-arguments ()
   #+sbcl
   (let ((args (cdr sb-ext:*posix-argv*)))
@@ -9,10 +11,14 @@
     args)
   #-sbcl nil)
 
+(defun selector-script-json-p (args)
+  (member +selector-script-json-flag+ args :test #'string=))
+
 (defun selector-script-argument-root (args)
   (let ((root nil))
     (dolist (arg args)
       (cond
+        ((string= arg +selector-script-json-flag+))
         ((and (plusp (length arg))
               (char= #\- (char arg 0)))
          (error "Unsupported selector script option ~A" arg))
@@ -28,10 +34,23 @@
       (error "Fixture helper ~A is unavailable" name))
     (apply (symbol-function symbol) args)))
 
+(defun selector-script-json-encode (object)
+  (let ((symbol (find-symbol "JSON-ENCODE" "ETHEREUM-LISP")))
+    (unless (and symbol (fboundp symbol))
+      (error "JSON encoder is unavailable"))
+    (funcall (symbol-function symbol) object)))
+
+(defun selector-script-variable (name)
+  (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))
+    (unless (and symbol (boundp symbol))
+      (error "Fixture variable ~A is unavailable" name))
+    (symbol-value symbol)))
+
 (defun selector-script-main ()
   (load (merge-pathnames "tests/load-tests.lisp"
                          *ethereum-lisp-selector-script-root*))
   (let* ((args (selector-script-arguments))
+         (json-p (selector-script-json-p args))
          (root-argument (selector-script-argument-root args))
          (transaction-root
            (if root-argument
@@ -49,21 +68,39 @@
            (summary
              (selector-script-call
               "validate-phase-a-eest-transaction-vector-summary"
-              vectors)))
-      (format t "~&root=~A~%" transaction-root)
-      (format t "mode=phase-a~%")
-      (format t "count=~D~%"
-              (selector-script-call
-               "fixture-object-field"
-               summary
-               "count"))
-      (format t "types=~S~%"
-              (selector-script-call
-               "fixture-object-field"
-               summary
-               "types"))
-      (format t "~A~%"
-              (selector-script-call
-               "phase-a-eest-transaction-test-selector-string")))))
+              vectors))
+           (selectors
+             (selector-script-variable
+              "+phase-a-eest-transaction-test-case-names+"))
+           (selector-string
+             (selector-script-call
+              "phase-a-eest-transaction-test-selector-string"
+              selectors))
+           (count
+             (selector-script-call
+              "fixture-object-field"
+              summary
+              "count"))
+           (types
+             (selector-script-call
+              "fixture-object-field"
+              summary
+              "types")))
+      (if json-p
+          (format t "~&~A~%"
+                  (selector-script-json-encode
+                   (list
+                    (cons "root" (namestring transaction-root))
+                    (cons "mode" "phase-a")
+                    (cons "count" count)
+                    (cons "types" types)
+                    (cons "selectors" selectors)
+                    (cons "selectorString" selector-string))))
+          (progn
+            (format t "~&root=~A~%" transaction-root)
+            (format t "mode=phase-a~%")
+            (format t "count=~D~%" count)
+            (format t "types=~S~%" types)
+            (format t "~A~%" selector-string))))))
 
 (selector-script-main)

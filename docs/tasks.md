@@ -356,6 +356,11 @@ ones.
     Added `scripts/list-transaction-test-selectors.lisp` so the transaction
     selector list can be reproduced from the same fixture-driven path instead
     of being copied out of source by hand.
+  - Result: added `--json` output to the state, transaction, and blockchain
+    selector-list scripts. The machine-readable selector contracts now expose
+    root, mode, count, structured selector entries, and selector strings, with
+    transaction type counts and blockchain materialization kinds preserved for
+    drift checks without text scraping.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
