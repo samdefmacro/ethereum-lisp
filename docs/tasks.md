@@ -275,6 +275,12 @@ ones.
     external root, then runs the same selector/count/network/materialization
     gates as an explicit selector table. This mirrors geth's fixture matcher
     workflow more closely while keeping the accepted replay set visible.
+  - Progress: added `scripts/list-blockchain-replay-selectors.lisp`, a
+    scriptable selector-discovery entry point for real EEST roots. Passing a
+    fixture root path, or setting `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`,
+    now prints the discovered blockchain root, candidate count, and the
+    comma-separated `selector=kind` value that can be used as the explicit
+    Phase A replay selector table.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
