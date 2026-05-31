@@ -4760,13 +4760,6 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (return-from engine-new-payload-memory-status
             (values (make-payload-status :status +payload-status-syncing+)
                     block)))
-        (when (and parent-block
-                   (not (chain-store-state-available-p
-                         store parent-hash)))
-          (engine-payload-store-put-remote-block store block)
-          (return-from engine-new-payload-memory-status
-            (values (make-payload-status :status +payload-status-accepted+)
-                    block)))
         (when parent-block
           (handler-case
               (validate-block-against-config
@@ -4783,6 +4776,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   :validation-error
                   (block-validation-error-message condition))
                  nil)))))
+        (when (and parent-block
+                   (not (chain-store-state-available-p
+                         store parent-hash)))
+          (engine-payload-store-put-remote-block store block)
+          (return-from engine-new-payload-memory-status
+            (values (make-payload-status :status +payload-status-accepted+)
+                    block)))
         (if import-function
             (handler-case
                 (multiple-value-bind (imported-block receipts)
