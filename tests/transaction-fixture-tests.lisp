@@ -930,15 +930,7 @@
      (sort (copy-list cases) #'string< :key #'car))))
 
 (defun eest-transaction-test-json-paths (root)
-  (let* ((root-path (pathname root))
-         (pattern
-           (make-pathname
-            :directory (append (pathname-directory root-path)
-                               (list :wild-inferiors))
-            :name :wild
-            :type "json"
-            :defaults root-path)))
-    (sort (directory pattern) #'string< :key #'namestring)))
+  (execution-spec-tests-json-paths root))
 
 (defun eest-transaction-root-case-name (root path key singleton-p)
   (let ((relative (enough-namestring (truename path) (truename root))))
@@ -1027,9 +1019,9 @@
 (defun load-eest-transaction-test-root-cases (root &key names)
   (when names
     (validate-eest-transaction-selector-list names))
-  (let ((paths (eest-transaction-test-json-paths root)))
-    (unless paths
-      (error "EEST transaction test root ~A has no JSON files" root))
+  (let ((paths (execution-spec-tests-root-json-paths
+                root
+                "EEST transaction test")))
     (filter-eest-transaction-test-root-cases
      (loop for path in paths
            append (load-eest-transaction-test-root-file-cases root path))

@@ -180,6 +180,22 @@ ones.
     `fixtures/...` archives and geth-style `spec-tests/fixtures/...`
     checkouts.
 
+- [x] `HARNESS-BLOCKCHAIN-FIXTURE-DISCOVERY`: Enumerate pinned blockchain
+  fixture files.
+  - Milestone: 8
+  - Dependencies: `HARNESS-BLOCKCHAIN-FIXTURE-ROOT`.
+  - References: Ethereum execution-spec-tests stable archive layout and geth
+    checked-out fixture layout.
+  - Acceptance: after a blockchain fixture root is discovered, tests can
+    recursively enumerate JSON fixture files, report source-relative names,
+    and fail loudly on empty roots before a selector silently passes.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added shared recursive JSON discovery helpers for execution-spec
+    roots and wired trie, transaction, and blockchain fixture discovery
+    through the common path. The blockchain fixture harness now reports
+    source-relative JSON names and rejects empty roots, preparing the next
+    pinned Engine selector/import slice.
+
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
   - Milestone: 2 / 8

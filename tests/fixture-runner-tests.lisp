@@ -3,6 +3,12 @@
 (defparameter +minimal-blockchain-fixture-path+
   "tests/fixtures/execution-spec-tests/minimal-blockchain.json")
 
+(defun eest-blockchain-test-root-json-paths (root)
+  (execution-spec-tests-root-json-paths root "EEST blockchain test"))
+
+(defun eest-blockchain-test-root-file-names (root)
+  (execution-spec-tests-root-file-names root "EEST blockchain test"))
+
 (defun load-handwritten-fixture-file (path)
   (parse-json (fixture-file-string path)))
 
@@ -54,3 +60,17 @@
     (run-handwritten-fixture-case
      +minimal-blockchain-fixture-path+
      "missing-case")))
+
+(deftest eest-blockchain-test-root-json-discovery
+  (let* ((root (execution-spec-tests-blockchain-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (paths (eest-blockchain-test-root-json-paths root)))
+    (is (= 1 (length paths)))
+    (is (equal '("shanghai/phase-a-empty-engine.json")
+               (eest-blockchain-test-root-file-names root)))))
+
+(deftest eest-blockchain-test-root-json-discovery-rejects-empty-roots
+  (let ((root (execution-spec-tests-blockchain-test-root
+               "tests/fixtures/geth-spec-tests-root/")))
+    (signals error
+      (eest-blockchain-test-root-json-paths root))))

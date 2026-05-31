@@ -1399,26 +1399,13 @@
     (validate-trie-fixture-case-shape case)))
 
 (defun eest-trie-test-json-paths (root)
-  (let* ((root-path (pathname root))
-         (pattern
-           (make-pathname
-            :directory (append (pathname-directory root-path)
-                               (list :wild-inferiors))
-            :name :wild
-            :type "json"
-            :defaults root-path)))
-    (sort (directory pattern) #'string< :key #'namestring)))
+  (execution-spec-tests-json-paths root))
 
 (defun eest-trie-test-root-json-paths (root)
-  (let ((paths (eest-trie-test-json-paths root)))
-    (unless paths
-      (error "EEST trie test root ~A has no JSON files" root))
-    paths))
+  (execution-spec-tests-root-json-paths root "EEST trie test"))
 
 (defun eest-trie-test-root-file-names (root)
-  (mapcar (lambda (path)
-            (enough-namestring (truename path) (truename root)))
-          (eest-trie-test-root-json-paths root)))
+  (execution-spec-tests-root-file-names root "EEST trie test"))
 
 (defun eest-trie-test-normalized-root (value case-name)
   (cond

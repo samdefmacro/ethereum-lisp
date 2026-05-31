@@ -14,6 +14,9 @@
    #:execution-spec-tests-blockchain-test-root
    #:execution-spec-tests-transaction-test-root
    #:execution-spec-tests-trie-test-root
+   #:execution-spec-tests-json-paths
+   #:execution-spec-tests-root-json-paths
+   #:execution-spec-tests-root-file-names
    #:with-execution-spec-tests-fixture-root
    #:with-execution-spec-tests-blockchain-test-root
    #:with-execution-spec-tests-transaction-test-root
@@ -160,6 +163,28 @@
       (let ((candidate (execution-spec-tests-subdirectory root subdir)))
         (when candidate
           (return candidate))))))
+
+(defun execution-spec-tests-json-paths (root)
+  (let* ((root-path (pathname root))
+         (pattern
+           (make-pathname
+            :directory (append (pathname-directory root-path)
+                               (list :wild-inferiors))
+            :name :wild
+            :type "json"
+            :defaults root-path)))
+    (sort (directory pattern) #'string< :key #'namestring)))
+
+(defun execution-spec-tests-root-json-paths (root label)
+  (let ((paths (execution-spec-tests-json-paths root)))
+    (unless paths
+      (error "~A root ~A has no JSON files" label root))
+    paths))
+
+(defun execution-spec-tests-root-file-names (root label)
+  (mapcar (lambda (path)
+            (enough-namestring (truename path) (truename root)))
+          (execution-spec-tests-root-json-paths root label)))
 
 (defun execution-spec-tests-blockchain-test-root (&optional root)
   (let ((base (or root (execution-spec-tests-fixture-root))))

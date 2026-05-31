@@ -340,7 +340,10 @@ fixes in those areas are allowed; expansion is not.
   now also covers `blockchain_tests_engine` and generic `blockchain_tests`
   layouts for both direct execution-spec-tests stable archive roots and
   geth-style `spec-tests/fixtures` checkouts, preferring the Engine layout
-  that feeds the Phase A `engine_newPayloadV2` smoke path. The
+  that feeds the Phase A `engine_newPayloadV2` smoke path. Shared fixture JSON
+  enumeration now reports source-relative names for trie, transaction, and
+  blockchain roots and rejects empty blockchain roots before selector work can
+  silently pass. The
   Shanghai
   `engine_newPayloadV2` smoke now
   covers legacy transfer, access-list
