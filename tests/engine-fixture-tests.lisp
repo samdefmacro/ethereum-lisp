@@ -459,6 +459,63 @@
 (defun fixture-account-has-code-p (state address)
   (plusp (length (state-db-get-code state address))))
 
+(defun assert-eest-blockchain-post-state-storage
+    (state address expected-storage label)
+  (unless (listp expected-storage)
+    (error "~A storage must be a JSON object" label))
+  (dolist (entry expected-storage)
+    (unless (consp entry)
+      (error "~A storage entries must be JSON object fields" label))
+    (let* ((slot
+             (hash32-from-hex
+              (eest-blockchain-normalized-storage-slot
+               (car entry)
+               (format nil "~A storage key" label))))
+           (expected-value (hex-to-quantity (cdr entry))))
+      (is (= expected-value
+             (state-db-get-storage state address slot))))))
+
+(defun assert-eest-blockchain-post-state-account
+    (state address expected-account label)
+  (unless (listp expected-account)
+    (error "~A account must be a JSON object" label))
+  (let ((account (state-db-get-account state address)))
+    (is account)
+    (is (= (hex-to-quantity
+            (or (fixture-object-field expected-account "nonce") "0x0"))
+           (state-account-nonce account)))
+    (is (= (hex-to-quantity
+            (or (fixture-object-field expected-account "balance") "0x0"))
+           (state-account-balance account)))
+    (is (bytes= (hex-to-bytes
+                 (or (fixture-object-field expected-account "code") "0x"))
+                (state-db-get-code state address)))
+    (assert-eest-blockchain-post-state-storage
+     state
+     address
+     (or (fixture-object-field expected-account "storage") '())
+     label)))
+
+(defun assert-eest-blockchain-post-state (state source-case)
+  (let* ((fixture (fixture-required-field source-case "fixture"))
+         (post-state (fixture-object-field fixture "postState")))
+    (when post-state
+      (unless (listp post-state)
+        (error "EEST blockchain case ~A postState must be a JSON object"
+               (fixture-required-field source-case "name")))
+      (dolist (entry post-state)
+        (unless (consp entry)
+          (error "EEST blockchain case ~A postState entries must be JSON object fields"
+                 (fixture-required-field source-case "name")))
+        (let ((address (address-from-hex (car entry))))
+          (assert-eest-blockchain-post-state-account
+           state
+           address
+           (cdr entry)
+           (format nil "EEST blockchain case ~A postState account ~A"
+                   (fixture-required-field source-case "name")
+                   (car entry))))))))
+
 (defun assert-engine-fixture-address=
     (actual expected label field)
   (unless (bytes= (address-bytes actual) (address-bytes expected))
@@ -953,7 +1010,8 @@
                       (block-header-gas-used
                        (block-header child-block)))))))))))
 
-(defun assert-eest-blockchain-engine-newpayload-v2-replay (case)
+(defun assert-eest-blockchain-engine-newpayload-v2-replay
+    (case &key source-case)
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
@@ -1035,12 +1093,17 @@
                          (block-header child-block)))))
           (is (= (hex-to-quantity (fixture-object-field expect "gasUsed"))
                  (block-header-gas-used
-                  (block-header child-block)))))))))
+                  (block-header child-block))))
+          (when source-case
+            (assert-eest-blockchain-post-state
+             (chain-store-state-db store (block-hash child-block))
+             source-case)))))))
 
 (deftest optional-phase-a-eest-blockchain-replay-executes
   (dolist (source-case (load-optional-phase-a-eest-blockchain-replay-cases))
     (assert-eest-blockchain-engine-newpayload-v2-replay
-     (materialize-eest-blockchain-engine-newpayload-v2-case source-case))))
+     (materialize-eest-blockchain-engine-newpayload-v2-case source-case)
+     :source-case source-case)))
 
 (defun engine-fixture-balance-request (id address)
   (list (cons "jsonrpc" "2.0")

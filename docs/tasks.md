@@ -302,6 +302,12 @@ ones.
     keys, uses the payload `feeRecipient` for execution, and the optional
     external replay test executes that selector through `engine_newPayloadV2`
     against expected status, state root, receipts root, and gas used.
+  - Progress: extended the real EEST replay assertion to compare official
+    `postState` account data from the persisted chain-store state after Engine
+    import. The optional v5.4.0 Shanghai EIP-2930 replay now verifies expected
+    nonce, balance, code, and normalized storage slots in addition to payload
+    status and block-derived roots, so the upstream replay covers actual state
+    materialization rather than only header-level commitments.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
