@@ -2497,6 +2497,14 @@ splits can land after the Phase A smoke path closes.
     Phase A EEST now gates those proof assertions on both plain and secure
     paths. Reference availability: geth `8a0223e`, Nethermind `1c72a72`;
     local Reth clone absent.
+  - Progress: extended the EEST-style trie-test adapter with fixture-provided
+    `entryPairs` assertions that compare exported `mpt-entry-pairs` keys and
+    values in exact order, including secure-key hashing before comparison.
+    Synced the geth TinyTrie account progression `expectedEntryPairs` from
+    the seed fixture into the selected plain and secure EEST-style account
+    roots, gating 8 cases and 22 exported entries on the external adapter
+    path. Reference availability: geth `8a0223e`, Nethermind `1c72a72`;
+    local Reth clone absent.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

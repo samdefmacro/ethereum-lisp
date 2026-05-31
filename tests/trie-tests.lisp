@@ -349,6 +349,16 @@
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
 
+(defparameter +phase-a-eest-trie-entry-pair-reference-case-names+
+  '("phase-a-trie-multi.json/geth-tiny-account-step-1"
+    "phase-a-trie-multi.json/geth-tiny-account-step-2"
+    "phase-a-trie-multi.json/geth-tiny-account-step-3"
+    "phase-a-trie-multi.json/geth-tiny-account-five-step"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
+
 (defparameter +phase-a-eest-trie-intermediate-root-reference-case-names+
   '("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth"
     "phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth"
@@ -472,7 +482,10 @@
   '("keyHex" "keyAscii" "nodeRlps" "exactLength"))
 
 (defparameter +eest-trie-test-case-fields+
-  '("in" "intermediateRoots" "out" "proofs" "ranges" "root" "secure"))
+  '("entryPairs" "in" "intermediateRoots" "out" "proofs" "ranges" "root" "secure"))
+
+(defparameter +eest-trie-test-entry-pair-fields+
+  '("key" "value"))
 
 (defparameter +eest-trie-test-range-fields+
   '("start" "end" "keys"))
@@ -1179,6 +1192,33 @@
                  label
                  name))))))
 
+(defun validate-trie-reference-entry-pair-requirements
+    (cases names label)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-names (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name names)
+      (when (gethash name seen-names)
+        (error "~A entry-pair reference list has duplicate name ~A"
+               label
+               name))
+      (setf (gethash name seen-names) t)
+      (let ((case (gethash name case-by-name)))
+        (unless case
+          (error "~A is missing entry-pair reference case ~A"
+                 label
+                 name))
+        (unless (fixture-field-present-p case "expectedEntryPairs")
+          (error "~A reference-derived trie case ~A must include explicit entry-pair assertions"
+                 label
+                 name))
+        (unless (fixture-object-field case "expectedEntryPairs")
+          (error "~A reference-derived trie case ~A explicit entry-pair assertions must not be empty"
+                 label
+                 name))))))
+
 (defun validate-trie-reference-proof-requirements
     (cases names label)
   (let ((case-by-name (make-hash-table :test #'equal))
@@ -1468,6 +1508,45 @@
          root
          (format nil "~A intermediateRoots ~D" case-name index))))
 
+(defun normalize-eest-trie-test-entry-pair (case-name pair index)
+  (validate-trie-fixture-object-fields
+   pair
+   +eest-trie-test-entry-pair-fields+
+   (format nil "EEST trie test case ~A entryPairs entry ~D"
+           case-name
+           index))
+  (let ((key (fixture-required-field pair "key"))
+        (value (fixture-required-field pair "value")))
+    (unless (stringp key)
+      (error "EEST trie test case ~A entryPairs entry ~D key must be a string"
+             case-name
+             index))
+    (unless (stringp value)
+      (error "EEST trie test case ~A entryPairs entry ~D value must be a string"
+             case-name
+             index))
+    (list
+     (cons "key"
+           (eest-trie-test-normalized-byte-string
+            key
+            (format nil "EEST trie test case ~A entryPairs entry ~D key"
+                    case-name
+                    index)))
+     (cons "value"
+           (eest-trie-test-normalized-byte-string
+            value
+            (format nil "EEST trie test case ~A entryPairs entry ~D value"
+                    case-name
+                    index))))))
+
+(defun normalize-eest-trie-test-entry-pairs (case-name entry-pairs)
+  (unless (and (listp entry-pairs) entry-pairs)
+    (error "EEST trie test case ~A entryPairs must be a non-empty JSON array"
+           case-name))
+  (loop for pair in entry-pairs
+        for index from 0
+        collect (normalize-eest-trie-test-entry-pair case-name pair index)))
+
 (defun normalize-eest-trie-test-proof-node-rlp (case-name value index node-index)
   (validate-trie-fixture-byte-field
    value
@@ -1577,6 +1656,12 @@
               (normalize-eest-trie-test-output-entries
                name
                (fixture-object-field case "out")))))
+     (when (fixture-field-present-p case "entryPairs")
+       (list
+        (cons "expectedEntryPairs"
+              (normalize-eest-trie-test-entry-pairs
+               name
+               (fixture-object-field case "entryPairs")))))
      (when (fixture-field-present-p case "proofs")
        (list
         (cons "expectedProofs"
@@ -1983,6 +2068,44 @@
                  name
                  (bytes-to-hex (car entry))))))))
 
+(defun assert-eest-trie-test-explicit-entry-pairs (case trie)
+  (when (fixture-field-present-p case "expectedEntryPairs")
+    (let ((actual (mpt-entry-pairs trie))
+          (expected (fixture-required-field case "expectedEntryPairs"))
+          (name (fixture-required-field case "name")))
+      (unless (= (length expected) (length actual))
+        (error "EEST trie test case ~A entryPairs length mismatch: expected ~A, got ~A"
+               name
+               (length expected)
+               (length actual)))
+      (loop for expected-entry in expected
+            for actual-entry in actual
+            for index from 0
+            for expected-key =
+              (eest-trie-test-key-trie-key
+               case
+               (fixture-required-field expected-entry "key")
+               (format nil "EEST trie test case ~A entryPairs ~D key"
+                       name
+                       index))
+            for expected-value =
+              (eest-trie-test-byte-string
+               (fixture-required-field expected-entry "value")
+               (format nil "EEST trie test case ~A entryPairs ~D value"
+                       name
+                       index))
+            unless (bytes= expected-key (car actual-entry))
+              do (error "EEST trie test case ~A entryPairs key ~D mismatch: expected ~A, got ~A"
+                        name
+                        index
+                        (bytes-to-hex expected-key)
+                        (bytes-to-hex (car actual-entry)))
+            unless (bytes= expected-value (cdr actual-entry))
+              do (error "EEST trie test case ~A entryPairs value ~D mismatch for key ~A"
+                        name
+                        index
+                        (bytes-to-hex expected-key))))))
+
 (defun eest-trie-test-entry-pairs-equal-p (left right)
   (and (= (length left) (length right))
        (loop for left-entry in left
@@ -2082,6 +2205,7 @@
       (assert-eest-trie-test-case-lookups case trie)
       (assert-eest-trie-test-case-explicit-output case trie)
       (assert-eest-trie-test-entry-pair-replay case trie)
+      (assert-eest-trie-test-explicit-entry-pairs case trie)
       (assert-eest-trie-test-entry-ranges case trie)
       (assert-eest-trie-test-explicit-entry-ranges case trie)
       (assert-eest-trie-test-proof-nodes case trie)
@@ -2700,6 +2824,34 @@
                  for count in final-entry-pair-counts
                  unless secure-p
                    collect count))
+         (explicit-entry-pair-flags
+           (mapcar (lambda (case)
+                     (fixture-field-present-p case "expectedEntryPairs"))
+                   cases))
+         (explicit-entry-pair-counts
+           (mapcar (lambda (case)
+                     (if (fixture-field-present-p case "expectedEntryPairs")
+                         (length (fixture-object-field case "expectedEntryPairs"))
+                         0))
+                   cases))
+         (secure-explicit-entry-pair-counts
+           (loop for secure-p in secure-flags
+                 for count in explicit-entry-pair-counts
+                 when secure-p
+                   collect count))
+         (plain-explicit-entry-pair-counts
+           (loop for secure-p in secure-flags
+                 for count in explicit-entry-pair-counts
+                 unless secure-p
+                   collect count))
+         (secure-explicit-entry-pair-case-count
+           (loop for secure-p in secure-flags
+                 for explicit-p in explicit-entry-pair-flags
+                 count (and secure-p explicit-p)))
+         (plain-explicit-entry-pair-case-count
+           (loop for secure-p in secure-flags
+                 for explicit-p in explicit-entry-pair-flags
+                 count (and (not secure-p) explicit-p)))
          (final-entry-pair-replay-case-count
            (count-if #'plusp final-entry-pair-counts))
          (entry-range-replay-case-count
@@ -3185,6 +3337,18 @@
            secure-final-entry-pair-replay-case-count)
      (cons "plainFinalEntryPairReplayCaseCount"
            plain-final-entry-pair-replay-case-count)
+     (cons "explicitEntryPairCaseCount"
+           (count t explicit-entry-pair-flags))
+     (cons "secureExplicitEntryPairCaseCount"
+           secure-explicit-entry-pair-case-count)
+     (cons "plainExplicitEntryPairCaseCount"
+           plain-explicit-entry-pair-case-count)
+     (cons "explicitEntryPairCount"
+           (reduce #'+ explicit-entry-pair-counts :initial-value 0))
+     (cons "secureExplicitEntryPairCount"
+           (reduce #'+ secure-explicit-entry-pair-counts :initial-value 0))
+     (cons "plainExplicitEntryPairCount"
+           (reduce #'+ plain-explicit-entry-pair-counts :initial-value 0))
      (cons "entryRangeReplayCaseCount"
            entry-range-replay-case-count)
      (cons "nonEmptyEntryRangeReplayCaseCount"
@@ -3296,6 +3460,10 @@
    cases
    +phase-a-eest-trie-intermediate-root-reference-case-names+
    "Phase A EEST trie subset")
+  (validate-trie-reference-entry-pair-requirements
+   cases
+   +phase-a-eest-trie-entry-pair-reference-case-names+
+   "Phase A EEST trie subset")
   (validate-trie-reference-proof-requirements
    cases
    +phase-a-eest-trie-proof-reference-case-names+
@@ -3369,6 +3537,12 @@
       (error "Phase A EEST trie subset must include intermediate root assertions"))
     (when (zerop (fixture-object-field summary "plainIntermediateRootCaseCount"))
       (error "Phase A EEST trie subset must include plain intermediate root assertions"))
+    (when (zerop (fixture-object-field summary "explicitEntryPairCaseCount"))
+      (error "Phase A EEST trie subset must include explicit entry-pair assertions"))
+    (when (zerop (fixture-object-field summary "secureExplicitEntryPairCaseCount"))
+      (error "Phase A EEST trie subset must include secure explicit entry-pair assertions"))
+    (when (zerop (fixture-object-field summary "plainExplicitEntryPairCaseCount"))
+      (error "Phase A EEST trie subset must include plain explicit entry-pair assertions"))
     (when (zerop (fixture-object-field summary "proofNodeCaseCount"))
       (error "Phase A EEST trie subset must include proof-node assertions"))
     (when (zerop (fixture-object-field summary "secureProofNodeCaseCount"))
@@ -4949,6 +5123,23 @@
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
   (let* ((case (normalize-eest-trie-test-case
+                "entry-pairs"
+                (list (cons "in" (list (list "b" "two")
+                                        (list "a" "one")))
+                      (cons "entryPairs"
+                            (list
+                             (list (cons "key" "a")
+                                   (cons "value" "one"))
+                             (list (cons "key" "b")
+                                   (cons "value" "two"))))
+                      (cons "root"
+                            "0x381e0a6f9726d283e18de485257e324ae8c36c91bec3fb62c96c6794178c9818"))))
+         (entry-pairs (fixture-required-field case "expectedEntryPairs"))
+         (trie (assert-eest-trie-test-case-root case)))
+    (is (= 2 (length entry-pairs)))
+    (is (string= "0x381e0a6f9726d283e18de485257e324ae8c36c91bec3fb62c96c6794178c9818"
+                 (mpt-root-hex trie))))
+  (let* ((case (normalize-eest-trie-test-case
                 "proof-nodes"
                 (list (cons "in" (list (list "k" "v")))
                       (cons "proofs"
@@ -5084,6 +5275,15 @@
                  "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
   (signals error
     (normalize-eest-trie-test-case
+     "bad-entry-pair"
+     (list (cons "in" (list (list "k" "v")))
+           (cons "entryPairs"
+                 (list
+                  (list (cons "key" "k"))))
+           (cons "root"
+                 "0x6675ca087d4e4344aa1348e54d5b39e1657b57287eb207107a04ffae79e88215"))))
+  (signals error
+    (normalize-eest-trie-test-case
      "bad-proof-node"
      (list (cons "in" (list (list "k" "v")))
            (cons "proofs"
@@ -5206,6 +5406,25 @@
                      case))
                selected-cases)
        '("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth")
+       "Phase A EEST trie subset"))
+    (validate-trie-reference-entry-pair-requirements
+     selected-cases
+     +phase-a-eest-trie-entry-pair-reference-case-names+
+     "Phase A EEST trie subset")
+    (signals error
+      (validate-trie-reference-entry-pair-requirements
+       selected-cases
+       '("phase-a-trie-multi.json/missing-geth-case")
+       "Phase A EEST trie subset"))
+    (signals error
+      (validate-trie-reference-entry-pair-requirements
+       (mapcar (lambda (case)
+                 (if (string= "phase-a-trie-multi.json/geth-tiny-account-step-1"
+                              (fixture-object-field case "name"))
+                     (remove "expectedEntryPairs" case :key #'car :test #'string=)
+                     case))
+               selected-cases)
+       '("phase-a-trie-multi.json/geth-tiny-account-step-1")
        "Phase A EEST trie subset"))
     (validate-trie-reference-proof-requirements
      selected-cases
@@ -5474,6 +5693,12 @@
     (is (= 60 (fixture-object-field
                 summary
                 "plainFinalEntryPairReplayCaseCount")))
+    (is (= 8 (fixture-object-field summary "explicitEntryPairCaseCount")))
+    (is (= 4 (fixture-object-field summary "secureExplicitEntryPairCaseCount")))
+    (is (= 4 (fixture-object-field summary "plainExplicitEntryPairCaseCount")))
+    (is (= 22 (fixture-object-field summary "explicitEntryPairCount")))
+    (is (= 11 (fixture-object-field summary "secureExplicitEntryPairCount")))
+    (is (= 11 (fixture-object-field summary "plainExplicitEntryPairCount")))
     (is (= 86 (fixture-object-field summary "entryRangeReplayCaseCount")))
     (is (= 84 (fixture-object-field
                summary

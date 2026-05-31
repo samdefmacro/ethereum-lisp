@@ -155,6 +155,11 @@ fixes in those areas are allowed; expansion is not.
   RLP assertions for 17 geth/secure cases, using exact-length or prefix
   comparison against `mpt-get-proof`, so external-style replay gates proof
   encoding rather than only root, lookup, and range behavior.
+  The same selected plain and secure account progression roots now also
+  carry fixture-provided entry-pair export assertions, comparing
+  `mpt-entry-pairs` keys and values in exact order across 8 cases and 22
+  entries, so the external adapter pins deterministic snapshot export data
+  rather than only rebuilding from derived entries.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the
