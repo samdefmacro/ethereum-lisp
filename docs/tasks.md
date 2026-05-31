@@ -3590,6 +3590,18 @@ splits can land after the Phase A smoke path closes.
     Remaining work: wire c-kzg or another trusted-setup-backed verifier and
     replay KZG proof vectors through blob sidecars and the point-evaluation
     precompile.
+  - Progress: added explicit pluggable KZG verifier hooks for point proofs and
+    blob proofs. The point-evaluation precompile now validates the
+    versioned-hash match, calls the configured point-proof verifier, returns the
+    EIP-4844 success payload on true, and fails the precompile on unavailable
+    or false verification. Blob sidecar validation now calls the configured
+    blob-proof verifier when proof verification is required, while cell proofs
+    remain explicitly unavailable until a cell-proof verifier is wired. This
+    boundary mirrors the inspected geth `8a0223e` `VerifyProof` /
+    `VerifyBlobProof` split and Nethermind `1c72a72` point/blob verifier
+    entry points without claiming real proof verification yet.
+    Remaining work: provide the actual trusted-setup-backed c-kzg/FFI verifier
+    and replay canonical KZG vectors.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4

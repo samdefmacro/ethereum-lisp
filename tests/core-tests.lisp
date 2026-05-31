@@ -13867,6 +13867,30 @@ Content-Type: application/json
        sidecar
        :transaction transaction
        :require-proof-verification t))
+    (let ((observed nil))
+      (let ((*kzg-blob-proof-verifier*
+              (lambda (verified-blob verified-commitment verified-proof)
+                (setf observed
+                      (list verified-blob verified-commitment verified-proof))
+                t)))
+        (is (kzg-blob-proof-verification-available-p))
+        (is (validate-blob-sidecar-fields
+             sidecar
+             :transaction transaction
+             :require-proof-verification t)))
+      (is (bytes= blob (first observed)))
+      (is (bytes= commitment (second observed)))
+      (is (bytes= proof (third observed))))
+    (let ((*kzg-blob-proof-verifier*
+            (lambda (verified-blob verified-commitment verified-proof)
+              (declare (ignore verified-blob verified-commitment
+                               verified-proof))
+              nil)))
+      (signals block-validation-error
+        (validate-blob-sidecar-fields
+         sidecar
+         :transaction transaction
+         :require-proof-verification t)))
     (signals block-validation-error
       (validate-blob-sidecar-fields
        (make-blob-sidecar :blobs (list blob)

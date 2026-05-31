@@ -1855,9 +1855,35 @@
       (is (= ethereum-lisp.evm::+kzg-point-evaluation-gas+
              (ethereum-lisp.evm::evm-precompile-error-gas-used
               unverified-proof-error)))
-      (is (search "KZG proof verification is not implemented yet"
+      (is (search "KZG point proof verification is not available"
                   (princ-to-string unverified-proof-error)
-                  :test #'char=)))))
+                  :test #'char=))
+      (let ((observed nil))
+        (let ((*kzg-point-proof-verifier*
+                (lambda (commitment z y proof)
+                  (setf observed (list commitment z y proof))
+                  t)))
+          (multiple-value-bind (output gas)
+              (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+               unverified-proof-input)
+            (is (= ethereum-lisp.evm::+kzg-point-evaluation-gas+ gas))
+            (is (bytes= (ethereum-lisp.evm::kzg-point-evaluation-return-value)
+                        output))))
+        (is (bytes= (subseq unverified-proof-input 96 144)
+                    (first observed)))
+        (is (bytes= (subseq unverified-proof-input 32 64)
+                    (second observed)))
+        (is (bytes= (subseq unverified-proof-input 64 96)
+                    (third observed)))
+        (is (bytes= (subseq unverified-proof-input 144 192)
+                    (fourth observed))))
+      (let ((*kzg-point-proof-verifier*
+              (lambda (commitment z y proof)
+                (declare (ignore commitment z y proof))
+                nil)))
+        (signals ethereum-lisp.evm::evm-precompile-error
+          (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+           unverified-proof-input))))))
 
 (deftest evm-call-blake2f-precompile
   (let* ((state (make-state-db))

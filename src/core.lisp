@@ -5428,14 +5428,80 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (format nil "~A must be exactly ~D bytes" label size)))
     bytes))
 
+(defvar *kzg-point-proof-verifier* nil
+  "Optional verifier for EIP-4844 point proofs.
+
+When non-NIL, the value must be a function of COMMITMENT, Z, Y, and PROOF byte
+vectors. It should return true only when the proof is valid.")
+
+(defvar *kzg-blob-proof-verifier* nil
+  "Optional verifier for EIP-4844 blob proofs.
+
+When non-NIL, the value must be a function of BLOB, COMMITMENT, and PROOF byte
+vectors. It should return true only when the proof is valid.")
+
+(defun kzg-point-proof-verification-available-p ()
+  (functionp *kzg-point-proof-verifier*))
+
+(defun kzg-blob-proof-verification-available-p ()
+  (functionp *kzg-blob-proof-verifier*))
+
 (defun kzg-proof-verification-available-p ()
-  nil)
+  (and (kzg-point-proof-verification-available-p)
+       (kzg-blob-proof-verification-available-p)))
+
+(defun verify-kzg-point-proof (commitment z y proof)
+  (unless (kzg-point-proof-verification-available-p)
+    (error "KZG point proof verification is not available"))
+  (let ((commitment (ensure-byte-vector commitment))
+        (z (ensure-byte-vector z))
+        (y (ensure-byte-vector y))
+        (proof (ensure-byte-vector proof)))
+    (unless (= +kzg-commitment-size+ (length commitment))
+      (error "KZG commitment must be exactly ~D bytes" +kzg-commitment-size+))
+    (unless (= 32 (length z))
+      (error "KZG point z must be exactly 32 bytes"))
+    (unless (= 32 (length y))
+      (error "KZG point y must be exactly 32 bytes"))
+    (unless (= +kzg-proof-size+ (length proof))
+      (error "KZG proof must be exactly ~D bytes" +kzg-proof-size+))
+    (unless (funcall *kzg-point-proof-verifier* commitment z y proof)
+      (error "KZG point proof verification failed")))
+  t)
+
+(defun verify-kzg-blob-proof (blob commitment proof)
+  (unless (kzg-blob-proof-verification-available-p)
+    (error "KZG blob proof verification is not available"))
+  (let ((blob (ensure-byte-vector blob))
+        (commitment (ensure-byte-vector commitment))
+        (proof (ensure-byte-vector proof)))
+    (unless (= +blob-byte-size+ (length blob))
+      (error "Blob must be exactly ~D bytes" +blob-byte-size+))
+    (unless (= +kzg-commitment-size+ (length commitment))
+      (error "KZG commitment must be exactly ~D bytes" +kzg-commitment-size+))
+    (unless (= +kzg-proof-size+ (length proof))
+      (error "KZG proof must be exactly ~D bytes" +kzg-proof-size+))
+    (unless (funcall *kzg-blob-proof-verifier* blob commitment proof)
+      (error "KZG blob proof verification failed")))
+  t)
 
 (defun validate-blob-sidecar-kzg-proofs (sidecar)
-  (declare (ignore sidecar))
-  (unless (kzg-proof-verification-available-p)
+  (unless (kzg-blob-proof-verification-available-p)
     (block-validation-fail
      "KZG proof verification is not available; blob sidecars are shape-checked only"))
+  (let ((blobs (blob-sidecar-blobs sidecar))
+        (commitments (blob-sidecar-commitments sidecar))
+        (proofs (blob-sidecar-proofs sidecar)))
+    (unless (= (length proofs) (length blobs))
+      (block-validation-fail
+       "KZG cell proof verification is not available; blob proof verification requires one proof per blob"))
+    (handler-case
+        (loop for blob in blobs
+              for commitment in commitments
+              for proof in proofs
+              do (verify-kzg-blob-proof blob commitment proof))
+      (error (condition)
+        (block-validation-fail "~A" condition))))
   t)
 
 (defun validate-blob-sidecar-fields

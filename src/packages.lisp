@@ -161,6 +161,13 @@
    #:+blob-gas-per-blob+
    #:+blob-byte-size+
    #:+kzg-proof-size+
+   #:*kzg-point-proof-verifier*
+   #:*kzg-blob-proof-verifier*
+   #:kzg-point-proof-verification-available-p
+   #:kzg-blob-proof-verification-available-p
+   #:kzg-proof-verification-available-p
+   #:verify-kzg-point-proof
+   #:verify-kzg-blob-proof
    #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
@@ -1094,6 +1101,13 @@
    #:+blob-gas-per-blob+
    #:+blob-byte-size+
    #:+kzg-proof-size+
+   #:*kzg-point-proof-verifier*
+   #:*kzg-blob-proof-verifier*
+   #:kzg-point-proof-verification-available-p
+   #:kzg-blob-proof-verification-available-p
+   #:kzg-proof-verification-available-p
+   #:verify-kzg-point-proof
+   #:verify-kzg-blob-proof
    #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
@@ -1958,6 +1972,13 @@
    #:+blob-gas-per-blob+
    #:+blob-byte-size+
    #:+kzg-proof-size+
+   #:*kzg-point-proof-verifier*
+   #:*kzg-blob-proof-verifier*
+   #:kzg-point-proof-verification-available-p
+   #:kzg-blob-proof-verification-available-p
+   #:kzg-proof-verification-available-p
+   #:verify-kzg-point-proof
+   #:verify-kzg-blob-proof
    #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
