@@ -59,24 +59,36 @@
                   (cons "kind" (cdr entry))))
           kinds))
 
+(defun fixture-report-state-object (state-root state-selectors state-summary)
+  (if state-root
+      (list
+       (cons "status" "ok")
+       (cons "root" (namestring state-root))
+       (cons "count" (fixture-report-field state-summary "count"))
+       (cons "transactionCombinationCount"
+             (fixture-report-field state-summary
+                                   "transactionCombinationCount"))
+       (cons "selectors" state-selectors)
+       (cons "selectorString"
+             (fixture-report-call
+              "phase-a-eest-state-test-selector-string"
+              state-selectors)))
+      (list
+       (cons "status" "missing")
+       (cons "root" nil)
+       (cons "count" 0)
+       (cons "transactionCombinationCount" 0)
+       (cons "selectors" nil)
+       (cons "selectorString" ""))))
+
 (defun fixture-report-report-object
     (suite-root mode state-root state-selectors state-summary
      blockchain-root blockchain-kinds blockchain-summary)
   (list
    (cons "suiteRoot" suite-root)
    (cons "mode" mode)
-   (cons "state"
-         (list
-          (cons "root" (namestring state-root))
-          (cons "count" (fixture-report-field state-summary "count"))
-          (cons "transactionCombinationCount"
-                (fixture-report-field state-summary
-                                      "transactionCombinationCount"))
-          (cons "selectors" state-selectors)
-          (cons "selectorString"
-                (fixture-report-call
-                 "phase-a-eest-state-test-selector-string"
-                 state-selectors))))
+   (cons "state" (fixture-report-state-object
+                  state-root state-selectors state-summary))
    (cons "blockchain"
          (list
           (cons "root" (namestring blockchain-root))
@@ -96,7 +108,9 @@
         (blockchain (fixture-report-field report "blockchain")))
     (format t "~&suiteRoot=~A~%" (fixture-report-field report "suiteRoot"))
     (format t "mode=~A~%" (fixture-report-field report "mode"))
-    (format t "stateRoot=~A~%" (fixture-report-field state "root"))
+    (format t "stateStatus=~A~%" (fixture-report-field state "status"))
+    (format t "stateRoot=~A~%" (or (fixture-report-field state "root")
+                                   "missing"))
     (format t "stateCount=~D~%" (fixture-report-field state "count"))
     (format t "stateTransactionCombinations=~D~%"
             (fixture-report-field state "transactionCombinationCount"))
@@ -135,24 +149,25 @@
                 root-argument)
                (fixture-report-call
                 "execution-spec-tests-blockchain-test-root"))))
-    (unless state-root
-      (error "No EEST state_tests fixture root found. Pass a root path or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
     (unless blockchain-root
       (error "No EEST blockchain fixture root found. Pass a root path or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
     (let* ((state-selectors
-             (fixture-report-call
-              "discover-phase-a-eest-state-test-selectors"
-              state-root))
+             (when state-root
+               (fixture-report-call
+                "discover-phase-a-eest-state-test-selectors"
+                state-root)))
            (state-cases
-             (fixture-report-call
-              "load-eest-state-test-root-cases"
-              state-root
-              :names state-selectors))
+             (when state-root
+               (fixture-report-call
+                "load-eest-state-test-root-cases"
+                state-root
+                :names state-selectors)))
            (state-summary
-             (fixture-report-call
-              "validate-phase-a-eest-state-test-summary"
-              state-cases
-              :expected-names state-selectors))
+             (when state-root
+               (fixture-report-call
+                "validate-phase-a-eest-state-test-summary"
+                state-cases
+                :expected-names state-selectors)))
            (blockchain-kinds
              (if pinned-p
                  (fixture-report-call
@@ -171,7 +186,7 @@
               "validate-phase-a-eest-blockchain-replay-summary"
               blockchain-cases
               :expected-kinds blockchain-kinds)))
-      (unless state-selectors
+      (when (and state-root (not state-selectors))
         (error "No materializable Phase A state_tests selectors found under ~A"
                state-root))
       (unless blockchain-kinds

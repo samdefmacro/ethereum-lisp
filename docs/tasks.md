@@ -341,6 +341,12 @@ ones.
     `blockRlp` / `engineNewPayloadV2` materialization split. The report also
     accepts `--json` so fixture-count and selector-table drift checks can parse
     the same contract without scraping the human-readable text output.
+  - Result: hardened the Phase A fixture report for the real pinned stable
+    archive layout. When a `fixtures_stable.tar.gz` extraction contains
+    `blockchain_tests_engine` but no `state_tests` suite, the report now emits
+    `stateStatus=missing` / JSON `"status":"missing"` and still validates the
+    pinned v5.4.0 blockchain replay selector table instead of exiting before
+    the available upstream suite can be checked.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

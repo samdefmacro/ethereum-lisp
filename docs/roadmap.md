@@ -677,7 +677,9 @@ Detailed historical implementation notes for this section now live in
   loads the CLI package and devnet CLI tests, including a split-listener
   Engine/public payload-import smoke, matching the ASDF test system. A
   scriptable Phase A fixture report now validates and prints, or emits JSON for,
-  the selected state/blockchain ingestion tables for a suite root.
+  the selected state/blockchain ingestion tables for a suite root, and it can
+  still validate the pinned v5.4.0 blockchain replay table when the stable
+  archive extraction lacks a `state_tests` suite.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
