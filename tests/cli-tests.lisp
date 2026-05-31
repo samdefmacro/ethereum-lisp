@@ -122,11 +122,34 @@
                 :genesis-path +devnet-cli-genesis-fixture+
                 :port 8551
                 :public-port 8545))
+         (engine-accepted-p nil)
          (summary
            (ethereum-lisp.cli:start-devnet-node-listeners
             node
-            (make-devnet-cli-one-shot-listener "engine")
-            (make-devnet-cli-one-shot-listener "public")
+            (make-engine-rpc-http-listener
+             :endpoint "engine"
+             :accept-function
+             (lambda ()
+               (unless engine-accepted-p
+                 (setf engine-accepted-p t)
+                 (make-engine-rpc-http-connection
+                  :input-stream
+                  (make-string-input-stream "GET / HTTP/1.1\r\n\r\n")
+                  :output-stream (make-string-output-stream)
+                  :close-function (lambda () nil))))
+             :close-function (lambda () nil))
+            (make-engine-rpc-http-listener
+             :endpoint "public"
+             :accept-function
+             (lambda ()
+               (loop until engine-accepted-p
+                     do (sleep 0.001))
+               (make-engine-rpc-http-connection
+                :input-stream
+                (make-string-input-stream "GET / HTTP/1.1\r\n\r\n")
+                :output-stream (make-string-output-stream)
+                :close-function (lambda () nil)))
+             :close-function (lambda () nil))
             :max-connections 1)))
     (is (= 1 (getf summary :engine-connections)))
     (is (= 1 (getf summary :public-connections)))
@@ -299,6 +322,55 @@
       (when (probe-file ready-path)
         (delete-file ready-path)))))
 
+(deftest devnet-cli-main-log-file-records-ready-event
+  (let ((ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
+        (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
+        (output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (let ((log-path-string (namestring log-path)))
+             (is (= 0
+                    (ethereum-lisp.cli:main
+                     (list "devnet"
+                           "--genesis" +devnet-cli-genesis-fixture+
+                           "--port" "0"
+                           "--public-port" "8546"
+                           "--ready-file" (namestring ready-path)
+                           "--log-file" log-path-string
+                           "--json"
+                           "--no-serve")
+                     :output-stream output
+                     :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let* ((stdout-summary
+                    (parse-json (get-output-stream-string output)))
+                  (ready-summary
+                    (parse-json (devnet-cli-file-string ready-path)))
+                  (log-record
+                    (read-from-string (devnet-cli-file-string log-path)))
+                  (fields (getf log-record :fields)))
+             (dolist (summary (list stdout-summary ready-summary))
+               (is (string= log-path-string
+                            (fixture-object-field summary "logPath"))))
+             (is (eq :log (getf log-record :kind)))
+             (is (string= "devnet.ready" (getf log-record :name)))
+             (is (eq :info (getf log-record :value)))
+             (is (string= "127.0.0.1:0"
+                          (cdr (assoc "engineEndpoint" fields
+                                      :test #'string=))))
+             (is (string= "127.0.0.1:8546"
+                          (cdr (assoc "rpcEndpoint" fields
+                                      :test #'string=))))
+             (is (string= "0x539"
+                          (cdr (assoc "chainId" fields :test #'string=))))
+             (is (string= log-path-string
+                          (cdr (assoc "logPath" fields :test #'string=)))))))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path)))))
+
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))
@@ -353,5 +425,7 @@
                 (run-error (list "devnet" "--port" "--no-serve"))))
     (is (search "--public-port requires a value"
                 (run-error (list "devnet" "--public-port" "--no-serve"))))
+    (is (search "--log-file requires a value"
+                (run-error (list "devnet" "--log-file"))))
     (is (search "Unknown option --wat"
                 (run-error (list "devnet" "--wat"))))))

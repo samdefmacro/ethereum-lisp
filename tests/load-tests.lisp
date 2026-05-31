@@ -1,6 +1,8 @@
 (defparameter *ethereum-lisp-test-loader-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(require :asdf)
+
 (defun load-ethereum-lisp-test-file (relative-path)
   (load (merge-pathnames relative-path *ethereum-lisp-test-loader-root*)))
 
@@ -23,6 +25,7 @@
 (load-ethereum-lisp-test-file "src/state.lisp")
 (load-ethereum-lisp-test-file "src/evm.lisp")
 (load-ethereum-lisp-test-file "src/execution.lisp")
+(load-ethereum-lisp-test-file "src/cli.lisp")
 (load-ethereum-lisp-test-file "tests/test-framework.lisp")
 (load-ethereum-lisp-test-file "tests/bytes-tests.lisp")
 (load-ethereum-lisp-test-file "tests/hex-tests.lisp")
@@ -44,3 +47,4 @@
 (load-ethereum-lisp-test-file "tests/state-tests.lisp")
 (load-ethereum-lisp-test-file "tests/evm-tests.lisp")
 (load-ethereum-lisp-test-file "tests/execution-tests.lisp")
+(load-ethereum-lisp-test-file "tests/cli-tests.lisp")

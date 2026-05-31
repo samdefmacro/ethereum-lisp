@@ -3976,6 +3976,12 @@ splits can land after the Phase A smoke path closes.
     serving, and the CLI serve path installs SBCL SIGINT/SIGTERM handlers that
     request the same shutdown before listener cleanup. Tests cover a blocking
     split-listener serve stopped through the controller.
+  - Result: added a Hive-style `--log-file` devnet option. Readiness JSON and
+    stdout summaries now report `logPath`, startup telemetry can be written to
+    a dedicated log file instead of mixing with machine-readable stdout, and
+    the manual `tests/run-tests.lisp` loader now covers `src/cli.lisp` plus
+    CLI tests so the devnet process shell stays in the default validation
+    path.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

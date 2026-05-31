@@ -643,7 +643,8 @@ first pass, but interfaces must not block that path.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the pinned v5.4.0 Shanghai
   `engine_newPayloadV2` replay slice, and concrete long-running devnet/Hive
-  lifecycle ergonomics beyond the current readiness and shutdown contract.
+  lifecycle ergonomics beyond the current readiness, log-file, and shutdown
+  contract.
 - *Missing for Phase A:* broader Hive-style Engine smoke breadth around the
   existing Shanghai path, plus any Cancun blob execution acceptance until real
   KZG verification is available.
@@ -666,7 +667,8 @@ Detailed historical implementation notes for this section now live in
 - *Done:* fixture root discovery, pinned execution-spec-tests release metadata,
   transaction/trie/state/receipt/Engine fixture runners, real v5.4.0 Shanghai
   blockchain replay selector discovery and pinned replay, and reference-client
-  commit recording discipline.
+  commit recording discipline. The manual `tests/run-tests.lisp` path now also
+  loads the CLI package and devnet CLI tests, matching the ASDF test system.
 - *Partial:* broader Hive-style process-level smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

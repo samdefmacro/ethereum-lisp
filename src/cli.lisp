@@ -3,7 +3,7 @@
 (defstruct (devnet-node
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
-                      public-service telemetry-sink jwt-secret-path)))
+                      public-service telemetry-sink jwt-secret-path log-path)))
   genesis-path
   store
   config
@@ -11,7 +11,8 @@
   service
   public-service
   telemetry-sink
-  jwt-secret-path)
+  jwt-secret-path
+  log-path)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -107,6 +108,7 @@
        (public-host host)
        (public-port +devnet-default-public-rpc-port+)
        jwt-secret-path
+       log-path
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
     (error "Devnet node requires a genesis JSON path"))
@@ -145,7 +147,8 @@
      :service service
      :public-service public-service
      :telemetry-sink telemetry-sink
-     :jwt-secret-path jwt-secret-path)))
+     :jwt-secret-path jwt-secret-path
+     :log-path log-path)))
 
 (defun devnet-block-number (block)
   (and block (block-header-number (block-header block))))
@@ -169,6 +172,7 @@
           (not (null (engine-rpc-http-service-jwt-secret
                       (devnet-node-service node))))
           :jwt-secret-path (devnet-node-jwt-secret-path node)
+          :log-path (devnet-node-log-path node)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -183,6 +187,7 @@
       ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
       ("authRequired" . ,(if (getf summary :auth-required-p) t :false))
       ("jwtSecretPath" . ,(getf summary :jwt-secret-path))
+      ("logPath" . ,(getf summary :log-path))
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
@@ -337,6 +342,7 @@
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
+        (log-file nil)
         (help-p nil))
     (loop while args
           for option = (pop args)
@@ -378,6 +384,9 @@
                ((string= option "--ready-file")
                 (multiple-value-setq (ready-file args)
                   (devnet-cli-next-value args option)))
+               ((string= option "--log-file")
+                (multiple-value-setq (log-file args)
+                  (devnet-cli-next-value args option)))
                (t
                 (error "Unknown option ~A" option))))
     (list :genesis-path genesis-path
@@ -390,11 +399,12 @@
           :serve-p serve-p
           :summary-format summary-format
           :ready-file ready-file
+          :log-file log-file
           :help-p help-p)))
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--max-connections N] [--json] [--ready-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary (node stream &key (format :sexp))
   (ecase format
@@ -411,6 +421,38 @@
     (write-string (json-encode (devnet-node-summary-json-object node)) stream)
     (terpri stream)))
 
+(defun devnet-node-telemetry-fields (node)
+  (let ((summary (devnet-node-summary node)))
+    `(("engineEndpoint" . ,(getf summary :engine-endpoint))
+      ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
+      ("chainId" . ,(quantity-to-hex (getf summary :chain-id)))
+      ("headNumber" . ,(quantity-to-hex (getf summary :head-number)))
+      ("headHash" . ,(getf summary :head-hash))
+      ("authRequired" . ,(if (getf summary :auth-required-p) "true" "false"))
+      ("jwtSecretPath" . ,(or (getf summary :jwt-secret-path) ""))
+      ("logPath" . ,(or (getf summary :log-path) "")))))
+
+(defun devnet-cli-log-event (node name)
+  (ethereum-lisp.telemetry:telemetry-log
+   :info
+   name
+   :sink (devnet-node-telemetry-sink node)
+   :fields (devnet-node-telemetry-fields node)))
+
+(defun call-with-devnet-cli-telemetry-sink (options output-stream thunk)
+  (let ((log-file (getf options :log-file)))
+    (if log-file
+        (with-open-file (stream log-file
+                                :direction :output
+                                :if-exists :supersede
+                                :if-does-not-exist :create)
+          (funcall thunk
+                   (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                    :stream stream)))
+        (funcall thunk
+                 (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                  :stream output-stream)))))
+
 (defun main (&optional (args (uiop:command-line-arguments))
               &key
                 (output-stream *standard-output*)
@@ -424,32 +466,40 @@
             (progn
               (unless (getf options :genesis-path)
                 (error "--genesis is required"))
-              (let ((node
-                      (make-devnet-node
-                       :genesis-path (getf options :genesis-path)
-                       :host (getf options :host)
-                       :port (getf options :port)
-                       :public-host (getf options :public-host)
-                       :public-port (getf options :public-port)
-                       :jwt-secret-path (getf options :jwt-secret-path)
-                       :telemetry-sink
-                       (ethereum-lisp.telemetry:make-stream-telemetry-sink
-                        :stream output-stream))))
-                (when (getf options :ready-file)
-                  (devnet-cli-write-ready-file
-                   node
-                   (getf options :ready-file)))
-                (devnet-cli-print-summary
-                 node
-                 output-stream
-                 :format (getf options :summary-format))
-                (when (getf options :serve-p)
-                  (start-devnet-node
-                   node
-                   :max-connections (getf options :max-connections)
-                   :install-signal-handlers-p t
-                   :signal-stream error-stream))
-                0))))
+              (call-with-devnet-cli-telemetry-sink
+               options
+               output-stream
+               (lambda (telemetry-sink)
+                 (let ((node
+                         (make-devnet-node
+                          :genesis-path (getf options :genesis-path)
+                          :host (getf options :host)
+                          :port (getf options :port)
+                          :public-host (getf options :public-host)
+                          :public-port (getf options :public-port)
+                          :jwt-secret-path (getf options :jwt-secret-path)
+                          :log-path (getf options :log-file)
+                          :telemetry-sink telemetry-sink)))
+                   (when (getf options :ready-file)
+                     (devnet-cli-write-ready-file
+                      node
+                      (getf options :ready-file)))
+                   (when (getf options :log-file)
+                     (devnet-cli-log-event node "devnet.ready"))
+                   (devnet-cli-print-summary
+                    node
+                    output-stream
+                    :format (getf options :summary-format))
+                   (when (getf options :serve-p)
+                     (unwind-protect
+                          (start-devnet-node
+                           node
+                           :max-connections (getf options :max-connections)
+                           :install-signal-handlers-p t
+                           :signal-stream error-stream)
+                       (when (getf options :log-file)
+                         (devnet-cli-log-event node "devnet.shutdown"))))
+                   0))))))
     (error (condition)
       (format error-stream "~A~%" condition)
       (devnet-cli-print-usage error-stream)

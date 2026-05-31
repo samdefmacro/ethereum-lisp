@@ -984,6 +984,7 @@
    #:devnet-node-public-service
    #:devnet-node-telemetry-sink
    #:devnet-node-jwt-secret-path
+   #:devnet-node-log-path
    #:devnet-shutdown-controller
    #:make-devnet-shutdown-controller
    #:devnet-shutdown-controller-requested-p
