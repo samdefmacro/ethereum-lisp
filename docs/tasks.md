@@ -3918,6 +3918,10 @@ splits can land after the Phase A smoke path closes.
     and public socket listeners and runs the Engine listener on an SBCL worker
     thread while serving public RPC on the foreground thread; the testable
     listener helper reports per-endpoint connection counts.
+  - Result: hardened the split listener lifecycle error path. If the foreground
+    public listener fails, the Engine listener is closed before joining the
+    worker thread and the public error is re-signaled; if the Engine worker
+    fails, it closes the public listener before reporting the Engine error.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

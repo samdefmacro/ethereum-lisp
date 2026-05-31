@@ -132,7 +132,9 @@
   (error "Devnet split listener serving requires SBCL threads")
   #+sbcl
   (let ((engine-count nil)
-        (engine-error nil))
+        (engine-error nil)
+        (public-count nil)
+        (public-error nil))
     (let ((engine-thread
             (sb-thread:make-thread
              (lambda ()
@@ -144,20 +146,32 @@
                           :max-connections max-connections
                           :stop-p stop-p))
                  (error (condition)
-                   (setf engine-error condition))))
+                   (setf engine-error condition)
+                   (ignore-errors
+                    (engine-rpc-http-listener-close public-listener)))))
              :name "ethereum-lisp-devnet-engine-rpc")))
-      (let ((public-count
-              (engine-rpc-http-service-serve-listener
-               (devnet-node-public-service node)
-               public-listener
-               :max-connections max-connections
-               :stop-p stop-p)))
-        (sb-thread:join-thread engine-thread)
-        (when engine-error
-          (error engine-error))
-        (list :engine-connections engine-count
-              :public-connections public-count
-              :total-connections (+ engine-count public-count))))))
+      (handler-case
+          (setf public-count
+                (engine-rpc-http-service-serve-listener
+                 (devnet-node-public-service node)
+                 public-listener
+                 :max-connections max-connections
+                 :stop-p stop-p))
+        (error (condition)
+          (setf public-error condition)
+          (ignore-errors
+           (engine-rpc-http-listener-close engine-listener))))
+      (when public-count
+        (ignore-errors
+         (engine-rpc-http-listener-close engine-listener)))
+      (sb-thread:join-thread engine-thread)
+      (cond
+        (public-error (error public-error))
+        (engine-error (error engine-error))
+        (t
+         (list :engine-connections engine-count
+               :public-connections public-count
+               :total-connections (+ engine-count public-count)))))))
 
 (defun start-devnet-node (node &key max-connections stop-p)
   (unless (typep node 'devnet-node)

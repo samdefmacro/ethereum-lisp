@@ -638,8 +638,9 @@ first pass, but interfaces must not block that path.
   JSON readiness/head summaries for process runners.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the pinned v5.4.0 Shanghai
-  `engine_newPayloadV2` replay slice, graceful shutdown controls for the split
-  listener process, and concrete long-running devnet/Hive lifecycle ergonomics.
+  `engine_newPayloadV2` replay slice, signal-driven graceful shutdown controls
+  for the split listener process, and concrete long-running devnet/Hive
+  lifecycle ergonomics.
 - *Missing for Phase A:* broader Hive-style Engine smoke breadth around the
   existing Shanghai path, plus any Cancun blob execution acceptance until real
   KZG verification is available.
