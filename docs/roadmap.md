@@ -537,11 +537,12 @@ behavior.
   fork-gated opcode coverage, warm/cold access tracking, CALL-family frame
   rollback, CREATE/CREATE2 basics, SELFDESTRUCT, logs, returndata, transient
   storage, and precompile coverage through the current Phase A smoke needs.
+  BN254 pairing now uses a native optimal Ate check against the full geth
+  `bn256Pairing.json` vector set, with G2 subgroup validation before backend
+  dispatch.
 - *Partial:* fixture-backed CALL/CREATE/precompile breadth, exact gas parity
   for all edge cases, EIP-7702 delegated-code execution beyond the covered
-  paths, and stopgap BN254 pairing behavior behind an explicit backend boundary
-  until a full pairing library lands. BN254 pairing input validation now covers
-  G2 curve and subgroup rejection before backend dispatch.
+  paths, and KZG proof verification.
 - *Missing for Phase A:* broader pinned execution-spec state-transition replay
   beyond the current selector-gated replay (London
   legacy/access-list/dynamic-fee vectors, expected-exception handling,

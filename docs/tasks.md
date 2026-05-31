@@ -3552,7 +3552,7 @@ splits can land after the Phase A smoke path closes.
     and delegated-code resolution. Broader CALLCODE/DELEGATECALL expansion can
     be tracked as separate follow-up tasks if needed.
 
-- [~] Complete non-empty BN254 pairing precompile coverage.
+- [x] Complete non-empty BN254 pairing precompile coverage.
   - Milestone: 4
   - References: geth `crypto/bn256`, EVM precompile tests, Nethermind
     precompiles.
@@ -3607,6 +3607,15 @@ splits can land after the Phase A smoke path closes.
     gate, and the EVM precompile regression covers an on-curve non-subgroup
     G2 point that must fail instead of reaching the stopgap pairing checker.
     Full arbitrary true vectors still require the real optimal Ate backend.
+  - Result: replaced the stopgap cancellation-only backend with a native
+    optimal Ate pairing check over Fp12, following the geth
+    `crypto/bn256/google` Miller-loop/final-exponentiation structure and
+    retaining the existing precompile shell for gas, parsing, zero-pair
+    skipping, and output encoding. The table-driven fixture now imports all
+    14 geth `bn256Pairing.json` vectors from reference commit `8a0223e`,
+    including `jeff1`-`jeff5`, `two_point_match_3/4`, and 10-pair match
+    cases that the cancellation model could not prove. Nethermind reference
+    pin remains `1c72a72`.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5

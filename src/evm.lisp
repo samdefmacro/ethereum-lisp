@@ -1029,6 +1029,39 @@
 (defun bn254-fp2-square (value)
   (bn254-fp2-mul value value))
 
+(defun bn254-fp2-neg (value)
+  (bn254-fp2 (- (car value)) (- (cdr value))))
+
+(defun bn254-fp2-double (value)
+  (bn254-fp2 (+ (car value) (car value))
+             (+ (cdr value) (cdr value))))
+
+(defun bn254-fp2-mul-scalar (value scalar)
+  (bn254-fp2 (* (car value) scalar)
+             (* (cdr value) scalar)))
+
+(defun bn254-fp2-conjugate (value)
+  (bn254-fp2 (car value) (- (cdr value))))
+
+(defun bn254-fp2-zero ()
+  (bn254-fp2 0 0))
+
+(defun bn254-fp2-one ()
+  (bn254-fp2 1 0))
+
+(defun bn254-fp2-zero-p (value)
+  (and (zerop (car value)) (zerop (cdr value))))
+
+(defun bn254-fp2-one-p (value)
+  (and (= 1 (car value)) (zerop (cdr value))))
+
+(defun bn254-fp2-mul-xi (value)
+  "Multiply VALUE by xi = 9 + i in Fp2."
+  (let ((real (car value))
+        (imaginary (cdr value)))
+    (bn254-fp2 (- (* 9 real) imaginary)
+               (+ real (* 9 imaginary)))))
+
 (defun bn254-fp2-inverse (value)
   (let* ((real (car value))
          (imaginary (cdr value))
@@ -1131,6 +1164,450 @@
        (zerop (mod (+ (cdr left) (cdr right))
                    +bn254-field-prime+))))
 
+(defun bn254-fp6 (x y z)
+  (list x y z))
+
+(defun bn254-fp6-x (value) (first value))
+(defun bn254-fp6-y (value) (second value))
+(defun bn254-fp6-z (value) (third value))
+
+(defun bn254-fp6-zero ()
+  (bn254-fp6 (bn254-fp2-zero) (bn254-fp2-zero) (bn254-fp2-zero)))
+
+(defun bn254-fp6-one ()
+  (bn254-fp6 (bn254-fp2-zero) (bn254-fp2-zero) (bn254-fp2-one)))
+
+(defun bn254-fp6-zero-p (value)
+  (and (bn254-fp2-zero-p (bn254-fp6-x value))
+       (bn254-fp2-zero-p (bn254-fp6-y value))
+       (bn254-fp2-zero-p (bn254-fp6-z value))))
+
+(defun bn254-fp6-one-p (value)
+  (and (bn254-fp2-zero-p (bn254-fp6-x value))
+       (bn254-fp2-zero-p (bn254-fp6-y value))
+       (bn254-fp2-one-p (bn254-fp6-z value))))
+
+(defun bn254-fp6-neg (value)
+  (bn254-fp6 (bn254-fp2-neg (bn254-fp6-x value))
+             (bn254-fp2-neg (bn254-fp6-y value))
+             (bn254-fp2-neg (bn254-fp6-z value))))
+
+(defun bn254-fp6-add (left right)
+  (bn254-fp6 (bn254-fp2-add (bn254-fp6-x left) (bn254-fp6-x right))
+             (bn254-fp2-add (bn254-fp6-y left) (bn254-fp6-y right))
+             (bn254-fp2-add (bn254-fp6-z left) (bn254-fp6-z right))))
+
+(defun bn254-fp6-sub (left right)
+  (bn254-fp6 (bn254-fp2-sub (bn254-fp6-x left) (bn254-fp6-x right))
+             (bn254-fp2-sub (bn254-fp6-y left) (bn254-fp6-y right))
+             (bn254-fp2-sub (bn254-fp6-z left) (bn254-fp6-z right))))
+
+(defun bn254-fp6-double (value)
+  (bn254-fp6 (bn254-fp2-double (bn254-fp6-x value))
+             (bn254-fp2-double (bn254-fp6-y value))
+             (bn254-fp2-double (bn254-fp6-z value))))
+
+(defun bn254-fp6-mul (left right)
+  (let* ((v0 (bn254-fp2-mul (bn254-fp6-z left) (bn254-fp6-z right)))
+         (v1 (bn254-fp2-mul (bn254-fp6-y left) (bn254-fp6-y right)))
+         (v2 (bn254-fp2-mul (bn254-fp6-x left) (bn254-fp6-x right)))
+         (tz (bn254-fp2-mul
+              (bn254-fp2-add (bn254-fp6-x left) (bn254-fp6-y left))
+              (bn254-fp2-add (bn254-fp6-x right) (bn254-fp6-y right))))
+         (tz (bn254-fp2-add
+              (bn254-fp2-mul-xi (bn254-fp2-sub (bn254-fp2-sub tz v1) v2))
+              v0))
+         (ty (bn254-fp2-mul
+              (bn254-fp2-add (bn254-fp6-y left) (bn254-fp6-z left))
+              (bn254-fp2-add (bn254-fp6-y right) (bn254-fp6-z right))))
+         (ty (bn254-fp2-add
+              (bn254-fp2-sub (bn254-fp2-sub ty v0) v1)
+              (bn254-fp2-mul-xi v2)))
+         (tx (bn254-fp2-mul
+              (bn254-fp2-add (bn254-fp6-x left) (bn254-fp6-z left))
+              (bn254-fp2-add (bn254-fp6-x right) (bn254-fp6-z right))))
+         (tx (bn254-fp2-sub (bn254-fp2-add (bn254-fp2-sub tx v0) v1) v2)))
+    (bn254-fp6 tx ty tz)))
+
+(defun bn254-fp6-square (value)
+  (let* ((v0 (bn254-fp2-square (bn254-fp6-z value)))
+         (v1 (bn254-fp2-square (bn254-fp6-y value)))
+         (v2 (bn254-fp2-square (bn254-fp6-x value)))
+         (c0 (bn254-fp2-square
+              (bn254-fp2-add (bn254-fp6-x value) (bn254-fp6-y value))))
+         (c0 (bn254-fp2-add
+              (bn254-fp2-mul-xi (bn254-fp2-sub (bn254-fp2-sub c0 v1) v2))
+              v0))
+         (c1 (bn254-fp2-square
+              (bn254-fp2-add (bn254-fp6-y value) (bn254-fp6-z value))))
+         (c1 (bn254-fp2-add
+              (bn254-fp2-sub (bn254-fp2-sub c1 v0) v1)
+              (bn254-fp2-mul-xi v2)))
+         (c2 (bn254-fp2-square
+              (bn254-fp2-add (bn254-fp6-x value) (bn254-fp6-z value))))
+         (c2 (bn254-fp2-sub (bn254-fp2-add (bn254-fp2-sub c2 v0) v1) v2)))
+    (bn254-fp6 c2 c1 c0)))
+
+(defun bn254-fp6-mul-scalar-fp2 (value scalar)
+  (bn254-fp6 (bn254-fp2-mul (bn254-fp6-x value) scalar)
+             (bn254-fp2-mul (bn254-fp6-y value) scalar)
+             (bn254-fp2-mul (bn254-fp6-z value) scalar)))
+
+(defun bn254-fp6-mul-scalar-fp (value scalar)
+  (bn254-fp6 (bn254-fp2-mul-scalar (bn254-fp6-x value) scalar)
+             (bn254-fp2-mul-scalar (bn254-fp6-y value) scalar)
+             (bn254-fp2-mul-scalar (bn254-fp6-z value) scalar)))
+
+(defun bn254-fp6-mul-tau (value)
+  (bn254-fp6 (bn254-fp6-y value)
+             (bn254-fp6-z value)
+             (bn254-fp2-mul-xi (bn254-fp6-x value))))
+
+(defun bn254-fp6-inverse (value)
+  (let* ((a (bn254-fp2-sub
+             (bn254-fp2-square (bn254-fp6-z value))
+             (bn254-fp2-mul-xi
+              (bn254-fp2-mul (bn254-fp6-x value) (bn254-fp6-y value)))))
+         (b (bn254-fp2-sub
+             (bn254-fp2-mul-xi (bn254-fp2-square (bn254-fp6-x value)))
+             (bn254-fp2-mul (bn254-fp6-y value) (bn254-fp6-z value))))
+         (c (bn254-fp2-sub
+             (bn254-fp2-square (bn254-fp6-y value))
+             (bn254-fp2-mul (bn254-fp6-x value) (bn254-fp6-z value))))
+         (f (bn254-fp2-add
+             (bn254-fp2-add
+              (bn254-fp2-mul-xi (bn254-fp2-mul c (bn254-fp6-y value)))
+              (bn254-fp2-mul a (bn254-fp6-z value)))
+             (bn254-fp2-mul-xi (bn254-fp2-mul b (bn254-fp6-x value)))))
+         (f-inv (bn254-fp2-inverse f)))
+    (bn254-fp6 (bn254-fp2-mul c f-inv)
+               (bn254-fp2-mul b f-inv)
+               (bn254-fp2-mul a f-inv))))
+
+(defparameter +bn254-xi-to-p-minus-1-over-6+
+  (bn254-fp2 8376118865763821496583973867626364092589906065868298776909617916018768340080
+             16469823323077808223889137241176536799009286646108169935659301613961712198316))
+
+(defparameter +bn254-xi-to-p-minus-1-over-3+
+  (bn254-fp2 21575463638280843010398324269430826099269044274347216827212613867836435027261
+             10307601595873709700152284273816112264069230130616436755625194854815875713954))
+
+(defparameter +bn254-xi-to-p-minus-1-over-2+
+  (bn254-fp2 2821565182194536844548159561693502659359617185244120367078079554186484126554
+             3505843767911556378687030309984248845540243509899259641013678093033130930403))
+
+(defparameter +bn254-xi-to-p-squared-minus-1-over-3+
+  21888242871839275220042445260109153167277707414472061641714758635765020556616)
+
+(defparameter +bn254-xi-to-2p-squared-minus-2-over-3+
+  2203960485148121921418603742825762020974279258880205651966)
+
+(defparameter +bn254-xi-to-p-squared-minus-1-over-6+
+  21888242871839275220042445260109153167277707414472061641714758635765020556617)
+
+(defparameter +bn254-xi-to-2p-minus-2-over-3+
+  (bn254-fp2 2581911344467009335267311115468803099551665605076196740867805258568234346338
+             19937756971775647987995932169929341994314640652964949448313374472400716661030))
+
+(defun bn254-fp6-frobenius (value)
+  (bn254-fp6
+   (bn254-fp2-mul
+    (bn254-fp2-conjugate (bn254-fp6-x value))
+    +bn254-xi-to-2p-minus-2-over-3+)
+   (bn254-fp2-mul
+    (bn254-fp2-conjugate (bn254-fp6-y value))
+    +bn254-xi-to-p-minus-1-over-3+)
+   (bn254-fp2-conjugate (bn254-fp6-z value))))
+
+(defun bn254-fp6-frobenius-p2 (value)
+  (bn254-fp6
+   (bn254-fp2-mul-scalar (bn254-fp6-x value)
+                         +bn254-xi-to-2p-squared-minus-2-over-3+)
+   (bn254-fp2-mul-scalar (bn254-fp6-y value)
+                         +bn254-xi-to-p-squared-minus-1-over-3+)
+   (bn254-fp6-z value)))
+
+(defun bn254-fp12 (x y)
+  (list x y))
+
+(defun bn254-fp12-x (value) (first value))
+(defun bn254-fp12-y (value) (second value))
+
+(defun bn254-fp12-one ()
+  (bn254-fp12 (bn254-fp6-zero) (bn254-fp6-one)))
+
+(defun bn254-fp12-one-p (value)
+  (and (bn254-fp6-zero-p (bn254-fp12-x value))
+       (bn254-fp6-one-p (bn254-fp12-y value))))
+
+(defun bn254-fp12-conjugate (value)
+  (bn254-fp12 (bn254-fp6-neg (bn254-fp12-x value))
+              (bn254-fp12-y value)))
+
+(defun bn254-fp12-mul (left right)
+  (let* ((tx (bn254-fp6-add
+              (bn254-fp6-mul (bn254-fp12-x left) (bn254-fp12-y right))
+              (bn254-fp6-mul (bn254-fp12-x right) (bn254-fp12-y left))))
+         (ty (bn254-fp6-add
+              (bn254-fp6-mul (bn254-fp12-y left) (bn254-fp12-y right))
+              (bn254-fp6-mul-tau
+               (bn254-fp6-mul (bn254-fp12-x left) (bn254-fp12-x right))))))
+    (bn254-fp12 tx ty)))
+
+(defun bn254-fp12-mul-scalar-fp6 (value scalar)
+  (bn254-fp12 (bn254-fp6-mul (bn254-fp12-x value) scalar)
+              (bn254-fp6-mul (bn254-fp12-y value) scalar)))
+
+(defun bn254-fp12-square (value)
+  (let* ((v0 (bn254-fp6-mul (bn254-fp12-x value) (bn254-fp12-y value)))
+         (tau-term (bn254-fp6-add (bn254-fp6-mul-tau (bn254-fp12-x value))
+                                  (bn254-fp12-y value)))
+         (ty (bn254-fp6-mul
+              (bn254-fp6-add (bn254-fp12-x value) (bn254-fp12-y value))
+              tau-term))
+         (ty (bn254-fp6-sub
+              (bn254-fp6-sub ty v0)
+              (bn254-fp6-mul-tau v0))))
+    (bn254-fp12 (bn254-fp6-double v0) ty)))
+
+(defun bn254-fp12-inverse (value)
+  (let* ((t1 (bn254-fp6-mul-tau
+              (bn254-fp6-square (bn254-fp12-x value))))
+         (t2 (bn254-fp6-square (bn254-fp12-y value)))
+         (inv (bn254-fp6-inverse (bn254-fp6-sub t2 t1))))
+    (bn254-fp12-mul-scalar-fp6
+     (bn254-fp12 (bn254-fp6-neg (bn254-fp12-x value))
+                 (bn254-fp12-y value))
+     inv)))
+
+(defun bn254-fp12-exp (value power)
+  (loop with result = (bn254-fp12-one)
+        for i from (1- (integer-length power)) downto 0
+        do (setf result (bn254-fp12-square result))
+           (when (logbitp i power)
+             (setf result (bn254-fp12-mul result value)))
+        finally (return result)))
+
+(defun bn254-fp12-frobenius (value)
+  (bn254-fp12
+   (bn254-fp6-mul-scalar-fp2
+    (bn254-fp6-frobenius (bn254-fp12-x value))
+    +bn254-xi-to-p-minus-1-over-6+)
+   (bn254-fp6-frobenius (bn254-fp12-y value))))
+
+(defun bn254-fp12-frobenius-p2 (value)
+  (bn254-fp12
+   (bn254-fp6-mul-scalar-fp
+    (bn254-fp6-frobenius-p2 (bn254-fp12-x value))
+    +bn254-xi-to-p-squared-minus-1-over-6+)
+   (bn254-fp6-frobenius-p2 (bn254-fp12-y value))))
+
+(defun bn254-twist-point (x y z tt)
+  (list x y z tt))
+
+(defun bn254-twist-x (point) (first point))
+(defun bn254-twist-y (point) (second point))
+(defun bn254-twist-z (point) (third point))
+(defun bn254-twist-t (point) (fourth point))
+
+(defun bn254-twist-affine (point)
+  (destructuring-bind (x y) point
+    (bn254-twist-point x y (bn254-fp2-one) (bn254-fp2-one))))
+
+(defun bn254-twist-neg (point)
+  (bn254-twist-point (bn254-twist-x point)
+                     (bn254-fp2-neg (bn254-twist-y point))
+                     (bn254-twist-z point)
+                     (bn254-fp2-zero)))
+
+(defun bn254-line-function-add (r p q r2)
+  (let* ((b (bn254-fp2-mul (bn254-twist-x p) (bn254-twist-t r)))
+         (d (bn254-fp2-square
+             (bn254-fp2-add (bn254-twist-y p) (bn254-twist-z r))))
+         (d (bn254-fp2-mul
+             (bn254-fp2-sub
+              (bn254-fp2-sub d r2)
+              (bn254-twist-t r))
+             (bn254-twist-t r)))
+         (h (bn254-fp2-sub b (bn254-twist-x r)))
+         (i (bn254-fp2-square h))
+         (e (bn254-fp2-double (bn254-fp2-double i)))
+         (j (bn254-fp2-mul h e))
+         (l1 (bn254-fp2-sub
+              (bn254-fp2-sub d (bn254-twist-y r))
+              (bn254-twist-y r)))
+         (v (bn254-fp2-mul (bn254-twist-x r) e))
+         (out-x (bn254-fp2-sub
+                 (bn254-fp2-sub
+                  (bn254-fp2-sub (bn254-fp2-square l1) j)
+                  v)
+                 v))
+         (out-z (bn254-fp2-sub
+                 (bn254-fp2-sub
+                  (bn254-fp2-square
+                   (bn254-fp2-add (bn254-twist-z r) h))
+                  (bn254-twist-t r))
+                 i))
+         (out-y (bn254-fp2-sub
+                 (bn254-fp2-mul l1 (bn254-fp2-sub v out-x))
+                 (bn254-fp2-double (bn254-fp2-mul (bn254-twist-y r) j))))
+         (out-t (bn254-fp2-square out-z))
+         (line-temp (bn254-fp2-square (bn254-fp2-add (bn254-twist-y p) out-z)))
+         (line-temp (bn254-fp2-sub (bn254-fp2-sub line-temp r2) out-t))
+         (t2 (bn254-fp2-double (bn254-fp2-mul l1 (bn254-twist-x p))))
+         (a (bn254-fp2-sub t2 line-temp))
+         (c (bn254-fp2-double (bn254-fp2-mul-scalar out-z (cdr q))))
+         (line-b (bn254-fp2-double
+                  (bn254-fp2-mul-scalar (bn254-fp2-neg l1) (car q)))))
+    (values a line-b c (bn254-twist-point out-x out-y out-z out-t))))
+
+(defun bn254-line-function-double (r q)
+  (let* ((a0 (bn254-fp2-square (bn254-twist-x r)))
+         (b0 (bn254-fp2-square (bn254-twist-y r)))
+         (c0 (bn254-fp2-square b0))
+         (d (bn254-fp2-square (bn254-fp2-add (bn254-twist-x r) b0)))
+         (d (bn254-fp2-double (bn254-fp2-sub (bn254-fp2-sub d a0) c0)))
+         (e (bn254-fp2-add (bn254-fp2-double a0) a0))
+         (g (bn254-fp2-square e))
+         (out-x (bn254-fp2-sub (bn254-fp2-sub g d) d))
+         (out-z (bn254-fp2-sub
+                 (bn254-fp2-sub
+                  (bn254-fp2-square
+                   (bn254-fp2-add (bn254-twist-y r) (bn254-twist-z r)))
+                  b0)
+                 (bn254-twist-t r)))
+         (out-y (bn254-fp2-sub
+                 (bn254-fp2-mul (bn254-fp2-sub d out-x) e)
+                 (bn254-fp2-double
+                  (bn254-fp2-double (bn254-fp2-double c0)))))
+         (out-t (bn254-fp2-square out-z))
+         (line-temp (bn254-fp2-double (bn254-fp2-mul e (bn254-twist-t r))))
+         (line-b (bn254-fp2-mul-scalar (bn254-fp2-neg line-temp) (car q)))
+         (line-a (bn254-fp2-sub
+                  (bn254-fp2-sub
+                   (bn254-fp2-square (bn254-fp2-add (bn254-twist-x r) e))
+                   a0)
+                  g))
+         (line-a (bn254-fp2-sub line-a (bn254-fp2-double (bn254-fp2-double b0))))
+         (line-c (bn254-fp2-mul-scalar
+                  (bn254-fp2-double
+                   (bn254-fp2-mul out-z (bn254-twist-t r)))
+                  (cdr q))))
+    (values line-a line-b line-c
+            (bn254-twist-point out-x out-y out-z out-t))))
+
+(defun bn254-fp12-mul-line (value a b c)
+  (let* ((a2 (bn254-fp6 (bn254-fp2-zero) a b))
+         (a2 (bn254-fp6-mul a2 (bn254-fp12-x value)))
+         (t3 (bn254-fp6-mul-scalar-fp2 (bn254-fp12-y value) c))
+         (line-temp (bn254-fp2-add b c))
+         (t2 (bn254-fp6 (bn254-fp2-zero) a line-temp))
+         (x (bn254-fp6-add (bn254-fp12-x value) (bn254-fp12-y value)))
+         (x (bn254-fp6-sub (bn254-fp6-sub (bn254-fp6-mul x t2) a2) t3))
+         (y (bn254-fp6-add t3 (bn254-fp6-mul-tau a2))))
+    (bn254-fp12 x y)))
+
+(defparameter +bn254-six-u-plus-2-naf+
+  #(0 0 0 1 0 1 0 -1 0 0 1 -1 0 0 1 0
+    0 1 1 0 -1 0 0 1 0 -1 0 0 0 0 1 1
+    1 0 0 -1 0 0 1 0 0 0 0 0 -1 0 0 1
+    1 0 0 -1 0 0 0 1 1 0 -1 0 0 1 0 1 1))
+
+(defun bn254-miller (g2 g1)
+  (let* ((a-affine (bn254-twist-affine g2))
+         (minus-a (bn254-twist-neg a-affine))
+         (r a-affine)
+         (r2 (bn254-fp2-square (bn254-twist-y a-affine)))
+         (ret (bn254-fp12-one))
+         (last-index (1- (length +bn254-six-u-plus-2-naf+))))
+    (loop for i from last-index downto 1
+          do (progn
+               (multiple-value-bind (a b c next-r)
+                   (bn254-line-function-double r g1)
+                 (unless (= i last-index)
+                   (setf ret (bn254-fp12-square ret)))
+                 (setf ret (bn254-fp12-mul-line ret a b c))
+                 (setf r next-r))
+               (case (aref +bn254-six-u-plus-2-naf+ (1- i))
+                 (1
+                  (multiple-value-bind (a b c next-r)
+                      (bn254-line-function-add r a-affine g1 r2)
+                    (setf ret (bn254-fp12-mul-line ret a b c))
+                    (setf r next-r)))
+                 (-1
+                  (multiple-value-bind (a b c next-r)
+                      (bn254-line-function-add r minus-a g1 r2)
+                    (setf ret (bn254-fp12-mul-line ret a b c))
+                    (setf r next-r))))))
+    (let* ((q1 (bn254-twist-point
+                (bn254-fp2-mul
+                 (bn254-fp2-conjugate (bn254-twist-x a-affine))
+                 +bn254-xi-to-p-minus-1-over-3+)
+                (bn254-fp2-mul
+                 (bn254-fp2-conjugate (bn254-twist-y a-affine))
+                 +bn254-xi-to-p-minus-1-over-2+)
+                (bn254-fp2-one)
+                (bn254-fp2-one)))
+           (minus-q2 (bn254-twist-point
+                      (bn254-fp2-mul-scalar
+                       (bn254-twist-x a-affine)
+                       +bn254-xi-to-p-squared-minus-1-over-3+)
+                      (bn254-twist-y a-affine)
+                      (bn254-fp2-one)
+                      (bn254-fp2-one))))
+      (multiple-value-bind (a b c next-r)
+          (bn254-line-function-add r q1 g1 (bn254-fp2-square (bn254-twist-y q1)))
+        (setf ret (bn254-fp12-mul-line ret a b c))
+        (setf r next-r))
+      (multiple-value-bind (a b c next-r)
+          (bn254-line-function-add
+           r minus-q2 g1 (bn254-fp2-square (bn254-twist-y minus-q2)))
+        (declare (ignore next-r))
+        (setf ret (bn254-fp12-mul-line ret a b c))))
+    ret))
+
+(defun bn254-final-exponentiation (value)
+  (let* ((t1 (bn254-fp12-conjugate value))
+         (inv (bn254-fp12-inverse value))
+         (t1 (bn254-fp12-mul t1 inv))
+         (t2 (bn254-fp12-frobenius-p2 t1))
+         (t1 (bn254-fp12-mul t1 t2))
+         (fp (bn254-fp12-frobenius t1))
+         (fp2 (bn254-fp12-frobenius-p2 t1))
+         (fp3 (bn254-fp12-frobenius fp2))
+         (fu (bn254-fp12-exp t1 4965661367192848881))
+         (fu2 (bn254-fp12-exp fu 4965661367192848881))
+         (fu3 (bn254-fp12-exp fu2 4965661367192848881))
+         (y3 (bn254-fp12-frobenius fu))
+         (fu2p (bn254-fp12-frobenius fu2))
+         (fu3p (bn254-fp12-frobenius fu3))
+         (y2 (bn254-fp12-frobenius-p2 fu2))
+         (y0 (bn254-fp12-mul (bn254-fp12-mul fp fp2) fp3))
+         (y1 (bn254-fp12-conjugate t1))
+         (y5 (bn254-fp12-conjugate fu2))
+         (y3 (bn254-fp12-conjugate y3))
+         (y4 (bn254-fp12-conjugate (bn254-fp12-mul fu fu2p)))
+         (y6 (bn254-fp12-conjugate (bn254-fp12-mul fu3 fu3p)))
+         (t0 (bn254-fp12-square y6))
+         (t0 (bn254-fp12-mul (bn254-fp12-mul t0 y4) y5))
+         (t1 (bn254-fp12-mul (bn254-fp12-mul y3 y5) t0))
+         (t0 (bn254-fp12-mul t0 y2))
+         (t1 (bn254-fp12-square t1))
+         (t1 (bn254-fp12-mul t1 t0))
+         (t1 (bn254-fp12-square t1))
+         (t0 (bn254-fp12-mul t1 y1))
+         (t1 (bn254-fp12-mul t1 y0))
+         (t0 (bn254-fp12-square t0)))
+    (bn254-fp12-mul t0 t1)))
+
+(defun bn254-optimal-ate-pairing-check (pairs)
+  "Return true when the product of all BN254 pairings equals one."
+  (let ((acc (bn254-fp12-one)))
+    (dolist (pair pairs)
+      (destructuring-bind (g1 g2) pair
+        (setf acc (bn254-fp12-mul acc (bn254-miller g2 g1)))))
+    (bn254-fp12-one-p (bn254-final-exponentiation acc))))
+
 (defun bn254-g1= (left right)
   (and (= (car left) (car right))
        (= (cdr left) (cdr right))))
@@ -1183,7 +1660,7 @@ kept stable while a library-backed pairing implementation is wired in."
           do (setf remaining next)
           finally (return t))))
 
-(defvar *bn254-pairing-checker* #'bn254-pairing-cancellation-model-check
+(defvar *bn254-pairing-checker* #'bn254-optimal-ate-pairing-check
   "Callable used for non-zero BN254 pairing products after point validation.")
 
 (defun bn254-pairing-check (pairs)
