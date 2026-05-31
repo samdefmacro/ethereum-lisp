@@ -268,6 +268,13 @@ ones.
     reports a ready-to-copy selector string. This moves fixture ingestion
     toward an explicit upstream selector table rather than ad hoc hand-written
     local replay cases.
+  - Progress: wired discovered blockchain replay selectors into an explicit
+    `auto` mode. Setting
+    `ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS=auto` now discovers the
+    current materializer-supported Shanghai candidates from the configured
+    external root, then runs the same selector/count/network/materialization
+    gates as an explicit selector table. This mirrors geth's fixture matcher
+    workflow more closely while keeping the accepted replay set visible.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
