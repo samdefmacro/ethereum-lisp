@@ -4,6 +4,269 @@ This file preserves detailed historical implementation notes that were moved out
 of `docs/roadmap.md`. The roadmap should stay strategic; this file can retain
 long-form implementation history when it is still useful for orientation.
 
+## Section 0: Project Substrate
+
+- ASDF systems and packages
+- byte-vector, hex, and integer utilities
+- RLP encoder/decoder
+- test runner and fixture layout
+- reference-source map
+
+Status: first pass complete.
+
+Implemented:
+
+- ASDF/source-loadable project structure
+- byte-vector, hex, quantity, address, hash32, uint256 helpers
+- canonical RLP encoder/decoder with non-canonical rejection tests
+- self-contained test runner
+- reference-source map
+
+## Section 1: Cryptographic Primitives
+
+- Keccak-256 with Ethereum padding
+- secp256k1 public-key recovery and signature verification
+- address derivation
+- Bloom filter primitives
+- versioned-hash helpers for blob transactions
+
+Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
+`Nethermind.Core/Crypto`, and Reth/Rust primitive/KZG integration points.
+
+Status: basic Keccak-256, SHA-256, EIP-4844 KZG commitment versioned-hash
+helper, and secp256k1 public-key/address recovery are complete. Transaction
+signature verification now has a first-pass low-`s` helper for sender recovery;
+broader fixture coverage remains.
+
+## Section 2: Consensus Data Types
+
+- `address`, `hash32`, `quantity`, `account`
+- legacy, access-list, dynamic-fee, blob, set-code transaction envelopes
+- withdrawals, logs, receipts, headers, blocks
+- canonical RLP for all pre-SSZ execution payload structures
+- transaction sender recovery
+
+Validation targets: geth `core/types`, Nethermind `Nethermind.Core`, and
+Reth/Rust primitive transaction and block types.
+
+Status: first pass for accounts, legacy tx, EIP-2930 tx, EIP-1559 tx,
+EIP-4844 blob tx envelope encoding/hashing, EIP-7702 set-code tx envelope
+encoding/hashing, legacy EIP-155 plus unprotected signing hash and sender
+recovery, and EIP-2930/EIP-1559/EIP-4844/EIP-7702 typed signing hash plus
+sender recovery; EIP-7702 authorization tuple authority recovery is also
+present. The Phase A transaction harness now replays protected/unprotected
+transfer, protected calldata, and protected/unprotected contract-creation
+legacy txbytes plus
+access-list transfer, access-list calldata, access-list
+calldata-with-storage-keys, and contract creation, and dynamic-fee transfer,
+calldata, access-list
+calldata-with-storage-keys, duplicate access-list, and contract creation typed
+txbytes through hash, sender, decoded payload, access-list projection, and
+intrinsic-gas checks.
+The full transaction fixture selector additionally covers an EIP-4844 blob
+message-call with non-empty calldata and access-list data, keeping blob
+versioned-hash handling tied to regular typed payload projection. It also
+covers an EIP-7702 set-code message-call with non-empty calldata and
+access-list data, tying authorization-list handling to regular typed payload
+projection.
+Blob sidecars now have a first-pass data
+shape and commitment-to-versioned-hash
+validation layer; callers that require KZG proof verification now fail
+explicitly until a trusted-setup-backed verifier is wired in, so blob sidecars
+remain shape-checked only rather than Phase A VALID. Set-code execution
+semantics remain. Withdrawals/root derivation, receipts, logs bloom, and block
+headers/body-root derivation are present.
+
+## Section 3: Merkle Patricia Trie and State
+
+- hex-prefix nibble encoding
+- branch, extension, leaf nodes
+- secure trie key hashing
+- account and storage trie roots
+- proofs and proof verification
+- journaled state overlay for transaction execution
+
+Validation targets: geth `trie` and `core/state`, Nethermind `Nethermind.Trie`
+and `Nethermind.State`, and Reth trie/provider boundaries.
+
+Status: minimal in-memory root calculation, code storage, snapshot/restore, and
+secure state root prototype are implemented. The minimal legacy transfer spine
+now avoids creating empty zero-value recipients and preserves value balance for
+self-transfers. Fixture-driven state-root coverage now locks balance-add
+updates, including withdrawal/reward-style creation of a funded account and
+balance changes that preserve existing code and storage commitments across
+leaf, branch, extension, and branch-into-extension account trie roots, with
+zero-amount balance credits locked as root-preserving no-ops for missing and
+existing accounts, plus matching geth-shaped state proof fixtures for
+balance-add creation, zero-amount no-ops, branch/extension/branch-extension
+account-trie updates, and code/storage-preserving updates; retained-state
+`eth_getProof` also covers balance-add proofs across those nontrivial
+account-trie layouts.
+The same fixture path now covers transaction-like `transferValue` state
+updates, locking nonzero sender debit plus recipient-account creation and the
+zero-value missing-recipient no-op boundary, with a geth-shaped recipient
+state proof after transfer. Retained-state `eth_getProof` RPC coverage now
+replays the same committed transfer snapshots by block hash for sender,
+recipient, and zero-value missing-recipient proofs. The fixture seed set also
+covers a branch-root account trie transfer, including the recipient proof below
+a hashed branch child, and retained-state RPC coverage now replays that
+branch-root transfer snapshot as well. The same branch-root proof boundary now
+locks the debited sender proof, so both sides of the transfer are checked
+through fixture replay and retained-state RPC. Extension-root and branch-with-
+extension-child transfer layouts are now covered the same way, including
+sender and recipient proof nodes plus retained-state `eth_getProof` RPC replay
+from committed block-hash snapshots.
+The geth-derived secure account state root is now also represented in
+state-proof fixtures: the deterministic account nonce/balance set from
+`makeAccounts` locks the secure root and exact account proof nodes for the
+first account, tying state proof replay to the same reference account-trie
+coverage used by the trie and state-root gates.
+Retained-state `eth_getProof` now replays that same secure account snapshot by
+block hash and compares the RPC proof with the core proof primitive. The
+secure account proof fixture now covers all three deterministic accounts under
+that root, so each hashed branch child is represented by exact account proof
+nodes.
+Storage-root fixtures now lock zero-value
+writes to absent storage slots as no-ops for missing accounts, funded accounts
+with empty storage, and branch-shaped / extension-shaped secure storage tries.
+Matching state-proof fixtures now cover missing, funded, and code-account
+cases where a zero-value storage write preserves the expected account
+presence/absence while keeping the storage trie empty, and retained-state
+`eth_getProof` RPC reads verify the same boundaries from committed snapshots.
+State-proof fixtures and retained-state `eth_getProof` RPC reads also cover
+same-slot storage overwrites, proving the final storage value and a sibling
+missing slot from the committed snapshot.
+Code-deletion proof fixtures also lock both pruning of code-created empty
+accounts and preservation of funded accounts after their code hash returns to
+the empty-code hash, with retained-state `eth_getProof` RPC reads now
+verifying those same committed snapshot boundaries.
+Code-deletion proof coverage now also spans branch, extension, and
+branch-into-extension account-trie layouts, proving funded-account code
+clearing keeps the account while returning the empty-code hash.
+State-proof fixtures now also cover the storage-trie branch- and
+extension-preserving delete boundaries: after deleting one present child from a
+three-slot secure storage trie, geth-shaped proof objects verify retained
+storage roots, present slots, and missing deleted slots against the
+non-collapsed branch/extension outcomes. Retained-state `eth_getProof` RPC
+coverage now verifies those same committed snapshot boundaries by block hash,
+and the two-slot delete-collapse boundary now has retained-state RPC proof
+coverage for both the surviving slot and the deleted missing slot.
+State-proof coverage also locks branch- and extension-shaped storage-trie
+updates where one secure-hashed slot is overwritten while sibling present-slot
+and missing-slot proofs remain valid against the updated storage root.
+State-proof fixtures now also lock account-trie delete-collapse proofs for
+branch-to-leaf, extension-to-leaf, and branch-plus-extension-to-extension
+`clearAccount` outcomes, proving the surviving account against the compressed
+state root. Retained-state `eth_getProof` RPC coverage now verifies the same
+three account-trie delete-collapse snapshots by block hash, including both
+the surviving account and the pruned account's missing-proof result.
+The same proof/RPC boundary now covers pruned accounts that carried non-empty
+code and non-empty storage before `clearAccount`, locking both survivor proofs
+and deleted-account missing proofs after branch, extension, and
+branch-plus-extension compression.
+Code-update proof coverage now locks overwriting non-empty code with new
+non-empty code through both fixture replay and retained-state `eth_getProof`,
+including the updated account code hash and retained empty storage root.
+The same code-update proof boundary now covers branch, extension, and
+branch-into-extension account-trie layouts, including expected proof depths in
+retained-state `eth_getProof` snapshots.
+Code-update proof coverage also includes the non-empty-storage account case,
+locking the updated code hash while retaining the storage root plus present
+and missing storage proofs after the code overwrite.
+State-root fixtures now lock the matching non-empty-storage code update
+boundary, proving the account RLP and final state root retain the storage
+commitment while only the code hash changes.
+The trie harness now covers secure-key branch, extension, delete-collapse,
+delete-to-empty, and missing-delete no-op replay in both seed vectors and
+selected EEST-style secureTrie samples, including no-op deletion over branch
+and path-compressed extension roots. It also gates secure duplicate-key
+overwrites that preserve branch and extension roots, so update replay cannot be
+covered only by a single-key leaf overwrite. The selected EEST-style trie
+subset also reports present/missing proof-key coverage for both secure and
+plain replay, so root-only fixture expansion cannot silently drop proof
+verification. It also carries the geth `TestInsert` shared-prefix case for
+`doe` / `dog` / `dogglesworth`, locking the reference root, compressed
+extension path, hashed child reference, and final lookups in both seed and
+EEST-style replay. It now also carries the geth `TestDelete` sequence for
+`do` / `ether` / `horse` / `shaman` / `doge` / `dog`, locking the
+post-deletion reference root, retained lookups, missing-key proofs, and
+compressed extension shape after deleting `ether` and `shaman`.
+The same seed/EEST-style trie path now includes geth's long leaf-value
+`TestInsert` case for key `A` with a 50-byte value, locking the
+`0xd23786fb4a010da3ce639d66d5e904a11dbc02746d1ce25029e53290cabf28ab`
+root and leaf value projection.
+It also carries geth `TestTinyTrie` account-trie roots for keys ending
+`0x1337`, `0x1338`, and `0x1339`, including deterministic RLP account
+values and the progressive single-leaf-to-extension transition rooted at
+`0x8c6a85a4d9fda98feff88450299e574e5378e32391f75a055d470ac0653f1005`,
+`0xec63b967e98a5720e7f720482151963982890d82c9093c0d486b7eb8883a66b1`,
+and `0x0608c1d1dc3905fa22204c7a0e43644831c3b6d3def0f274be623a948197e64a`.
+The MPT can now export deterministic final key/value pairs, and the
+three-account TinyTrie fixture rebuilds a fresh trie from that export to match
+geth's iterator-style reconstruction check before broader state snapshot
+persistence lands. State snapshot export now also sorts account addresses and
+storage slots before replay callbacks, so retained-state commits and fixture
+exports no longer depend on hash-table iteration order. The selected
+EEST-style trie subset now applies that final entry-pair export/rebuild check
+to every replayed plain and secure trie case and gates secure/plain replay
+counts in its Phase A summary, so external-style trie imports keep deterministic
+snapshot/rebuild coverage rather than only root/proof assertions.
+The seed trie fixture format now also accepts explicit `expectedEntryPairs`,
+and the geth three-account TinyTrie case locks the exported final leaf order
+and values directly before rebuilding from `mpt-entry-pairs`.
+The state-root fixture now replays the geth-derived secure account RLPs through
+`state-db-set-account`, gating the secure account-trie root and hashed branch
+child references at the state layer as well as the raw trie layer.
+The MPT export path now also supports geth-style half-open range iteration
+through `mpt-entry-range`, with fixture coverage for bounded and unbounded
+entry ranges before broader snapshot/export consumers depend on it.
+The selected EEST-style trie subset now derives the same entry-range checks
+for every replayed plain and secure case, comparing range output against final
+entry pairs across full, lower/upper-bounded, equal-bound, and multi-entry
+bounded windows.
+The trie fixture gate now explicitly requires the current geth-derived proof,
+large-value, account-step, insert/delete, empty-value, replication, random,
+range, and secure account/delete families plus the Nethermind partial-path
+proof-node case to remain present on the expected plain or secure path.
+State snapshot export now exposes the same half-open secure-key range ordering
+for account and storage entries, giving later proof/range-sync code a
+deterministic boundary instead of re-scanning hash-table state.
+The state-root fixture harness now accepts explicit account/storage range
+expectations, and the multi-account secure-state seed pins full and bounded
+proof-key range output.
+The secure-key counterpart now hashes geth's deterministic account addresses
+before replay and locks the one-, two-, and three-account roots
+`0xc8c796b39027107040d7bae53042070762d888d7ec5e8fa875c95bde2ab3e8a5`,
+`0x95e5d195992feeb1c07e0725456fde075005f3fe3ae2270b0b956004049de80f`,
+and `0x65e27b7b7b43826149e6b5674be3ff0f107ff6e988d20c1be165a172eeef399d`.
+That secure three-account case now also locks the sorted hashed-key
+`mpt-entry-pairs` export and rebuilds from those exact final account RLP
+values, with seed coverage requiring a secure entry-pair replay case.
+Trie-vector fixtures can now assert proof-node RLP prefixes as well, and the
+seed set locks Nethermind's `GetBranchNodesWithPartialPath` root and branch
+node encodings for the shared-prefix hex-key case, including the branch RLP
+that Nethermind records as geth-compatible output. The geth `TestDelete`
+replay now also locks exact proof-node RLP prefixes for a retained key and a
+deleted-key missing proof after deletion-driven extension compression. The
+seed fixture runner also accepts empty `put` values as delete operations,
+matching geth `TestEmptyValues` and locking that path to the same root,
+lookup, and proof-node encoding expectations.
+Persistence integration, deletion edge cases, and broader fixture
+compatibility remain.
+The selected EEST-style trie subset also covers secure hex byte-string
+key/value replay with deletion to a non-empty secure root, so external fixture
+ingestion now exercises byte-oriented secure trie inputs as well as ASCII
+samples. Local trie-vector seeds can now express hex byte values directly,
+including non-text leaf values, and verify those values through root, lookup,
+and proof assertions. The selected EEST-style subset now gates plain hex byte
+values alongside secure hex byte values, including object-form plain byte
+values, and covers deletion of a child from a valueless plain root branch
+collapsing back to a leaf.
+The selected EEST-style account step-3 cases now carry explicit fixture `out`
+maps for both plain geth TinyTrie keys and secure geth account addresses,
+including present account RLP assertions and missing-account assertions gated
+as required reference-derived coverage.
+
 ## Section 4: EVM
 
 Status: interpreter skeleton implemented for a growing opcode subset. Initial
