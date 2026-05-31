@@ -505,6 +505,7 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:block-from-rlp
    #:executable-data
    #:make-executable-data
    #:executable-data-parent-hash
@@ -1424,6 +1425,7 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:block-from-rlp
    #:executable-data
    #:make-executable-data
    #:executable-data-parent-hash
@@ -2282,6 +2284,7 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:block-from-rlp
    #:executable-data
    #:make-executable-data
    #:executable-data-parent-hash

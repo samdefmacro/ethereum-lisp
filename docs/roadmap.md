@@ -1176,9 +1176,9 @@ first pass, but interfaces must not block that path.
   shell that loads genesis and exposes the current head.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth, blockchain-root fixture materialization
-  beyond the first executable Shanghai `engine_newPayloadV2` replay slice,
-  authenticated process wiring, and concrete long-running devnet/Hive process
-  ergonomics.
+  beyond the first executable Shanghai `engine_newPayloadV2` replay slice and
+  the first standard `blocks[].rlp` materialization path, authenticated process
+  wiring, and concrete long-running devnet/Hive process ergonomics.
 - *Missing for Phase A:* pinned execution-spec / Hive-style Engine smoke
   breadth around the existing Shanghai path, plus any Cancun blob execution
   acceptance until real KZG verification is available.

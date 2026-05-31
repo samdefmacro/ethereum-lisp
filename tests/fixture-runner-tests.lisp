@@ -9,6 +9,13 @@
 (defparameter +eest-blockchain-engine-newpayload-v2-fields+
   '("chainId" "config" "parent" "payload" "expect"))
 
+(defparameter +eest-blockchain-standard-fixture-fields+
+  '("network" "genesisBlockHeader" "pre" "postState" "lastblockhash"
+    "sealEngine" "blocks"))
+
+(defparameter +eest-blockchain-standard-block-fields+
+  '("rlp" "blockHeader" "expectException" "uncleHeaders"))
+
 (defun eest-blockchain-test-root-json-paths (root)
   (execution-spec-tests-root-json-paths root "EEST blockchain test"))
 
@@ -81,7 +88,9 @@
 (defun report-eest-blockchain-test-root-case (case)
   (let ((fixture (fixture-required-field case "fixture")))
     (list (cons "name" (fixture-required-field case "name"))
-          (cons "format" (fixture-object-field fixture "fixture-format"))
+          (cons "format"
+                (or (fixture-object-field fixture "fixture-format")
+                    "blockchain_test"))
           (cons "network" (fixture-object-field fixture "network"))
           (cons "blocks" (length (fixture-object-field fixture "blocks"))))))
 
@@ -95,6 +104,9 @@
   (let* ((case-name (fixture-required-field case "name"))
          (fixture (fixture-required-field case "fixture"))
          (label (format nil "EEST blockchain case ~A" case-name)))
+    (unless (fixture-field-present-p fixture "engineNewPayloadV2")
+      (error "~A does not carry an embedded engineNewPayloadV2 case"
+             label))
     (validate-fixture-object-fields
      fixture
      +eest-blockchain-engine-fixture-fields+
@@ -127,16 +139,223 @@
        (format nil "~A payload" label))
       engine)))
 
-(defun materialize-eest-blockchain-engine-newpayload-v2-case (case)
+(defun validate-eest-blockchain-hex-string (value label)
+  (unless (stringp value)
+    (error "~A must be a 0x-prefixed hex string" label))
+  (handler-case
+      (let ((bytes (hex-to-bytes value)))
+        (unless (string= value (bytes-to-hex bytes))
+          (error "~A must be canonical lowercase 0x-prefixed hex" label))
+        value)
+    (error (condition)
+      (error "~A must be hex bytes: ~A" label condition))))
+
+(defun validate-eest-blockchain-hash-string (value label)
+  (validate-eest-blockchain-hex-string value label)
+  (handler-case
+      (hash32-from-hex value)
+    (error (condition)
+      (error "~A must be a 32-byte hash: ~A" label condition))))
+
+(defun validate-eest-blockchain-address-string (value label)
+  (validate-eest-blockchain-hex-string value label)
+  (handler-case
+      (address-from-hex value)
+    (error (condition)
+      (error "~A must be a 20-byte address: ~A" label condition))))
+
+(defun validate-eest-blockchain-quantity-string (value label)
+  (unless (stringp value)
+    (error "~A must be a hex quantity string" label))
+  (handler-case
+      (hex-to-quantity value)
+    (error (condition)
+      (error "~A must be a hex quantity: ~A" label condition))))
+
+(defun eest-blockchain-standard-required-header-field (header field label)
+  (let ((value (fixture-required-field header field)))
+    (validate-eest-blockchain-quantity-string
+     value
+     (format nil "~A ~A" label field))
+    value))
+
+(defun eest-blockchain-standard-required-address-field (header field label)
+  (let ((value (fixture-required-field header field)))
+    (validate-eest-blockchain-address-string
+     value
+     (format nil "~A ~A" label field))
+    value))
+
+(defun eest-blockchain-standard-account-entry (entry label)
+  (let ((address (car entry))
+        (account (cdr entry)))
+    (validate-eest-blockchain-address-string
+     address
+     (format nil "~A pre account address" label))
+    (unless (listp account)
+      (error "~A pre account ~A must be a JSON object" label address))
+    (let ((storage (or (fixture-object-field account "storage") '())))
+      (unless (listp storage)
+        (error "~A pre account ~A storage must be a JSON object"
+               label address))
+      (list
+       (cons "address" address)
+       (cons "nonce"
+             (or (fixture-object-field account "nonce") "0x0"))
+       (cons "balance"
+             (or (fixture-object-field account "balance") "0x0"))
+       (cons "code"
+             (or (fixture-object-field account "code") "0x"))
+       (cons "storage" storage)))))
+
+(defun eest-blockchain-standard-parent (fixture label)
+  (let ((header (fixture-required-field fixture "genesisBlockHeader")))
+    (unless (listp header)
+      (error "~A genesisBlockHeader must be a JSON object" label))
+    (list
+     (cons "number"
+           (eest-blockchain-standard-required-header-field
+            header "number" label))
+     (cons "gasLimit"
+           (eest-blockchain-standard-required-header-field
+            header "gasLimit" label))
+     (cons "gasUsed"
+           (eest-blockchain-standard-required-header-field
+            header "gasUsed" label))
+     (cons "timestamp"
+           (eest-blockchain-standard-required-header-field
+            header "timestamp" label))
+     (cons "baseFeePerGas"
+           (eest-blockchain-standard-required-header-field
+            header "baseFeePerGas" label))
+     (cons "feeRecipient"
+           (eest-blockchain-standard-required-address-field
+            header "coinbase" label))
+     (cons "accounts"
+           (mapcar
+            (lambda (entry)
+              (eest-blockchain-standard-account-entry entry label))
+            (sort (copy-list (fixture-required-field fixture "pre"))
+                  #'string<
+                  :key #'car))))))
+
+(defun eest-blockchain-standard-withdrawal (withdrawal)
+  (list (cons "index" (quantity-to-hex (withdrawal-index withdrawal)))
+        (cons "validatorIndex"
+              (quantity-to-hex (withdrawal-validator-index withdrawal)))
+        (cons "address" (address-to-hex (withdrawal-address withdrawal)))
+        (cons "amount" (quantity-to-hex (withdrawal-amount withdrawal)))))
+
+(defun eest-blockchain-standard-payload (block)
+  (let ((header (block-header block)))
+    (list
+     (cons "number" (quantity-to-hex (block-header-number header)))
+     (cons "gasLimit" (quantity-to-hex (block-header-gas-limit header)))
+     (cons "timestamp" (quantity-to-hex (block-header-timestamp header)))
+     (cons "baseFeePerGas"
+           (quantity-to-hex (or (block-header-base-fee-per-gas header) 0)))
+     (cons "transactions"
+           (mapcar (lambda (transaction)
+                     (bytes-to-hex (transaction-encoding transaction)))
+                   (block-transactions block)))
+     (cons "withdrawals"
+           (mapcar #'eest-blockchain-standard-withdrawal
+                   (or (block-withdrawals block) '()))))))
+
+(defun eest-blockchain-standard-expect (block)
+  (let ((header (block-header block)))
+    (list (cons "status" "VALID")
+          (cons "stateRoot" (hash32-to-hex (block-header-state-root header)))
+          (cons "receiptsRoot"
+                (hash32-to-hex (block-header-receipts-root header)))
+          (cons "gasUsed" (quantity-to-hex (block-header-gas-used header))))))
+
+(defun validate-eest-blockchain-standard-newpayload-v2-case (case)
+  (let* ((case-name (fixture-required-field case "name"))
+         (fixture (fixture-required-field case "fixture"))
+         (label (format nil "EEST blockchain case ~A" case-name)))
+    (validate-fixture-object-fields
+     fixture
+     +eest-blockchain-standard-fixture-fields+
+     label)
+    (unless (string= "Shanghai" (fixture-required-field fixture "network"))
+      (error "~A standard replay materializer currently supports Shanghai"
+             label))
+    (let ((blocks (validate-eest-blockchain-json-array-field
+                   fixture
+                   "blocks"
+                   label)))
+      (unless (= 1 (length blocks))
+        (error "~A standard replay materializer expects exactly one block"
+               label))
+      (let ((block-case (first blocks)))
+        (validate-fixture-object-fields
+         block-case
+         +eest-blockchain-standard-block-fields+
+         (format nil "~A block" label))
+        (when (fixture-field-present-p block-case "expectException")
+          (error "~A standard replay materializer expects a valid block"
+                 label))
+        (validate-eest-blockchain-hex-string
+         (fixture-required-field block-case "rlp")
+         (format nil "~A block rlp" label))
+        (let* ((block (block-from-rlp
+                       (hex-to-bytes
+                        (fixture-required-field block-case "rlp"))))
+               (block-hash (hash32-to-hex (block-hash block)))
+               (last-block-hash
+                 (fixture-required-field fixture "lastblockhash")))
+          (validate-eest-blockchain-hash-string
+           last-block-hash
+           (format nil "~A lastblockhash" label))
+          (unless (string= last-block-hash block-hash)
+            (error "~A lastblockhash does not match decoded block hash"
+                   label))
+          (when (fixture-field-present-p block-case "blockHeader")
+            (let ((header-hash
+                    (fixture-object-field
+                     (fixture-object-field block-case "blockHeader")
+                     "hash")))
+              (when header-hash
+                (validate-eest-blockchain-hash-string
+                 header-hash
+                 (format nil "~A blockHeader hash" label))
+                (unless (string= header-hash block-hash)
+                  (error "~A blockHeader hash does not match decoded block"
+                         label)))))
+          block)))))
+
+(defun materialize-eest-blockchain-standard-newpayload-v2-case (case)
   (let* ((fixture (fixture-required-field case "fixture"))
-         (engine (validate-eest-blockchain-engine-newpayload-v2-case case)))
+         (block (validate-eest-blockchain-standard-newpayload-v2-case case)))
     (list (cons "name" (fixture-required-field case "name"))
           (cons "network" (fixture-required-field fixture "network"))
-          (cons "chainId" (fixture-required-field engine "chainId"))
-          (cons "config" (fixture-required-field engine "config"))
-          (cons "parent" (fixture-required-field engine "parent"))
-          (cons "payload" (fixture-required-field engine "payload"))
-          (cons "expect" (fixture-required-field engine "expect")))))
+          (cons "chainId" "0x1")
+          (cons "config"
+                '(("berlinBlock" . "0x0")
+                  ("londonBlock" . "0x0")
+                  ("shanghaiTime" . "0x0")))
+          (cons "parent"
+                (eest-blockchain-standard-parent
+                 fixture
+                 (format nil "EEST blockchain case ~A"
+                         (fixture-required-field case "name"))))
+          (cons "payload" (eest-blockchain-standard-payload block))
+          (cons "expect" (eest-blockchain-standard-expect block)))))
+
+(defun materialize-eest-blockchain-engine-newpayload-v2-case (case)
+  (let* ((fixture (fixture-required-field case "fixture")))
+    (if (fixture-field-present-p fixture "engineNewPayloadV2")
+        (let ((engine (validate-eest-blockchain-engine-newpayload-v2-case
+                       case)))
+          (list (cons "name" (fixture-required-field case "name"))
+                (cons "network" (fixture-required-field fixture "network"))
+                (cons "chainId" (fixture-required-field engine "chainId"))
+                (cons "config" (fixture-required-field engine "config"))
+                (cons "parent" (fixture-required-field engine "parent"))
+                (cons "payload" (fixture-required-field engine "payload"))
+                (cons "expect" (fixture-required-field engine "expect"))))
+        (materialize-eest-blockchain-standard-newpayload-v2-case case))))
 
 (defun load-handwritten-fixture-file (path)
   (parse-json (fixture-file-string path)))
@@ -194,8 +413,9 @@
   (let* ((root (execution-spec-tests-blockchain-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
          (paths (eest-blockchain-test-root-json-paths root)))
-    (is (= 1 (length paths)))
-    (is (equal '("shanghai/phase-a-empty-engine.json")
+    (is (= 2 (length paths)))
+    (is (equal '("shanghai/phase-a-empty-engine.json"
+                 "shanghai/phase-a-empty-standard.json")
                (eest-blockchain-test-root-file-names root)))))
 
 (deftest eest-blockchain-test-root-json-discovery-rejects-empty-roots
@@ -211,8 +431,12 @@
          (selected (load-eest-blockchain-test-root-cases
                     root
                     :names '("shanghai/phase-a-empty-engine.json")))
+         (standard (first
+                    (load-eest-blockchain-test-root-cases
+                     root
+                     :names '("shanghai/phase-a-empty-standard.json"))))
          (report (report-eest-blockchain-test-root-case (first selected))))
-    (is (= 1 (length cases)))
+    (is (= 2 (length cases)))
     (is (= 1 (length selected)))
     (is (string= "shanghai/phase-a-empty-engine.json"
                  (fixture-object-field report "name")))
@@ -224,6 +448,22 @@
              (first selected))))
       (is (string= "shanghai/phase-a-empty-engine.json"
                    (fixture-object-field materialized "name")))
+      (is (string= "VALID"
+                   (fixture-object-field
+                    (fixture-object-field materialized "expect")
+                    "status"))))
+    (let ((materialized
+            (materialize-eest-blockchain-engine-newpayload-v2-case
+             standard)))
+      (is (string= "shanghai/phase-a-empty-standard.json"
+                   (fixture-object-field materialized "name")))
+      (is (= 0 (length (fixture-object-field
+                        (fixture-object-field materialized "payload")
+                        "transactions"))))
+      (is (string= "0x2a"
+                   (fixture-object-field
+                    (fixture-object-field materialized "payload")
+                    "number")))
       (is (string= "VALID"
                    (fixture-object-field
                     (fixture-object-field materialized "expect")

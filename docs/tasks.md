@@ -241,6 +241,14 @@ ones.
     payloads are not rejected as missing withdrawals. Remaining work is to
     broaden the materializer from the in-repo seed root to real pinned v5.4.0
     upstream selectors and expected post-state payloads.
+  - Progress: added the first standard blockchain-test replay path matching
+    geth's fixture shape. The loader now accepts a bounded Shanghai case with
+    `genesisBlockHeader`, `pre`, `blocks[].rlp`, and `lastblockhash`, decodes
+    the selected block RLP through `block-from-rlp`, materializes it into the
+    existing Engine import fixture shape, and replays it alongside the embedded
+    `engineNewPayloadV2` seed. Remaining work is to broaden this from the empty
+    in-repo standard sample to pinned upstream selectors with richer block
+    bodies and expected post-state comparison.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
