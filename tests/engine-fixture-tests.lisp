@@ -915,19 +915,13 @@
                 (cons "safeBlockHash" (hash32-to-hex safe))
                 (cons "finalizedBlockHash" (hash32-to-hex finalized)))))))
 
-(deftest eest-blockchain-engine-newpayload-v2-empty-replay
+(deftest eest-blockchain-engine-newpayload-v2-replay
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let ((root (execution-spec-tests-blockchain-test-root
                  "tests/fixtures/execution-spec-tests-root/")))
-      (dolist (source-name '("shanghai/phase-a-empty-engine.json"
-                             "shanghai/phase-a-empty-standard.json"))
-        (let* ((source-case
-                 (first
-                  (load-eest-blockchain-test-root-cases
-                   root
-                   :names (list source-name))))
-               (case (materialize-eest-blockchain-engine-newpayload-v2-case
+      (dolist (source-case (load-phase-a-eest-blockchain-replay-cases root))
+        (let* ((case (materialize-eest-blockchain-engine-newpayload-v2-case
                       source-case))
                (store (make-engine-payload-memory-store))
                (config (engine-fixture-chain-config case))
@@ -1008,7 +1002,10 @@
                              (block-header child-block)))))
               (is (= (hex-to-quantity (fixture-object-field expect "gasUsed"))
                       (block-header-gas-used
-                       (block-header child-block)))))))))))
+                       (block-header child-block))))
+              (assert-eest-blockchain-post-state
+               (chain-store-state-db store (block-hash child-block))
+               source-case))))))))
 
 (defun assert-eest-blockchain-engine-newpayload-v2-replay
     (case &key source-case)

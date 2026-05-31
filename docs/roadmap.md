@@ -573,13 +573,16 @@ Reth consensus/executor integration.
   storage proof generation, receipt-derivation invariants on the import path,
   block-body and post-execution commitment preflight, atomic block-import
   commit/rollback, strict sender recovery on signed import/admission paths,
-  Ethash reward hook, and Merge/Paris validation.
+  Ethash reward hook, Merge/Paris validation, and in-repo EEST-shaped
+  blockchain replay for empty Engine payloads, standard block RLP, and a
+  non-empty Shanghai Engine transfer payload.
 - *Partial:* EIP-7702 set-code execution beyond delegation shape, blob
   transaction semantics without KZG verification, and broader post-execution
   rollback symmetry across all failure modes.
-- *Missing for Phase A:* broader pinned post-Merge Shanghai state-transition
-  fixture breadth around the existing smoke path, plus Cancun blob execution
-  acceptance once real KZG verification is available.
+- *Missing for Phase A:* broader official pinned post-Merge Shanghai
+  state-transition fixture breadth beyond the bounded in-repo replay gate,
+  plus Cancun blob execution acceptance once real KZG verification is
+  available.
 - *Next:* drive any additional block-execution widening through bounded pinned
   fixtures rather than local one-off cases.
 

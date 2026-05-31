@@ -1488,6 +1488,12 @@ splits can land after the Phase A smoke path closes.
     sender now verifies `latest` against the child state root and `safe` /
     `finalized` against the retained parent state root, including balance,
     nonce, account proof nodes, and decoded-proof verification.
+  - Progress: widened the in-repo EEST-shaped blockchain replay gate from
+    empty payloads to a non-empty Shanghai `engineNewPayloads` transfer case.
+    The Phase A blockchain replay selector now materializes three source
+    cases (empty Engine payload, standard block RLP, and non-empty Engine
+    payload), and the Engine replay test runs each selected case through
+    executable `engine_newPayloadV2` import plus post-state verification.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

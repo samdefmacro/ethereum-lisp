@@ -62,7 +62,8 @@
 
 (defparameter +phase-a-eest-blockchain-replay-materialization-kinds+
   '(("shanghai/phase-a-empty-engine.json" . "engineNewPayloadV2")
-    ("shanghai/phase-a-empty-standard.json" . "blockRlp")))
+    ("shanghai/phase-a-empty-standard.json" . "blockRlp")
+    ("shanghai/phase-a-transfer-engine.json" . "engineNewPayloadV2")))
 
 (defparameter +phase-a-eest-blockchain-v5.4.0-replay-materialization-kinds+
   '(("berlin/eip2930_access_list/test_eip2930_tx_validity.json/tests/berlin/eip2930_access_list/test_tx_type.py::test_eip2930_tx_validity[fork_Shanghai-valid-blockchain_test_engine_from_state_test]"
@@ -1164,9 +1165,10 @@
   (let* ((root (execution-spec-tests-blockchain-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
          (paths (eest-blockchain-test-root-json-paths root)))
-    (is (= 2 (length paths)))
+    (is (= 3 (length paths)))
     (is (equal '("shanghai/phase-a-empty-engine.json"
-                 "shanghai/phase-a-empty-standard.json")
+                 "shanghai/phase-a-empty-standard.json"
+                 "shanghai/phase-a-transfer-engine.json")
                (eest-blockchain-test-root-file-names root)))))
 
 (deftest eest-blockchain-test-root-json-discovery-rejects-empty-roots
@@ -1260,7 +1262,7 @@
 (deftest phase-a-eest-blockchain-replay-selector-parsing
   (let ((selectors
           (parse-phase-a-eest-blockchain-replay-selectors
-           "shanghai/phase-a-empty-engine.json=engineNewPayloadV2, shanghai/phase-a-empty-standard.json=blockRlp")))
+           "shanghai/phase-a-empty-engine.json=engineNewPayloadV2, shanghai/phase-a-empty-standard.json=blockRlp, shanghai/phase-a-transfer-engine.json=engineNewPayloadV2")))
     (is (equal +phase-a-eest-blockchain-replay-materialization-kinds+
                selectors)))
   (let ((selectors
@@ -1300,11 +1302,12 @@
                      root
                      :names '("shanghai/phase-a-empty-standard.json"))))
          (report (report-eest-blockchain-test-root-case (first selected))))
-    (is (= 2 (length cases)))
-    (is (= 2 (length phase-a-cases)))
-    (is (= 2 (fixture-object-field summary "count")))
+    (is (= 3 (length cases)))
+    (is (= 3 (length phase-a-cases)))
+    (is (= 3 (fixture-object-field summary "count")))
     (is (equal '("shanghai/phase-a-empty-engine.json"
-                 "shanghai/phase-a-empty-standard.json")
+                 "shanghai/phase-a-empty-standard.json"
+                 "shanghai/phase-a-transfer-engine.json")
                (fixture-object-field summary "names")))
     (is (equal +phase-a-eest-blockchain-replay-materialization-kinds+
                selectors))
@@ -1318,15 +1321,15 @@
        (list (cons "shanghai/phase-a-empty-engine.json"
                    "engineNewPayloadV2"))))
     (is (string=
-         "shanghai/phase-a-empty-engine.json=engineNewPayloadV2,shanghai/phase-a-empty-standard.json=blockRlp"
+         "shanghai/phase-a-empty-engine.json=engineNewPayloadV2,shanghai/phase-a-empty-standard.json=blockRlp,shanghai/phase-a-transfer-engine.json=engineNewPayloadV2"
          (phase-a-eest-blockchain-replay-selector-string selectors)))
-    (is (= 1 (fixture-object-field
+    (is (= 2 (fixture-object-field
               (fixture-object-field summary "materializationKindCounts")
               "engineNewPayloadV2")))
     (is (= 1 (fixture-object-field
               (fixture-object-field summary "materializationKindCounts")
               "blockRlp")))
-    (is (= 2 (fixture-object-field
+    (is (= 3 (fixture-object-field
               (fixture-object-field summary "networkCounts")
               "Shanghai")))
     (is (= 1 (fixture-object-field summary "blockCount")))
@@ -1480,10 +1483,10 @@
               ((string= name +execution-spec-tests-fixture-root-env+)
                "tests/fixtures/execution-spec-tests-root/")
               ((string= name +phase-a-eest-blockchain-replay-selectors-env+)
-               "shanghai/phase-a-empty-engine.json=engineNewPayloadV2,shanghai/phase-a-empty-standard.json=blockRlp")
+               "shanghai/phase-a-empty-engine.json=engineNewPayloadV2,shanghai/phase-a-empty-standard.json=blockRlp,shanghai/phase-a-transfer-engine.json=engineNewPayloadV2")
               (t nil)))))
     (let ((cases (load-optional-phase-a-eest-blockchain-replay-cases)))
-      (is (= 2 (length cases)))))
+      (is (= 3 (length cases)))))
   (let ((*fixture-root-environment-reader*
           (lambda (name)
             (cond
@@ -1503,7 +1506,7 @@
                "auto")
               (t nil)))))
     (let ((cases (load-optional-phase-a-eest-blockchain-replay-cases)))
-      (is (= 2 (length cases)))))
+      (is (= 3 (length cases)))))
   (let ((*fixture-root-environment-reader*
           (lambda (name)
             (cond
