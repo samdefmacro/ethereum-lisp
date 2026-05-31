@@ -1642,6 +1642,9 @@
              (concat-bytes field-prime (subseq g2 32 128)))
            (g2-off-curve
              (concat-bytes (subseq g2 0 127) #(171)))
+           (g2-invalid-subgroup
+             (hex-to-bytes
+              "0x0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000007bca656753ef8cbee60335acbffe3def91636952d4ab9eb0b839c7f3566c0e20cf32d3c49a2cb8a092f24ec3201e68dc299b6216e6321ee60573e3a7f596ea8"))
            (geth-jeff6-false
              (hex-to-bytes
               "0x1c76476f4def4bb94541d57ebba1193381ffa7aa76ada664dd31c16024c43f593034dd2920f673e204fee2811c678745fc819b55d3e9d294e45c9b03a76aef41209dd15ebff5d46c4bd888e51a93cf99a7329636c63514396b4a452003a35bf704bf11ca01483bfa8b34b43561848d28905960114c8ac04049af4b6315a416782bb8324af6cfc93537a2ad1a445cfd0ca2a71acd7ac41fadbf933c2a51be344d120a2a4cf30c1bf9845f20c6fe39e07ea2cce61f0c9bb048165fe5e4de877550111e129f1cf1097710d41c4ac70fcdfa5ba2023c6ff1cbeac322de49d1b6df7c103188585e2364128fe25c70558f1560f4f9350baf3959e603cc91486e110936198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c21800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa"))
@@ -1668,6 +1671,11 @@
              (execute-bytecode
               (pairing-code (concat-bytes (make-byte-vector 64)
                                           g2-off-curve))
+              :context context))
+           (invalid-g2-subgroup-result
+             (execute-bytecode
+              (pairing-code (concat-bytes (make-byte-vector 64)
+                                          g2-invalid-subgroup))
               :context context))
            (invalid-g1-coordinate-result
              (execute-bytecode
@@ -1788,6 +1796,9 @@
       (is (= 0 (first (evm-result-stack invalid-g2-curve-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data invalid-g2-curve-result)))
+      (is (= 0 (first (evm-result-stack invalid-g2-subgroup-result))))
+      (is (bytes= (make-byte-vector 32)
+                  (evm-result-return-data invalid-g2-subgroup-result)))
       (is (= 0 (first (evm-result-stack invalid-g1-coordinate-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data invalid-g1-coordinate-result)))

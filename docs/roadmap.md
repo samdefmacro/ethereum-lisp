@@ -540,7 +540,8 @@ behavior.
 - *Partial:* fixture-backed CALL/CREATE/precompile breadth, exact gas parity
   for all edge cases, EIP-7702 delegated-code execution beyond the covered
   paths, and stopgap BN254 pairing behavior behind an explicit backend boundary
-  until a full pairing library lands.
+  until a full pairing library lands. BN254 pairing input validation now covers
+  G2 curve and subgroup rejection before backend dispatch.
 - *Missing for Phase A:* broader pinned execution-spec state-transition replay
   beyond the current selector-gated replay (London
   legacy/access-list/dynamic-fee vectors, expected-exception handling,

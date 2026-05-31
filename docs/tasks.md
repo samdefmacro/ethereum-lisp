@@ -3594,6 +3594,13 @@ splits can land after the Phase A smoke path closes.
     with reference-client vector files instead of expanding ad hoc one-off
     assertions; full arbitrary true vectors still require the real optimal Ate
     backend.
+  - Progress: added the missing G2 subgroup validation boundary before
+    pairing backend dispatch. The parser now follows geth's
+    `twistPoint.IsOnCurve` shape by checking that `Order * P` is infinity
+    after Fp2 curve validation, matching Nethermind's `mclBnG2_isValidOrder`
+    gate, and the EVM precompile regression covers an on-curve non-subgroup
+    G2 point that must fail instead of reaching the stopgap pairing checker.
+    Full arbitrary true vectors still require the real optimal Ate backend.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5

@@ -139,6 +139,8 @@
 (defconstant +modexp-exp-byte-multiplier+ 8)
 (defconstant +bn254-field-prime+
   21888242871839275222246405745257275088696311157297823662689037894645226208583)
+(defconstant +bn254-curve-order+
+  21888242871839275222246405745257275088548364400416034343698204186575808495617)
 (defconstant +bn254-add-gas+ 150)
 (defconstant +bn254-mul-gas+ 6000)
 (defconstant +bn254-pairing-base-gas+ 45000)
@@ -1027,6 +1029,18 @@
 (defun bn254-fp2-square (value)
   (bn254-fp2-mul value value))
 
+(defun bn254-fp2-inverse (value)
+  (let* ((real (car value))
+         (imaginary (cdr value))
+         (denominator
+           (mod (+ (* real real) (* imaginary imaginary))
+                +bn254-field-prime+)))
+    (when (zerop denominator)
+      (fail "BN254 Fp2 inverse does not exist"))
+    (let ((inverse (bn254-modular-inverse denominator)))
+      (bn254-fp2 (* real inverse)
+                 (- (* imaginary inverse))))))
+
 (defun bn254-g2-curve-constant ()
   (let ((inverse-82 (bn254-modular-inverse 82)))
     (bn254-fp2 (* 27 inverse-82)
@@ -1039,6 +1053,50 @@
                 (bn254-g2-curve-constant))))
     (and (= (car left) (car right))
          (= (cdr left) (cdr right)))))
+
+(defun bn254-g2-add (left right)
+  (cond
+    ((null left) right)
+    ((null right) left)
+    (t
+     (destructuring-bind (x1 y1) left
+       (destructuring-bind (x2 y2) right
+         (cond
+           ((and (bn254-fp2= x1 x2)
+                 (bn254-fp2-negation-p y1 y2))
+            nil)
+           (t
+            (let* ((slope
+                     (if (and (bn254-fp2= x1 x2)
+                              (bn254-fp2= y1 y2))
+                         (bn254-fp2-mul
+                          (bn254-fp2-mul (bn254-fp2 3 0)
+                                         (bn254-fp2-square x1))
+                          (bn254-fp2-inverse
+                           (bn254-fp2-mul (bn254-fp2 2 0) y1)))
+                         (bn254-fp2-mul
+                          (bn254-fp2-sub y2 y1)
+                          (bn254-fp2-inverse (bn254-fp2-sub x2 x1)))))
+                   (x3 (bn254-fp2-sub
+                        (bn254-fp2-sub (bn254-fp2-square slope) x1)
+                        x2))
+                   (y3 (bn254-fp2-sub
+                        (bn254-fp2-mul slope (bn254-fp2-sub x1 x3))
+                        y1)))
+              (list x3 y3)))))))))
+
+(defun bn254-g2-mul (point scalar)
+  (loop with result = nil
+        with addend = point
+        for k = scalar then (ash k -1)
+        while (plusp k)
+        do (when (oddp k)
+             (setf result (bn254-g2-add result addend)))
+           (setf addend (bn254-g2-add addend addend))
+        finally (return result)))
+
+(defun bn254-g2-subgroup-p (point)
+  (null (bn254-g2-mul point +bn254-curve-order+)))
 
 (defun parse-bn254-g2-pairing-point (bytes gas-used)
   (let ((bytes (padded-data-slice bytes 0 128)))
@@ -1058,7 +1116,10 @@
                (y (bn254-fp2 y-real y-imaginary)))
            (unless (bn254-g2-on-curve-p x y)
              (fail-precompile gas-used "Invalid BN254 G2 point"))
-           (list x y)))))))
+           (let ((point (list x y)))
+             (unless (bn254-g2-subgroup-p point)
+               (fail-precompile gas-used "Invalid BN254 G2 subgroup"))
+             point)))))))
 
 (defun bn254-fp2= (left right)
   (and (= (car left) (car right))
