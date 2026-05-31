@@ -41,15 +41,19 @@
   '("release" "tagTarget" "archive" "status"))
 
 (defparameter +execution-spec-tests-transaction-test-subdirs+
-  '("fixtures/transaction_tests/"
+  '("transaction_tests/"
+    "fixtures/transaction_tests/"
     "spec-tests/fixtures/transaction_tests/"))
 
 (defparameter +execution-spec-tests-trie-test-subdirs+
-  '("fixtures/trie_tests/"
+  '("trie_tests/"
+    "fixtures/trie_tests/"
     "spec-tests/fixtures/trie_tests/"))
 
 (defparameter +execution-spec-tests-blockchain-test-subdirs+
-  '("fixtures/blockchain_tests_engine/"
+  '("blockchain_tests_engine/"
+    "blockchain_tests/"
+    "fixtures/blockchain_tests_engine/"
     "fixtures/blockchain_tests/"
     "spec-tests/fixtures/blockchain_tests_engine/"
     "spec-tests/fixtures/blockchain_tests/"))

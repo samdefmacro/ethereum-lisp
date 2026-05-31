@@ -39,8 +39,11 @@
 
 (deftest execution-spec-tests-transaction-root-discovers-known-layouts
   (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
+        (fixtures-root
+          (probe-file "tests/fixtures/execution-spec-tests-root/fixtures/"))
         (geth-root (probe-file "tests/fixtures/geth-spec-tests-root/")))
     (is (execution-spec-tests-transaction-test-root direct-root))
+    (is (execution-spec-tests-transaction-test-root fixtures-root))
     (is (execution-spec-tests-transaction-test-root geth-root))))
 
 (deftest execution-spec-tests-transaction-root-ignores-missing-layout
@@ -49,8 +52,11 @@
 
 (deftest execution-spec-tests-blockchain-root-discovers-known-layouts
   (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
+        (fixtures-root
+          (probe-file "tests/fixtures/execution-spec-tests-root/fixtures/"))
         (geth-root (probe-file "tests/fixtures/geth-spec-tests-root/")))
     (is (execution-spec-tests-blockchain-test-root direct-root))
+    (is (execution-spec-tests-blockchain-test-root fixtures-root))
     (is (execution-spec-tests-blockchain-test-root geth-root))))
 
 (deftest execution-spec-tests-blockchain-root-prefers-engine-layout
@@ -65,8 +71,11 @@
 
 (deftest execution-spec-tests-trie-root-discovers-known-layouts
   (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
+        (fixtures-root
+          (probe-file "tests/fixtures/execution-spec-tests-root/fixtures/"))
         (geth-root (probe-file "tests/fixtures/geth-spec-tests-root/")))
     (is (execution-spec-tests-trie-test-root direct-root))
+    (is (execution-spec-tests-trie-test-root fixtures-root))
     (is (execution-spec-tests-trie-test-root geth-root))))
 
 (deftest execution-spec-tests-trie-root-ignores-missing-layout

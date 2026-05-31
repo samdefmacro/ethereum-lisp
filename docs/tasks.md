@@ -281,6 +281,13 @@ ones.
     now prints the discovered blockchain root, candidate count, and the
     comma-separated `selector=kind` value that can be used as the explicit
     Phase A replay selector table.
+  - Progress: fixture root discovery now accepts a direct `fixtures/`
+    extraction directory as well as the release parent directory and geth-style
+    `spec-tests/fixtures` checkout. This lets the selector script and optional
+    replay harness consume an unpacked `fixtures_stable.tar.gz` directory
+    without requiring callers to point at exactly one parent layout.
+    Reference check: geth `8a0223e` uses `spec-tests/fixtures/...` roots, and
+    Nethermind `1c72a72` loads pyspec tests from `fixtures/<suite>/...`.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
