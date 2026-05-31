@@ -372,6 +372,25 @@
     "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble"
     "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch"))
 
+(defparameter +phase-a-eest-trie-proof-reference-case-names+
+  '("phase-a-trie-multi.json/geth-large-value-branch"
+    "phase-a-trie-multi.json/geth-tiny-account-step-1"
+    "phase-a-trie-multi.json/geth-tiny-account-step-2"
+    "phase-a-trie-multi.json/geth-tiny-account-step-3"
+    "phase-a-trie-multi.json/geth-tiny-account-five-step"
+    "phase-a-trie-multi.json/geth-delete-sequence"
+    "phase-a-trie-multi.json/geth-empty-value-sequence"
+    "phase-a-trie-multi.json/geth-replication-sequence"
+    "phase-a-trie-multi.json/geth-random-cases-sequence"
+    "phase-a-trie-multi.json/geth-stacktrie-extension-child-boundary"
+    "phase-a-secureTrie.json/phase-a-secure-branch-child-branch"
+    "phase-a-secureTrie.json/phase-a-secure-branch-child-extension"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"
+    "phase-a-secureTrie.json/phase-a-secure-zgeth-delete-sequence"))
+
 (defparameter +phase-a-eest-trie-explicit-range-reference-case-names+
   '("phase-a-trie-multi.json/geth-tiny-account-five-step"
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
@@ -453,10 +472,13 @@
   '("keyHex" "keyAscii" "nodeRlps" "exactLength"))
 
 (defparameter +eest-trie-test-case-fields+
-  '("in" "intermediateRoots" "out" "ranges" "root" "secure"))
+  '("in" "intermediateRoots" "out" "proofs" "ranges" "root" "secure"))
 
 (defparameter +eest-trie-test-range-fields+
   '("start" "end" "keys"))
+
+(defparameter +eest-trie-test-proof-fields+
+  '("key" "nodeRlps" "exactLength"))
 
 (defun validate-trie-fixture-object-fields (object allowed-fields label)
   (unless (listp object)
@@ -1157,6 +1179,33 @@
                  label
                  name))))))
 
+(defun validate-trie-reference-proof-requirements
+    (cases names label)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-names (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name names)
+      (when (gethash name seen-names)
+        (error "~A proof reference list has duplicate name ~A"
+               label
+               name))
+      (setf (gethash name seen-names) t)
+      (let ((case (gethash name case-by-name)))
+        (unless case
+          (error "~A is missing proof reference case ~A"
+                 label
+                 name))
+        (unless (fixture-field-present-p case "expectedProofs")
+          (error "~A reference-derived trie case ~A must include proof-node assertions"
+                 label
+                 name))
+        (unless (fixture-object-field case "expectedProofs")
+          (error "~A reference-derived trie case ~A proof-node assertions must not be empty"
+                 label
+                 name))))))
+
 (defun validate-trie-reference-explicit-range-requirements
     (cases names label)
   (let ((case-by-name (make-hash-table :test #'equal))
@@ -1419,6 +1468,73 @@
          root
          (format nil "~A intermediateRoots ~D" case-name index))))
 
+(defun normalize-eest-trie-test-proof-node-rlp (case-name value index node-index)
+  (validate-trie-fixture-byte-field
+   value
+   (format nil "EEST trie test case ~A proofs entry ~D nodeRlp ~D"
+           case-name
+           index
+           node-index))
+  (let ((bytes (hex-to-bytes value)))
+    (when (zerop (length bytes))
+      (error "EEST trie test case ~A proofs entry ~D nodeRlp ~D must not be empty"
+             case-name
+             index
+             node-index))
+    (bytes-to-hex bytes)))
+
+(defun normalize-eest-trie-test-proof (case-name proof index)
+  (validate-trie-fixture-object-fields
+   proof
+   +eest-trie-test-proof-fields+
+   (format nil "EEST trie test case ~A proofs entry ~D"
+           case-name
+           index))
+  (let ((key (fixture-required-field proof "key"))
+        (node-rlps (fixture-required-field proof "nodeRlps")))
+    (unless (stringp key)
+      (error "EEST trie test case ~A proofs entry ~D key must be a string"
+             case-name
+             index))
+    (unless (and (listp node-rlps) node-rlps)
+      (error "EEST trie test case ~A proofs entry ~D nodeRlps must be a non-empty JSON array"
+             case-name
+             index))
+    (when (fixture-field-present-p proof "exactLength")
+      (let ((exact-length (fixture-object-field proof "exactLength")))
+        (unless (or (eq exact-length t) (null exact-length))
+          (error "EEST trie test case ~A proofs entry ~D exactLength must be a boolean"
+                 case-name
+                 index))))
+    (append
+     (list
+      (cons "key"
+            (eest-trie-test-normalized-byte-string
+             key
+             (format nil "EEST trie test case ~A proofs entry ~D key"
+                     case-name
+                     index)))
+      (cons "nodeRlps"
+            (loop for node-rlp in node-rlps
+                  for node-index from 0
+                  collect
+                  (normalize-eest-trie-test-proof-node-rlp
+                   case-name
+                   node-rlp
+                   index
+                   node-index))))
+     (when (fixture-field-present-p proof "exactLength")
+       (list (cons "exactLength"
+                   (fixture-object-field proof "exactLength")))))))
+
+(defun normalize-eest-trie-test-proofs (case-name proofs)
+  (unless (listp proofs)
+    (error "EEST trie test case ~A proofs must be a JSON array"
+           case-name))
+  (loop for proof in proofs
+        for index from 0
+        collect (normalize-eest-trie-test-proof case-name proof index)))
+
 (defun normalize-eest-trie-test-case (name case &optional default-secure-p)
   (unless (stringp name)
     (error "EEST trie test case name must be a string"))
@@ -1461,6 +1577,12 @@
               (normalize-eest-trie-test-output-entries
                name
                (fixture-object-field case "out")))))
+     (when (fixture-field-present-p case "proofs")
+       (list
+        (cons "expectedProofs"
+              (normalize-eest-trie-test-proofs
+               name
+               (fixture-object-field case "proofs")))))
      (when (fixture-field-present-p case "ranges")
        (list
         (cons "expectedRanges"
@@ -1962,6 +2084,7 @@
       (assert-eest-trie-test-entry-pair-replay case trie)
       (assert-eest-trie-test-entry-ranges case trie)
       (assert-eest-trie-test-explicit-entry-ranges case trie)
+      (assert-eest-trie-test-proof-nodes case trie)
       (assert-eest-trie-test-object-form-permutations case)
       trie)))
 
@@ -1993,6 +2116,39 @@
       (error "EEST trie test case ~A missing-key proof returned value for key ~A"
              (fixture-required-field case "name")
              (bytes-to-hex key)))))
+
+(defun assert-eest-trie-test-proof-nodes (case trie)
+  (dolist (expected (fixture-object-field case "expectedProofs"))
+    (let* ((name (fixture-required-field case "name"))
+           (key (eest-trie-test-key-trie-key
+                 case
+                 (fixture-required-field expected "key")
+                 (format nil "EEST trie test case ~A proof key" name)))
+           (proof (mpt-get-proof trie key))
+           (expected-node-rlps (fixture-required-field expected "nodeRlps")))
+      (if (fixture-object-field expected "exactLength")
+          (unless (= (length expected-node-rlps) (length proof))
+            (error "EEST trie test case ~A proof for key ~A length mismatch: expected ~A, got ~A"
+                   name
+                   (bytes-to-hex key)
+                   (length expected-node-rlps)
+                   (length proof)))
+          (unless (<= (length expected-node-rlps) (length proof))
+            (error "EEST trie test case ~A proof for key ~A too short: expected prefix length ~A, got ~A"
+                   name
+                   (bytes-to-hex key)
+                   (length expected-node-rlps)
+                   (length proof))))
+      (loop for expected-rlp in expected-node-rlps
+            for actual-rlp in proof
+            for index from 0
+            unless (string= expected-rlp (bytes-to-hex actual-rlp))
+              do (error "EEST trie test case ~A proof node ~D mismatch for key ~A: expected ~A, got ~A"
+                        name
+                        index
+                        (bytes-to-hex key)
+                        expected-rlp
+                        (bytes-to-hex actual-rlp))))))
 
 (defun validate-eest-trie-test-file-case-names (cases source)
   (unless cases
@@ -2392,6 +2548,33 @@
            (loop for secure-p in secure-flags
                  for intermediate-p in intermediate-root-flags
                  count (and (not secure-p) intermediate-p)))
+         (proof-node-flags
+           (mapcar (lambda (case)
+                     (fixture-field-present-p case "expectedProofs"))
+                   cases))
+         (proof-node-counts
+           (mapcar (lambda (case)
+                     (if (fixture-field-present-p case "expectedProofs")
+                         (length (fixture-object-field case "expectedProofs"))
+                         0))
+                   cases))
+         (exact-proof-node-counts
+           (mapcar (lambda (case)
+                     (if (fixture-field-present-p case "expectedProofs")
+                         (count-if
+                          (lambda (expected)
+                            (fixture-object-field expected "exactLength"))
+                          (fixture-object-field case "expectedProofs"))
+                         0))
+                   cases))
+         (secure-proof-node-case-count
+           (loop for secure-p in secure-flags
+                 for proof-p in proof-node-flags
+                 count (and secure-p proof-p)))
+         (plain-proof-node-case-count
+           (loop for secure-p in secure-flags
+                 for proof-p in proof-node-flags
+                 count (and (not secure-p) proof-p)))
          (secure-explicit-output-case-count
            (loop for secure-p in secure-flags
                  for output-p in explicit-output-flags
@@ -3026,6 +3209,16 @@
            plain-intermediate-root-case-count)
      (cons "intermediateRootCount"
            (reduce #'+ intermediate-root-counts :initial-value 0))
+     (cons "proofNodeCaseCount"
+           (count t proof-node-flags))
+     (cons "secureProofNodeCaseCount"
+           secure-proof-node-case-count)
+     (cons "plainProofNodeCaseCount"
+           plain-proof-node-case-count)
+     (cons "proofNodeAssertionCount"
+           (reduce #'+ proof-node-counts :initial-value 0))
+     (cons "exactProofNodeAssertionCount"
+           (reduce #'+ exact-proof-node-counts :initial-value 0))
      (cons "writeEntryCounts" write-counts)
      (cons "totalWriteEntryCount" (reduce #'+ write-counts :initial-value 0))
      (cons "proofPresentKeyCounts" proof-present-counts)
@@ -3103,6 +3296,10 @@
    cases
    +phase-a-eest-trie-intermediate-root-reference-case-names+
    "Phase A EEST trie subset")
+  (validate-trie-reference-proof-requirements
+   cases
+   +phase-a-eest-trie-proof-reference-case-names+
+   "Phase A EEST trie subset")
   (validate-trie-reference-explicit-range-requirements
    cases
    +phase-a-eest-trie-explicit-range-reference-case-names+
@@ -3172,6 +3369,14 @@
       (error "Phase A EEST trie subset must include intermediate root assertions"))
     (when (zerop (fixture-object-field summary "plainIntermediateRootCaseCount"))
       (error "Phase A EEST trie subset must include plain intermediate root assertions"))
+    (when (zerop (fixture-object-field summary "proofNodeCaseCount"))
+      (error "Phase A EEST trie subset must include proof-node assertions"))
+    (when (zerop (fixture-object-field summary "secureProofNodeCaseCount"))
+      (error "Phase A EEST trie subset must include secure proof-node assertions"))
+    (when (zerop (fixture-object-field summary "plainProofNodeCaseCount"))
+      (error "Phase A EEST trie subset must include plain proof-node assertions"))
+    (when (zerop (fixture-object-field summary "exactProofNodeAssertionCount"))
+      (error "Phase A EEST trie subset must include exact-length proof-node assertions"))
     (when (zerop (fixture-object-field summary "proofPresentKeyCount"))
       (error "Phase A EEST trie subset must include present-key proof coverage"))
     (when (zerop (fixture-object-field summary "proofMissingKeyCount"))
@@ -4744,6 +4949,27 @@
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
   (let* ((case (normalize-eest-trie-test-case
+                "proof-nodes"
+                (list (cons "in" (list (list "k" "v")))
+                      (cons "proofs"
+                            (list
+                             (list (cons "key" "k")
+                                   (cons "nodeRlps"
+                                         (list "0xc482206b76"))
+                                   (cons "exactLength" t))
+                             (list (cons "key" "a")
+                                   (cons "nodeRlps"
+                                         (list "0xc482206b76"))
+                                   (cons "exactLength" t))))
+                      (cons "root"
+                            "0x6675ca087d4e4344aa1348e54d5b39e1657b57287eb207107a04ffae79e88215"))))
+         (proofs (fixture-required-field case "expectedProofs"))
+         (trie (assert-eest-trie-test-case-root case)))
+    (is (= 2 (length proofs)))
+    (is (fixture-object-field (first proofs) "exactLength"))
+    (is (string= "0x6675ca087d4e4344aa1348e54d5b39e1657b57287eb207107a04ffae79e88215"
+                 (mpt-root-hex trie))))
+  (let* ((case (normalize-eest-trie-test-case
                 "explicit-range"
                 (list (cons "in" (list (list "apple" "fruit1")
                                        (list "banana" "fruit2")
@@ -4858,6 +5084,17 @@
                  "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
   (signals error
     (normalize-eest-trie-test-case
+     "bad-proof-node"
+     (list (cons "in" (list (list "k" "v")))
+           (cons "proofs"
+                 (list
+                  (list (cons "key" "k")
+                        (cons "nodeRlps" nil)
+                        (cons "exactLength" t))))
+           (cons "root"
+                 "0x6675ca087d4e4344aa1348e54d5b39e1657b57287eb207107a04ffae79e88215"))))
+  (signals error
+    (normalize-eest-trie-test-case
      "non-string-root"
      (list (cons "in" nil)
            (cons "root" 1))))
@@ -4969,6 +5206,25 @@
                      case))
                selected-cases)
        '("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth")
+       "Phase A EEST trie subset"))
+    (validate-trie-reference-proof-requirements
+     selected-cases
+     +phase-a-eest-trie-proof-reference-case-names+
+     "Phase A EEST trie subset")
+    (signals error
+      (validate-trie-reference-proof-requirements
+       selected-cases
+       '("phase-a-trie-multi.json/missing-geth-case")
+       "Phase A EEST trie subset"))
+    (signals error
+      (validate-trie-reference-proof-requirements
+       (mapcar (lambda (case)
+                 (if (string= "phase-a-trie-multi.json/geth-tiny-account-step-1"
+                              (fixture-object-field case "name"))
+                     (remove "expectedProofs" case :key #'car :test #'string=)
+                     case))
+               selected-cases)
+       '("phase-a-trie-multi.json/geth-tiny-account-step-1")
        "Phase A EEST trie subset"))
     (validate-trie-reference-explicit-range-requirements
      selected-cases
@@ -5238,6 +5494,11 @@
     (is (= 21 (fixture-object-field summary "intermediateRootCaseCount")))
     (is (= 21 (fixture-object-field summary "plainIntermediateRootCaseCount")))
     (is (= 69 (fixture-object-field summary "intermediateRootCount")))
+    (is (= 17 (fixture-object-field summary "proofNodeCaseCount")))
+    (is (= 7 (fixture-object-field summary "secureProofNodeCaseCount")))
+    (is (= 10 (fixture-object-field summary "plainProofNodeCaseCount")))
+    (is (= 41 (fixture-object-field summary "proofNodeAssertionCount")))
+    (is (= 26 (fixture-object-field summary "exactProofNodeAssertionCount")))
     (is (= 237 (fixture-object-field summary "totalWriteEntryCount")))
     (is (= 204 (fixture-object-field summary "proofPresentKeyCount")))
     (is (= 48 (fixture-object-field summary "secureProofPresentKeyCount")))

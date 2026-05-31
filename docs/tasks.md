@@ -2487,6 +2487,16 @@ splits can land after the Phase A smoke path closes.
     StackTrie root evolution instead of only final commitments. Reference
     availability: geth `8a0223e`, Nethermind `1c72a72`; local Reth clone
     absent.
+  - Progress: extended the EEST-style trie-test adapter with
+    fixture-provided `proofs` that compare `mpt-get-proof` node RLPs using
+    exact-length or prefix semantics. Synced 41 proof-node assertions from the
+    existing seed `expectedProofPrefixes` into 17 selected plain/secure
+    EEST-style cases, including geth large-value, TinyTrie account
+    progression, delete/empty-value/replication/random/StackTrie boundary,
+    secure branch-child, secure account progression, and secure delete cases.
+    Phase A EEST now gates those proof assertions on both plain and secure
+    paths. Reference availability: geth `8a0223e`, Nethermind `1c72a72`;
+    local Reth clone absent.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
