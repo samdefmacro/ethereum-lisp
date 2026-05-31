@@ -4275,6 +4275,63 @@
         (is (eq b3 (chain-store-latest-block store)))
         (is (= 3 (chain-store-block-tag-number store "latest")))))))
 
+(deftest chain-store-keeps-canonical-transaction-location-over-sidechain-duplicate
+  (let* ((store (make-engine-payload-memory-store))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :extra-data #(0))))
+         (genesis-hash (block-hash genesis))
+         (shared-transaction
+           (make-legacy-transaction
+            :nonce 7
+            :gas-price 2
+            :gas-limit 21000
+            :value 3
+            :data #(7)
+            :v 27
+            :r 4
+            :s 5))
+         (shared-hash (transaction-hash shared-transaction)))
+    (flet ((child-block (number parent-hash marker &key transactions)
+             (make-block
+              :header
+              (make-block-header :number number
+                                 :parent-hash parent-hash
+                                 :extra-data (vector marker))
+              :transactions transactions
+              :receipts
+              (loop repeat (length transactions)
+                    collect (make-receipt :status 1
+                                          :cumulative-gas-used 21000)))))
+      (let* ((a1 (child-block 1 genesis-hash 1))
+             (a2 (child-block 2 (block-hash a1) 2
+                              :transactions (list shared-transaction)))
+             (b1 (child-block 1 genesis-hash 11))
+             (b2 (child-block 2 (block-hash b1) 12
+                              :transactions (list shared-transaction))))
+        (dolist (block (list genesis a1 a2))
+          (chain-store-put-block store block))
+        (let ((location
+                (chain-store-transaction-location store shared-hash)))
+          (is (typep location 'engine-transaction-location))
+          (is (eq a2 (engine-transaction-location-block location))))
+        (dolist (block (list b1 b2))
+          (chain-store-put-block store block))
+        (let ((location
+                (chain-store-transaction-location store shared-hash)))
+          (is (typep location 'engine-transaction-location))
+          (is (eq a2 (engine-transaction-location-block location))))
+        (chain-store-set-canonical-head store (block-hash b2))
+        (let ((location
+                (chain-store-transaction-location store shared-hash)))
+          (is (typep location 'engine-transaction-location))
+          (is (eq b2 (engine-transaction-location-block location)))
+          (is (eq shared-transaction
+                  (engine-transaction-location-transaction location))))))))
+
 (deftest engine-new-payload-memory-status-caches-invalid-ancestors
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :london-block 0))
