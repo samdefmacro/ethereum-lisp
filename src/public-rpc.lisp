@@ -393,20 +393,25 @@
          store
          (eth-rpc-block-number-param params store method)))))
 
+(defun eth-rpc-state-block-param (params store method)
+  (let ((block (eth-rpc-block-param params store method)))
+    (unless block
+      (block-validation-fail "~A block is not available" method))
+    (unless (chain-store-state-available-p store (block-hash block))
+      (block-validation-fail "~A state is not available" method))
+    block))
+
 (defun engine-rpc-handle-eth-get-balance (params store)
   (unless (= 2 (length params))
     (block-validation-fail
      "eth_getBalance params must contain address and block id"))
   (let* ((address (eth-rpc-address-param
                    (first params) "eth_getBalance" "address"))
-         (block (eth-rpc-block-param
+         (block (eth-rpc-state-block-param
                  (list (second params)) store "eth_getBalance")))
-    (when (and block
-               (chain-store-state-available-p
-                store (block-hash block)))
-      (quantity-to-hex
-       (chain-store-account-balance
-        store (block-hash block) address)))))
+    (quantity-to-hex
+     (chain-store-account-balance
+      store (block-hash block) address))))
 
 (defun eth-rpc-pending-account-nonce (store address state-nonce)
   (loop with next-nonce = state-nonce
@@ -424,18 +429,15 @@
   (let* ((address (eth-rpc-address-param
                    (first params) "eth_getTransactionCount" "address"))
          (block-id (second params))
-         (block (eth-rpc-block-param
+         (block (eth-rpc-state-block-param
                  (list block-id) store "eth_getTransactionCount")))
-    (when (and block
-               (chain-store-state-available-p
-                store (block-hash block)))
-      (let ((state-nonce
-              (chain-store-account-nonce
-               store (block-hash block) address)))
-        (quantity-to-hex
-         (if (and (stringp block-id) (string= block-id "pending"))
-             (eth-rpc-pending-account-nonce store address state-nonce)
-             state-nonce))))))
+    (let ((state-nonce
+            (chain-store-account-nonce
+             store (block-hash block) address)))
+      (quantity-to-hex
+       (if (and (stringp block-id) (string= block-id "pending"))
+           (eth-rpc-pending-account-nonce store address state-nonce)
+           state-nonce)))))
 
 (defun engine-rpc-handle-eth-get-code (params store)
   (unless (= 2 (length params))
@@ -443,14 +445,11 @@
      "eth_getCode params must contain address and block id"))
   (let* ((address (eth-rpc-address-param
                    (first params) "eth_getCode" "address"))
-         (block (eth-rpc-block-param
+         (block (eth-rpc-state-block-param
                  (list (second params)) store "eth_getCode")))
-    (when (and block
-               (chain-store-state-available-p
-                store (block-hash block)))
-      (bytes-to-hex
-       (chain-store-account-code
-        store (block-hash block) address)))))
+    (bytes-to-hex
+     (chain-store-account-code
+      store (block-hash block) address))))
 
 (defun engine-rpc-handle-eth-get-storage-at (params store)
   (unless (= 3 (length params))
@@ -460,14 +459,11 @@
                    (first params) "eth_getStorageAt" "address"))
          (slot (eth-rpc-storage-slot-param
                 (second params) "eth_getStorageAt"))
-         (block (eth-rpc-block-param
+         (block (eth-rpc-state-block-param
                  (list (third params)) store "eth_getStorageAt")))
-    (when (and block
-               (chain-store-state-available-p
-                store (block-hash block)))
-      (eth-rpc-uint256-word-hex
-       (chain-store-account-storage
-        store (block-hash block) address slot)))))
+    (eth-rpc-uint256-word-hex
+     (chain-store-account-storage
+      store (block-hash block) address slot))))
 
 (defconstant +eth-get-proof-max-storage-keys+ 1024)
 
@@ -554,12 +550,9 @@
                    (first params) "eth_getProof" "address"))
          (slots (eth-rpc-proof-storage-slots-param
                  (second params) "eth_getProof"))
-         (block (eth-rpc-block-param
+         (block (eth-rpc-state-block-param
                  (list (third params)) store "eth_getProof")))
-    (when (and block
-               (chain-store-state-available-p
-                store (block-hash block)))
-      (eth-rpc-build-proof-object store (block-hash block) address slots))))
+    (eth-rpc-build-proof-object store (block-hash block) address slots)))
 
 (defun eth-rpc-call-object-optional-address (object name method)
   (when (genesis-object-field-present-p object name)
@@ -654,17 +647,15 @@
   (unless (or (= 1 (length params)) (= 2 (length params)))
     (block-validation-fail
      "eth_call params must contain call object and optional block id"))
-  (let* ((block (eth-rpc-block-param
+  (let* ((block (eth-rpc-state-block-param
                  (list (if (= 2 (length params)) (second params) "latest"))
                  store
                  "eth_call")))
-    (when (and block
-               (chain-store-state-available-p store (block-hash block)))
-      (multiple-value-bind (status return-data gas-used)
-          (eth-rpc-simulate-call-object
-           (first params) block store config "eth_call")
-        (declare (ignore status gas-used))
-        (bytes-to-hex return-data)))))
+    (multiple-value-bind (status return-data gas-used)
+        (eth-rpc-simulate-call-object
+         (first params) block store config "eth_call")
+      (declare (ignore status gas-used))
+      (bytes-to-hex return-data))))
 
 (defun eth-rpc-call-status-success-p (status)
   (member status '(:stopped :returned :selfdestructed :successful)))
@@ -692,36 +683,34 @@
     (block-validation-fail
      "eth_estimateGas params must contain call object and optional block id"))
   (let* ((object (first params))
-         (block (eth-rpc-block-param
+         (block (eth-rpc-state-block-param
                  (list (if (= 2 (length params)) (second params) "latest"))
                  store
                  "eth_estimateGas")))
-    (when (and block
-               (chain-store-state-available-p store (block-hash block)))
-      (multiple-value-bind (sender tx)
-          (eth-rpc-call-object-transaction
-           object (block-header block) "eth_estimateGas")
-        (declare (ignore sender))
-        (let* ((intrinsic-gas
-                 (ethereum-lisp.state:transaction-intrinsic-gas tx))
-               (high
-                 (eth-rpc-call-object-gas-cap
-                  object (block-header block) "eth_estimateGas")))
-          (when (> intrinsic-gas high)
-            (block-validation-fail
-             "eth_estimateGas intrinsic gas exceeds gas cap"))
-          (unless (eth-rpc-estimate-gas-success-p
-                   object block store config high)
-            (block-validation-fail
-             "eth_estimateGas execution reverted or exceeded gas cap"))
-          (loop with low = intrinsic-gas
-                while (< low high)
-                for mid = (floor (+ low high) 2)
-                do (if (eth-rpc-estimate-gas-success-p
-                        object block store config mid)
-                       (setf high mid)
-                       (setf low (1+ mid)))
-                finally (return (quantity-to-hex low))))))))
+    (multiple-value-bind (sender tx)
+        (eth-rpc-call-object-transaction
+         object (block-header block) "eth_estimateGas")
+      (declare (ignore sender))
+      (let* ((intrinsic-gas
+               (ethereum-lisp.state:transaction-intrinsic-gas tx))
+             (high
+               (eth-rpc-call-object-gas-cap
+                object (block-header block) "eth_estimateGas")))
+        (when (> intrinsic-gas high)
+          (block-validation-fail
+           "eth_estimateGas intrinsic gas exceeds gas cap"))
+        (unless (eth-rpc-estimate-gas-success-p
+                 object block store config high)
+          (block-validation-fail
+           "eth_estimateGas execution reverted or exceeded gas cap"))
+        (loop with low = intrinsic-gas
+              while (< low high)
+              for mid = (floor (+ low high) 2)
+              do (if (eth-rpc-estimate-gas-success-p
+                      object block store config mid)
+                     (setf high mid)
+                     (setf low (1+ mid)))
+              finally (return (quantity-to-hex low)))))))
 
 (defun eth-rpc-precompile-access-key-p (key)
   (loop for index from 1 to 10
@@ -786,33 +775,31 @@
     (block-validation-fail
      "eth_createAccessList params must contain call object and optional block id"))
   (let* ((object (first params))
-         (block (eth-rpc-block-param
+         (block (eth-rpc-state-block-param
                  (list (if (= 2 (length params)) (second params) "latest"))
                  store
                  "eth_createAccessList")))
-    (when (and block
-               (chain-store-state-available-p store (block-hash block)))
-      (multiple-value-bind (sender tx)
-          (eth-rpc-call-object-transaction
-           object (block-header block) "eth_createAccessList")
-        (multiple-value-bind
-              (status return-data gas-used accessed-addresses accessed-storage)
-            (eth-rpc-simulate-call-object
-             object block store config "eth_createAccessList")
-          (declare (ignore return-data))
-          (unless (eth-rpc-call-status-success-p status)
-            (block-validation-fail
-             "eth_createAccessList execution reverted or exceeded gas cap"))
-          (list
-           (cons "accessList"
-                 (eth-rpc-created-access-list-object
-                  accessed-addresses
-                  accessed-storage
-                  sender
-                  (transaction-to tx)
-                  (or (block-header-beneficiary (block-header block))
-                      (zero-address))))
-           (cons "gasUsed" (quantity-to-hex gas-used))))))))
+    (multiple-value-bind (sender tx)
+        (eth-rpc-call-object-transaction
+         object (block-header block) "eth_createAccessList")
+      (multiple-value-bind
+            (status return-data gas-used accessed-addresses accessed-storage)
+          (eth-rpc-simulate-call-object
+           object block store config "eth_createAccessList")
+        (declare (ignore return-data))
+        (unless (eth-rpc-call-status-success-p status)
+          (block-validation-fail
+           "eth_createAccessList execution reverted or exceeded gas cap"))
+        (list
+         (cons "accessList"
+               (eth-rpc-created-access-list-object
+                accessed-addresses
+                accessed-storage
+                sender
+                (transaction-to tx)
+                (or (block-header-beneficiary (block-header block))
+                    (zero-address))))
+         (cons "gasUsed" (quantity-to-hex gas-used)))))))
 
 (defun eth-rpc-header-object (header)
   (unless (block-header-p header)

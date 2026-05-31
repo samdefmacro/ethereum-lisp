@@ -7809,6 +7809,8 @@
                   "\"params\":[\"" (address-to-hex address) "\"]}")
                  store
                  config)))
+             (missing-state-error (field missing-state-response "error"))
+             (missing-block-error (field missing-block-response "error"))
              (invalid-address-error (field invalid-address-response "error"))
              (invalid-params-error (field invalid-params-response "error")))
         (is (string= (quantity-to-hex 12345)
@@ -7817,8 +7819,12 @@
                      (field hash-response "result")))
         (is (string= (quantity-to-hex 0)
                      (field empty-account-response "result")))
-        (is (null (field missing-state-response "result")))
-        (is (null (field missing-block-response "result")))
+        (is (= -32602 (field missing-state-error "code")))
+        (is (string= "eth_getBalance state is not available"
+                     (field missing-state-error "message")))
+        (is (= -32602 (field missing-block-error "code")))
+        (is (string= "eth_getBalance block is not available"
+                     (field missing-block-error "message")))
         (is (= -32602 (field invalid-address-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
 
@@ -7939,6 +7945,7 @@
                   "\"params\":[\"" (address-to-hex address) "\"]}")
                  store
                  config)))
+             (missing-state-error (field missing-state-response "error"))
              (invalid-address-error (field invalid-address-response "error"))
              (invalid-params-error (field invalid-params-response "error")))
         (is (string= (quantity-to-hex 7)
@@ -7951,7 +7958,9 @@
                      (field pending-response "result")))
         (is (string= (quantity-to-hex 0)
                      (field empty-account-response "result")))
-        (is (null (field missing-state-response "result")))
+        (is (= -32602 (field missing-state-error "code")))
+        (is (string= "eth_getTransactionCount state is not available"
+                     (field missing-state-error "message")))
         (is (= -32602 (field invalid-address-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
 
@@ -8037,6 +8046,7 @@
                   "\"params\":[\"" (address-to-hex address) "\"]}")
                  store
                  config)))
+             (missing-state-error (field missing-state-response "error"))
              (invalid-address-error (field invalid-address-response "error"))
              (invalid-params-error (field invalid-params-response "error")))
         (is (string= "0x60016000"
@@ -8045,7 +8055,9 @@
                      (field hash-response "result")))
         (is (string= "0x"
                      (field empty-account-response "result")))
-        (is (null (field missing-state-response "result")))
+        (is (= -32602 (field missing-state-error "code")))
+        (is (string= "eth_getCode state is not available"
+                     (field missing-state-error "message")))
         (is (= -32602 (field invalid-address-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
 
@@ -8144,6 +8156,7 @@
                   "\",\"0x7\"]}")
                  store
                  config)))
+             (missing-state-error (field missing-state-response "error"))
              (invalid-slot-error (field invalid-slot-response "error"))
              (invalid-params-error (field invalid-params-response "error"))
              (expected-word
@@ -8153,7 +8166,9 @@
         (is (string= expected-word (field number-response "result")))
         (is (string= expected-word (field hash-response "result")))
         (is (string= zero-word (field empty-account-response "result")))
-        (is (null (field missing-state-response "result")))
+        (is (= -32602 (field missing-state-error "code")))
+        (is (string= "eth_getStorageAt state is not available"
+                     (field missing-state-error "message")))
         (is (= -32602 (field invalid-slot-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
 
@@ -8290,6 +8305,7 @@
                 state
                 address
                 (list slot missing-slot slot slot slot)))
+             (missing-state-error (field missing-state-response "error"))
              (invalid-storage-keys-error
                (field invalid-storage-keys-response "error"))
              (invalid-params-error (field invalid-params-response "error"))
@@ -8338,7 +8354,9 @@
                      (field empty-proof "balance")))
         (is (string= (hash32-to-hex +empty-code-hash+)
                      (field empty-proof "codeHash")))
-        (is (null (field missing-state-response "result")))
+        (is (= -32602 (field missing-state-error "code")))
+        (is (string= "eth_getProof state is not available"
+                     (field missing-state-error "message")))
         (is (= -32602 (field invalid-storage-keys-error "code")))
         (is (= -32602 (field invalid-params-error "code")))
         (is (= -32602 (field too-many-storage-keys-error "code")))))))
@@ -10320,6 +10338,45 @@
         (is (string= (hash32-to-hex slot)
                      (first (field contract-entry "storageKeys"))))
         (is (null (field target-entry "storageKeys")))))))
+
+(deftest eth-rpc-simulation-methods-require-retained-state
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (id method)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" method)
+                   (cons "params"
+                         (list
+                          (list
+                           (cons "to"
+                                 "0x00000000000000000000000000000000000000cc"))
+                          "latest"))))
+           (assert-state-error (response method)
+             (let ((error (field response "error")))
+               (is (= -32602 (field error "code")))
+               (is (string= (format nil "~A state is not available" method)
+                            (field error "message"))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 33
+                       :timestamp 330
+                       :gas-limit 100000
+                       :base-fee-per-gas 0))))
+      (engine-payload-store-put-block store block)
+      (assert-state-error
+       (engine-rpc-handle-request (request 109 "eth_call") store config)
+       "eth_call")
+      (assert-state-error
+       (engine-rpc-handle-request (request 110 "eth_estimateGas") store config)
+       "eth_estimateGas")
+      (assert-state-error
+       (engine-rpc-handle-request
+        (request 111 "eth_createAccessList") store config)
+       "eth_createAccessList"))))
 
 (deftest eth-rpc-get-header-by-number
   (labels ((field (object name)
