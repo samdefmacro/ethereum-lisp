@@ -3483,10 +3483,10 @@ splits can land after the Phase A smoke path closes.
   the strategic roadmap.
   - Milestone: documentation maintenance
   - Status: Done/Partial/Missing summary headers are present for Section 4
-    EVM, Section 5 Block Execution, and Section 7 Engine/RPC. The Section 5
-    and Section 7 historical logs have been moved to `docs/status.md`;
-    remaining work is to migrate the Section 4 detailed prose there as well
-    and add concise summary headers to the earlier milestone sections.
+    EVM, Section 5 Block Execution, and Section 7 Engine/RPC. The Section 4,
+    Section 5, and Section 7 historical logs have been moved to
+    `docs/status.md`; remaining work is to add concise summary headers to the
+    earlier milestone sections.
   - Acceptance: every milestone section in `docs/roadmap.md` opens with a
     concise Done/Partial/Missing/Next summary, and detailed historical
     implementation notes are preserved in `docs/status.md` or an equivalent
@@ -3506,6 +3506,10 @@ splits can land after the Phase A smoke path closes.
     only the Section 5 Phase A Done/Partial/Missing summary and the status-log
     pointer, keeping block-execution status aligned with the same split used
     for Engine/RPC.
+  - Progress: moved the detailed Section 4 EVM historical implementation log
+    into `docs/status.md`. Sections 4, 5, and 7 now all keep long-form history
+    in the status log while `docs/roadmap.md` carries only the Phase A summary
+    and status-log pointer for those sections.
 
 ## P1: Txpool Beyond Placeholder
 

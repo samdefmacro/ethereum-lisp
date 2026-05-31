@@ -4,6 +4,117 @@ This file preserves detailed historical implementation notes that were moved out
 of `docs/roadmap.md`. The roadmap should stay strategic; this file can retain
 long-form implementation history when it is still useful for orientation.
 
+## Section 4: EVM
+
+Status: interpreter skeleton implemented for a growing opcode subset. Initial
+gas-limit accounting, 1024-item stack limit enforcement, unsigned and signed
+arithmetic/comparison, EXP, SHA3,
+environment reads, external-code reads, calldata/codecopy, jumpdest analysis,
+storage, transient storage (`TLOAD`/`TSTORE`) with frame rollback, first-pass
+Yellow Paper memory expansion gas for `MLOAD`/`MSTORE`/`MSTORE8`, `SHA3`,
+copy-family opcodes, `MCOPY`, `LOG0`-`LOG4`, `RETURN`, and `REVERT` plus
+CALL-family argument/output ranges and CREATE/CREATE2 initcode ranges, plus
+per-word hash/copy gas and log topic/data gas; active memory size is now
+word-aligned for `MSIZE`, and memory gas is charged before EIP-150 child gas
+clamping. EIP-3855 `PUSH0` base gas, returndata copy, `GAS` remaining-gas
+reporting under supplied execution gas limits, minimal same-state CALL,
+CALLCODE, DELEGATECALL, STATICCALL paths
+with stack-gas forwarding to child frames plus child rollback/read-only
+propagation, first-pass child gas-used charging, and EIP-150 63/64 child gas
+clamping plus value-call stipend, value-transfer, and new-account gas, and
+insufficient-balance value-call failure coverage; self-CALL value transfer now
+preserves the account balance instead of double-applying the value. Minimal CREATE/CREATE2 are
+present with initcode child gas-used charging, 63/64 child gas clamping, and
+runtime code deposit gas charging plus code-deposit out-of-gas and
+EIP-3541-prefixed runtime rejection coverage; successful CREATE/CREATE2 now
+retain initcode logs in parent execution results for receipt/log bloom
+derivation, while reverted initcode discards those child logs; top-level legacy
+contract creation receipts now cover successful initcode logs plus reverted and
+invalid-runtime log discard behavior. Collision failure now consumes the clamped
+child gas under supplied execution gas limits, and creator nonce overflow is
+rejected before incrementing the nonce.
+First-pass SELFDESTRUCT balance transfer/halt behavior is present, including
+the EIP-6780 existing-account self-beneficiary no-op balance case, without
+account deletion or refunds. EVM execution results now carry a first-pass
+refund counter, including EIP-3529 SSTORE nonzero-to-zero clear refunds that
+merge upward only from successful child frames and are discarded on REVERT/error.
+Nested CALL coverage now exercises both successful child refund propagation and
+reverted child refund discard; direct reverted EVM results also clear their
+frame-local refund counter. Same-frame SSTORE nonzero-to-zero-to-nonzero
+recreation now reverses the earlier clear refund at both EVM-result and
+top-level receipt/refund settlement layers, and slots that were originally zero
+but are created and then cleared do not receive an SSTORE clear refund. Dirty
+SSTORE writes that reset a slot back to its original value now receive the
+EIP-3529 reset refund, including original-nonzero clear-then-reset paths and
+original-zero create-then-reset paths. Nested EVM frames now share storage
+original-value tracking so DELEGATECALL/CALLCODE reset-refund accounting uses
+the transaction-level original slot value, and they share/restorably snapshot
+SSTORE clear-refund markers so delegated child writes can reverse parent-frame
+clear refunds without leaking changes across reverted child frames. The first
+EIP-2929 warm/cold storage-access state is present for `SLOAD` and `SSTORE`:
+`SLOAD` charges 2100 gas for the first `(address, slot)` read and 100 gas for
+subsequent warm reads, while `SSTORE` now uses EIP-2200/EIP-2929 dynamic write
+costs with EIP-3529 refunds and shared warm-slot state restored on frame
+`REVERT`/error. Account-access charging is present for `BALANCE`,
+`EXTCODESIZE`, `EXTCODECOPY`, `EXTCODEHASH`, the `CALL` family, and
+`SELFDESTRUCT`: account-reading opcodes charge the 2600 cold account cost on
+first touch and the 100 warm read cost on subsequent touches, while
+`SELFDESTRUCT` charges the full 2600 cold beneficiary access cost only when the
+beneficiary is cold. `SELFDESTRUCT` also charges the 25,000 new-account cost
+when transferring a nonzero balance to an empty beneficiary. Account access
+state is restored on frame `REVERT`/error. Implemented precompile addresses are
+prewarmed in fresh EVM transaction contexts and execution-layer message
+contexts, using `chain-rules` when present so Frontier/Homestead only prewarms
+`0x01`-`0x04`, Byzantium adds `0x05`-`0x08`, Istanbul adds `0x09`, and Cancun
+adds `0x0a`; precompile execution uses the same active-address gates.
+Execution-layer transaction contexts now prewarm the sender, coinbase, and the
+recipient or created contract address. Transaction
+access-list storage keys and addresses now prewarm the EVM storage and account
+access sets for the implemented execution paths. Internal
+`CREATE`/`CREATE2` now also prewarm the computed created address before
+initcode execution and collision handling.
+Cancun blob environment reads
+(`BLOBHASH`/`BLOBBASEFEE`) are present. When an EVM context carries
+`chain-rules`, the first fork-specific opcode gates are enforced:
+`DELEGATECALL` requires Homestead, `RETURNDATASIZE`/`RETURNDATACOPY`, `REVERT`,
+and `STATICCALL` require Byzantium, `SHL`/`SHR`/`SAR`, `EXTCODEHASH`, and
+`CREATE2` require Constantinople, `CHAINID`/`SELFBALANCE` require Istanbul,
+`BASEFEE` requires London, `PUSH0` requires Shanghai, and
+`BLOBHASH`/`BLOBBASEFEE`, `TLOAD`/`TSTORE`, and `MCOPY` require Cancun.
+ECRECOVER, SHA256, RIPEMD160, and
+identity precompiles are reachable through CALL, CALLCODE, DELEGATECALL, and
+STATICCALL with first-pass precompile gas charging and out-of-gas handling;
+ECRECOVER includes geth-vector address recovery plus invalid high-`v` handling.
+MODEXP is present with Berlin/EIP-2565 gas accounting, BN254 `ECADD`/`ECMUL`
+precompiles are present with Istanbul gas costs and invalid-point failure
+coverage, BN254 pairing now covers the empty-input true result and malformed
+input-size failure using Istanbul gas constants, plus non-empty inputs where
+each pair contains a zero/infinity element, explicit non-empty cancellation
+relations, and non-cancelled non-zero inputs that return false instead of a
+precompile failure, including a geth `bn256Pairing.json` two-pair false
+vector; G2 pairing inputs now receive first-pass field-coordinate and
+twist-curve validation for those skipped pairs, with oversized-coordinate and
+off-curve failure coverage. The pairing product decision is factored behind a
+backend function so the current cancellation model can be replaced by a real
+optimal Ate implementation without changing the precompile parsing/gas shell.
+BLAKE2F is present for
+EIP-152 valid and malformed-input paths. The Cancun KZG point-evaluation
+precompile address is now recognized with the fixed 50,000 gas cost, 192-byte
+input length validation, and versioned-hash/commitment mismatch failure
+coverage. The matched versioned-hash path is also covered through the current
+explicit verifier-unavailable failure; actual KZG proof verification remains,
+with required verification paths expected to fail explicitly until the verifier
+lands.
+CREATE/CREATE2 now include
+first-pass EIP-3860 initcode word/hash gas in opcode gas accounting, with
+direct oversized-initcode rejection coverage for both opcodes when Shanghai
+rules are active; before Shanghai, CREATE skips the EIP-3860 word charge and
+CREATE2 keeps only its EIP-1014 hash-cost component. First-pass
+dynamic memory gas is now covered for the currently implemented memory-touching
+opcodes; full CALL-family/create semantics, full non-empty BN254 pairing, KZG
+proof verification and later precompiles, refunds, and fork-specific tables
+remain. CREATE collision handling is covered for nonce/code collisions.
+
 ## Section 5: Block Execution
 
 Status: minimal legacy transfer, contract-creation, recipient-code execution,
