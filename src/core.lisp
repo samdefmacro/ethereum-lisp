@@ -3723,6 +3723,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (cond
       ((not (chain-store-known-block store hash))
        (format nil "forkchoice ~A block is not available" label))
+      ((not (chain-store-state-available-p store hash))
+       (format nil "forkchoice ~A block state is not available" label))
       ((and head-hash
             (not (engine-payload-store-ancestor-p store hash head-hash)))
        (format nil "forkchoice ~A block is not an ancestor of head"

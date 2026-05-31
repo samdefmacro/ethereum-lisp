@@ -6204,6 +6204,39 @@
         (is (= -38002 (field error "code")))
         (is (string= "forkchoice safe block is not available"
                      (field error "message"))))
+      (let* ((unavailable-safe-block
+               (make-block
+                :header
+                (make-block-header
+                 :parent-hash (block-hash finalized-block)
+                 :number 34
+                 :timestamp 34
+                 :gas-limit 30000000)))
+             (head-over-unavailable-safe-block
+               (make-block
+                :header
+                (make-block-header
+                 :parent-hash (block-hash unavailable-safe-block)
+                 :number 35
+                 :timestamp 35
+                 :gas-limit 30000000))))
+        (engine-payload-store-put-block store unavailable-safe-block)
+        (engine-payload-store-put-block
+         store head-over-unavailable-safe-block :state-available-p t)
+        (let* ((response
+                 (engine-rpc-handle-request
+                  (forkchoice-request
+                   38
+                   (forkchoice-state-object
+                    (block-hash head-over-unavailable-safe-block)
+                    :safe (block-hash unavailable-safe-block)))
+                  store
+                  config))
+               (error (field response "error")))
+          (is (= -38002 (field error "code")))
+          (is (string= "forkchoice safe block state is not available"
+                       (field error "message")))
+          (is (eq safe-block (chain-store-safe-block store)))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
