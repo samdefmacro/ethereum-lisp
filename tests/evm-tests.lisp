@@ -1483,6 +1483,106 @@
     (is (bytes= (make-byte-vector 64)
                 (evm-result-return-data result)))))
 
+(defconstant +bn254-pairing-vector-fixture-path+
+  "tests/fixtures/execution-spec-tests/bn254-pairing-vectors.json")
+
+(defparameter +bn254-pairing-vector-fixture-fields+
+  '("format" "source" "referenceClients" "cases"))
+
+(defparameter +bn254-pairing-vector-case-fields+
+  '("name" "input" "expected" "gas"))
+
+(defun bn254-pairing-vector-hex-bytes (value label)
+  (unless (and (stringp value)
+               (<= 2 (length value))
+               (string= "0x" value :end2 2)
+               (string= value (string-downcase value)))
+    (error "~A must be a lowercase 0x-prefixed hex string" label))
+  (hex-to-bytes value))
+
+(defun validate-bn254-pairing-vector-case (case seen-names)
+  (validate-fixture-object-fields
+   case
+   +bn254-pairing-vector-case-fields+
+   "BN254 pairing vector case")
+  (let ((name (fixture-required-field case "name")))
+    (unless (and (stringp name) (plusp (length name)))
+      (error "BN254 pairing vector case name must be a non-empty string"))
+    (when (gethash name seen-names)
+      (error "Duplicate BN254 pairing vector case ~A" name))
+    (setf (gethash name seen-names) t))
+  (let* ((input (bn254-pairing-vector-hex-bytes
+                 (fixture-required-field case "input")
+                 "BN254 pairing vector input"))
+         (expected (bn254-pairing-vector-hex-bytes
+                    (fixture-required-field case "expected")
+                    "BN254 pairing vector expected output"))
+         (gas (fixture-required-field case "gas")))
+    (unless (zerop (mod (length input) 192))
+      (error "BN254 pairing vector input length must be a multiple of 192"))
+    (unless (= 32 (length expected))
+      (error "BN254 pairing vector expected output must be 32 bytes"))
+    (unless (and (integerp gas) (<= 0 gas))
+      (error "BN254 pairing vector gas must be a non-negative integer"))
+    (unless (= gas
+               (+ 45000 (* 34000 (floor (length input) 192))))
+      (error "BN254 pairing vector gas does not match EIP-1108 schedule"))
+    (list :name (fixture-required-field case "name")
+          :input input
+          :expected expected
+          :gas gas)))
+
+(defun load-bn254-pairing-vector-cases
+    (&optional (path +bn254-pairing-vector-fixture-path+))
+  (let ((fixture (load-handwritten-fixture-file path)))
+    (validate-fixture-object-fields
+     fixture
+     +bn254-pairing-vector-fixture-fields+
+     "BN254 pairing vector fixture")
+    (validate-fixture-format fixture "ethereum-lisp-bn254-pairing-vectors-v1")
+    (unless (string= "go-ethereum core/vm/testdata/precompiles/bn256Pairing.json"
+                     (validate-fixture-required-string-field
+                      fixture "source" "BN254 pairing vector fixture"))
+      (error "BN254 pairing vector fixture source is not the geth vector file"))
+    (let ((references (fixture-required-field fixture "referenceClients")))
+      (validate-fixture-object-fields
+       references
+       '("geth" "nethermind")
+       "BN254 pairing vector reference clients")
+      (unless (string= "8a0223e"
+                       (validate-fixture-required-string-field
+                        references "geth" "BN254 pairing vector geth pin"))
+        (error "BN254 pairing vector geth pin drifted"))
+      (unless (string= "1c72a72"
+                       (validate-fixture-required-string-field
+                        references
+                        "nethermind"
+                        "BN254 pairing vector Nethermind pin"))
+        (error "BN254 pairing vector Nethermind pin drifted")))
+    (let ((cases (fixture-required-field fixture "cases")))
+      (unless (and (listp cases) (plusp (length cases)))
+        (error "BN254 pairing vector fixture cases must be a non-empty list"))
+      (let ((seen-names (make-hash-table :test 'equal)))
+        (mapcar (lambda (case)
+                  (validate-bn254-pairing-vector-case case seen-names))
+                cases)))))
+
+(deftest bn254-pairing-reference-fixture-vectors
+  (let ((cases (load-bn254-pairing-vector-cases))
+        (seen-true-p nil)
+        (seen-false-p nil))
+    (dolist (case cases)
+      (multiple-value-bind (output gas)
+          (ethereum-lisp.evm::run-bn254-pairing-precompile
+           (getf case :input))
+        (is (= (getf case :gas) gas))
+        (is (bytes= (getf case :expected) output))
+        (if (= 1 (aref output 31))
+            (setf seen-true-p t)
+            (setf seen-false-p t))))
+    (is seen-true-p)
+    (is seen-false-p)))
+
 (deftest evm-call-bn254-pairing-empty-zero-element-and-malformed-input
   (labels ((pairing-code (input)
              (concat-bytes

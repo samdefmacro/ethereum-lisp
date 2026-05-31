@@ -3555,6 +3555,13 @@ splits can land after the Phase A smoke path closes.
     point parsing, zero-pair skipping, gas accounting, and output encoding; the
     remaining work is now isolated to replacing the backend with a real
     library-backed optimal Ate pairing check plus subgroup validation.
+  - Progress: added a table-driven geth `bn256Pairing.json` fixture runner
+    pinned to geth `8a0223e` and Nethermind `1c72a72`, covering empty input,
+    single-pair false output, two-pair cancellation true output, and the
+    external `jeff6` false vector. This keeps future pairing coverage aligned
+    with reference-client vector files instead of expanding ad hoc one-off
+    assertions; full arbitrary true vectors still require the real optimal Ate
+    backend.
 
 - [ ] Integrate real KZG proof verification.
   - Milestone: 1 / 4 / 5
