@@ -2444,6 +2444,10 @@ splits can land after the Phase A smoke path closes.
     matching selected secureTrie account steps. The state-root and EEST-style
     gates now require the geth-derived account-RLP sequence before and after
     the branch transition, not only the final three-account root.
+    Extended explicit `expectedEntryPairs` export/rebuild assertions to the
+    one- and two-account geth TinyTrie steps on both plain and secure-key
+    seed paths, and added a gate requiring the full geth-derived account
+    progression to keep fixture-pinned entry-pair order and values.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

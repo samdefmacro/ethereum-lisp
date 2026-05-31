@@ -252,6 +252,14 @@
     ("geth-secure-account-step-3" . :secure)
     ("geth-secure-delete-sequence" . :secure)))
 
+(defparameter +trie-fixture-entry-pair-reference-case-names+
+  '("geth-tiny-account-step-1"
+    "geth-tiny-account-step-2"
+    "geth-tiny-account-step-3"
+    "geth-secure-account-step-1"
+    "geth-secure-account-step-2"
+    "geth-secure-account-step-3"))
+
 (defparameter +phase-a-eest-trie-reference-case-requirements+
   '(("phase-a-trie-multi.json/geth-long-leaf-value" . :plain)
     ("phase-a-trie-multi.json/geth-large-value-branch" . :plain)
@@ -1068,11 +1076,44 @@
                    label
                    name)))))))
 
+(defun validate-trie-fixture-entry-pair-reference-cases
+    (cases names label)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-names (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name names)
+      (when (gethash name seen-names)
+        (error "~A entry-pair reference list has duplicate name ~A"
+               label
+               name))
+      (setf (gethash name seen-names) t)
+      (let ((case (gethash name case-by-name)))
+        (unless case
+          (error "~A is missing entry-pair reference case ~A"
+                 label
+                 name))
+        (unless (member "entry-pair-replay"
+                        (fixture-object-field case "tags")
+                        :test #'string=)
+          (error "~A reference-derived trie case ~A must include entry-pair replay"
+                 label
+                 name))
+        (unless (fixture-object-field case "expectedEntryPairs")
+          (error "~A reference-derived trie case ~A must include expectedEntryPairs"
+                 label
+                 name))))))
+
 (defun validate-trie-fixture-cases (cases)
   (validate-trie-fixture-case-coverage cases)
   (validate-trie-reference-case-requirements
    cases
    +trie-fixture-reference-case-requirements+
+   "Seed trie fixture")
+  (validate-trie-fixture-entry-pair-reference-cases
+   cases
+   +trie-fixture-entry-pair-reference-case-names+
    "Seed trie fixture")
   (dolist (case cases)
     (validate-trie-fixture-case-shape case)))
@@ -3882,6 +3923,28 @@
        cases
        '(("geth-long-leaf-value" . :plain)
          ("geth-long-leaf-value" . :plain))
+       "Seed trie fixture"))
+    (validate-trie-fixture-entry-pair-reference-cases
+     cases
+     +trie-fixture-entry-pair-reference-case-names+
+     "Seed trie fixture")
+    (signals error
+      (validate-trie-fixture-entry-pair-reference-cases
+       (mapcar (lambda (case)
+                 (if (string= "geth-secure-account-step-1"
+                              (fixture-object-field case "name"))
+                     (remove "expectedEntryPairs"
+                             case
+                             :key #'car
+                             :test #'string=)
+                     case))
+               cases)
+       '("geth-secure-account-step-1")
+       "Seed trie fixture"))
+    (signals error
+      (validate-trie-fixture-entry-pair-reference-cases
+       cases
+       '("geth-tiny-account-step-1" "geth-tiny-account-step-1")
        "Seed trie fixture"))))
 
 (deftest optional-eest-trie-test-root-discovery
