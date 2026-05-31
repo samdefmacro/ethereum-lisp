@@ -16,6 +16,10 @@
 (defparameter +eest-blockchain-standard-block-fields+
   '("rlp" "blockHeader" "expectException" "uncleHeaders"))
 
+(defparameter +phase-a-eest-blockchain-replay-materialization-kinds+
+  '(("shanghai/phase-a-empty-engine.json" . "engineNewPayloadV2")
+    ("shanghai/phase-a-empty-standard.json" . "blockRlp")))
+
 (defun eest-blockchain-test-root-json-paths (root)
   (execution-spec-tests-root-json-paths root "EEST blockchain test"))
 
@@ -84,6 +88,117 @@
          append (load-eest-blockchain-test-root-file-cases root path))
    names
    "EEST blockchain test"))
+
+(defun eest-blockchain-replay-materialization-kind (case)
+  (let ((fixture (fixture-required-field case "fixture")))
+    (cond
+      ((fixture-field-present-p fixture "engineNewPayloadV2")
+       "engineNewPayloadV2")
+      ((let ((blocks (fixture-object-field fixture "blocks")))
+         (and (listp blocks)
+              blocks
+              (fixture-field-present-p (first blocks) "rlp")))
+       "blockRlp")
+      (t
+       "unsupported"))))
+
+(defun eest-blockchain-count-by-string (values)
+  (let ((counts (make-hash-table :test 'equal)))
+    (dolist (value values)
+      (unless (stringp value)
+        (error "EEST blockchain replay summary value must be a string"))
+      (incf (gethash value counts 0)))
+    (sort
+     (loop for key being the hash-keys of counts
+           using (hash-value count)
+           collect (cons key count))
+     #'string<
+     :key #'car)))
+
+(defun eest-blockchain-replay-block-count (case)
+  (let ((blocks (fixture-object-field
+                 (fixture-required-field case "fixture")
+                 "blocks")))
+    (unless (listp blocks)
+      (error "EEST blockchain replay case ~A blocks must be a JSON array"
+             (fixture-required-field case "name")))
+    (length blocks)))
+
+(defun eest-blockchain-replay-case-summary (cases)
+  (list (cons "count" (length cases))
+        (cons "names" (mapcar (lambda (case)
+                                (fixture-required-field case "name"))
+                              cases))
+        (cons "networkCounts"
+              (eest-blockchain-count-by-string
+               (mapcar (lambda (case)
+                         (fixture-required-field
+                          (fixture-required-field case "fixture")
+                          "network"))
+                       cases)))
+        (cons "materializationKindCounts"
+              (eest-blockchain-count-by-string
+               (mapcar #'eest-blockchain-replay-materialization-kind cases)))
+        (cons "blockCount"
+              (loop for case in cases
+                    sum (eest-blockchain-replay-block-count case)))))
+
+(defun validate-phase-a-eest-blockchain-replay-summary
+    (cases &key
+           (expected-kinds
+            +phase-a-eest-blockchain-replay-materialization-kinds+))
+  (validate-eest-blockchain-selector-list (mapcar #'car expected-kinds))
+  (unless (and (listp cases) cases)
+    (error "Phase A EEST blockchain replay cases must be a non-empty list"))
+  (let* ((summary (eest-blockchain-replay-case-summary cases))
+         (count (fixture-required-field summary "count"))
+         (names (fixture-required-field summary "names"))
+         (network-counts (fixture-required-field summary "networkCounts"))
+         (kind-counts
+           (fixture-required-field summary "materializationKindCounts"))
+         (block-count (fixture-required-field summary "blockCount")))
+    (unless (= count (length expected-kinds))
+      (error "Phase A EEST blockchain replay selector count ~A loaded ~A cases"
+             (length expected-kinds)
+             count))
+    (unless (equal names (mapcar #'car expected-kinds))
+      (error "Phase A EEST blockchain replay names ~S do not match selectors ~S"
+             names
+             (mapcar #'car expected-kinds)))
+    (dolist (expected expected-kinds)
+      (let* ((name (car expected))
+             (kind (cdr expected))
+             (case (find name cases
+                         :key (lambda (entry)
+                                (fixture-required-field entry "name"))
+                         :test #'string=)))
+        (unless case
+          (error "Phase A EEST blockchain replay selector ~A was not loaded"
+                 name))
+        (unless (string= kind (eest-blockchain-replay-materialization-kind case))
+          (error "Phase A EEST blockchain replay selector ~A expected ~A but found ~A"
+                 name
+                 kind
+                 (eest-blockchain-replay-materialization-kind case)))))
+    (unless (= count (or (fixture-object-field network-counts "Shanghai") 0))
+      (error "Phase A EEST blockchain replay must load only Shanghai cases"))
+    (unless (plusp (or (fixture-object-field kind-counts "engineNewPayloadV2")
+                       0))
+      (error "Phase A EEST blockchain replay is missing embedded Engine coverage"))
+    (unless (plusp (or (fixture-object-field kind-counts "blockRlp") 0))
+      (error "Phase A EEST blockchain replay is missing standard block RLP coverage"))
+    (unless (plusp block-count)
+      (error "Phase A EEST blockchain replay is missing decoded block coverage"))
+    summary))
+
+(defun load-phase-a-eest-blockchain-replay-cases (root)
+  (let ((cases (load-eest-blockchain-test-root-cases
+                root
+                :names (mapcar
+                        #'car
+                        +phase-a-eest-blockchain-replay-materialization-kinds+))))
+    (validate-phase-a-eest-blockchain-replay-summary cases)
+    cases))
 
 (defun report-eest-blockchain-test-root-case (case)
   (let ((fixture (fixture-required-field case "fixture")))
@@ -428,6 +543,9 @@
   (let* ((root (execution-spec-tests-blockchain-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
          (cases (load-eest-blockchain-test-root-cases root))
+         (phase-a-cases (load-phase-a-eest-blockchain-replay-cases root))
+         (summary
+           (validate-phase-a-eest-blockchain-replay-summary phase-a-cases))
          (selected (load-eest-blockchain-test-root-cases
                     root
                     :names '("shanghai/phase-a-empty-engine.json")))
@@ -437,6 +555,21 @@
                      :names '("shanghai/phase-a-empty-standard.json"))))
          (report (report-eest-blockchain-test-root-case (first selected))))
     (is (= 2 (length cases)))
+    (is (= 2 (length phase-a-cases)))
+    (is (= 2 (fixture-object-field summary "count")))
+    (is (equal '("shanghai/phase-a-empty-engine.json"
+                 "shanghai/phase-a-empty-standard.json")
+               (fixture-object-field summary "names")))
+    (is (= 1 (fixture-object-field
+              (fixture-object-field summary "materializationKindCounts")
+              "engineNewPayloadV2")))
+    (is (= 1 (fixture-object-field
+              (fixture-object-field summary "materializationKindCounts")
+              "blockRlp")))
+    (is (= 2 (fixture-object-field
+              (fixture-object-field summary "networkCounts")
+              "Shanghai")))
+    (is (= 1 (fixture-object-field summary "blockCount")))
     (is (= 1 (length selected)))
     (is (string= "shanghai/phase-a-empty-engine.json"
                  (fixture-object-field report "name")))
@@ -478,4 +611,21 @@
          "shanghai/phase-a-empty-engine.json")))
     (signals error
       (validate-eest-blockchain-selector-list
-       '("phase-a-empty-engine.json/case/extra")))))
+       '("phase-a-empty-engine.json/case/extra")))
+    (signals error
+      (validate-phase-a-eest-blockchain-replay-summary nil))
+    (signals error
+      (validate-phase-a-eest-blockchain-replay-summary
+       (list (first phase-a-cases))))
+    (signals error
+      (validate-phase-a-eest-blockchain-replay-summary
+       phase-a-cases
+       :expected-kinds
+       '(("shanghai/phase-a-empty-engine.json" . "blockRlp")
+         ("shanghai/phase-a-empty-standard.json" . "engineNewPayloadV2"))))
+    (let* ((bad-case (copy-tree (first phase-a-cases)))
+           (bad-fixture (fixture-required-field bad-case "fixture")))
+      (setf (cdr (assoc "network" bad-fixture :test #'string=)) "Cancun")
+      (signals error
+        (validate-phase-a-eest-blockchain-replay-summary
+         (list bad-case (second phase-a-cases)))))))

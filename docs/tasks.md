@@ -249,6 +249,12 @@ ones.
     `engineNewPayloadV2` seed. Remaining work is to broaden this from the empty
     in-repo standard sample to pinned upstream selectors with richer block
     bodies and expected post-state comparison.
+  - Progress: added a Phase A replay selector and coverage gate instead of
+    another hand-written block case. The blockchain harness now requires the
+    selected replay set to match the expected source-style selectors, load only
+    Shanghai cases, include both embedded `engineNewPayloadV2` and standard
+    `blocks[].rlp` materialization paths, and include decoded block coverage
+    before the selected root can be treated as the Phase A replay set.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
