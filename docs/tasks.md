@@ -3470,6 +3470,22 @@ splits can land after the Phase A smoke path closes.
     `TransactionException.INTRINSIC_GAS_TOO_LOW` post entry to lock the
     upstream expected-exception boundary.
 
+- [x] Replay a Shanghai EEST `state_tests` fork boundary.
+  - Milestone: 4 / 8
+  - Dependencies: selector-driven Phase A EEST `state_tests` replay.
+  - References: Ethereum execution-spec-tests GeneralStateTest format, EIP-3855
+    PUSH0 activation, geth/Nethermind state-test fork dispatch shape.
+  - Acceptance: Phase A `state_tests` selector discovery includes a Shanghai
+    upstream-shaped case, summary gates accept only supported forks, and replay
+    builds fork-specific chain rules before checking post-state root/logs.
+  - Validation: `scripts/list-state-test-selectors.lisp` against the in-repo
+    EEST-shaped root plus `sbcl --script tests/run-tests.lisp`.
+  - Result: added an in-repo Shanghai GeneralStateTest-shaped PUSH0 vector and
+    changed default Phase A state-test replay from London-only to
+    London/Shanghai-supported fork dispatch. The replay now derives chain rules
+    from the post fork and asserts the Shanghai state root through the same
+    selector-gated path as legacy/access-list/dynamic-fee London cases.
+
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
   - References: geth `core/vm`, Nethermind EVM, revm behavior.

@@ -580,23 +580,29 @@
 (defun eest-state-test-expected-exception (post-entry)
   (fixture-object-field post-entry "expectException"))
 
-(defun execute-eest-state-test-post-entry (case post-entry)
+(defun eest-state-test-chain-rules (fork)
+  (unless (member fork '("London" "Shanghai") :test #'string=)
+    (error "Unsupported EEST state test fork ~A" fork))
+  (make-chain-rules :chain-id 1
+                    :homestead-p t
+                    :eip150-p t
+                    :eip155-p t
+                    :eip158-p t
+                    :byzantium-p t
+                    :constantinople-p t
+                    :petersburg-p t
+                    :istanbul-p t
+                    :berlin-p t
+                    :london-p t
+                    :shanghai-p (string= fork "Shanghai")))
+
+(defun execute-eest-state-test-post-entry (case post-entry &key (fork "London"))
   (let* ((fixture (fixture-required-field case "fixture"))
          (env (fixture-required-field fixture "env"))
          (state (make-state-db))
          (sender (eest-state-test-sender case))
          (tx (eest-state-test-transaction case post-entry))
-         (rules (make-chain-rules :chain-id 1
-                                  :homestead-p t
-                                  :eip150-p t
-                                  :eip155-p t
-                                  :eip158-p t
-                                  :byzantium-p t
-                                  :constantinople-p t
-                                  :petersburg-p t
-                                  :istanbul-p t
-                                  :berlin-p t
-                                  :london-p t)))
+         (rules (eest-state-test-chain-rules fork)))
     (dolist (entry (fixture-required-field fixture "pre"))
       (apply-evm-state-fixture-account state (car entry) (cdr entry)))
     (let ((snapshot (state-db-copy state)))
@@ -628,11 +634,12 @@
 (defun execute-eest-state-test-case (case &key (fork "London"))
   (execute-eest-state-test-post-entry
    case
-   (first (eest-state-test-post-entries case fork))))
+   (first (eest-state-test-post-entries case fork))
+   :fork fork))
 
-(defun assert-eest-state-test-post-entry (case post-entry)
+(defun assert-eest-state-test-post-entry (case post-entry &key (fork "London"))
   (multiple-value-bind (state receipt post-entry condition)
-      (execute-eest-state-test-post-entry case post-entry)
+      (execute-eest-state-test-post-entry case post-entry :fork fork)
     (let ((expected-exception
             (eest-state-test-expected-exception post-entry)))
       (if expected-exception
@@ -649,9 +656,12 @@
                           (eest-state-test-logs-hash
                            (receipt-logs receipt))))))))))
 
-(defun assert-eest-state-test-case (case &key (fork "London"))
-  (dolist (post-entry (eest-state-test-post-entries case fork))
-    (assert-eest-state-test-post-entry case post-entry)))
+(defun assert-eest-state-test-case (case &key fork)
+  (dolist (fork (if fork
+                    (list fork)
+                    (eest-state-test-case-fork-names case)))
+    (dolist (post-entry (eest-state-test-post-entries case fork))
+      (assert-eest-state-test-post-entry case post-entry :fork fork))))
 
 (defun assert-evm-state-fixture-account (state address-hex expected)
   (let* ((address (address-from-hex address-hex))

@@ -43,7 +43,11 @@
 (defparameter +phase-a-eest-state-test-case-names+
   '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample"
     "london/phase-a-state-sample.json/phase_a_london_dynamic_fee_state_sample"
-    "london/phase-a-state-sample.json/phase_a_london_state_sample"))
+    "london/phase-a-state-sample.json/phase_a_london_state_sample"
+    "shanghai/phase-a-state-sample.json"))
+
+(defparameter +phase-a-eest-state-test-supported-forks+
+  '("London" "Shanghai"))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
@@ -250,8 +254,9 @@
 
 (defun phase-a-eest-state-materializable-case-p (case)
   (handler-case
-      (and (member "London" (eest-state-test-case-fork-names case)
-                   :test #'string=)
+      (and (intersection +phase-a-eest-state-test-supported-forks+
+                         (eest-state-test-case-fork-names case)
+                         :test #'string=)
            (plusp (eest-state-test-transaction-combination-count case)))
     (error () nil)))
 
@@ -350,7 +355,6 @@
   (let* ((summary (eest-state-test-root-summary cases))
          (count (fixture-required-field summary "count"))
          (names (fixture-required-field summary "names"))
-         (fork-counts (fixture-required-field summary "forkCounts"))
          (combination-count
            (fixture-required-field summary "transactionCombinationCount")))
     (unless (= count (length expected-names))
@@ -361,8 +365,12 @@
       (error "Phase A EEST state_tests names ~S do not match selectors ~S"
              names
              expected-names))
-    (unless (= count (or (fixture-object-field fork-counts "London") 0))
-      (error "Phase A EEST state_tests replay currently supports only London cases"))
+    (dolist (case cases)
+      (unless (intersection +phase-a-eest-state-test-supported-forks+
+                            (eest-state-test-case-fork-names case)
+                            :test #'string=)
+        (error "Phase A EEST state_tests case ~A has no supported fork"
+               (fixture-required-field case "name"))))
     (unless (plusp combination-count)
       (error "Phase A EEST state_tests replay must include transaction combinations"))
     summary))
@@ -1171,8 +1179,9 @@
   (let* ((root (execution-spec-tests-state-test-root
                 "tests/fixtures/execution-spec-tests-root/"))
          (paths (eest-state-test-root-json-paths root)))
-    (is (= 1 (length paths)))
-    (is (equal '("london/phase-a-state-sample.json")
+    (is (= 2 (length paths)))
+    (is (equal '("london/phase-a-state-sample.json"
+                 "shanghai/phase-a-state-sample.json")
                (eest-state-test-root-file-names root)))))
 
 (deftest eest-state-test-root-json-discovery-rejects-empty-roots
@@ -1194,15 +1203,18 @@
            (validate-phase-a-eest-state-test-summary phase-a-cases))
          (summary (eest-state-test-root-summary cases))
          (report (report-eest-state-test-root-case (first selected))))
-    (is (= 4 (length cases)))
+    (is (= 5 (length cases)))
     (is (equal +phase-a-eest-state-test-case-names+ selectors))
     (is (equal +phase-a-eest-state-test-case-names+
                (fixture-object-field phase-a-summary "names")))
-    (is (= 4 (fixture-object-field summary "count")))
+    (is (= 5 (fixture-object-field summary "count")))
     (is (= 3 (fixture-object-field
               (fixture-object-field summary "forkCounts")
               "London")))
-    (is (= 7 (fixture-object-field summary "transactionCombinationCount")))
+    (is (= 1 (fixture-object-field
+              (fixture-object-field summary "forkCounts")
+              "Shanghai")))
+    (is (= 8 (fixture-object-field summary "transactionCombinationCount")))
     (is (equal '("London") (fixture-object-field report "forks")))
     (is (= 4 (fixture-object-field report "transactionCombinations")))
     (signals error
