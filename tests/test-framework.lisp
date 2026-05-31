@@ -17,6 +17,10 @@
    #:execution-spec-tests-json-paths
    #:execution-spec-tests-root-json-paths
    #:execution-spec-tests-root-file-names
+   #:execution-spec-tests-root-case-name
+   #:execution-spec-tests-source-style-name-p
+   #:validate-execution-spec-tests-selector-list
+   #:filter-execution-spec-tests-root-cases
    #:with-execution-spec-tests-fixture-root
    #:with-execution-spec-tests-blockchain-test-root
    #:with-execution-spec-tests-transaction-test-root
@@ -185,6 +189,84 @@
   (mapcar (lambda (path)
             (enough-namestring (truename path) (truename root)))
           (execution-spec-tests-root-json-paths root label)))
+
+(defun execution-spec-tests-root-case-name (root path key singleton-p)
+  (let ((relative (enough-namestring (truename path) (truename root))))
+    (if singleton-p
+        relative
+        (format nil "~A/~A" relative key))))
+
+(defun execution-spec-tests-source-style-name-p
+    (name &key allow-nested-case-name)
+  (and (stringp name)
+       (not (blank-string-p name))
+       (not (char= (char name 0) #\/))
+       (null (search ".." name))
+       (null (search "//" name))
+       (let* ((json-position (search ".json" name :test #'char-equal))
+              (after-json (and json-position (+ json-position 5))))
+         (and json-position
+              (plusp json-position)
+              (not (char= (char name (1- json-position)) #\/))
+              (or (= after-json (length name))
+                  (and (< after-json (length name))
+                       (char= (char name after-json) #\/)
+                       (< (1+ after-json) (length name))
+                       (not (char= (char name (1+ after-json)) #\/))
+                       (or allow-nested-case-name
+                           (null (position #\/ name
+                                           :start (1+ after-json))))))))))
+
+(defun validate-execution-spec-tests-selector-list
+    (names label &key allow-nested-case-name)
+  (unless (listp names)
+    (error "~A selector list must be a list" label))
+  (unless names
+    (error "~A selector list must not be empty" label))
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (name names)
+      (unless (stringp name)
+        (error "~A selector name must be a string" label))
+      (when (blank-string-p name)
+        (error "~A selector name must be present" label))
+      (unless (execution-spec-tests-source-style-name-p
+               name
+               :allow-nested-case-name allow-nested-case-name)
+        (error "~A selector ~A must be a source-style JSON case name"
+               label name))
+      (when (gethash name seen)
+        (error "~A selector list has duplicate name ~A" label name))
+      (setf (gethash name seen) t))))
+
+(defun filter-execution-spec-tests-root-cases
+    (cases names label &key (selector-order-p t))
+  (let ((case-index (make-hash-table :test 'equal)))
+    (dolist (case cases)
+      (let ((name (fixture-required-field case "name")))
+        (when (gethash name case-index)
+          (error "~A root has duplicate case name ~A" label name))
+        (setf (gethash name case-index) case)))
+    (if names
+        (if selector-order-p
+            (mapcar
+             (lambda (name)
+               (or (gethash name case-index)
+                   (error "~A selector ~A did not match any loaded case"
+                          label name)))
+             names)
+            (let ((selected nil)
+                  (seen (make-hash-table :test 'equal)))
+              (dolist (case cases)
+                (let ((name (fixture-required-field case "name")))
+                  (when (member name names :test #'string=)
+                    (push case selected)
+                    (setf (gethash name seen) t))))
+              (dolist (name names)
+                (unless (gethash name seen)
+                  (error "~A selector ~A did not match any loaded case"
+                         label name)))
+              (nreverse selected)))
+        cases)))
 
 (defun execution-spec-tests-blockchain-test-root (&optional root)
   (let ((base (or root (execution-spec-tests-fixture-root))))

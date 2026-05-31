@@ -2334,10 +2334,7 @@
   (not (null (search "secureTrie" (namestring path) :test #'char-equal))))
 
 (defun eest-trie-root-case-name (root path key singleton-p)
-  (let ((relative (enough-namestring (truename path) (truename root))))
-    (if singleton-p
-        relative
-        (format nil "~A/~A" relative key))))
+  (execution-spec-tests-root-case-name root path key singleton-p))
 
 (defun load-eest-trie-test-root-file-cases (root path)
   (let ((cases (load-handwritten-fixture-file path)))
@@ -2355,58 +2352,17 @@
        entries))))
 
 (defun filter-eest-trie-test-root-cases (cases names)
-  (if names
-      (let ((selected nil)
-            (seen (make-hash-table :test 'equal)))
-        (dolist (case cases)
-          (let ((name (fixture-object-field case "name")))
-            (when (member name names :test #'string=)
-              (push case selected)
-              (setf (gethash name seen) t))))
-        (dolist (name names)
-          (unless (gethash name seen)
-            (error "EEST trie selector ~A did not match any loaded case"
-                   name)))
-        (nreverse selected))
-      cases))
+  (filter-execution-spec-tests-root-cases
+   cases
+   names
+   "EEST trie test"
+   :selector-order-p nil))
 
 (defun validate-eest-trie-selector-list (names)
-  (unless (listp names)
-    (error "EEST trie selector list must be a list"))
-  (unless names
-    (error "EEST trie selector list must not be empty"))
-  (let ((seen (make-hash-table :test 'equal)))
-    (dolist (name names)
-      (unless (stringp name)
-        (error "EEST trie selector name must be a string"))
-      (when (blank-string-p name)
-        (error "EEST trie selector name must be present"))
-      (unless (eest-trie-selector-source-style-p name)
-        (error "EEST trie selector ~A must be a source-style JSON case name"
-               name))
-      (when (gethash name seen)
-        (error "EEST trie selector list has duplicate name ~A"
-               name))
-      (setf (gethash name seen) t))))
+  (validate-execution-spec-tests-selector-list names "EEST trie"))
 
 (defun eest-trie-selector-source-style-p (name)
-  (and (stringp name)
-       (not (blank-string-p name))
-       (not (char= (char name 0) #\/))
-       (null (search ".." name))
-       (null (search "//" name))
-       (let* ((json-position (search ".json" name :test #'char-equal))
-              (after-json (and json-position (+ json-position 5))))
-         (and json-position
-              (plusp json-position)
-              (not (char= (char name (1- json-position)) #\/))
-              (or (= after-json (length name))
-                  (and (< after-json (length name))
-                       (char= (char name after-json) #\/)
-                       (< (1+ after-json) (length name))
-                       (not (char= (char name (1+ after-json)) #\/))
-                       (null (position #\/ name
-                                       :start (1+ after-json)))))))))
+  (execution-spec-tests-source-style-name-p name))
 
 (defun validate-eest-trie-test-root-case-names (cases)
   (let ((seen (make-hash-table :test 'equal)))

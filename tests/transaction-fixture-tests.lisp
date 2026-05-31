@@ -933,10 +933,7 @@
   (execution-spec-tests-json-paths root))
 
 (defun eest-transaction-root-case-name (root path key singleton-p)
-  (let ((relative (enough-namestring (truename path) (truename root))))
-    (if singleton-p
-        relative
-        (format nil "~A/~A" relative key))))
+  (execution-spec-tests-root-case-name root path key singleton-p))
 
 (defun load-eest-transaction-test-root-file-cases (root path)
   (let ((cases (load-handwritten-fixture-file path)))
@@ -981,40 +978,15 @@
         cases)))
 
 (defun validate-eest-transaction-selector-list (names)
-  (unless (listp names)
-    (error "EEST transaction selector list must be a list"))
-  (unless names
-    (error "EEST transaction selector list must not be empty"))
-  (let ((seen (make-hash-table :test 'equal)))
-    (dolist (name names)
-      (unless (stringp name)
-        (error "EEST transaction selector name must be a string"))
-      (when (blank-string-p name)
-        (error "EEST transaction selector name must be present"))
-      (unless (eest-transaction-selector-source-style-p name)
-        (error "EEST transaction selector ~A must be a source-style JSON case name"
-               name))
-      (when (gethash name seen)
-        (error "EEST transaction selector list has duplicate name ~A"
-               name))
-      (setf (gethash name seen) t))))
+  (validate-execution-spec-tests-selector-list
+   names
+   "EEST transaction"
+   :allow-nested-case-name t))
 
 (defun eest-transaction-selector-source-style-p (name)
-  (and (stringp name)
-       (not (blank-string-p name))
-       (not (char= (char name 0) #\/))
-       (null (search ".." name))
-       (null (search "//" name))
-       (let* ((json-position (search ".json" name :test #'char-equal))
-              (after-json (and json-position (+ json-position 5))))
-         (and json-position
-              (plusp json-position)
-              (not (char= (char name (1- json-position)) #\/))
-              (or (= after-json (length name))
-                  (and (< after-json (length name))
-                       (char= (char name after-json) #\/)
-                       (< (1+ after-json) (length name))
-                       (not (char= (char name (1+ after-json)) #\/))))))))
+  (execution-spec-tests-source-style-name-p
+   name
+   :allow-nested-case-name t))
 
 (defun load-eest-transaction-test-root-cases (root &key names)
   (when names

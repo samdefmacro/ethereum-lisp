@@ -164,7 +164,12 @@ fixes in those areas are allowed; expansion is not.
   reference gate list feeds the generic validators for required modes,
   explicit output maps, intermediate roots, entry-pair exports, proof nodes,
   and ranges, matching the reference-client pattern of fixture tables plus
-  shared runners instead of scattered one-off validation calls.
+  shared runners instead of scattered one-off validation calls. The same
+  harness direction now covers blockchain fixture roots: discovered
+  `blockchain_tests_engine` JSON files can be loaded into source-style named
+  cases, selected by name, and reported with basic metadata before the next
+  slice materializes a bounded pinned Shanghai blockchain case into the Engine
+  import fixture path.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the

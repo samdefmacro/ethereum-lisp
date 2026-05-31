@@ -9,6 +9,76 @@
 (defun eest-blockchain-test-root-file-names (root)
   (execution-spec-tests-root-file-names root "EEST blockchain test"))
 
+(defun validate-eest-blockchain-test-file-entries (cases source)
+  (unless (listp cases)
+    (error "EEST blockchain test file must be a JSON object"))
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (entry cases)
+      (let ((name (car entry))
+            (case (cdr entry)))
+        (unless (stringp name)
+          (error "EEST blockchain test case name in ~A must be a string"
+                 source))
+        (when (blank-string-p name)
+          (error "EEST blockchain test case name in ~A must be present"
+                 source))
+        (when (gethash name seen)
+          (error "EEST blockchain test file ~A has duplicate case name ~A"
+                 source name))
+        (unless (listp case)
+          (error "EEST blockchain test case ~A must be a JSON object"
+                 name))
+        (setf (gethash name seen) t)))))
+
+(defun normalize-eest-blockchain-test-case (name case)
+  (list (cons "name" name)
+        (cons "fixture" case)))
+
+(defun eest-blockchain-root-case-name (root path key singleton-p)
+  (execution-spec-tests-root-case-name root path key singleton-p))
+
+(defun load-eest-blockchain-test-root-file-cases (root path)
+  (let* ((cases (load-handwritten-fixture-file path))
+         (source (enough-namestring (truename path) (truename root))))
+    (validate-eest-blockchain-test-file-entries cases source)
+    (let* ((entries (sort (copy-list cases) #'string< :key #'car))
+           (singleton-p (= 1 (length entries))))
+      (mapcar
+       (lambda (entry)
+         (let ((source-name
+                 (eest-blockchain-root-case-name
+                  root
+                  path
+                  (car entry)
+                  singleton-p)))
+           (unless (eest-blockchain-selector-source-style-p source-name)
+             (error "EEST blockchain source name ~A must be source-style"
+                    source-name))
+           (normalize-eest-blockchain-test-case source-name (cdr entry))))
+       entries))))
+
+(defun validate-eest-blockchain-selector-list (names)
+  (validate-execution-spec-tests-selector-list names "EEST blockchain"))
+
+(defun eest-blockchain-selector-source-style-p (name)
+  (execution-spec-tests-source-style-name-p name))
+
+(defun load-eest-blockchain-test-root-cases (root &key names)
+  (when names
+    (validate-eest-blockchain-selector-list names))
+  (filter-execution-spec-tests-root-cases
+   (loop for path in (eest-blockchain-test-root-json-paths root)
+         append (load-eest-blockchain-test-root-file-cases root path))
+   names
+   "EEST blockchain test"))
+
+(defun report-eest-blockchain-test-root-case (case)
+  (let ((fixture (fixture-required-field case "fixture")))
+    (list (cons "name" (fixture-required-field case "name"))
+          (cons "format" (fixture-object-field fixture "fixture-format"))
+          (cons "network" (fixture-object-field fixture "network"))
+          (cons "blocks" (length (fixture-object-field fixture "blocks"))))))
+
 (defun load-handwritten-fixture-file (path)
   (parse-json (fixture-file-string path)))
 
@@ -74,3 +144,30 @@
                "tests/fixtures/geth-spec-tests-root/")))
     (signals error
       (eest-blockchain-test-root-json-paths root))))
+
+(deftest eest-blockchain-test-root-case-loading
+  (let* ((root (execution-spec-tests-blockchain-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (cases (load-eest-blockchain-test-root-cases root))
+         (selected (load-eest-blockchain-test-root-cases
+                    root
+                    :names '("shanghai/phase-a-empty-engine.json")))
+         (report (report-eest-blockchain-test-root-case (first selected))))
+    (is (= 1 (length cases)))
+    (is (= 1 (length selected)))
+    (is (string= "shanghai/phase-a-empty-engine.json"
+                 (fixture-object-field report "name")))
+    (is (string= "blockchain_test" (fixture-object-field report "format")))
+    (is (string= "Shanghai" (fixture-object-field report "network")))
+    (is (= 0 (fixture-object-field report "blocks")))
+    (signals error
+      (load-eest-blockchain-test-root-cases
+       root
+       :names '("missing.json")))
+    (signals error
+      (validate-eest-blockchain-selector-list
+       '("shanghai/phase-a-empty-engine.json"
+         "shanghai/phase-a-empty-engine.json")))
+    (signals error
+      (validate-eest-blockchain-selector-list
+       '("phase-a-empty-engine.json/case/extra")))))

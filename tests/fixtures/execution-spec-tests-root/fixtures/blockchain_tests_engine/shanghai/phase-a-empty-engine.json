@@ -1,4 +1,7 @@
 {
-  "format": "ethereum-lisp/eest-blockchain-discovery-sample-v1",
-  "source": "fixture discovery only"
+  "phase-a-empty-engine": {
+    "fixture-format": "blockchain_test",
+    "network": "Shanghai",
+    "blocks": []
+  }
 }

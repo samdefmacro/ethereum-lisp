@@ -64,7 +64,9 @@ Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked. Order matters: earlier items unblock later
 ones.
 
-- `TRIE-FIXTURE-GRADE`
+- `HARNESS-BLOCKCHAIN-FIXTURE-REPLAY`
+- `STATE-PROOFS` only for replacing seed proof vectors with real
+  upstream/reference proof data, not for adding more narrow local hardening.
 
 ## P0: Phase A Discipline
 
@@ -195,6 +197,40 @@ ones.
     through the common path. The blockchain fixture harness now reports
     source-relative JSON names and rejects empty roots, preparing the next
     pinned Engine selector/import slice.
+
+- [x] `HARNESS-BLOCKCHAIN-FIXTURE-LOADER`: Load and select discovered
+  blockchain fixture cases.
+  - Milestone: 8
+  - Dependencies: `HARNESS-BLOCKCHAIN-FIXTURE-DISCOVERY`.
+  - References: Ethereum execution-spec-tests stable archive layout plus the
+    shared trie/transaction fixture selector pattern.
+  - Acceptance: after JSON files are discovered, the blockchain harness can
+    load case objects, assign source-style names, select cases by those names,
+    reject missing or duplicate selectors, and report basic case metadata for
+    the next Engine replay slice.
+  - Validation: targeted fixture loader tests and
+    `sbcl --script tests/run-tests.lisp`.
+  - Result: shared source-style case naming, selector validation, and root
+    case filtering now live in the fixture test framework and are reused by
+    trie, transaction, and blockchain roots. The blockchain harness can load
+    discovered JSON files into selectable cases and report the selected case
+    name, fixture format, network, and block count.
+
+- [ ] `HARNESS-BLOCKCHAIN-FIXTURE-REPLAY`: Materialize selected blockchain
+  fixtures into Engine import cases.
+  - Milestone: 8
+  - Dependencies: `HARNESS-BLOCKCHAIN-FIXTURE-LOADER`,
+    `ENGINE-EXECUTE-NEWPAYLOAD`.
+  - References: pinned `ethereum/execution-spec-tests` v5.4.0
+    `blockchain_tests_engine` Shanghai fixtures, geth blockchain test runner,
+    Nethermind blockchain test runner.
+  - Acceptance: a bounded selected Shanghai blockchain fixture case can be
+    loaded from the discovered root, materialized into the existing Engine
+    import fixture shape, executed through `engine_newPayloadV2`, and compared
+    against expected post-state / receipt / status fields without hand-writing
+    another seed Engine case.
+  - Validation: one selected pinned fixture replay plus
+    `sbcl --script tests/run-tests.lisp`.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
