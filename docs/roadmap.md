@@ -541,8 +541,9 @@ behavior.
   for all edge cases, EIP-7702 delegated-code execution beyond the covered
   paths, and stopgap BN254 pairing behavior behind an explicit backend boundary
   until a full pairing library lands.
-- *Missing for Phase A:* broader pinned execution-spec state fixtures, real
-  KZG point-evaluation verification before Cancun blob execution can enter the
+- *Missing for Phase A:* broader pinned execution-spec state-transition replay
+  beyond the new `state_tests` root discovery/selector metadata, real KZG
+  point-evaluation verification before Cancun blob execution can enter the
   Phase A gate, and any EOF support until an explicit activated-fork rule is
   chosen.
 - *Next:* keep Shanghai smoke execution stable; only widen EVM fixture breadth

@@ -3348,7 +3348,25 @@ splits can land after the Phase A smoke path closes.
     prefixless or uppercase hex before execution/replay comparisons. Address
     and hash fixture fields now require canonical lowercase `0x`-prefixed
     values before account, storage, transaction, access-list, receipt, and log
-    validation.
+    comparisons.
+
+- [x] Add pinned execution-spec `state_tests` root discovery.
+  - Milestone: 4 / 8
+  - References: Ethereum execution-spec-tests state tests, geth state-test
+    runner layout, Nethermind EVM/state-test fixture ingestion.
+  - Acceptance: the external fixture harness discovers `state_tests` from the
+    same root layouts used by other pinned EEST suites, loads upstream-shaped
+    GeneralStateTest JSON case objects, preserves source-style selector names,
+    and reports fork/transaction-combination metadata without requiring a
+    handcrafted wrapper fixture.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added `execution-spec-tests-state-test-root` plus the matching
+    skip macro, state-test root JSON discovery, case loading, selector
+    filtering, London materialization candidate discovery, and summary/report
+    helpers. Added a small upstream-shaped `state_tests` sample under the
+    in-repo execution-spec root so future pinned state-transition imports can
+    start from discovered source selectors instead of adding one-off bespoke
+    fixtures.
 
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4

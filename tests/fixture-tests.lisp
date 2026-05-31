@@ -53,6 +53,8 @@
     (is (execution-spec-tests-transaction-test-root fixtures-root))
     (is (execution-spec-tests-blockchain-test-root direct-root))
     (is (execution-spec-tests-blockchain-test-root fixtures-root))
+    (is (execution-spec-tests-state-test-root direct-root))
+    (is (execution-spec-tests-state-test-root fixtures-root))
     (is (execution-spec-tests-trie-test-root direct-root))
     (is (execution-spec-tests-trie-test-root fixtures-root))))
 
@@ -79,6 +81,17 @@
   (is (null (execution-spec-tests-blockchain-test-root
              (probe-file "tests/fixtures/execution-spec-tests/")))))
 
+(deftest execution-spec-tests-state-root-discovers-known-layouts
+  (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
+        (fixtures-root
+          (probe-file "tests/fixtures/execution-spec-tests-root/fixtures/")))
+    (is (execution-spec-tests-state-test-root direct-root))
+    (is (execution-spec-tests-state-test-root fixtures-root))))
+
+(deftest execution-spec-tests-state-root-ignores-missing-layout
+  (is (null (execution-spec-tests-state-test-root
+             (probe-file "tests/fixtures/execution-spec-tests/")))))
+
 (deftest execution-spec-tests-trie-root-discovers-known-layouts
   (let ((direct-root (probe-file "tests/fixtures/execution-spec-tests-root/"))
         (fixtures-root
@@ -100,6 +113,16 @@
     (signals test-skipped
       (with-execution-spec-tests-trie-test-root (root)
         (error "Trie fixture body should not run when the root is absent: ~S"
+               root)))))
+
+(deftest optional-execution-spec-tests-state-fixtures-skip-cleanly
+  (let ((*fixture-root-environment-reader*
+          (lambda (name)
+            (declare (ignore name))
+            nil)))
+    (signals test-skipped
+      (with-execution-spec-tests-state-test-root (root)
+        (error "State fixture body should not run when the root is absent: ~S"
                root)))))
 
 (deftest optional-execution-spec-tests-blockchain-fixtures-skip-cleanly

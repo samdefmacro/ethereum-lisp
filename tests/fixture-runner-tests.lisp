@@ -28,6 +28,12 @@
 (defparameter +eest-blockchain-standard-block-fields+
   '("rlp" "blockHeader" "expectException" "uncleHeaders"))
 
+(defparameter +eest-state-test-case-fields+
+  '("env" "pre" "transaction" "post" "_info"))
+
+(defparameter +eest-state-test-transaction-fields+
+  '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"))
+
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
 
@@ -53,6 +59,12 @@
 (defun eest-blockchain-test-root-file-names (root)
   (execution-spec-tests-root-file-names root "EEST blockchain test"))
 
+(defun eest-state-test-root-json-paths (root)
+  (execution-spec-tests-root-json-paths root "EEST state test"))
+
+(defun eest-state-test-root-file-names (root)
+  (execution-spec-tests-root-file-names root "EEST state test"))
+
 (defun validate-eest-blockchain-test-file-entries (cases source)
   (unless (listp cases)
     (error "EEST blockchain test file must be a JSON object"))
@@ -74,11 +86,43 @@
                  name))
         (setf (gethash name seen) t)))))
 
+(defun validate-eest-state-test-file-entries (cases source)
+  (unless (listp cases)
+    (error "EEST state test file must be a JSON object"))
+  (let ((seen (make-hash-table :test 'equal)))
+    (dolist (entry cases)
+      (let ((name (car entry))
+            (case (cdr entry)))
+        (unless (stringp name)
+          (error "EEST state test case name in ~A must be a string" source))
+        (when (blank-string-p name)
+          (error "EEST state test case name in ~A must be present" source))
+        (when (gethash name seen)
+          (error "EEST state test file ~A has duplicate case name ~A"
+                 source
+                 name))
+        (unless (listp case)
+          (error "EEST state test case ~A must be a JSON object" name))
+        (validate-fixture-object-fields
+         case
+         +eest-state-test-case-fields+
+         (format nil "EEST state test case ~A" name))
+        (dolist (field '("env" "pre" "transaction" "post"))
+          (fixture-required-field case field))
+        (setf (gethash name seen) t)))))
+
 (defun normalize-eest-blockchain-test-case (name case)
   (list (cons "name" name)
         (cons "fixture" case)))
 
+(defun normalize-eest-state-test-case (name case)
+  (list (cons "name" name)
+        (cons "fixture" case)))
+
 (defun eest-blockchain-root-case-name (root path key singleton-p)
+  (execution-spec-tests-root-case-name root path key singleton-p))
+
+(defun eest-state-root-case-name (root path key singleton-p)
   (execution-spec-tests-root-case-name root path key singleton-p))
 
 (defun load-eest-blockchain-test-root-file-cases (root path)
@@ -101,13 +145,40 @@
            (normalize-eest-blockchain-test-case source-name (cdr entry))))
        entries))))
 
+(defun load-eest-state-test-root-file-cases (root path)
+  (let* ((cases (load-handwritten-fixture-file path))
+         (source (enough-namestring (truename path) (truename root))))
+    (validate-eest-state-test-file-entries cases source)
+    (let* ((entries (sort (copy-list cases) #'string< :key #'car))
+           (singleton-p (= 1 (length entries))))
+      (mapcar
+       (lambda (entry)
+         (let ((source-name
+                 (eest-state-root-case-name root path (car entry) singleton-p)))
+           (unless (eest-state-selector-source-style-p source-name)
+             (error "EEST state source name ~A must be source-style"
+                    source-name))
+           (normalize-eest-state-test-case source-name (cdr entry))))
+       entries))))
+
 (defun validate-eest-blockchain-selector-list (names)
   (validate-execution-spec-tests-selector-list
    names
    "EEST blockchain"
    :allow-nested-case-name t))
 
+(defun validate-eest-state-selector-list (names)
+  (validate-execution-spec-tests-selector-list
+   names
+   "EEST state"
+   :allow-nested-case-name t))
+
 (defun eest-blockchain-selector-source-style-p (name)
+  (execution-spec-tests-source-style-name-p
+   name
+   :allow-nested-case-name t))
+
+(defun eest-state-selector-source-style-p (name)
   (execution-spec-tests-source-style-name-p
    name
    :allow-nested-case-name t))
@@ -120,6 +191,83 @@
          append (load-eest-blockchain-test-root-file-cases root path))
    names
    "EEST blockchain test"))
+
+(defun load-eest-state-test-root-cases (root &key names)
+  (when names
+    (validate-eest-state-selector-list names))
+  (filter-execution-spec-tests-root-cases
+   (loop for path in (eest-state-test-root-json-paths root)
+         append (load-eest-state-test-root-file-cases root path))
+   names
+   "EEST state test"))
+
+(defun eest-state-test-case-fork-names (case)
+  (let ((post (fixture-required-field
+               (fixture-required-field case "fixture")
+               "post")))
+    (unless (listp post)
+      (error "EEST state test case ~A post must be a JSON object"
+             (fixture-required-field case "name")))
+    (sort (mapcar #'car post) #'string<)))
+
+(defun eest-state-test-transaction-combination-count (case)
+  (let ((transaction (fixture-required-field
+                      (fixture-required-field case "fixture")
+                      "transaction")))
+    (validate-fixture-object-fields
+     transaction
+     +eest-state-test-transaction-fields+
+     (format nil "EEST state test case ~A transaction"
+             (fixture-required-field case "name")))
+    (dolist (field '("data" "gasLimit" "value"))
+      (let ((values (fixture-required-field transaction field)))
+        (unless (and (listp values) values)
+          (error "EEST state test case ~A transaction ~A must be a non-empty JSON array"
+                 (fixture-required-field case "name")
+                 field))))
+    (* (length (fixture-required-field transaction "data"))
+       (length (fixture-required-field transaction "gasLimit"))
+       (length (fixture-required-field transaction "value")))))
+
+(defun phase-a-eest-state-materializable-case-p (case)
+  (handler-case
+      (and (member "London" (eest-state-test-case-fork-names case)
+                   :test #'string=)
+           (plusp (eest-state-test-transaction-combination-count case)))
+    (error () nil)))
+
+(defun discover-phase-a-eest-state-test-selectors (root)
+  (loop for case in (load-eest-state-test-root-cases root)
+        when (phase-a-eest-state-materializable-case-p case)
+          collect (fixture-required-field case "name")))
+
+(defun eest-state-test-root-summary (cases)
+  (let ((fork-counts (make-hash-table :test 'equal))
+        (combination-count 0))
+    (dolist (case cases)
+      (dolist (fork (eest-state-test-case-fork-names case))
+        (incf (gethash fork fork-counts 0)))
+      (incf combination-count
+            (eest-state-test-transaction-combination-count case)))
+    (list
+     (cons "count" (length cases))
+     (cons "names" (mapcar (lambda (case)
+                             (fixture-required-field case "name"))
+                           cases))
+     (cons "forkCounts"
+           (sort
+            (loop for key being the hash-keys of fork-counts
+                  using (hash-value count)
+                  collect (cons key count))
+            #'string<
+            :key #'car))
+     (cons "transactionCombinationCount" combination-count))))
+
+(defun report-eest-state-test-root-case (case)
+  (list (cons "name" (fixture-required-field case "name"))
+        (cons "forks" (eest-state-test-case-fork-names case))
+        (cons "transactionCombinations"
+              (eest-state-test-transaction-combination-count case))))
 
 (defun eest-blockchain-trim-string (value)
   (string-trim '(#\Space #\Tab #\Newline #\Return) value))
@@ -904,6 +1052,49 @@
                "tests/fixtures/geth-spec-tests-root/")))
     (signals error
       (eest-blockchain-test-root-json-paths root))))
+
+(deftest eest-state-test-root-json-discovery
+  (let* ((root (execution-spec-tests-state-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (paths (eest-state-test-root-json-paths root)))
+    (is (= 1 (length paths)))
+    (is (equal '("london/phase-a-state-sample.json")
+               (eest-state-test-root-file-names root)))))
+
+(deftest eest-state-test-root-json-discovery-rejects-empty-roots
+  (let ((root (execution-spec-tests-state-test-root
+               "tests/fixtures/geth-spec-tests-root/")))
+    (signals error
+      (eest-state-test-root-json-paths root))))
+
+(deftest eest-state-test-root-case-loading
+  (let* ((root (execution-spec-tests-state-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (cases (load-eest-state-test-root-cases root))
+         (selectors (discover-phase-a-eest-state-test-selectors root))
+         (selected (load-eest-state-test-root-cases
+                    root
+                    :names '("london/phase-a-state-sample.json/phase_a_london_state_sample")))
+         (summary (eest-state-test-root-summary cases))
+         (report (report-eest-state-test-root-case (first selected))))
+    (is (= 2 (length cases)))
+    (is (equal '("london/phase-a-state-sample.json/phase_a_london_state_sample")
+               selectors))
+    (is (= 2 (fixture-object-field summary "count")))
+    (is (= 1 (fixture-object-field
+              (fixture-object-field summary "forkCounts")
+              "London")))
+    (is (= 2 (fixture-object-field summary "transactionCombinationCount")))
+    (is (equal '("London") (fixture-object-field report "forks")))
+    (is (= 1 (fixture-object-field report "transactionCombinations")))
+    (signals error
+      (load-eest-state-test-root-cases
+       root
+       :names '("london/phase-a-state-sample.json/missing_case")))
+    (signals error
+      (load-eest-state-test-root-file-cases
+       "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/"
+       "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json"))))
 
 (deftest phase-a-eest-blockchain-replay-selector-parsing
   (let ((selectors

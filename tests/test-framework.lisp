@@ -13,6 +13,7 @@
    #:execution-spec-tests-fixture-root
    #:execution-spec-tests-blockchain-test-root
    #:execution-spec-tests-transaction-test-root
+   #:execution-spec-tests-state-test-root
    #:execution-spec-tests-trie-test-root
    #:execution-spec-tests-json-paths
    #:execution-spec-tests-root-json-paths
@@ -24,6 +25,7 @@
    #:with-execution-spec-tests-fixture-root
    #:with-execution-spec-tests-blockchain-test-root
    #:with-execution-spec-tests-transaction-test-root
+   #:with-execution-spec-tests-state-test-root
    #:with-execution-spec-tests-trie-test-root))
 
 (in-package #:ethereum-lisp.test)
@@ -44,6 +46,11 @@
   '("transaction_tests/"
     "fixtures/transaction_tests/"
     "spec-tests/fixtures/transaction_tests/"))
+
+(defparameter +execution-spec-tests-state-test-subdirs+
+  '("state_tests/"
+    "fixtures/state_tests/"
+    "spec-tests/fixtures/state_tests/"))
 
 (defparameter +execution-spec-tests-trie-test-subdirs+
   '("trie_tests/"
@@ -292,6 +299,12 @@
      base
      +execution-spec-tests-transaction-test-subdirs+)))
 
+(defun execution-spec-tests-state-test-root (&optional root)
+  (let ((base (execution-spec-tests-resolved-root root)))
+    (execution-spec-tests-first-existing-subdirectory
+     base
+     +execution-spec-tests-state-test-subdirs+)))
+
 (defun execution-spec-tests-trie-test-root (&optional root)
   (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
@@ -322,6 +335,15 @@
        (skip-test
         (format nil
                 "Set ~A to an execution-spec-tests fixture root containing transaction_tests to run this test"
+                +execution-spec-tests-fixture-root-env+)))
+     ,@body))
+
+(defmacro with-execution-spec-tests-state-test-root ((root) &body body)
+  `(let ((,root (execution-spec-tests-state-test-root)))
+     (unless ,root
+       (skip-test
+        (format nil
+                "Set ~A to an execution-spec-tests fixture root containing state_tests to run this test"
                 +execution-spec-tests-fixture-root-env+)))
      ,@body))
 
