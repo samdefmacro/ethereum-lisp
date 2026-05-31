@@ -978,6 +978,7 @@
    #:devnet-node-telemetry-sink
    #:devnet-node-jwt-secret-path
    #:devnet-node-summary
+   #:start-devnet-node-listeners
    #:start-devnet-node
    #:main))
 

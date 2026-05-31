@@ -118,16 +118,74 @@
       ("headHash" . ,(getf summary :head-hash))
       ("stateAvailable" . ,(if (getf summary :state-available-p) t :false)))))
 
+(defun start-devnet-node-listeners
+    (node engine-listener public-listener &key max-connections stop-p)
+  (unless (typep node 'devnet-node)
+    (error "Devnet node must be devnet-node"))
+  (unless (typep engine-listener 'engine-rpc-http-listener)
+    (error "Devnet Engine listener must be engine-rpc-http-listener"))
+  (unless (typep public-listener 'engine-rpc-http-listener)
+    (error "Devnet public listener must be engine-rpc-http-listener"))
+  #-sbcl
+  (declare (ignore node engine-listener public-listener max-connections stop-p))
+  #-sbcl
+  (error "Devnet split listener serving requires SBCL threads")
+  #+sbcl
+  (let ((engine-count nil)
+        (engine-error nil))
+    (let ((engine-thread
+            (sb-thread:make-thread
+             (lambda ()
+               (handler-case
+                   (setf engine-count
+                         (engine-rpc-http-service-serve-listener
+                          (devnet-node-service node)
+                          engine-listener
+                          :max-connections max-connections
+                          :stop-p stop-p))
+                 (error (condition)
+                   (setf engine-error condition))))
+             :name "ethereum-lisp-devnet-engine-rpc")))
+      (let ((public-count
+              (engine-rpc-http-service-serve-listener
+               (devnet-node-public-service node)
+               public-listener
+               :max-connections max-connections
+               :stop-p stop-p)))
+        (sb-thread:join-thread engine-thread)
+        (when engine-error
+          (error engine-error))
+        (list :engine-connections engine-count
+              :public-connections public-count
+              :total-connections (+ engine-count public-count))))))
+
 (defun start-devnet-node (node &key max-connections stop-p)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
-  (let* ((service (devnet-node-service node))
-         (listener (make-engine-rpc-http-socket-listener service)))
-    (engine-rpc-http-service-serve-listener
-     service
-     listener
-     :max-connections max-connections
-     :stop-p stop-p)))
+  (let ((engine-listener nil)
+        (public-listener nil)
+        (served-p nil))
+    (unwind-protect
+         (progn
+           (setf engine-listener
+                 (make-engine-rpc-http-socket-listener
+                  (devnet-node-service node))
+                 public-listener
+                 (make-engine-rpc-http-socket-listener
+                  (devnet-node-public-service node)))
+           (prog1
+               (start-devnet-node-listeners
+                node
+                engine-listener
+                public-listener
+                :max-connections max-connections
+                :stop-p stop-p)
+             (setf served-p t)))
+      (unless served-p
+        (when engine-listener
+          (ignore-errors (engine-rpc-http-listener-close engine-listener)))
+        (when public-listener
+          (ignore-errors (engine-rpc-http-listener-close public-listener)))))))
 
 (defun devnet-cli-option-token-p (value)
   (and (stringp value)

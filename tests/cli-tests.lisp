@@ -25,6 +25,21 @@
       (read-sequence string stream)
       string)))
 
+(defun make-devnet-cli-one-shot-listener (endpoint)
+  (let ((accepted-p nil))
+    (make-engine-rpc-http-listener
+     :endpoint endpoint
+     :accept-function
+     (lambda ()
+       (unless accepted-p
+         (setf accepted-p t)
+         (make-engine-rpc-http-connection
+          :input-stream
+          (make-string-input-stream "GET / HTTP/1.1\r\n\r\n")
+          :output-stream (make-string-output-stream)
+          :close-function (lambda () nil))))
+     :close-function (lambda () nil))))
+
 (deftest devnet-node-loads-genesis-summary
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+
@@ -101,6 +116,21 @@
               "code")))
       (is (string= "0x539"
                    (fixture-object-field chain-id-response "result"))))))
+
+(deftest devnet-node-start-serves-engine-and-public-listeners
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+
+                :port 8551
+                :public-port 8545))
+         (summary
+           (ethereum-lisp.cli:start-devnet-node-listeners
+            node
+            (make-devnet-cli-one-shot-listener "engine")
+            (make-devnet-cli-one-shot-listener "public")
+            :max-connections 1)))
+    (is (= 1 (getf summary :engine-connections)))
+    (is (= 1 (getf summary :public-connections)))
+    (is (= 2 (getf summary :total-connections)))))
 
 (deftest devnet-node-loads-jwt-secret-file
   (let ((path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
