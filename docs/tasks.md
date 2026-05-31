@@ -2505,6 +2505,14 @@ splits can land after the Phase A smoke path closes.
     roots, gating 8 cases and 22 exported entries on the external adapter
     path. Reference availability: geth `8a0223e`, Nethermind `1c72a72`;
     local Reth clone absent.
+  - Progress: refactored the selected Phase A EEST trie coverage checks into
+    a single table-driven reference gate list, following the geth/Nethermind
+    pattern of centralized fixture tables plus generic runners instead of
+    adding parallel hand-written validator calls for each assertion family.
+    The gate table now drives required case modes, explicit `out`,
+    `intermediateRoots`, `entryPairs`, `proofs`, and `ranges` coverage without
+    adding new trie vectors. Reference availability: geth `8a0223e`,
+    Nethermind `1c72a72`; local Reth clone absent.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

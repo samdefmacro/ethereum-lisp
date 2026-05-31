@@ -160,6 +160,11 @@ fixes in those areas are allowed; expansion is not.
   `mpt-entry-pairs` keys and values in exact order across 8 cases and 22
   entries, so the external adapter pins deterministic snapshot export data
   rather than only rebuilding from derived entries.
+  The Phase A EEST trie coverage gate is now table-driven: one centralized
+  reference gate list feeds the generic validators for required modes,
+  explicit output maps, intermediate roots, entry-pair exports, proof nodes,
+  and ranges, matching the reference-client pattern of fixture tables plus
+  shared runners instead of scattered one-off validation calls.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the

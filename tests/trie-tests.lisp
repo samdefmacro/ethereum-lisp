@@ -278,132 +278,142 @@
     "geth-secure-account-step-3"
     "geth-secure-account-five-step"))
 
-(defparameter +phase-a-eest-trie-reference-case-requirements+
-  '(("phase-a-trie-multi.json/geth-long-leaf-value" . :plain)
-    ("phase-a-trie-multi.json/geth-large-value-branch" . :plain)
-    ("phase-a-trie-multi.json/geth-tiny-account-step-1" . :plain)
-    ("phase-a-trie-multi.json/geth-tiny-account-step-2" . :plain)
-    ("phase-a-trie-multi.json/geth-tiny-account-step-3" . :plain)
-    ("phase-a-trie-multi.json/geth-tiny-account-five-step" . :plain)
-    ("phase-a-trie-multi.json/geth-insert-shared-prefix" . :plain)
-    ("phase-a-trie-multi.json/geth-delete-sequence" . :plain)
-    ("phase-a-trie-multi.json/geth-empty-value-sequence" . :plain)
-    ("phase-a-trie-multi.json/geth-replication-sequence" . :plain)
-    ("phase-a-trie-multi.json/geth-random-cases-sequence" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-extension-child-boundary" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-extension-branch-short-long-growth" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-sparse-root-branch-long-values" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-right-branch" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-left-branch" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-root-branch-extension-child" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-root-branch-left-extension-child" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-deep-extension-branch" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-tail-fanout" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-one-nibble" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-splits-to-root-branch" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-zero-prefix-extension-fanout" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-f-prefix-nested-right-branch" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-ff-prefix-nested-left-branch" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-shared-prefix-tail-fanout" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-two-nibbles" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble" . :plain)
-    ("phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch" . :plain)
-    ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1" . :secure)
-    ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2" . :secure)
-    ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3" . :secure)
-    ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step" . :secure)
-    ("phase-a-secureTrie.json/phase-a-secure-zgeth-delete-sequence" . :secure)))
+(defparameter +phase-a-eest-trie-reference-gates+
+  '((:name :case-mode
+     :validator validate-trie-reference-case-requirements
+     :items (("phase-a-trie-multi.json/geth-long-leaf-value" . :plain)
+             ("phase-a-trie-multi.json/geth-large-value-branch" . :plain)
+             ("phase-a-trie-multi.json/geth-tiny-account-step-1" . :plain)
+             ("phase-a-trie-multi.json/geth-tiny-account-step-2" . :plain)
+             ("phase-a-trie-multi.json/geth-tiny-account-step-3" . :plain)
+             ("phase-a-trie-multi.json/geth-tiny-account-five-step" . :plain)
+             ("phase-a-trie-multi.json/geth-insert-shared-prefix" . :plain)
+             ("phase-a-trie-multi.json/geth-delete-sequence" . :plain)
+             ("phase-a-trie-multi.json/geth-empty-value-sequence" . :plain)
+             ("phase-a-trie-multi.json/geth-replication-sequence" . :plain)
+             ("phase-a-trie-multi.json/geth-random-cases-sequence" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-extension-child-boundary" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-extension-branch-short-long-growth" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-sparse-root-branch-long-values" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-right-branch" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-left-branch" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-root-branch-extension-child" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-root-branch-left-extension-child" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-deep-extension-branch" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-tail-fanout" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-one-nibble" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-splits-to-root-branch" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-zero-prefix-extension-fanout" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-f-prefix-nested-right-branch" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-ff-prefix-nested-left-branch" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-shared-prefix-tail-fanout" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-two-nibbles" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble" . :plain)
+             ("phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch" . :plain)
+             ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1" . :secure)
+             ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2" . :secure)
+             ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3" . :secure)
+             ("phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step" . :secure)
+             ("phase-a-secureTrie.json/phase-a-secure-zgeth-delete-sequence" . :secure)))
+    (:name :explicit-output
+     :validator validate-trie-reference-explicit-output-requirements
+     :items ("phase-a-trie-multi.json/geth-tiny-account-step-1"
+             "phase-a-trie-multi.json/geth-tiny-account-step-2"
+             "phase-a-trie-multi.json/geth-tiny-account-step-3"
+             "phase-a-trie-multi.json/geth-tiny-account-five-step"
+             "phase-a-trie-multi.json/geth-stacktrie-short-branch-growth"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth"
+             "phase-a-trie-multi.json/geth-stacktrie-extension-branch-short-long-growth"
+             "phase-a-trie-multi.json/geth-stacktrie-sparse-root-branch-long-values"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-right-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-left-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-extension-child"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-left-extension-child"
+             "phase-a-trie-multi.json/geth-stacktrie-deep-extension-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-tail-fanout"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-one-nibble"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-splits-to-root-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-zero-prefix-extension-fanout"
+             "phase-a-trie-multi.json/geth-stacktrie-f-prefix-nested-right-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-ff-prefix-nested-left-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-tail-fanout"
+             "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-two-nibbles"
+             "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble"
+             "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
+    (:name :intermediate-roots
+     :validator validate-trie-reference-intermediate-root-requirements
+     :items ("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth"
+             "phase-a-trie-multi.json/geth-stacktrie-extension-branch-short-long-growth"
+             "phase-a-trie-multi.json/geth-stacktrie-sparse-root-branch-long-values"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-right-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-left-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-extension-child"
+             "phase-a-trie-multi.json/geth-stacktrie-root-branch-left-extension-child"
+             "phase-a-trie-multi.json/geth-stacktrie-deep-extension-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-tail-fanout"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-one-nibble"
+             "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-splits-to-root-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-zero-prefix-extension-fanout"
+             "phase-a-trie-multi.json/geth-stacktrie-f-prefix-nested-right-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-ff-prefix-nested-left-branch"
+             "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-tail-fanout"
+             "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-two-nibbles"
+             "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble"
+             "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch"))
+    (:name :entry-pairs
+     :validator validate-trie-reference-entry-pair-requirements
+     :items ("phase-a-trie-multi.json/geth-tiny-account-step-1"
+             "phase-a-trie-multi.json/geth-tiny-account-step-2"
+             "phase-a-trie-multi.json/geth-tiny-account-step-3"
+             "phase-a-trie-multi.json/geth-tiny-account-five-step"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
+    (:name :proofs
+     :validator validate-trie-reference-proof-requirements
+     :items ("phase-a-trie-multi.json/geth-large-value-branch"
+             "phase-a-trie-multi.json/geth-tiny-account-step-1"
+             "phase-a-trie-multi.json/geth-tiny-account-step-2"
+             "phase-a-trie-multi.json/geth-tiny-account-step-3"
+             "phase-a-trie-multi.json/geth-tiny-account-five-step"
+             "phase-a-trie-multi.json/geth-delete-sequence"
+             "phase-a-trie-multi.json/geth-empty-value-sequence"
+             "phase-a-trie-multi.json/geth-replication-sequence"
+             "phase-a-trie-multi.json/geth-random-cases-sequence"
+             "phase-a-trie-multi.json/geth-stacktrie-extension-child-boundary"
+             "phase-a-secureTrie.json/phase-a-secure-branch-child-branch"
+             "phase-a-secureTrie.json/phase-a-secure-branch-child-extension"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-delete-sequence"))
+    (:name :ranges
+     :validator validate-trie-reference-explicit-range-requirements
+     :items ("phase-a-trie-multi.json/geth-tiny-account-five-step"
+             "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))))
 
-(defparameter +phase-a-eest-trie-explicit-output-reference-case-names+
-  '("phase-a-trie-multi.json/geth-tiny-account-step-1"
-    "phase-a-trie-multi.json/geth-tiny-account-step-2"
-    "phase-a-trie-multi.json/geth-tiny-account-step-3"
-    "phase-a-trie-multi.json/geth-tiny-account-five-step"
-    "phase-a-trie-multi.json/geth-stacktrie-short-branch-growth"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth"
-    "phase-a-trie-multi.json/geth-stacktrie-extension-branch-short-long-growth"
-    "phase-a-trie-multi.json/geth-stacktrie-sparse-root-branch-long-values"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-right-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-left-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-extension-child"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-left-extension-child"
-    "phase-a-trie-multi.json/geth-stacktrie-deep-extension-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-tail-fanout"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-one-nibble"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-splits-to-root-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-zero-prefix-extension-fanout"
-    "phase-a-trie-multi.json/geth-stacktrie-f-prefix-nested-right-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-ff-prefix-nested-left-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-tail-fanout"
-    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-two-nibbles"
-    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble"
-    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
-
-(defparameter +phase-a-eest-trie-entry-pair-reference-case-names+
-  '("phase-a-trie-multi.json/geth-tiny-account-step-1"
-    "phase-a-trie-multi.json/geth-tiny-account-step-2"
-    "phase-a-trie-multi.json/geth-tiny-account-step-3"
-    "phase-a-trie-multi.json/geth-tiny-account-five-step"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
-
-(defparameter +phase-a-eest-trie-intermediate-root-reference-case-names+
-  '("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth"
-    "phase-a-trie-multi.json/geth-stacktrie-extension-branch-short-long-growth"
-    "phase-a-trie-multi.json/geth-stacktrie-sparse-root-branch-long-values"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-right-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-left-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-extension-child"
-    "phase-a-trie-multi.json/geth-stacktrie-root-branch-left-extension-child"
-    "phase-a-trie-multi.json/geth-stacktrie-deep-extension-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-tail-fanout"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-one-nibble"
-    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-splits-to-root-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-zero-prefix-extension-fanout"
-    "phase-a-trie-multi.json/geth-stacktrie-f-prefix-nested-right-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-ff-prefix-nested-left-branch"
-    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-tail-fanout"
-    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-two-nibbles"
-    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble"
-    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch"))
-
-(defparameter +phase-a-eest-trie-proof-reference-case-names+
-  '("phase-a-trie-multi.json/geth-large-value-branch"
-    "phase-a-trie-multi.json/geth-tiny-account-step-1"
-    "phase-a-trie-multi.json/geth-tiny-account-step-2"
-    "phase-a-trie-multi.json/geth-tiny-account-step-3"
-    "phase-a-trie-multi.json/geth-tiny-account-five-step"
-    "phase-a-trie-multi.json/geth-delete-sequence"
-    "phase-a-trie-multi.json/geth-empty-value-sequence"
-    "phase-a-trie-multi.json/geth-replication-sequence"
-    "phase-a-trie-multi.json/geth-random-cases-sequence"
-    "phase-a-trie-multi.json/geth-stacktrie-extension-child-boundary"
-    "phase-a-secureTrie.json/phase-a-secure-branch-child-branch"
-    "phase-a-secureTrie.json/phase-a-secure-branch-child-extension"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-1"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-2"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-delete-sequence"))
-
-(defparameter +phase-a-eest-trie-explicit-range-reference-case-names+
-  '("phase-a-trie-multi.json/geth-tiny-account-five-step"
-    "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
+(defun phase-a-eest-trie-reference-gate-items (name)
+  (let ((gate (find name +phase-a-eest-trie-reference-gates+
+                    :key (lambda (gate)
+                           (getf gate :name)))))
+    (unless gate
+      (error "Unknown Phase A EEST trie reference gate ~A" name))
+    (copy-tree (getf gate :items))))
 
 (defparameter +trie-fixture-required-tags+
   '("leaf-root"
@@ -1272,6 +1282,30 @@
           (error "~A reference-derived trie case ~A explicit ranges must not be empty"
                  label
                  name))))))
+
+(defun validate-trie-reference-gates (cases gates label)
+  (let ((seen-gates (make-hash-table :test #'eq)))
+    (dolist (gate gates)
+      (let ((name (getf gate :name))
+            (validator (getf gate :validator))
+            (items (getf gate :items)))
+        (unless name
+          (error "~A reference gate is missing a name" label))
+        (when (gethash name seen-gates)
+          (error "~A reference gate list has duplicate gate ~A"
+                 label
+                 name))
+        (setf (gethash name seen-gates) t)
+        (unless (and validator (fboundp validator))
+          (error "~A reference gate ~A has unknown validator ~A"
+                 label
+                 name
+                 validator))
+        (unless items
+          (error "~A reference gate ~A must include required items"
+                 label
+                 name))
+        (funcall (symbol-function validator) cases items label)))))
 
 (defun validate-trie-fixture-entry-pair-reference-cases
     (cases names label)
@@ -3448,29 +3482,9 @@
                            cases)))))
 
 (defun validate-phase-a-eest-trie-test-coverage (cases)
-  (validate-trie-reference-case-requirements
+  (validate-trie-reference-gates
    cases
-   +phase-a-eest-trie-reference-case-requirements+
-   "Phase A EEST trie subset")
-  (validate-trie-reference-explicit-output-requirements
-   cases
-   +phase-a-eest-trie-explicit-output-reference-case-names+
-   "Phase A EEST trie subset")
-  (validate-trie-reference-intermediate-root-requirements
-   cases
-   +phase-a-eest-trie-intermediate-root-reference-case-names+
-   "Phase A EEST trie subset")
-  (validate-trie-reference-entry-pair-requirements
-   cases
-   +phase-a-eest-trie-entry-pair-reference-case-names+
-   "Phase A EEST trie subset")
-  (validate-trie-reference-proof-requirements
-   cases
-   +phase-a-eest-trie-proof-reference-case-names+
-   "Phase A EEST trie subset")
-  (validate-trie-reference-explicit-range-requirements
-   cases
-   +phase-a-eest-trie-explicit-range-reference-case-names+
+   +phase-a-eest-trie-reference-gates+
    "Phase A EEST trie subset")
   (let ((summary (eest-trie-test-case-summary cases)))
     (when (zerop (fixture-object-field summary "secureCaseCount"))
@@ -5355,9 +5369,27 @@
          (summary (eest-trie-test-case-summary selected-cases)))
     (is (= 87 (length cases)))
     (is (= 86 (length selected-cases)))
+    (validate-trie-reference-gates
+     selected-cases
+     +phase-a-eest-trie-reference-gates+
+     "Phase A EEST trie subset")
+    (signals error
+      (validate-trie-reference-gates
+       selected-cases
+       '((:name :missing-reference
+          :validator validate-trie-reference-case-requirements
+          :items (("phase-a-trie-multi.json/missing-geth-case" . :plain))))
+       "Phase A EEST trie subset"))
+    (signals error
+      (validate-trie-reference-gates
+       selected-cases
+       '((:name :bad-validator
+          :validator missing-trie-reference-validator
+          :items ("phase-a-trie-multi.json/geth-tiny-account-step-1")))
+       "Phase A EEST trie subset"))
     (validate-trie-reference-case-requirements
      selected-cases
-     +phase-a-eest-trie-reference-case-requirements+
+     (phase-a-eest-trie-reference-gate-items :case-mode)
      "Phase A EEST trie subset")
     (signals error
       (validate-trie-reference-case-requirements
@@ -5371,7 +5403,7 @@
        "Phase A EEST trie subset"))
     (validate-trie-reference-explicit-output-requirements
      selected-cases
-     +phase-a-eest-trie-explicit-output-reference-case-names+
+     (phase-a-eest-trie-reference-gate-items :explicit-output)
      "Phase A EEST trie subset")
     (signals error
       (validate-trie-reference-explicit-output-requirements
@@ -5390,7 +5422,7 @@
        "Phase A EEST trie subset"))
     (validate-trie-reference-intermediate-root-requirements
      selected-cases
-     +phase-a-eest-trie-intermediate-root-reference-case-names+
+     (phase-a-eest-trie-reference-gate-items :intermediate-roots)
      "Phase A EEST trie subset")
     (signals error
       (validate-trie-reference-intermediate-root-requirements
@@ -5409,7 +5441,7 @@
        "Phase A EEST trie subset"))
     (validate-trie-reference-entry-pair-requirements
      selected-cases
-     +phase-a-eest-trie-entry-pair-reference-case-names+
+     (phase-a-eest-trie-reference-gate-items :entry-pairs)
      "Phase A EEST trie subset")
     (signals error
       (validate-trie-reference-entry-pair-requirements
@@ -5428,7 +5460,7 @@
        "Phase A EEST trie subset"))
     (validate-trie-reference-proof-requirements
      selected-cases
-     +phase-a-eest-trie-proof-reference-case-names+
+     (phase-a-eest-trie-reference-gate-items :proofs)
      "Phase A EEST trie subset")
     (signals error
       (validate-trie-reference-proof-requirements
@@ -5447,7 +5479,7 @@
        "Phase A EEST trie subset"))
     (validate-trie-reference-explicit-range-requirements
      selected-cases
-     +phase-a-eest-trie-explicit-range-reference-case-names+
+     (phase-a-eest-trie-reference-gate-items :ranges)
      "Phase A EEST trie subset")
     (signals error
       (validate-trie-reference-explicit-range-requirements
