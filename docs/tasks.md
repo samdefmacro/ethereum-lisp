@@ -3906,6 +3906,13 @@ splits can land after the Phase A smoke path closes.
     the same machine-readable readiness document for external runners before
     serving. Tests cover authenticated service wiring plus stdout/ready-file
     JSON fields.
+  - Result: split the devnet process model into Engine and public RPC service
+    objects, matching geth's authenticated HTTP endpoint and Nethermind's
+    EngineHost/EnginePort/JwtSecretFile configuration shape. The Engine
+    service now admits only `engine_*` methods, the public service admits only
+    `eth_*`, `net_*`, `web3_*`, and `txpool_*`, and readiness JSON reports the
+    separate Engine and public endpoints. CLI tests cover namespace rejection
+    in both directions plus `--public-host` / `--public-port` validation.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

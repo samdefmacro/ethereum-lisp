@@ -641,6 +641,9 @@
    #:engine-rpc-forkchoice-response-object
    #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
+   #:engine-rpc-engine-method-p
+   #:engine-rpc-public-method-p
+   #:engine-rpc-any-method-p
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
@@ -660,6 +663,7 @@
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-import-function
    #:engine-rpc-http-service-telemetry-sink
+   #:engine-rpc-http-service-allowed-method-p
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection
    #:make-engine-rpc-http-connection
@@ -970,6 +974,7 @@
    #:devnet-node-config
    #:devnet-node-genesis-block
    #:devnet-node-service
+   #:devnet-node-public-service
    #:devnet-node-telemetry-sink
    #:devnet-node-jwt-secret-path
    #:devnet-node-summary
@@ -1563,6 +1568,9 @@
    #:engine-rpc-forkchoice-response-object
    #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
+   #:engine-rpc-engine-method-p
+   #:engine-rpc-public-method-p
+   #:engine-rpc-any-method-p
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
@@ -1582,6 +1590,7 @@
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-import-function
    #:engine-rpc-http-service-telemetry-sink
+   #:engine-rpc-http-service-allowed-method-p
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection
    #:make-engine-rpc-http-connection
@@ -2423,6 +2432,9 @@
    #:engine-rpc-forkchoice-response-object
    #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
+   #:engine-rpc-engine-method-p
+   #:engine-rpc-public-method-p
+   #:engine-rpc-any-method-p
    #:engine-rpc-handle-request
    #:engine-rpc-handle-request-value
    #:engine-rpc-handle-request-string
@@ -2442,6 +2454,7 @@
    #:engine-rpc-http-service-now-provider
    #:engine-rpc-http-service-import-function
    #:engine-rpc-http-service-telemetry-sink
+   #:engine-rpc-http-service-allowed-method-p
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection
    #:make-engine-rpc-http-connection

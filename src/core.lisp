@@ -3762,8 +3762,28 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :error
    (engine-rpc-error-object -32600 "Invalid Request")))
 
+(defun engine-rpc-string-prefix-p (prefix string)
+  (and (<= (length prefix) (length string))
+       (string= prefix string :end2 (length prefix))))
+
+(defun engine-rpc-engine-method-p (method)
+  (and (stringp method)
+       (engine-rpc-string-prefix-p "engine_" method)))
+
+(defun engine-rpc-public-method-p (method)
+  (and (stringp method)
+       (or (engine-rpc-string-prefix-p "eth_" method)
+           (engine-rpc-string-prefix-p "net_" method)
+           (engine-rpc-string-prefix-p "web3_" method)
+           (engine-rpc-string-prefix-p "txpool_" method))))
+
+(defun engine-rpc-any-method-p (method)
+  (declare (ignore method))
+  t)
+
 (defun engine-rpc-handle-request
-    (request store config &key import-function)
+    (request store config &key import-function
+                            (allowed-method-p #'engine-rpc-any-method-p))
   (let ((id (and (listp request)
                  (genesis-object-field request "id"))))
     (handler-case
@@ -3776,15 +3796,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (block-validation-fail "JSON-RPC method must be a string"))
             (unless (listp params)
               (block-validation-fail "JSON-RPC params must be a list"))
-            (or
-             (engine-rpc-handle-engine-method
-              id method params store config
-              :import-function import-function)
-             (engine-rpc-handle-public-method id method params store config)
-             (engine-rpc-response
-              id
-              :error
-              (engine-rpc-error-object -32601 "Method not found")))))
+            (unless (functionp allowed-method-p)
+              (block-validation-fail
+               "JSON-RPC method filter must be a function"))
+            (if (not (funcall allowed-method-p method))
+                (engine-rpc-response
+                 id
+                 :error
+                 (engine-rpc-error-object -32601 "Method not found"))
+                (or
+                 (engine-rpc-handle-engine-method
+                  id method params store config
+                  :import-function import-function)
+                 (engine-rpc-handle-public-method id method params store config)
+                 (engine-rpc-response
+                  id
+                  :error
+                  (engine-rpc-error-object -32601 "Method not found"))))))
       (engine-rpc-error (condition)
         (engine-rpc-response
          id
@@ -3801,35 +3829,42 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (block-validation-error-message condition)))))))
 
 (defun engine-rpc-handle-request-value
-    (request store config &key import-function)
+    (request store config &key import-function
+                            (allowed-method-p #'engine-rpc-any-method-p))
   (cond
     ((json-object-p request)
      (engine-rpc-handle-request request store config
-                                :import-function import-function))
+                                :import-function import-function
+                                :allowed-method-p allowed-method-p))
     ((and (listp request) request)
      (mapcar (lambda (item)
                (if (json-object-p item)
                    (engine-rpc-handle-request
                     item store config
-                    :import-function import-function)
+                    :import-function import-function
+                    :allowed-method-p allowed-method-p)
                    (engine-rpc-invalid-request-response)))
              request))
     (t (engine-rpc-invalid-request-response))))
 
 (defun engine-rpc-handle-request-string
-    (request-json store config &key import-function)
+    (request-json store config &key import-function
+                                  (allowed-method-p #'engine-rpc-any-method-p))
   (engine-rpc-handle-request-value
    (parse-json request-json)
    store
    config
-   :import-function import-function))
+   :import-function import-function
+   :allowed-method-p allowed-method-p))
 
 (defun engine-rpc-handle-request-json
-    (request-json store config &key import-function)
+    (request-json store config &key import-function
+                                  (allowed-method-p #'engine-rpc-any-method-p))
   (json-encode
    (engine-rpc-handle-request-string
     request-json store config
-    :import-function import-function)))
+    :import-function import-function
+    :allowed-method-p allowed-method-p)))
 
 (defparameter +engine-rpc-http-accepted-content-types+
   '("application/json" "application/json-rpc" "application/jsonrequest"))
@@ -3849,7 +3884,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defstruct (engine-rpc-http-service
             (:constructor %make-engine-rpc-http-service
                 (&key host port store config jwt-secret now-provider
-                      import-function telemetry-sink)))
+                      import-function telemetry-sink allowed-method-p)))
   host
   port
   store
@@ -3857,7 +3892,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   jwt-secret
   now-provider
   import-function
-  telemetry-sink)
+  telemetry-sink
+  allowed-method-p)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -3890,6 +3926,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        jwt-secret
        (now-provider (lambda () 0))
        (import-function (engine-rpc-default-import-function))
+       (allowed-method-p #'engine-rpc-any-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -3909,6 +3946,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (when (and import-function
              (not (functionp import-function)))
     (block-validation-fail "Engine RPC HTTP import function must be a function"))
+  (unless (functionp allowed-method-p)
+    (block-validation-fail "Engine RPC HTTP method filter must be a function"))
   (%make-engine-rpc-http-service
    :host host
    :port port
@@ -3917,7 +3956,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :jwt-secret jwt-secret
    :now-provider now-provider
    :import-function import-function
-   :telemetry-sink telemetry-sink))
+   :telemetry-sink telemetry-sink
+   :allowed-method-p allowed-method-p))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -4044,10 +4084,6 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-http-trim (string)
   (string-trim '(#\Space #\Tab #\Return #\Newline) string))
-
-(defun engine-rpc-string-prefix-p (prefix string)
-  (and (<= (length prefix) (length string))
-       (string= prefix string :end2 (length prefix))))
 
 (defun engine-rpc-base64url-encode (bytes)
   (let ((bytes (ensure-byte-vector bytes)))
@@ -4363,7 +4399,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    status-code reason message :content-type "text/plain"))
 
 (defun engine-rpc-handle-http-request-string
-    (request store config &key jwt-secret now import-function)
+    (request store config &key jwt-secret now import-function
+                               (allowed-method-p #'engine-rpc-any-method-p))
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -4406,7 +4443,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    (engine-rpc-http-body body headers)
                    store
                    config
-                   :import-function import-function))))))))
+                   :import-function import-function
+                   :allowed-method-p allowed-method-p))))))))
     (error (condition)
       (engine-rpc-http-error-response
        400 "Bad Request"
@@ -4414,7 +4452,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-handle-http-stream
     (input-stream output-stream store config
-     &key jwt-secret now import-function)
+     &key jwt-secret now import-function
+          (allowed-method-p #'engine-rpc-any-method-p))
   (let ((response
           (handler-case
               (engine-rpc-handle-http-request-string
@@ -4423,7 +4462,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                config
                :jwt-secret jwt-secret
                :now now
-               :import-function import-function)
+               :import-function import-function
+               :allowed-method-p allowed-method-p)
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -4453,7 +4493,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-rpc-http-service-config service)
           :jwt-secret (engine-rpc-http-service-jwt-secret service)
           :now (funcall (engine-rpc-http-service-now-provider service))
-          :import-function (engine-rpc-http-service-import-function service))
+          :import-function (engine-rpc-http-service-import-function service)
+          :allowed-method-p
+          (engine-rpc-http-service-allowed-method-p service))
       (ethereum-lisp.telemetry:telemetry-metric
        "engine.rpc.http.streams"
        1

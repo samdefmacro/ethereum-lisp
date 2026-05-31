@@ -37,12 +37,70 @@
     (is (= 1337 (getf summary :chain-id)))
     (is (= 0 (getf summary :head-number)))
     (is (string= "127.0.0.1:0" (getf summary :engine-endpoint)))
+    (is (string= "127.0.0.1:8545" (getf summary :rpc-endpoint)))
     (is (string= (hash32-to-hex head-hash) (getf summary :head-hash)))
     (is (getf summary :state-available-p))
     (is (not (getf summary :auth-required-p)))
     (is (not (getf summary :jwt-secret-path)))
+    (is (funcall (engine-rpc-http-service-allowed-method-p
+                  (ethereum-lisp.cli:devnet-node-service node))
+                 "engine_exchangeCapabilities"))
+    (is (not (funcall (engine-rpc-http-service-allowed-method-p
+                       (ethereum-lisp.cli:devnet-node-service node))
+                      "eth_chainId")))
+    (is (funcall (engine-rpc-http-service-allowed-method-p
+                  (ethereum-lisp.cli:devnet-node-public-service node))
+                 "eth_chainId"))
+    (is (not (funcall (engine-rpc-http-service-allowed-method-p
+                       (ethereum-lisp.cli:devnet-node-public-service node))
+                      "engine_exchangeCapabilities")))
     (is (= #xde0b6b3a7640000
            (chain-store-account-balance store head-hash funded)))))
+
+(deftest devnet-node-splits-engine-and-public-rpc-methods
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+
+                :port 8551
+                :public-port 8545))
+         (engine-service (ethereum-lisp.cli:devnet-node-service node))
+         (public-service (ethereum-lisp.cli:devnet-node-public-service node))
+         (engine-store (engine-rpc-http-service-store engine-service))
+         (engine-config (engine-rpc-http-service-config engine-service))
+         (public-filter (engine-rpc-http-service-allowed-method-p
+                         public-service))
+         (engine-filter (engine-rpc-http-service-allowed-method-p
+                         engine-service)))
+    (let ((engine-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}"
+              engine-store
+              engine-config
+              :allowed-method-p engine-filter)))
+          (public-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}"
+              engine-store
+              engine-config
+              :allowed-method-p public-filter)))
+          (chain-id-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"eth_chainId\",\"params\":[]}"
+              engine-store
+              engine-config
+              :allowed-method-p public-filter))))
+      (is (= -32601
+             (fixture-object-field
+              (fixture-object-field engine-response "error")
+              "code")))
+      (is (= -32601
+             (fixture-object-field
+              (fixture-object-field public-response "error")
+              "code")))
+      (is (string= "0x539"
+                   (fixture-object-field chain-id-response "result"))))))
 
 (deftest devnet-node-loads-jwt-secret-file
   (let ((path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
@@ -79,7 +137,7 @@
     (let ((summary (read-from-string (get-output-stream-string output))))
       (is (= 1337 (getf summary :chain-id)))
       (is (= 0 (getf summary :head-number)))
-      (is (string= "127.0.0.1:0" (getf summary :rpc-endpoint)))
+      (is (string= "127.0.0.1:8545" (getf summary :rpc-endpoint)))
       (is (getf summary :state-available-p)))))
 
 (deftest devnet-cli-main-json-summary-and-ready-file
@@ -95,6 +153,7 @@
                    (list "devnet"
                          "--genesis" +devnet-cli-genesis-fixture+
                          "--port" "0"
+                         "--public-port" "8546"
                          "--jwt-secret" (namestring jwt-path)
                          "--ready-file" (namestring ready-path)
                          "--json"
@@ -111,6 +170,8 @@
                (is (= 0 (fixture-object-field summary "headNumber")))
                (is (string= "127.0.0.1:0"
                             (fixture-object-field summary "engineEndpoint")))
+               (is (string= "127.0.0.1:8546"
+                            (fixture-object-field summary "rpcEndpoint")))
                (is (eq t (fixture-object-field summary "authRequired")))
                (is (eq t (fixture-object-field summary "stateAvailable")))
                (is (string= (namestring jwt-path)
@@ -147,6 +208,16 @@
                 (run-error (list "devnet" "--port" "abc" "--no-serve"))))
     (is (search "--port must be between 0 and 65535"
                 (run-error (list "devnet" "--port" "70000" "--no-serve"))))
+    (is (search "--public-port requires an integer value"
+                (run-error (list "devnet"
+                                 "--public-port"
+                                 "abc"
+                                 "--no-serve"))))
+    (is (search "--public-port must be between 0 and 65535"
+                (run-error (list "devnet"
+                                 "--public-port"
+                                 "70000"
+                                 "--no-serve"))))
     (is (search "--max-connections must be non-negative"
                 (run-error (list "devnet"
                                  "--max-connections"
@@ -158,7 +229,11 @@
                 (run-error (list "devnet" "--genesis" "--no-serve"))))
     (is (search "--host requires a value"
                 (run-error (list "devnet" "--host" "--no-serve"))))
+    (is (search "--public-host requires a value"
+                (run-error (list "devnet" "--public-host" "--no-serve"))))
     (is (search "--port requires a value"
                 (run-error (list "devnet" "--port" "--no-serve"))))
+    (is (search "--public-port requires a value"
+                (run-error (list "devnet" "--public-port" "--no-serve"))))
     (is (search "Unknown option --wat"
                 (run-error (list "devnet" "--wat"))))))

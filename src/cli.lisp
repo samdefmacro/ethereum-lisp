@@ -3,14 +3,17 @@
 (defstruct (devnet-node
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
-                      telemetry-sink jwt-secret-path)))
+                      public-service telemetry-sink jwt-secret-path)))
   genesis-path
   store
   config
   genesis-block
   service
+  public-service
   telemetry-sink
   jwt-secret-path)
+
+(defconstant +devnet-default-public-rpc-port+ 8545)
 
 (defun devnet-cli-read-file-string (path)
   (with-open-file (stream path :direction :input)
@@ -31,6 +34,8 @@
        genesis-path
        (host "127.0.0.1")
        (port +engine-rpc-default-http-port+)
+       (public-host host)
+       (public-port +devnet-default-public-rpc-port+)
        jwt-secret-path
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
@@ -50,6 +55,15 @@
             :store store
             :config config
             :jwt-secret jwt-secret
+            :allowed-method-p #'engine-rpc-engine-method-p
+            :telemetry-sink telemetry-sink))
+         (public-service
+           (make-engine-rpc-http-service
+            :host public-host
+            :port public-port
+            :store store
+            :config config
+            :allowed-method-p #'engine-rpc-public-method-p
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -59,6 +73,7 @@
      :config config
      :genesis-block genesis-block
      :service service
+     :public-service public-service
      :telemetry-sink telemetry-sink
      :jwt-secret-path jwt-secret-path)))
 
@@ -73,11 +88,13 @@
     (error "Devnet node must be devnet-node"))
   (let* ((store (devnet-node-store node))
          (head (chain-store-latest-block store))
-         (endpoint (engine-rpc-http-service-endpoint
-                    (devnet-node-service node))))
+         (engine-endpoint (engine-rpc-http-service-endpoint
+                           (devnet-node-service node)))
+         (rpc-endpoint (engine-rpc-http-service-endpoint
+                        (devnet-node-public-service node))))
     (list :genesis-path (devnet-node-genesis-path node)
-          :engine-endpoint endpoint
-          :rpc-endpoint endpoint
+          :engine-endpoint engine-endpoint
+          :rpc-endpoint rpc-endpoint
           :auth-required-p
           (not (null (engine-rpc-http-service-jwt-secret
                       (devnet-node-service node))))
@@ -147,6 +164,8 @@
   (let ((genesis-path nil)
         (host "127.0.0.1")
         (port +engine-rpc-default-http-port+)
+        (public-host nil)
+        (public-port +devnet-default-public-rpc-port+)
         (jwt-secret-path nil)
         (max-connections nil)
         (serve-p t)
@@ -169,6 +188,14 @@
                     (devnet-cli-next-value args option)
                   (setf port (devnet-cli-parse-port value option)
                         args rest)))
+               ((string= option "--public-host")
+                (multiple-value-setq (public-host args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--public-port")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf public-port (devnet-cli-parse-port value option)
+                        args rest)))
                ((string= option "--jwt-secret")
                 (multiple-value-setq (jwt-secret-path args)
                   (devnet-cli-next-value args option)))
@@ -190,6 +217,8 @@
     (list :genesis-path genesis-path
           :host host
           :port port
+          :public-host (or public-host host)
+          :public-port public-port
           :jwt-secret-path jwt-secret-path
           :max-connections max-connections
           :serve-p serve-p
@@ -199,7 +228,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--jwt-secret PATH] [--max-connections N] [--json] [--ready-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--max-connections N] [--json] [--ready-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary (node stream &key (format :sexp))
   (ecase format
@@ -234,6 +263,8 @@
                        :genesis-path (getf options :genesis-path)
                        :host (getf options :host)
                        :port (getf options :port)
+                       :public-host (getf options :public-host)
+                       :public-port (getf options :public-port)
                        :jwt-secret-path (getf options :jwt-secret-path)
                        :telemetry-sink
                        (ethereum-lisp.telemetry:make-stream-telemetry-sink
