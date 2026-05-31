@@ -3968,6 +3968,12 @@ splits can land after the Phase A smoke path closes.
     and atomically replaces the target so external runners do not observe
     partial JSON. Tests cover authenticated service wiring plus
     stdout/ready-file JSON fields.
+  - Result: serve-mode readiness now waits until the Engine and public RPC
+    listeners are created and reports their actual bound endpoints in stdout,
+    ready-file JSON, and `devnet.ready` telemetry. This keeps external
+    runners from seeing configured placeholder ports such as `:0` when a
+    socket listener binds to an ephemeral port, while `--no-serve` keeps the
+    previous configuration-summary behavior.
   - Result: split the devnet process model into Engine and public RPC service
     objects, matching geth's authenticated HTTP endpoint and Nethermind's
     EngineHost/EnginePort/JwtSecretFile configuration shape. The Engine

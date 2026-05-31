@@ -156,15 +156,19 @@
 (defun devnet-block-hash-hex (block)
   (and block (hash32-to-hex (block-hash block))))
 
-(defun devnet-node-summary (node)
+(defun devnet-node-summary (node &key engine-endpoint rpc-endpoint)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (let* ((store (devnet-node-store node))
          (head (chain-store-latest-block store))
-         (engine-endpoint (engine-rpc-http-service-endpoint
-                           (devnet-node-service node)))
-         (rpc-endpoint (engine-rpc-http-service-endpoint
-                        (devnet-node-public-service node))))
+         (engine-endpoint
+           (or engine-endpoint
+               (engine-rpc-http-service-endpoint
+                (devnet-node-service node))))
+         (rpc-endpoint
+           (or rpc-endpoint
+               (engine-rpc-http-service-endpoint
+                (devnet-node-public-service node)))))
     (list :genesis-path (devnet-node-genesis-path node)
           :engine-endpoint engine-endpoint
           :rpc-endpoint rpc-endpoint
@@ -180,8 +184,12 @@
           (and head
                (chain-store-state-available-p store (block-hash head))))))
 
-(defun devnet-node-summary-json-object (node)
-  (let ((summary (devnet-node-summary node)))
+(defun devnet-node-summary-json-object
+    (node &key engine-endpoint rpc-endpoint)
+  (let ((summary (devnet-node-summary
+                  node
+                  :engine-endpoint engine-endpoint
+                  :rpc-endpoint rpc-endpoint)))
     `(("genesisPath" . ,(getf summary :genesis-path))
       ("engineEndpoint" . ,(getf summary :engine-endpoint))
       ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
@@ -195,7 +203,7 @@
 
 (defun start-devnet-node-listeners
     (node engine-listener public-listener
-     &key max-connections stop-p shutdown-controller)
+     &key max-connections stop-p shutdown-controller on-listeners-ready)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (unless (typep engine-listener 'engine-rpc-http-listener)
@@ -207,9 +215,11 @@
   (when (and shutdown-controller
              (not (typep shutdown-controller 'devnet-shutdown-controller)))
     (error "Devnet shutdown controller must be devnet-shutdown-controller"))
+  (when (and on-listeners-ready (not (functionp on-listeners-ready)))
+    (error "Devnet listener-ready callback must be a function"))
   #-sbcl
   (declare (ignore node engine-listener public-listener max-connections stop-p
-                   shutdown-controller))
+                   shutdown-controller on-listeners-ready))
   #-sbcl
   (error "Devnet split listener serving requires SBCL threads")
   #+sbcl
@@ -225,6 +235,8 @@
          (public-error nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
+    (when on-listeners-ready
+      (funcall on-listeners-ready engine-listener public-listener))
     (let ((engine-thread
             (sb-thread:make-thread
              (lambda ()
@@ -262,12 +274,14 @@
 
 (defun start-devnet-node
     (node &key max-connections stop-p shutdown-controller
-            install-signal-handlers-p signal-stream)
+            install-signal-handlers-p signal-stream on-listeners-ready)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (when (and shutdown-controller
              (not (typep shutdown-controller 'devnet-shutdown-controller)))
     (error "Devnet shutdown controller must be devnet-shutdown-controller"))
+  (when (and on-listeners-ready (not (functionp on-listeners-ready)))
+    (error "Devnet listener-ready callback must be a function"))
   (let ((shutdown-controller
           (or shutdown-controller (make-devnet-shutdown-controller)))
         (engine-listener nil)
@@ -289,7 +303,8 @@
                          public-listener
                          :max-connections max-connections
                          :stop-p stop-p
-                         :shutdown-controller shutdown-controller)))
+                         :shutdown-controller shutdown-controller
+                         :on-listeners-ready on-listeners-ready)))
                  (if install-signal-handlers-p
                      (call-with-devnet-shutdown-signal-handlers
                       shutdown-controller
@@ -406,11 +421,23 @@
   (format stream
           "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--no-serve]~%"))
 
-(defun devnet-cli-print-summary (node stream &key (format :sexp))
+(defun devnet-cli-print-summary
+    (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
   (ecase format
-    (:sexp (write (devnet-node-summary node) :stream stream :pretty nil))
-    (:json (write-string (json-encode (devnet-node-summary-json-object node))
-                         stream)))
+    (:sexp
+     (write (devnet-node-summary
+             node
+             :engine-endpoint engine-endpoint
+             :rpc-endpoint rpc-endpoint)
+            :stream stream :pretty nil))
+    (:json
+     (write-string
+      (json-encode
+       (devnet-node-summary-json-object
+        node
+        :engine-endpoint engine-endpoint
+        :rpc-endpoint rpc-endpoint))
+      stream)))
   (terpri stream))
 
 (defun devnet-cli-ready-temp-path (path)
@@ -422,7 +449,8 @@
      :type type
      :defaults pathname)))
 
-(defun devnet-cli-write-ready-file (node path)
+(defun devnet-cli-write-ready-file
+    (node path &key engine-endpoint rpc-endpoint)
   (let ((temp-path (devnet-cli-ready-temp-path path))
         (renamed-p nil))
     (unwind-protect
@@ -431,8 +459,13 @@
                                    :direction :output
                                    :if-exists :error
                                    :if-does-not-exist :create)
-             (write-string (json-encode (devnet-node-summary-json-object node))
-                           stream)
+             (write-string
+              (json-encode
+               (devnet-node-summary-json-object
+                node
+                :engine-endpoint engine-endpoint
+                :rpc-endpoint rpc-endpoint))
+              stream)
              (terpri stream))
            (uiop:rename-file-overwriting-target temp-path path)
            (setf renamed-p t)
@@ -441,8 +474,12 @@
         (when (probe-file temp-path)
           (ignore-errors (delete-file temp-path)))))))
 
-(defun devnet-node-telemetry-fields (node)
-  (let ((summary (devnet-node-summary node)))
+(defun devnet-node-telemetry-fields
+    (node &key engine-endpoint rpc-endpoint)
+  (let ((summary (devnet-node-summary
+                  node
+                  :engine-endpoint engine-endpoint
+                  :rpc-endpoint rpc-endpoint)))
     `(("engineEndpoint" . ,(getf summary :engine-endpoint))
       ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
       ("chainId" . ,(quantity-to-hex (getf summary :chain-id)))
@@ -452,12 +489,15 @@
       ("jwtSecretPath" . ,(or (getf summary :jwt-secret-path) ""))
       ("logPath" . ,(or (getf summary :log-path) "")))))
 
-(defun devnet-cli-log-event (node name)
+(defun devnet-cli-log-event (node name &key engine-endpoint rpc-endpoint)
   (ethereum-lisp.telemetry:telemetry-log
    :info
    name
    :sink (devnet-node-telemetry-sink node)
-   :fields (devnet-node-telemetry-fields node)))
+   :fields (devnet-node-telemetry-fields
+            node
+            :engine-endpoint engine-endpoint
+            :rpc-endpoint rpc-endpoint)))
 
 (defun call-with-devnet-cli-telemetry-sink (options output-stream thunk)
   (let ((log-file (getf options :log-file)))
@@ -500,25 +540,52 @@
                           :jwt-secret-path (getf options :jwt-secret-path)
                           :log-path (getf options :log-file)
                           :telemetry-sink telemetry-sink)))
-                   (when (getf options :ready-file)
-                     (devnet-cli-write-ready-file
-                      node
-                      (getf options :ready-file)))
-                   (when (getf options :log-file)
-                     (devnet-cli-log-event node "devnet.ready"))
-                   (devnet-cli-print-summary
-                    node
-                    output-stream
-                    :format (getf options :summary-format))
-                   (when (getf options :serve-p)
-                     (unwind-protect
-                          (start-devnet-node
-                           node
-                           :max-connections (getf options :max-connections)
-                           :install-signal-handlers-p t
-                           :signal-stream error-stream)
-                       (when (getf options :log-file)
-                         (devnet-cli-log-event node "devnet.shutdown"))))
+                   (if (getf options :serve-p)
+                       (unwind-protect
+                            (start-devnet-node
+                             node
+                             :max-connections (getf options :max-connections)
+                             :install-signal-handlers-p t
+                             :signal-stream error-stream
+                             :on-listeners-ready
+                             (lambda (engine-listener public-listener)
+                               (let ((engine-endpoint
+                                       (engine-rpc-http-listener-endpoint
+                                        engine-listener))
+                                     (rpc-endpoint
+                                       (engine-rpc-http-listener-endpoint
+                                        public-listener)))
+                                 (when (getf options :ready-file)
+                                   (devnet-cli-write-ready-file
+                                    node
+                                    (getf options :ready-file)
+                                    :engine-endpoint engine-endpoint
+                                    :rpc-endpoint rpc-endpoint))
+                                 (when (getf options :log-file)
+                                   (devnet-cli-log-event
+                                    node
+                                    "devnet.ready"
+                                    :engine-endpoint engine-endpoint
+                                    :rpc-endpoint rpc-endpoint))
+                                 (devnet-cli-print-summary
+                                  node
+                                  output-stream
+                                  :format (getf options :summary-format)
+                                  :engine-endpoint engine-endpoint
+                                  :rpc-endpoint rpc-endpoint))))
+                         (when (getf options :log-file)
+                           (devnet-cli-log-event node "devnet.shutdown")))
+                       (progn
+                         (when (getf options :ready-file)
+                           (devnet-cli-write-ready-file
+                            node
+                            (getf options :ready-file)))
+                         (when (getf options :log-file)
+                           (devnet-cli-log-event node "devnet.ready"))
+                         (devnet-cli-print-summary
+                          node
+                          output-stream
+                          :format (getf options :summary-format))))
                    0))))))
     (error (condition)
       (format error-stream "~A~%" condition)

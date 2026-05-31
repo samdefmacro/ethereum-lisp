@@ -576,6 +576,58 @@
       (is (= 0 (getf summary :public-connections)))
       (is (= 0 (getf summary :total-connections))))))
 
+(deftest devnet-listener-ready-callback-reports-bound-endpoints
+  #-sbcl
+  (skip-test "Devnet split listener serving requires SBCL threads")
+  #+sbcl
+  (let* ((ready-path
+           (devnet-cli-temp-path "ethereum-lisp-devnet-bound-ready" "json"))
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+
+                :port 0
+                :public-port 0))
+         (callback-called-p nil)
+         (engine-listener
+           (make-engine-rpc-http-listener
+            :endpoint "127.0.0.1:18551"
+            :accept-function (lambda () nil)
+            :close-function (lambda () nil)))
+         (public-listener
+           (make-engine-rpc-http-listener
+            :endpoint "127.0.0.1:18545"
+            :accept-function (lambda () nil)
+            :close-function (lambda () nil))))
+    (unwind-protect
+         (let ((summary
+                 (ethereum-lisp.cli:start-devnet-node-listeners
+                  node
+                  engine-listener
+                  public-listener
+                  :max-connections 0
+                  :on-listeners-ready
+                  (lambda (engine public)
+                    (setf callback-called-p t)
+                    (ethereum-lisp.cli::devnet-cli-write-ready-file
+                     node
+                     ready-path
+                     :engine-endpoint
+                     (engine-rpc-http-listener-endpoint engine)
+                     :rpc-endpoint
+                     (engine-rpc-http-listener-endpoint public))))))
+           (is callback-called-p)
+           (is (= 0 (getf summary :engine-connections)))
+           (is (= 0 (getf summary :public-connections)))
+           (let ((ready-summary
+                   (parse-json (devnet-cli-file-string ready-path))))
+             (is (string= "127.0.0.1:18551"
+                          (fixture-object-field ready-summary
+                                                "engineEndpoint")))
+             (is (string= "127.0.0.1:18545"
+                          (fixture-object-field ready-summary
+                                                "rpcEndpoint")))))
+      (when (probe-file ready-path)
+        (delete-file ready-path)))))
+
 (deftest devnet-node-loads-jwt-secret-file
   (let ((path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
     (unwind-protect
