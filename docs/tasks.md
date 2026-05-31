@@ -288,6 +288,13 @@ ones.
     without requiring callers to point at exactly one parent layout.
     Reference check: geth `8a0223e` uses `spec-tests/fixtures/...` roots, and
     Nethermind `1c72a72` loads pyspec tests from `fixtures/<suite>/...`.
+  - Progress: real EEST blockchain selector names with nested pytest case
+    paths after `.json/` are now accepted. The local v5.4.0 extracted
+    blockchain root at `/private/tmp/eest-v5.4.0-extract/fixtures/` now loads
+    its four Berlin/Cancun/Paris engine cases instead of failing during
+    source-style selector validation; that root has no Shanghai Phase A replay
+    candidate, so selector discovery correctly reports no materializable
+    Phase A case.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

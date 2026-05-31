@@ -83,10 +83,15 @@
        entries))))
 
 (defun validate-eest-blockchain-selector-list (names)
-  (validate-execution-spec-tests-selector-list names "EEST blockchain"))
+  (validate-execution-spec-tests-selector-list
+   names
+   "EEST blockchain"
+   :allow-nested-case-name t))
 
 (defun eest-blockchain-selector-source-style-p (name)
-  (execution-spec-tests-source-style-name-p name))
+  (execution-spec-tests-source-style-name-p
+   name
+   :allow-nested-case-name t))
 
 (defun load-eest-blockchain-test-root-cases (root &key names)
   (when names
@@ -683,6 +688,11 @@
            "shanghai/phase-a-empty-engine.json=engineNewPayloadV2, shanghai/phase-a-empty-standard.json=blockRlp")))
     (is (equal +phase-a-eest-blockchain-replay-materialization-kinds+
                selectors)))
+  (let ((selectors
+          (parse-phase-a-eest-blockchain-replay-selectors
+           "shanghai/test.json/tests/shanghai/test_payload.py::test_case[fork_Shanghai]=engineNewPayloadV2")))
+    (is (equal '(("shanghai/test.json/tests/shanghai/test_payload.py::test_case[fork_Shanghai]" . "engineNewPayloadV2"))
+               selectors)))
   (signals error
     (parse-phase-a-eest-blockchain-replay-selectors
      "shanghai/phase-a-empty-engine.json"))
@@ -777,7 +787,7 @@
          "shanghai/phase-a-empty-engine.json")))
     (signals error
       (validate-eest-blockchain-selector-list
-       '("phase-a-empty-engine.json/case/extra")))
+       '("phase-a-empty-engine/case/extra")))
     (signals error
       (validate-phase-a-eest-blockchain-replay-summary nil))
     (signals error
