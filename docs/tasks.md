@@ -64,9 +64,11 @@ Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked. Order matters: earlier items unblock later
 ones.
 
-- `HARNESS-BLOCKCHAIN-FIXTURE-REPLAY`
-- `STATE-PROOFS` only for replacing seed proof vectors with real
-  upstream/reference proof data, not for adding more narrow local hardening.
+- No active Immediate Queue items. Before adding another item here, verify it
+  is a concrete Phase A production blocker or a real upstream/pinned fixture
+  synchronization slice. Do not reopen `TRIE-FIXTURE-GRADE` or `STATE-PROOFS`
+  for narrow fixture hardening without a concrete implementation bug, missing
+  consensus boundary, or reference-client drift.
 
 ## P0: Phase A Discipline
 
@@ -2685,7 +2687,7 @@ splits can land after the Phase A smoke path closes.
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
 
-- [~] `STATE-PROOFS`: Add account/storage proof generation and verification.
+- [x] `STATE-PROOFS`: Add account/storage proof generation and verification.
   - Milestone: 3 / 7
   - Dependencies: `TRIE-FIXTURE-GRADE`.
   - References: geth `eth_getProof`, trie proof APIs; Nethermind proof APIs.
@@ -2754,9 +2756,11 @@ splits can land after the Phase A smoke path closes.
     reference-client proof fixture runner and a pinned Nethermind
     `eth_getProof` output from commit `1c72a72`, so odd-width short storage
     proof keys such as `0x1` are decoded and verified against real client
-    output instead of synthetic seed shape. Remaining work: continue replacing
-    seed proof vectors with transcribed geth/Nethermind proof workload output
-    or pinned execution-spec-tests proof fixtures once available.
+    output instead of synthetic seed shape. Future broadening can continue
+    replacing seed proof vectors with transcribed geth/Nethermind proof
+    workload output or pinned execution-spec-tests proof fixtures once
+    available, but the Phase A proof acceptance is no longer blocked on more
+    narrow hardening.
   - Progress: added an empty-state proof vector for a missing account plus
     missing storage key. The fixture now locks the empty trie root,
     empty-account `eth_getProof` fields, empty account proof list, and null
@@ -3067,6 +3071,14 @@ splits can land after the Phase A smoke path closes.
     hashed branch child, and the retained-state `eth_getProof` RPC regression
     verifies all three account paths against the same committed block-hash
     snapshot.
+  - Result: complete for the Phase A gate. Local retained state snapshots can
+    produce account and storage proofs, return them through `eth_getProof`,
+    decode geth-shaped proof objects back into local proof structs, and verify
+    those proofs against retained state roots. Coverage includes empty and
+    non-empty accounts, present and missing storage, account/storage update and
+    delete boundaries, forkchoice/hash/safe/finalized retained-state reads,
+    geth-derived secure account roots, and a pinned Nethermind `eth_getProof`
+    output from commit `1c72a72`.
 
 - [x] `STATE-ATOMIC-COMMIT`: Add an atomic state/receipt/index commit boundary
   for block import.

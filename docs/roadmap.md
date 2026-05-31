@@ -825,18 +825,17 @@ Reth consensus/executor integration.
 **Phase A summary**
 
 - *Done:* legacy and typed transaction execution shape through Shanghai,
-  in-memory receipt / log / state-root derivation, broad EIP coverage up to
-  Cancun fields, receipt-derivation invariants on the import path, block-body
-  and post-execution commitment preflight, Ethash reward hook, and Merge/Paris
-  validation.
-- *Partial:* atomic state/receipt/index commit semantics on validation
-  failure, EIP-7702 set-code execution beyond delegation shape, blob
-  transaction semantics without KZG verification, and post-execution rollback
-  symmetry across all failure modes.
-- *Missing for Phase A:* an atomic block-import commit boundary, fixture-grade
-  state-root verification (depends on Section 3 trie work), strict sender
-  recovery on every signed import/admission/mined RPC path, and a pinned
-  post-Merge Shanghai fixture set the smoke path is compared against.
+  in-memory receipt / log / state-root derivation, retained-state account and
+  storage proof generation, receipt-derivation invariants on the import path,
+  block-body and post-execution commitment preflight, atomic block-import
+  commit/rollback, strict sender recovery on signed import/admission paths,
+  Ethash reward hook, and Merge/Paris validation.
+- *Partial:* EIP-7702 set-code execution beyond delegation shape, blob
+  transaction semantics without KZG verification, and broader post-execution
+  rollback symmetry across all failure modes.
+- *Missing for Phase A:* broader pinned post-Merge Shanghai state-transition
+  fixture breadth around the existing smoke path, plus Cancun blob execution
+  acceptance once real KZG verification is available.
 
 The detailed implementation log below is preserved for historical context and
 is queued for migration into a status document via `DOC-ROADMAP-STATUS-SPLIT`.
