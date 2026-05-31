@@ -971,6 +971,7 @@
    #:devnet-node-genesis-block
    #:devnet-node-service
    #:devnet-node-telemetry-sink
+   #:devnet-node-jwt-secret-path
    #:devnet-node-summary
    #:start-devnet-node
    #:main))

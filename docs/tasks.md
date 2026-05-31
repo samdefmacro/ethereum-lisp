@@ -3900,6 +3900,12 @@ splits can land after the Phase A smoke path closes.
     missing-genesis validation. CLI option validation now rejects malformed
     ports, option-shaped missing values, negative connection limits, and unknown
     options before genesis loading or socket startup.
+  - Result: extended the same devnet CLI toward a Hive-style process contract:
+    `--jwt-secret` loads a 32-byte Engine JWT secret file into the HTTP
+    service, `--json` prints a JSON startup summary, and `--ready-file` writes
+    the same machine-readable readiness document for external runners before
+    serving. Tests cover authenticated service wiring plus stdout/ready-file
+    JSON fields.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

@@ -632,12 +632,13 @@ first pass, but interfaces must not block that path.
   `engine_newPayloadV1` through `V5` parsing, executable known-parent import
   through the atomic signed-block path, forkchoice canonical-head switching,
   public read RPCs over retained state, polling filters, local raw-transaction
-  admission, HTTP stream/listener serving, telemetry hooks, and a devnet CLI
-  shell that loads genesis and exposes the current head.
+  admission, HTTP stream/listener serving, JWT-authenticated Engine service
+  wiring, telemetry hooks, and a devnet CLI shell that loads genesis and emits
+  JSON readiness/head summaries for process runners.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the pinned v5.4.0 Shanghai
-  `engine_newPayloadV2` replay slice, authenticated process wiring, and
-  concrete long-running devnet/Hive process ergonomics.
+  `engine_newPayloadV2` replay slice, split Engine/public listener wiring, and
+  concrete long-running devnet/Hive lifecycle ergonomics.
 - *Missing for Phase A:* broader Hive-style Engine smoke breadth around the
   existing Shanghai path, plus any Cancun blob execution acceptance until real
   KZG verification is available.
