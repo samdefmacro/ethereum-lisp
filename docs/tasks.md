@@ -2431,6 +2431,13 @@ splits can land after the Phase A smoke path closes.
     shorter shared-prefix split roots with explicit retained/missing `out`
     maps, closing the gap between recent seed StackTrie coverage and
     external-style fixture replay.
+    Promoted the remaining geth StackTrie table-head growth cases into the
+    selected EEST-style trie-test root. The adapter path now gates short branch
+    growth, mixed short/long root branches, extension-root branch growth,
+    sparse root branches with long values, nested branch children, branch
+    children that resolve to extensions, and the deep extension-to-branch
+    case with explicit retained/missing `out` maps, so all current
+    StackTrie seed reference roots are represented by external-style replay.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
