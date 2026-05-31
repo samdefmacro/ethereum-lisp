@@ -3602,6 +3602,13 @@ splits can land after the Phase A smoke path closes.
     entry points without claiming real proof verification yet.
     Remaining work: provide the actual trusted-setup-backed c-kzg/FFI verifier
     and replay canonical KZG vectors.
+  - Progress: tightened the KZG verifier boundary with canonical BLS field
+    element checks before verifier dispatch. Blob sidecars now reject blob
+    field elements greater than or equal to the BLS modulus during field
+    validation, and the point-evaluation path rejects non-canonical `z` / `y`
+    values before an injected verifier can accept them. This matches the
+    reference-client behavior where geth/Nethermind pass those values into KZG
+    libraries that reject non-canonical field elements.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4

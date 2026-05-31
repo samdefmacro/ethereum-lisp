@@ -1807,7 +1807,7 @@
                                   97 #xc3 #x50 241
                                   96 32 95 243)))
                (concat-bytes code input)))
-           (matched-version-input ()
+           (matched-version-input (&key z y)
              (let* ((commitment (make-byte-vector +kzg-commitment-size+))
                     (proof (make-byte-vector +kzg-proof-size+))
                     (versioned-hash
@@ -1817,6 +1817,10 @@
                       (make-byte-vector
                        ethereum-lisp.evm::+kzg-point-evaluation-input-size+)))
                (replace input versioned-hash :start1 0)
+               (when z
+                 (replace input z :start1 32))
+               (when y
+                 (replace input y :start1 64))
                (replace input commitment :start1 96)
                (replace input proof :start1 144)
                input)))
@@ -1883,7 +1887,22 @@
                 nil)))
         (signals ethereum-lisp.evm::evm-precompile-error
           (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
-           unverified-proof-input))))))
+           unverified-proof-input)))
+      (let* ((called nil)
+             (invalid-z-input
+               (matched-version-input
+                :z (ethereum-lisp.evm::integer-to-fixed-bytes
+                    ethereum-lisp.evm::+bls-field-modulus+
+                    32))))
+        (let ((*kzg-point-proof-verifier*
+                (lambda (commitment z y proof)
+                  (declare (ignore commitment z y proof))
+                  (setf called t)
+                  t)))
+          (signals ethereum-lisp.evm::evm-precompile-error
+            (ethereum-lisp.evm::run-kzg-point-evaluation-precompile
+             invalid-z-input)))
+        (is (null called))))))
 
 (deftest evm-call-blake2f-precompile
   (let* ((state (make-state-db))

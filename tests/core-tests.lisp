@@ -13902,6 +13902,26 @@ Content-Type: application/json
        (make-blob-sidecar :blobs (list #())
                           :commitments (list commitment)
                           :proofs (list proof))))
+    (let ((invalid-blob (copy-seq blob))
+          (called nil))
+      (replace invalid-blob
+               (ethereum-lisp.crypto::integer-to-fixed-bytes
+                ethereum-lisp.core::+kzg-field-modulus+
+                32)
+               :start1 0)
+      (let ((*kzg-blob-proof-verifier*
+              (lambda (verified-blob verified-commitment verified-proof)
+                (declare (ignore verified-blob verified-commitment
+                                 verified-proof))
+                (setf called t)
+                t)))
+        (signals block-validation-error
+          (validate-blob-sidecar-fields
+           (make-blob-sidecar :blobs (list invalid-blob)
+                              :commitments (list commitment)
+                              :proofs (list proof))
+           :require-proof-verification t)))
+      (is (null called)))
     (signals block-validation-error
       (validate-blob-sidecar-fields
        (make-blob-sidecar :blobs (list blob)
