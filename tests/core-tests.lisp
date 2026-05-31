@@ -3599,6 +3599,107 @@
       (is (eq mined-transaction
               (engine-transaction-location-transaction location))))))
 
+(deftest engine-payload-store-removes-included-transactions-from-subpools
+  (labels ((put-queued (store transaction)
+             (setf
+              (gethash
+               (ethereum-lisp.core::engine-pending-txpool-hash-key
+                (transaction-hash transaction))
+               (ethereum-lisp.core::engine-payload-store-queued-transaction-table
+                store))
+              transaction)
+             (ethereum-lisp.core::engine-payload-store-index-queued-transaction
+              store
+              transaction))
+           (put-by-hash (table transaction)
+             (setf
+              (gethash
+               (ethereum-lisp.core::engine-pending-txpool-hash-key
+                (transaction-hash transaction))
+               table)
+              transaction)))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (private-key 1)
+           (queued-conflict
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 4
+               :gas-price 100
+               :gas-limit 21000
+               :to recipient)
+              private-key
+              1))
+           (mined-conflict
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 4
+               :gas-price 110
+               :gas-limit 21000
+               :to recipient)
+              private-key
+              1))
+           (queued-exact
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 5
+               :gas-price 120
+               :gas-limit 21000
+               :to recipient)
+              private-key
+              1))
+           (sender-key
+             (ethereum-lisp.core::engine-payload-store-pending-sender-key
+              queued-conflict))
+           (block
+             (make-block
+              :header
+              (make-block-header :number 0
+                                 :parent-hash (zero-hash32)
+                                 :state-root +empty-trie-hash+
+                                 :gas-used 0)
+              :transactions (list mined-conflict queued-exact))))
+      (is (not (string=
+                (hash32-to-hex (transaction-hash queued-conflict))
+                (hash32-to-hex (transaction-hash mined-conflict)))))
+      (is (bytes= (address-bytes (transaction-sender queued-conflict))
+                  (address-bytes (transaction-sender mined-conflict))))
+      (put-queued store queued-conflict)
+      (put-queued store queued-exact)
+      (put-by-hash
+       (ethereum-lisp.core::engine-payload-store-basefee-transaction-table
+        store)
+       mined-conflict)
+      (put-by-hash
+       (ethereum-lisp.core::engine-payload-store-blob-transaction-table store)
+       queued-exact)
+      (is (= 2
+             (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+              store)))
+      (is (= 1
+             (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+              store)))
+      (is (= 1
+             (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+              store)))
+      (engine-payload-store-put-block store block)
+      (let ((queued-sender-transactions
+              (gethash
+               sender-key
+               (ethereum-lisp.core::engine-payload-store-queued-sender-index
+                store))))
+        (is (= 0
+               (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                store)))
+        (is (= 0
+               (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+                store)))
+        (is (= 0
+               (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+                store)))
+        (is (null queued-sender-transactions))))))
+
 (deftest engine-payload-store-replaces-same-sender-nonce-with-price-bump
   (let* ((store (make-engine-payload-memory-store))
          (recipient

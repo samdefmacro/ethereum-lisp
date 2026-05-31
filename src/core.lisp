@@ -2316,10 +2316,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       :transaction transaction
                       :receipt receipt
                       :log-index-start log-index-start))
-               (engine-payload-store-remove-pending-transaction
-                store
-                (transaction-hash transaction))
-               (engine-payload-store-remove-pending-conflict
+               (engine-payload-store-remove-included-transaction
                 store
                 transaction)
                (when receipt
@@ -2948,44 +2945,29 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-pending-txpool-hash-key (hash)
   (engine-payload-store-key hash))
 
-(defun engine-payload-store-pending-sender-key (transaction)
-  (engine-pending-txpool-sender-key transaction))
-
-(defun engine-payload-store-pending-nonce-key (transaction)
-  (engine-pending-txpool-nonce-key transaction))
-
-(defun engine-pending-txpool-pending-conflict (txpool transaction)
+(defun engine-pending-txpool-indexed-conflict
+    (sender-index transaction)
   (let* ((sender (engine-pending-txpool-sender-key transaction))
          (nonce (engine-pending-txpool-nonce-key transaction))
-         (sender-transactions
-           (gethash sender
-                    (engine-pending-txpool-transactions-by-sender
-                     txpool))))
+         (sender-transactions (gethash sender sender-index)))
     (and sender-transactions
          (gethash nonce sender-transactions))))
 
-(defun engine-pending-txpool-index-pending-transaction
-    (txpool transaction)
+(defun engine-pending-txpool-index-transaction
+    (sender-index transaction)
   (let* ((sender (engine-pending-txpool-sender-key transaction))
          (nonce (engine-pending-txpool-nonce-key transaction))
          (sender-transactions
-           (or (gethash
-                sender
-                (engine-pending-txpool-transactions-by-sender txpool))
-               (setf
-                (gethash
-                 sender
-                 (engine-pending-txpool-transactions-by-sender txpool))
-                (make-hash-table :test 'equal)))))
+           (or (gethash sender sender-index)
+               (setf (gethash sender sender-index)
+                     (make-hash-table :test 'equal)))))
     (setf (gethash nonce sender-transactions) transaction)))
 
-(defun engine-pending-txpool-unindex-pending-transaction
-    (txpool transaction)
+(defun engine-pending-txpool-unindex-transaction
+    (sender-index transaction)
   (when transaction
     (let* ((sender (engine-pending-txpool-sender-key transaction))
            (nonce (engine-pending-txpool-nonce-key transaction))
-           (sender-index
-             (engine-pending-txpool-transactions-by-sender txpool))
            (sender-transactions (gethash sender sender-index))
            (indexed-transaction
              (and sender-transactions
@@ -2997,16 +2979,86 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (when (zerop (hash-table-count sender-transactions))
           (remhash sender sender-index))))))
 
-(defun engine-pending-txpool-remove-pending-transaction (txpool hash)
+(defun engine-pending-txpool-remove-indexed-transaction
+    (transactions sender-index hash)
   (let* ((key (engine-pending-txpool-hash-key hash))
-         (transaction
-           (gethash key (engine-pending-txpool-transactions txpool))))
+         (transaction (gethash key transactions)))
     (when transaction
-      (engine-pending-txpool-unindex-pending-transaction
-       txpool
+      (engine-pending-txpool-unindex-transaction
+       sender-index
        transaction)
-      (remhash key (engine-pending-txpool-transactions txpool)))
+      (remhash key transactions))
     transaction))
+
+(defun engine-pending-txpool-remove-transaction-by-hash
+    (transactions hash)
+  (let* ((key (engine-pending-txpool-hash-key hash))
+         (transaction (gethash key transactions)))
+    (when transaction
+      (remhash key transactions))
+    transaction))
+
+(defun engine-payload-store-pending-sender-key (transaction)
+  (engine-pending-txpool-sender-key transaction))
+
+(defun engine-payload-store-pending-nonce-key (transaction)
+  (engine-pending-txpool-nonce-key transaction))
+
+(defun engine-pending-txpool-pending-conflict (txpool transaction)
+  (engine-pending-txpool-indexed-conflict
+   (engine-pending-txpool-transactions-by-sender txpool)
+   transaction))
+
+(defun engine-pending-txpool-queued-conflict (txpool transaction)
+  (engine-pending-txpool-indexed-conflict
+   (engine-pending-txpool-queued-transactions-by-sender txpool)
+   transaction))
+
+(defun engine-pending-txpool-index-pending-transaction
+    (txpool transaction)
+  (engine-pending-txpool-index-transaction
+   (engine-pending-txpool-transactions-by-sender txpool)
+   transaction))
+
+(defun engine-pending-txpool-index-queued-transaction
+    (txpool transaction)
+  (engine-pending-txpool-index-transaction
+   (engine-pending-txpool-queued-transactions-by-sender txpool)
+   transaction))
+
+(defun engine-pending-txpool-unindex-pending-transaction
+    (txpool transaction)
+  (engine-pending-txpool-unindex-transaction
+   (engine-pending-txpool-transactions-by-sender txpool)
+   transaction))
+
+(defun engine-pending-txpool-unindex-queued-transaction
+    (txpool transaction)
+  (engine-pending-txpool-unindex-transaction
+   (engine-pending-txpool-queued-transactions-by-sender txpool)
+   transaction))
+
+(defun engine-pending-txpool-remove-pending-transaction (txpool hash)
+  (engine-pending-txpool-remove-indexed-transaction
+   (engine-pending-txpool-transactions txpool)
+   (engine-pending-txpool-transactions-by-sender txpool)
+   hash))
+
+(defun engine-pending-txpool-remove-queued-transaction (txpool hash)
+  (engine-pending-txpool-remove-indexed-transaction
+   (engine-pending-txpool-queued-transactions txpool)
+   (engine-pending-txpool-queued-transactions-by-sender txpool)
+   hash))
+
+(defun engine-pending-txpool-remove-basefee-transaction (txpool hash)
+  (engine-pending-txpool-remove-transaction-by-hash
+   (engine-pending-txpool-basefee-transactions txpool)
+   hash))
+
+(defun engine-pending-txpool-remove-blob-transaction (txpool hash)
+  (engine-pending-txpool-remove-transaction-by-hash
+   (engine-pending-txpool-blob-transactions txpool)
+   hash))
 
 (defun engine-pending-txpool-remove-pending-conflict (txpool transaction)
   (when (transaction-sender transaction)
@@ -3016,6 +3068,26 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-pending-txpool-remove-pending-transaction
          txpool
          (transaction-hash conflict))))))
+
+(defun engine-pending-txpool-remove-queued-conflict (txpool transaction)
+  (when (transaction-sender transaction)
+    (let ((conflict
+            (engine-pending-txpool-queued-conflict txpool transaction)))
+      (when conflict
+        (engine-pending-txpool-remove-queued-transaction
+         txpool
+         (transaction-hash conflict))))))
+
+(defun engine-pending-txpool-remove-included-transaction
+    (txpool transaction)
+  (let ((hash (transaction-hash transaction)))
+    (engine-pending-txpool-remove-pending-transaction txpool hash)
+    (engine-pending-txpool-remove-queued-transaction txpool hash)
+    (engine-pending-txpool-remove-basefee-transaction txpool hash)
+    (engine-pending-txpool-remove-blob-transaction txpool hash))
+  (engine-pending-txpool-remove-pending-conflict txpool transaction)
+  (engine-pending-txpool-remove-queued-conflict txpool transaction)
+  transaction)
 
 (defun engine-pending-txpool-replacement-price-bumped-p
     (old-transaction new-transaction price-function)
@@ -3149,6 +3221,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-txpool store)
    transaction))
 
+(defun engine-payload-store-index-queued-transaction (store transaction)
+  (engine-pending-txpool-index-queued-transaction
+   (engine-payload-store-txpool store)
+   transaction))
+
+(defun engine-payload-store-unindex-queued-transaction (store transaction)
+  (engine-pending-txpool-unindex-queued-transaction
+   (engine-payload-store-txpool store)
+   transaction))
+
 (defun engine-payload-store-remove-pending-transaction (store hash)
   (engine-pending-txpool-remove-pending-transaction
    (engine-payload-store-txpool store)
@@ -3156,6 +3238,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-remove-pending-conflict (store transaction)
   (engine-pending-txpool-remove-pending-conflict
+   (engine-payload-store-txpool store)
+   transaction))
+
+(defun engine-payload-store-remove-included-transaction
+    (store transaction)
+  (engine-pending-txpool-remove-included-transaction
    (engine-payload-store-txpool store)
    transaction))
 
