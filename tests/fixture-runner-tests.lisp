@@ -1095,9 +1095,9 @@
     (is (= 3 (fixture-object-field
               (fixture-object-field summary "forkCounts")
               "London")))
-    (is (= 4 (fixture-object-field summary "transactionCombinationCount")))
+    (is (= 5 (fixture-object-field summary "transactionCombinationCount")))
     (is (equal '("London") (fixture-object-field report "forks")))
-    (is (= 1 (fixture-object-field report "transactionCombinations")))
+    (is (= 2 (fixture-object-field report "transactionCombinations")))
     (signals error
       (load-eest-state-test-root-cases
        root

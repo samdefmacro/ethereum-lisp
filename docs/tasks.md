@@ -3416,6 +3416,22 @@ splits can land after the Phase A smoke path closes.
     carries the indexed access list, and verifies a London type-2 state root
     plus logs hash through the same execution path.
 
+- [x] Replay multi-entry EEST `state_tests` post combinations.
+  - Milestone: 4 / 8
+  - Dependencies: upstream-shaped EEST `state_tests` vector replay.
+  - References: Ethereum execution-spec-tests GeneralStateTest `post`
+    combination layout, geth state-test runner shape, Nethermind state-test
+    import path.
+  - Acceptance: a discovered state-test case can carry multiple `post[fork]`
+    entries, execute each indexed transaction combination independently from
+    the same pre-state, and verify every resulting state root and logs hash.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: the EEST state replay path now exposes non-empty post-entry lists,
+    executes a selected post entry directly, and asserts every entry for the
+    requested fork. The in-repo London legacy sample now includes two post
+    combinations with different `value` indexes to exercise the upstream
+    multi-entry shape.
+
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
   - References: geth `core/vm`, Nethermind EVM, revm behavior.

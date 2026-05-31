@@ -459,16 +459,16 @@
             :timestamp (evm-state-fixture-quantity env "timestamp"))))
     (values state receipt)))
 
-(defun eest-state-test-post-entry (case fork)
+(defun eest-state-test-post-entries (case fork)
   (let* ((post (fixture-required-field
                 (fixture-required-field case "fixture")
                 "post"))
          (entries (fixture-required-field post fork)))
-    (unless (and (listp entries) (= 1 (length entries)))
-      (error "EEST state test case ~A must have one ~A post entry"
+    (unless (and (listp entries) entries)
+      (error "EEST state test case ~A must have non-empty ~A post entries"
              (fixture-required-field case "name")
              fork))
-    (first entries)))
+    entries))
 
 (defun eest-state-test-indexed-transaction-value
     (transaction field indexes index-name)
@@ -577,10 +577,9 @@
         (log-entry-data log)))
      logs))))
 
-(defun execute-eest-state-test-case (case &key (fork "London"))
+(defun execute-eest-state-test-post-entry (case post-entry)
   (let* ((fixture (fixture-required-field case "fixture"))
          (env (fixture-required-field fixture "env"))
-         (post-entry (eest-state-test-post-entry case fork))
          (state (make-state-db))
          (sender (eest-state-test-sender case))
          (tx (eest-state-test-transaction case post-entry))
@@ -617,14 +616,23 @@
               (or (fixture-object-field env "currentDifficulty") "0x0")))))
       (values state receipt post-entry))))
 
-(defun assert-eest-state-test-case (case &key (fork "London"))
+(defun execute-eest-state-test-case (case &key (fork "London"))
+  (execute-eest-state-test-post-entry
+   case
+   (first (eest-state-test-post-entries case fork))))
+
+(defun assert-eest-state-test-post-entry (case post-entry)
   (multiple-value-bind (state receipt post-entry)
-      (execute-eest-state-test-case case :fork fork)
+      (execute-eest-state-test-post-entry case post-entry)
     (is (string= (fixture-required-field post-entry "hash")
                  (state-db-root-hex state)))
     (is (string= (fixture-required-field post-entry "logs")
                  (hash32-to-hex
                   (eest-state-test-logs-hash (receipt-logs receipt)))))))
+
+(defun assert-eest-state-test-case (case &key (fork "London"))
+  (dolist (post-entry (eest-state-test-post-entries case fork))
+    (assert-eest-state-test-post-entry case post-entry)))
 
 (defun assert-evm-state-fixture-account (state address-hex expected)
   (let* ((address (address-from-hex address-hex))

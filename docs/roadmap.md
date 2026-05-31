@@ -542,8 +542,8 @@ behavior.
   paths, and stopgap BN254 pairing behavior behind an explicit backend boundary
   until a full pairing library lands.
 - *Missing for Phase A:* broader pinned execution-spec state-transition replay
-  beyond the initial discovered legacy/access-list/dynamic-fee `state_tests`
-  London vectors, real KZG
+  beyond the initial discovered multi-entry legacy/access-list/dynamic-fee
+  `state_tests` London vectors, real KZG
   point-evaluation verification before Cancun blob execution can enter the
   Phase A gate, and any EOF support until an explicit activated-fork rule is
   chosen.
