@@ -3982,6 +3982,12 @@ splits can land after the Phase A smoke path closes.
     the manual `tests/run-tests.lisp` loader now covers `src/cli.lisp` plus
     CLI tests so the devnet process shell stays in the default validation
     path.
+  - Result: added a Hive-style split-listener smoke test over the process
+    serving boundary. The devnet listener helper now exercises a
+    JWT-authenticated `engine_getClientVersionV1` request on the Engine
+    endpoint and an unauthenticated `eth_chainId` request on the public
+    endpoint, verifying real HTTP JSON-RPC responses and connection cleanup
+    through `start-devnet-node-listeners`.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

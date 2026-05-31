@@ -25,6 +25,26 @@
       (read-sequence string stream)
       string)))
 
+(defun devnet-cli-http-body (response)
+  (let ((boundary (search (format nil "~C~C~C~C"
+                                  #\Return #\Newline
+                                  #\Return #\Newline)
+                          response)))
+    (subseq response (+ boundary 4))))
+
+(defun devnet-cli-http-status (response)
+  (let* ((line-end (position #\Return response))
+         (status-line (subseq response 0 line-end)))
+    (parse-integer status-line :start 9 :end 12)))
+
+(defun devnet-cli-json-rpc-http-request (body &key token)
+  (with-output-to-string (stream)
+    (format stream "POST / HTTP/1.1~%Host: localhost~%")
+    (format stream "Content-Type: application/json~%")
+    (when token
+      (format stream "Authorization: Bearer ~A~%" token))
+    (format stream "Content-Length: ~D~%~%~A" (length body) body)))
+
 (defun make-devnet-cli-one-shot-listener (endpoint)
   (let ((accepted-p nil))
     (make-engine-rpc-http-listener
@@ -154,6 +174,90 @@
     (is (= 1 (getf summary :engine-connections)))
     (is (= 1 (getf summary :public-connections)))
     (is (= 2 (getf summary :total-connections)))))
+
+(deftest devnet-node-split-listeners-serve-authenticated-engine-and-public-rpc
+  (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (let* ((node (ethereum-lisp.cli:make-devnet-node
+                         :genesis-path +devnet-cli-genesis-fixture+
+                         :port 8551
+                         :public-port 8545
+                         :jwt-secret-path (namestring jwt-path)))
+                  (secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                  (token (engine-rpc-make-jwt-token secret 0))
+                  (engine-body
+                    (concatenate
+                     'string
+                     "{\"jsonrpc\":\"2.0\",\"id\":11,"
+                     "\"method\":\"engine_getClientVersionV1\","
+                     "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+                     "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+                  (public-body
+                    "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"eth_chainId\",\"params\":[]}")
+                  (engine-output (make-string-output-stream))
+                  (public-output (make-string-output-stream))
+                  (engine-accepted-p nil)
+                  (engine-closed-p nil)
+                  (public-closed-p nil)
+                  (summary
+                    (ethereum-lisp.cli:start-devnet-node-listeners
+                     node
+                     (make-engine-rpc-http-listener
+                      :endpoint "engine"
+                      :accept-function
+                      (lambda ()
+                        (unless engine-accepted-p
+                          (setf engine-accepted-p t)
+                          (make-engine-rpc-http-connection
+                           :input-stream
+                           (make-string-input-stream
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :token token))
+                           :output-stream engine-output
+                           :close-function
+                           (lambda () (setf engine-closed-p t)))))
+                      :close-function (lambda () nil))
+                     (make-engine-rpc-http-listener
+                      :endpoint "public"
+                      :accept-function
+                      (lambda ()
+                        (loop until engine-accepted-p
+                              do (sleep 0.001))
+                        (make-engine-rpc-http-connection
+                         :input-stream
+                         (make-string-input-stream
+                          (devnet-cli-json-rpc-http-request public-body))
+                         :output-stream public-output
+                         :close-function
+                         (lambda () (setf public-closed-p t))))
+                      :close-function (lambda () nil))
+                     :max-connections 1)))
+             (is (= 1 (getf summary :engine-connections)))
+             (is (= 1 (getf summary :public-connections)))
+             (is (= 2 (getf summary :total-connections)))
+             (is engine-closed-p)
+             (is public-closed-p)
+             (let* ((engine-response (get-output-stream-string engine-output))
+                    (public-response (get-output-stream-string public-output))
+                    (engine-rpc (parse-json
+                                 (devnet-cli-http-body engine-response)))
+                    (public-rpc (parse-json
+                                 (devnet-cli-http-body public-response)))
+                    (local-client
+                      (first (fixture-object-field engine-rpc "result"))))
+               (is (= 200 (devnet-cli-http-status engine-response)))
+               (is (= 200 (devnet-cli-http-status public-response)))
+               (is (= 11 (fixture-object-field engine-rpc "id")))
+               (is (string= "ethereum-lisp"
+                            (fixture-object-field local-client "name")))
+               (is (= 12 (fixture-object-field public-rpc "id")))
+               (is (string= "0x539"
+                            (fixture-object-field public-rpc "result"))))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path)))))
 
 (deftest devnet-node-start-closes-engine-listener-on-public-error
   (let* ((node (ethereum-lisp.cli:make-devnet-node
