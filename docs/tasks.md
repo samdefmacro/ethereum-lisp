@@ -3451,6 +3451,25 @@ splits can land after the Phase A smoke path closes.
     accepted for optional replay, and `scripts/list-state-test-selectors.lisp`
     prints the reproducible selector table for a root.
 
+- [x] Honor EEST `state_tests` expected-exception post entries.
+  - Milestone: 4 / 8
+  - Dependencies: selector-driven Phase A EEST `state_tests` replay.
+  - References: geth `tests/state_test_util.go` expected-error handling at
+    `8a0223e`, Nethermind `JsonToEthereumTest.Convert` post-entry conversion
+    at `1c72a72`.
+  - Acceptance: a post entry carrying `expectException` requires replay to
+    raise an execution/validation error, restores the pre-transaction state
+    snapshot, and checks the post root when the fixture provides one while
+    leaving success entries on the existing state-root/logs-hash path.
+  - Validation: `scripts/list-state-test-selectors.lisp` against the in-repo
+    EEST-shaped root plus `sbcl --script tests/run-tests.lisp`.
+  - Result: EEST state-test replay now returns execution conditions alongside
+    receipts, restores the state snapshot for expected failures, asserts the
+    expected root for failure entries, and keeps logs-hash checks scoped to
+    successful entries. The London sample includes a low-gas
+    `TransactionException.INTRINSIC_GAS_TOO_LOW` post entry to lock the
+    upstream expected-exception boundary.
+
 - [x] Expand CALL-family semantics toward spec completeness.
   - Milestone: 4
   - References: geth `core/vm`, Nethermind EVM, revm behavior.

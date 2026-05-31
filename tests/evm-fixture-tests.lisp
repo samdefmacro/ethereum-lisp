@@ -577,6 +577,9 @@
         (log-entry-data log)))
      logs))))
 
+(defun eest-state-test-expected-exception (post-entry)
+  (fixture-object-field post-entry "expectException"))
+
 (defun execute-eest-state-test-post-entry (case post-entry)
   (let* ((fixture (fixture-required-field case "fixture"))
          (env (fixture-required-field fixture "env"))
@@ -596,25 +599,31 @@
                                   :london-p t)))
     (dolist (entry (fixture-required-field fixture "pre"))
       (apply-evm-state-fixture-account state (car entry) (cdr entry)))
-    (let ((receipt
-            (apply-message
-             state sender tx
-             :chain-id 1
-             :chain-rules rules
-             :base-fee
-             (hex-to-quantity
-              (or (fixture-object-field env "currentBaseFee") "0x0"))
-             :coinbase
-             (address-from-hex
-              (fixture-required-field env "currentCoinbase"))
-             :block-number
-             (hex-to-quantity (fixture-required-field env "currentNumber"))
-             :timestamp
-             (hex-to-quantity (fixture-required-field env "currentTimestamp"))
-             :difficulty
-             (hex-to-quantity
-              (or (fixture-object-field env "currentDifficulty") "0x0")))))
-      (values state receipt post-entry))))
+    (let ((snapshot (state-db-copy state)))
+      (handler-case
+          (let ((receipt
+                  (apply-message
+                   state sender tx
+                   :chain-id 1
+                   :chain-rules rules
+                   :base-fee
+                   (hex-to-quantity
+                    (or (fixture-object-field env "currentBaseFee") "0x0"))
+                   :coinbase
+                   (address-from-hex
+                    (fixture-required-field env "currentCoinbase"))
+                   :block-number
+                   (hex-to-quantity (fixture-required-field env "currentNumber"))
+                   :timestamp
+                   (hex-to-quantity
+                    (fixture-required-field env "currentTimestamp"))
+                   :difficulty
+                   (hex-to-quantity
+                    (or (fixture-object-field env "currentDifficulty") "0x0")))))
+            (values state receipt post-entry nil))
+        (error (condition)
+          (state-db-restore state snapshot)
+          (values state nil post-entry condition))))))
 
 (defun execute-eest-state-test-case (case &key (fork "London"))
   (execute-eest-state-test-post-entry
@@ -622,13 +631,23 @@
    (first (eest-state-test-post-entries case fork))))
 
 (defun assert-eest-state-test-post-entry (case post-entry)
-  (multiple-value-bind (state receipt post-entry)
+  (multiple-value-bind (state receipt post-entry condition)
       (execute-eest-state-test-post-entry case post-entry)
-    (is (string= (fixture-required-field post-entry "hash")
-                 (state-db-root-hex state)))
-    (is (string= (fixture-required-field post-entry "logs")
-                 (hash32-to-hex
-                  (eest-state-test-logs-hash (receipt-logs receipt)))))))
+    (let ((expected-exception
+            (eest-state-test-expected-exception post-entry)))
+      (if expected-exception
+          (progn
+            (is condition)
+            (is (string= (fixture-required-field post-entry "hash")
+                         (state-db-root-hex state))))
+          (progn
+            (is (null condition))
+            (is (string= (fixture-required-field post-entry "hash")
+                         (state-db-root-hex state)))
+            (is (string= (fixture-required-field post-entry "logs")
+                         (hash32-to-hex
+                          (eest-state-test-logs-hash
+                           (receipt-logs receipt))))))))))
 
 (defun assert-eest-state-test-case (case &key (fork "London"))
   (dolist (post-entry (eest-state-test-post-entries case fork))

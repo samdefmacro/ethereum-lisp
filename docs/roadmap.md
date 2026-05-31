@@ -543,7 +543,8 @@ behavior.
   until a full pairing library lands.
 - *Missing for Phase A:* broader pinned execution-spec state-transition replay
   beyond the current selector-gated multi-entry legacy/access-list/dynamic-fee
-  `state_tests` London vectors and optional-root discovery workflow, real KZG
+  `state_tests` London vectors, expected-exception handling, and optional-root
+  discovery workflow, real KZG
   point-evaluation verification before Cancun blob execution can enter the
   Phase A gate, and any EOF support until an explicit activated-fork rule is
   chosen.

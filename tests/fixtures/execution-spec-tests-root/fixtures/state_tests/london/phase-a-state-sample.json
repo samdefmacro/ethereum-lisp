@@ -28,7 +28,8 @@
         "0x"
       ],
       "gasLimit": [
-        "0x100000"
+        "0x100000",
+        "0x5207"
       ],
       "gasPrice": "0xa",
       "nonce": "0x0",
@@ -56,6 +57,16 @@
             "data": 0,
             "gas": 0,
             "value": 1
+          },
+          "logs": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+        },
+        {
+          "expectException": "TransactionException.INTRINSIC_GAS_TOO_LOW",
+          "hash": "0x4b2312b9adb1dab943b9841a220eac6f0173853a764a1f510b6ab06c8953b0d8",
+          "indexes": {
+            "data": 0,
+            "gas": 1,
+            "value": 0
           },
           "logs": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
         }
