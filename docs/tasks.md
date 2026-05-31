@@ -3962,8 +3962,10 @@ splits can land after the Phase A smoke path closes.
     `--jwt-secret` loads a 32-byte Engine JWT secret file into the HTTP
     service, `--json` prints a JSON startup summary, and `--ready-file` writes
     the same machine-readable readiness document for external runners before
-    serving. Tests cover authenticated service wiring plus stdout/ready-file
-    JSON fields.
+    serving. The ready file is written through a same-directory temporary file
+    and atomically replaces the target so external runners do not observe
+    partial JSON. Tests cover authenticated service wiring plus
+    stdout/ready-file JSON fields.
   - Result: split the devnet process model into Engine and public RPC service
     objects, matching geth's authenticated HTTP endpoint and Nethermind's
     EngineHost/EnginePort/JwtSecretFile configuration shape. The Engine

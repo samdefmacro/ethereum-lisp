@@ -413,13 +413,33 @@
                          stream)))
   (terpri stream))
 
+(defun devnet-cli-ready-temp-path (path)
+  (let* ((pathname (pathname path))
+         (name (or (pathname-name pathname) "ready"))
+         (type (or (pathname-type pathname) "json")))
+    (make-pathname
+     :name (format nil ".~A.~A" name (symbol-name (gensym "TMP")))
+     :type type
+     :defaults pathname)))
+
 (defun devnet-cli-write-ready-file (node path)
-  (with-open-file (stream path
-                          :direction :output
-                          :if-exists :supersede
-                          :if-does-not-exist :create)
-    (write-string (json-encode (devnet-node-summary-json-object node)) stream)
-    (terpri stream)))
+  (let ((temp-path (devnet-cli-ready-temp-path path))
+        (renamed-p nil))
+    (unwind-protect
+         (progn
+           (with-open-file (stream temp-path
+                                   :direction :output
+                                   :if-exists :error
+                                   :if-does-not-exist :create)
+             (write-string (json-encode (devnet-node-summary-json-object node))
+                           stream)
+             (terpri stream))
+           (uiop:rename-file-overwriting-target temp-path path)
+           (setf renamed-p t)
+           path)
+      (unless renamed-p
+        (when (probe-file temp-path)
+          (ignore-errors (delete-file temp-path)))))))
 
 (defun devnet-node-telemetry-fields (node)
   (let ((summary (devnet-node-summary node)))

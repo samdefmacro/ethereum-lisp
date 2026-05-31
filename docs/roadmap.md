@@ -637,10 +637,10 @@ first pass, but interfaces must not block that path.
   public read RPCs over retained state, polling filters, local raw-transaction
   admission, HTTP stream/listener serving, JWT-authenticated and
   namespace-filtered Engine/public service wiring, telemetry hooks, and a
-  devnet CLI shell that loads genesis, serves both split listeners, emits JSON
-  readiness/head summaries for process runners, maps SIGINT/SIGTERM into
-  coordinated split-listener shutdown, and has a split-listener smoke covering
-  authenticated Engine JSON-RPC, `engine_newPayloadV2` import,
+  devnet CLI shell that loads genesis, serves both split listeners, atomically
+  emits JSON readiness/head summaries for process runners, maps SIGINT/SIGTERM
+  into coordinated split-listener shutdown, and has a split-listener smoke
+  covering authenticated Engine JSON-RPC, `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, and unauthenticated public latest-state reads.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the pinned v5.4.0 Shanghai

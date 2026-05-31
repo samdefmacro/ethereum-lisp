@@ -622,6 +622,7 @@
     (unwind-protect
          (progn
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (devnet-cli-write-temp-file ready-path "stale readiness")
            (is (= 0
                   (ethereum-lisp.cli:main
                    (list "devnet"
