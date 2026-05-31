@@ -45,6 +45,31 @@
       (format stream "Authorization: Bearer ~A~%" token))
     (format stream "Content-Length: ~D~%~%~A" (length body) body)))
 
+(defun devnet-cli-set-node-store-config (node store config)
+  (setf (ethereum-lisp.cli:devnet-node-store node) store
+        (ethereum-lisp.cli:devnet-node-config node) config
+        (engine-rpc-http-service-store
+         (ethereum-lisp.cli:devnet-node-service node))
+        store
+        (engine-rpc-http-service-config
+         (ethereum-lisp.cli:devnet-node-service node))
+        config
+        (engine-rpc-http-service-store
+         (ethereum-lisp.cli:devnet-node-public-service node))
+        store
+        (engine-rpc-http-service-config
+         (ethereum-lisp.cli:devnet-node-public-service node))
+        config)
+  node)
+
+(defun devnet-cli-engine-forkchoice-v2-request
+    (id head &key (safe (zero-hash32)) (finalized (zero-hash32)))
+  (let ((request (engine-fixture-forkchoice-request
+                  id head :safe safe :finalized finalized)))
+    (setf (cdr (assoc "method" request :test #'string=))
+          "engine_forkchoiceUpdatedV2")
+    request))
+
 (defun make-devnet-cli-one-shot-listener (endpoint)
   (let ((accepted-p nil))
     (make-engine-rpc-http-listener
@@ -256,6 +281,210 @@
                (is (= 12 (fixture-object-field public-rpc "id")))
                (is (string= "0x539"
                             (fixture-object-field public-rpc "result"))))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path)))))
+
+(deftest devnet-node-split-listeners-import-payload-and-serve-public-state
+  (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (let* ((case
+                    (select-engine-newpayload-v2-fixture-case
+                     +engine-newpayload-v2-fixture-path+
+                     "shanghai-one-transfer-with-withdrawal"))
+                  (node (ethereum-lisp.cli:make-devnet-node
+                         :genesis-path +devnet-cli-genesis-fixture+
+                         :port 8551
+                         :public-port 8545
+                         :jwt-secret-path (namestring jwt-path)))
+                  (store (make-engine-payload-memory-store))
+                  (config (engine-fixture-chain-config case))
+                  (parent (fixture-object-field case "parent"))
+                  (payload-case (fixture-object-field case "payload"))
+                  (expect (fixture-object-field case "expect"))
+                  (parent-state (engine-fixture-parent-state parent))
+                  (fee-recipient (fixture-address-field parent "feeRecipient"))
+                  (transactions
+                    (mapcar (lambda (raw)
+                              (transaction-from-encoding (hex-to-bytes raw)))
+                            (fixture-object-field payload-case
+                                                  "transactions")))
+                  (withdrawals
+                    (mapcar #'engine-fixture-withdrawal
+                            (fixture-object-field payload-case
+                                                  "withdrawals")))
+                  (parent-header
+                    (make-block-header
+                     :parent-hash (zero-hash32)
+                     :beneficiary fee-recipient
+                     :state-root (state-db-root parent-state)
+                     :mix-hash (zero-hash32)
+                     :number (fixture-quantity-field parent "number")
+                     :gas-limit (fixture-quantity-field parent "gasLimit")
+                     :gas-used (fixture-quantity-field parent "gasUsed")
+                     :timestamp (fixture-quantity-field parent "timestamp")
+                     :base-fee-per-gas
+                     (fixture-quantity-field parent "baseFeePerGas")
+                     :withdrawals-root (withdrawal-list-root '())))
+                  (parent-block (make-block :header parent-header))
+                  (child-state (state-db-copy parent-state))
+                  (child-header
+                    (make-block-header
+                     :parent-hash (block-hash parent-block)
+                     :beneficiary fee-recipient
+                     :mix-hash (zero-hash32)
+                     :number (fixture-quantity-field payload-case "number")
+                     :gas-limit (fixture-quantity-field payload-case
+                                                        "gasLimit")
+                     :gas-used 0
+                     :timestamp (fixture-quantity-field payload-case
+                                                        "timestamp")
+                     :base-fee-per-gas
+                     (fixture-quantity-field payload-case "baseFeePerGas")))
+                  (child-block
+                    (execute-signed-block
+                     child-state
+                     transactions
+                     :expected-chain-id (chain-config-chain-id config)
+                     :header child-header
+                     :chain-config config
+                     :withdrawals withdrawals))
+                  (payload
+                    (execution-payload-envelope-execution-payload
+                     (block-to-executable-data child-block)))
+                  (recipient (fixture-address-field expect "recipient"))
+                  (secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                  (token (engine-rpc-make-jwt-token secret 0))
+                  (new-payload-output (make-string-output-stream))
+                  (forkchoice-output (make-string-output-stream))
+                  (block-number-output (make-string-output-stream))
+                  (balance-output (make-string-output-stream))
+                  (engine-requests
+                    (list
+                     (cons
+                      (json-encode
+                       (engine-fixture-payload-request 21 payload))
+                      new-payload-output)
+                     (cons
+                      (json-encode
+                       (devnet-cli-engine-forkchoice-v2-request
+                        22 (block-hash child-block)
+                        :safe (block-hash parent-block)
+                        :finalized (block-hash parent-block)))
+                     forkchoice-output)))
+                  (public-requests
+                    (list
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 31)
+                             (cons "method" "eth_blockNumber")
+                             (cons "params" '())))
+                      block-number-output)
+                     (cons
+                      (json-encode
+                       (engine-fixture-balance-request 32 recipient))
+                      balance-output)))
+                  (engine-served-count 0)
+                  (engine-done-p nil)
+                  (public-served-count 0))
+             (devnet-cli-set-node-store-config node store config)
+             (engine-payload-store-put-block
+              store parent-block :state-available-p t)
+             (commit-state-db-to-chain-store
+              store (block-hash parent-block) parent-state)
+             (let ((summary
+                     (ethereum-lisp.cli:start-devnet-node-listeners
+                      node
+                      (make-engine-rpc-http-listener
+                       :endpoint "engine"
+                       :accept-function
+                       (lambda ()
+                         (when engine-requests
+                           (destructuring-bind (body . output)
+                               (pop engine-requests)
+                             (make-engine-rpc-http-connection
+                              :input-stream
+                              (make-string-input-stream
+                               (devnet-cli-json-rpc-http-request
+                                body :token token))
+                              :output-stream output
+                              :close-function
+                              (lambda ()
+                                (incf engine-served-count)
+                                (when (= engine-served-count 2)
+                                  (setf engine-done-p t)))))))
+                       :close-function (lambda () nil))
+                      (make-engine-rpc-http-listener
+                       :endpoint "public"
+                       :accept-function
+                       (lambda ()
+                         (loop until engine-done-p
+                               do (sleep 0.001))
+                         (when public-requests
+                           (destructuring-bind (body . output)
+                               (pop public-requests)
+                             (make-engine-rpc-http-connection
+                              :input-stream
+                              (make-string-input-stream
+                               (devnet-cli-json-rpc-http-request body))
+                              :output-stream output
+                              :close-function
+                              (lambda () (incf public-served-count))))))
+                       :close-function (lambda () nil))
+                      :max-connections 2)))
+               (is (= 2 (getf summary :engine-connections)))
+               (is (= 2 (getf summary :public-connections)))
+               (is (= 4 (getf summary :total-connections)))
+               (is (= 2 engine-served-count))
+               (is (= 2 public-served-count))
+               (let* ((new-payload-response
+                        (get-output-stream-string new-payload-output))
+                      (forkchoice-response
+                        (get-output-stream-string forkchoice-output))
+                      (block-number-response
+                        (get-output-stream-string block-number-output))
+                      (balance-response
+                        (get-output-stream-string balance-output))
+                      (new-payload-rpc
+                        (parse-json
+                         (devnet-cli-http-body new-payload-response)))
+                      (forkchoice-rpc
+                        (parse-json
+                         (devnet-cli-http-body forkchoice-response)))
+                      (block-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body block-number-response)))
+                      (balance-rpc
+                        (parse-json
+                         (devnet-cli-http-body balance-response)))
+                      (new-payload-result
+                        (fixture-object-field new-payload-rpc "result"))
+                      (forkchoice-status
+                        (fixture-object-field
+                         (fixture-object-field forkchoice-rpc "result")
+                         "payloadStatus")))
+                 (is (= 200 (devnet-cli-http-status new-payload-response)))
+                 (is (= 200 (devnet-cli-http-status forkchoice-response)))
+                 (is (= 200 (devnet-cli-http-status block-number-response)))
+                 (is (= 200 (devnet-cli-http-status balance-response)))
+                 (is (string= +payload-status-valid+
+                              (fixture-object-field new-payload-result
+                                                    "status")))
+                 (is (string= (hash32-to-hex (block-hash child-block))
+                              (fixture-object-field new-payload-result
+                                                    "latestValidHash")))
+                 (is (string= +payload-status-valid+
+                              (fixture-object-field forkchoice-status
+                                                    "status")))
+                 (is (string= (fixture-object-field payload-case "number")
+                              (fixture-object-field block-number-rpc
+                                                    "result")))
+                 (is (string= (fixture-object-field expect
+                                                    "recipientBalance")
+                              (fixture-object-field balance-rpc
+                                                    "result")))))))
       (when (probe-file jwt-path)
         (delete-file jwt-path)))))
 

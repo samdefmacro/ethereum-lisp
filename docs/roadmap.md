@@ -640,15 +640,16 @@ first pass, but interfaces must not block that path.
   devnet CLI shell that loads genesis, serves both split listeners, emits JSON
   readiness/head summaries for process runners, maps SIGINT/SIGTERM into
   coordinated split-listener shutdown, and has a split-listener smoke covering
-  authenticated Engine JSON-RPC plus unauthenticated public JSON-RPC.
+  authenticated Engine JSON-RPC, `engine_newPayloadV2` import,
+  `engine_forkchoiceUpdatedV2`, and unauthenticated public latest-state reads.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the pinned v5.4.0 Shanghai
   `engine_newPayloadV2` replay slice, and concrete long-running devnet/Hive
   lifecycle ergonomics beyond the current readiness, log-file, and shutdown
   contract.
-- *Missing for Phase A:* broader Hive-style Engine payload smoke breadth around
-  the existing Shanghai path, plus any Cancun blob execution acceptance until
-  real KZG verification is available.
+- *Missing for Phase A:* broader cross-client Engine payload smoke breadth
+  around the existing Shanghai path, plus any Cancun blob execution acceptance
+  until real KZG verification is available.
 - *Next:* keep Engine/RPC surface frozen except for fixes needed by the
   bounded Shanghai import smoke and future Hive runner contract.
 
@@ -670,8 +671,8 @@ Detailed historical implementation notes for this section now live in
   blockchain replay selector discovery and pinned replay, and reference-client
   commit recording discipline. The manual `tests/run-tests.lisp` path now also
   loads the CLI package and devnet CLI tests, including a split-listener
-  Engine/public JSON-RPC smoke, matching the ASDF test system.
-- *Partial:* broader Hive-style process-level payload smoke coverage and wider
+  Engine/public payload-import smoke, matching the ASDF test system.
+- *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
   `engine_newPayloadV2` replay; future widening should be explicit and

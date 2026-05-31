@@ -3988,6 +3988,12 @@ splits can land after the Phase A smoke path closes.
     endpoint and an unauthenticated `eth_chainId` request on the public
     endpoint, verifying real HTTP JSON-RPC responses and connection cleanup
     through `start-devnet-node-listeners`.
+  - Result: extended the split-listener smoke to import a Phase A
+    `engine_newPayloadV2` transfer fixture over authenticated Engine HTTP,
+    apply `engine_forkchoiceUpdatedV2`, then read `eth_blockNumber` and
+    `eth_getBalance` over the public listener. This covers the devnet process
+    boundary for payload import, canonical-head switching, retained-state
+    persistence, and public latest-state reads.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8
