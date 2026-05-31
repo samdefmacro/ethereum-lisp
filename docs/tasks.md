@@ -338,7 +338,9 @@ ones.
     blockchain selector strings plus summary counts. Against the in-repo
     EEST-shaped root it reports 4 state selectors, 7 state transaction
     combinations, 3 blockchain replay cases, one decoded block, and the
-    `blockRlp` / `engineNewPayloadV2` materialization split.
+    `blockRlp` / `engineNewPayloadV2` materialization split. The report also
+    accepts `--json` so fixture-count and selector-table drift checks can parse
+    the same contract without scraping the human-readable text output.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

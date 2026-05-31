@@ -672,8 +672,8 @@ Detailed historical implementation notes for this section now live in
   commit recording discipline. The manual `tests/run-tests.lisp` path now also
   loads the CLI package and devnet CLI tests, including a split-listener
   Engine/public payload-import smoke, matching the ASDF test system. A
-  scriptable Phase A fixture report now validates and prints the selected
-  state/blockchain ingestion tables for a suite root.
+  scriptable Phase A fixture report now validates and prints, or emits JSON for,
+  the selected state/blockchain ingestion tables for a suite root.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
