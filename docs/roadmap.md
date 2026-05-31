@@ -147,6 +147,10 @@ fixes in those areas are allowed; expansion is not.
   five-account account cases now carry explicit fixture-provided range maps
   and gate them through the adapter, so external-style replay checks the same
   half-open iterator semantics as the seed vectors.
+  Selected geth StackTrie table cases now also carry fixture-provided
+  intermediate roots through the EEST-style adapter, and the Phase A gate
+  requires all 69 post-insert roots from 21 StackTrie growth/divergence cases
+  to match the seed references rather than checking only final roots.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the

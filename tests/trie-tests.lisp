@@ -349,6 +349,29 @@
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-step-3"
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
 
+(defparameter +phase-a-eest-trie-intermediate-root-reference-case-names+
+  '("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth"
+    "phase-a-trie-multi.json/geth-stacktrie-root-branch-short-long-growth"
+    "phase-a-trie-multi.json/geth-stacktrie-extension-branch-short-long-growth"
+    "phase-a-trie-multi.json/geth-stacktrie-sparse-root-branch-long-values"
+    "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-right-branch"
+    "phase-a-trie-multi.json/geth-stacktrie-root-branch-nested-left-branch"
+    "phase-a-trie-multi.json/geth-stacktrie-root-branch-extension-child"
+    "phase-a-trie-multi.json/geth-stacktrie-root-branch-left-extension-child"
+    "phase-a-trie-multi.json/geth-stacktrie-deep-extension-branch"
+    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-tail-fanout"
+    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-three-nibbles"
+    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-two-nibbles"
+    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-shortens-to-one-nibble"
+    "phase-a-trie-multi.json/geth-stacktrie-long-shared-prefix-splits-to-root-branch"
+    "phase-a-trie-multi.json/geth-stacktrie-zero-prefix-extension-fanout"
+    "phase-a-trie-multi.json/geth-stacktrie-f-prefix-nested-right-branch"
+    "phase-a-trie-multi.json/geth-stacktrie-ff-prefix-nested-left-branch"
+    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-tail-fanout"
+    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-two-nibbles"
+    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-shortens-to-one-nibble"
+    "phase-a-trie-multi.json/geth-stacktrie-shared-prefix-splits-to-root-branch"))
+
 (defparameter +phase-a-eest-trie-explicit-range-reference-case-names+
   '("phase-a-trie-multi.json/geth-tiny-account-five-step"
     "phase-a-secureTrie.json/phase-a-secure-zgeth-account-five-step"))
@@ -430,7 +453,7 @@
   '("keyHex" "keyAscii" "nodeRlps" "exactLength"))
 
 (defparameter +eest-trie-test-case-fields+
-  '("in" "out" "ranges" "root" "secure"))
+  '("in" "intermediateRoots" "out" "ranges" "root" "secure"))
 
 (defparameter +eest-trie-test-range-fields+
   '("start" "end" "keys"))
@@ -1107,6 +1130,33 @@
                    label
                    name)))))))
 
+(defun validate-trie-reference-intermediate-root-requirements
+    (cases names label)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-names (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name names)
+      (when (gethash name seen-names)
+        (error "~A intermediate-root reference list has duplicate name ~A"
+               label
+               name))
+      (setf (gethash name seen-names) t)
+      (let ((case (gethash name case-by-name)))
+        (unless case
+          (error "~A is missing intermediate-root reference case ~A"
+                 label
+                 name))
+        (unless (fixture-field-present-p case "expectedIntermediateRoots")
+          (error "~A reference-derived trie case ~A must include intermediate root assertions"
+                 label
+                 name))
+        (unless (fixture-object-field case "expectedIntermediateRoots")
+          (error "~A reference-derived trie case ~A intermediate roots must not be empty"
+                 label
+                 name))))))
+
 (defun validate-trie-reference-explicit-range-requirements
     (cases names label)
   (let ((case-by-name (make-hash-table :test #'equal))
@@ -1354,6 +1404,21 @@
         for index from 0
         collect (normalize-eest-trie-test-range case-name range index)))
 
+(defun normalize-eest-trie-test-intermediate-roots
+    (case-name roots entry-count)
+  (unless (listp roots)
+    (error "EEST trie test case ~A intermediateRoots must be a JSON array"
+           case-name))
+  (unless (= (length roots) entry-count)
+    (error "EEST trie test case ~A intermediateRoots must match in entry count"
+           case-name))
+  (loop for root in roots
+        for index from 0
+        collect
+        (eest-trie-test-normalized-root
+         root
+         (format nil "~A intermediateRoots ~D" case-name index))))
+
 (defun normalize-eest-trie-test-case (name case &optional default-secure-p)
   (unless (stringp name)
     (error "EEST trie test case name must be a string"))
@@ -1367,12 +1432,12 @@
    (format nil "EEST trie test case ~A" name))
   (let* ((input (fixture-required-field case "in"))
          (object-form-p (and (listp input)
-                             (eest-trie-test-object-entries-p input))))
+                             (eest-trie-test-object-entries-p input)))
+         (entries (normalize-eest-trie-test-entries name input)))
     (append
      (list
       (cons "name" name)
-      (cons "entries"
-            (normalize-eest-trie-test-entries name input))
+      (cons "entries" entries)
       (cons "inputForm" (if object-form-p "object" "array"))
       (cons "secure"
             (eest-trie-test-normalized-secure-p
@@ -1380,9 +1445,16 @@
              case
              default-secure-p))
       (cons "root"
-            (eest-trie-test-normalized-root
-             (fixture-required-field case "root")
-             name)))
+             (eest-trie-test-normalized-root
+              (fixture-required-field case "root")
+              name)))
+     (when (fixture-field-present-p case "intermediateRoots")
+       (list
+        (cons "expectedIntermediateRoots"
+              (normalize-eest-trie-test-intermediate-roots
+               name
+               (fixture-object-field case "intermediateRoots")
+               (length entries)))))
      (when (fixture-field-present-p case "out")
        (list
         (cons "expectedOut"
@@ -1548,22 +1620,38 @@
    (format nil "EEST trie test case ~A in entry key"
            (fixture-required-field case "name"))))
 
+(defun apply-eest-trie-test-entry (case trie entry)
+  (let ((trie-key (eest-trie-test-entry-trie-key case entry)))
+    (if (fixture-field-present-p entry "delete")
+        (mpt-delete trie trie-key)
+        (mpt-put trie
+                 trie-key
+                 (eest-trie-test-byte-string
+                  (fixture-required-field entry "value")
+                  (format nil "EEST trie test case ~A in entry value"
+                          (fixture-required-field case "name")))))))
+
 (defun run-eest-trie-test-entries (case entries)
   (let ((trie (make-mpt)))
     (dolist (entry entries)
-      (let ((trie-key (eest-trie-test-entry-trie-key case entry)))
-        (if (fixture-field-present-p entry "delete")
-            (mpt-delete trie trie-key)
-            (mpt-put trie
-                     trie-key
-                     (eest-trie-test-byte-string
-                      (fixture-required-field entry "value")
-                      (format nil "EEST trie test case ~A in entry value"
-                              (fixture-required-field case "name")))))))
+      (apply-eest-trie-test-entry case trie entry))
     trie))
 
 (defun run-eest-trie-test-case (case)
   (run-eest-trie-test-entries
+   case
+   (fixture-required-field case "entries")))
+
+(defun run-eest-trie-test-entries-with-root-history (case entries)
+  (let ((trie (make-mpt))
+        (roots nil))
+    (dolist (entry entries)
+      (apply-eest-trie-test-entry case trie entry)
+      (push (mpt-root-hex trie) roots))
+    (values trie (nreverse roots))))
+
+(defun run-eest-trie-test-case-with-root-history (case)
+  (run-eest-trie-test-entries-with-root-history
    case
    (fixture-required-field case "entries")))
 
@@ -1838,23 +1926,44 @@
                              (bytes-to-hex expected-key)
                              (bytes-to-hex actual-key)))))
 
+(defun assert-eest-trie-test-intermediate-roots (case roots)
+  (when (fixture-field-present-p case "expectedIntermediateRoots")
+    (let ((name (fixture-required-field case "name"))
+          (expected-roots (fixture-object-field case "expectedIntermediateRoots")))
+      (unless (= (length expected-roots) (length roots))
+        (error "EEST trie test case ~A intermediate root count mismatch: expected ~A, got ~A"
+               name
+               (length expected-roots)
+               (length roots)))
+      (loop for expected-root in expected-roots
+            for actual-root in roots
+            for index from 0
+            unless (string= expected-root actual-root)
+              do (error "EEST trie test case ~A intermediate root ~D mismatch: expected ~A, got ~A"
+                        name
+                        index
+                        expected-root
+                        actual-root)))))
+
 (defun assert-eest-trie-test-case-root (case)
-  (let* ((trie (run-eest-trie-test-case case))
-         (name (fixture-required-field case "name"))
-         (expected-root (fixture-required-field case "root"))
-         (actual-root (mpt-root-hex trie)))
-    (unless (string= expected-root actual-root)
-      (error "EEST trie test case ~A root mismatch: expected ~A, got ~A"
-             name
-             expected-root
-             actual-root))
-    (assert-eest-trie-test-case-lookups case trie)
-    (assert-eest-trie-test-case-explicit-output case trie)
-    (assert-eest-trie-test-entry-pair-replay case trie)
-    (assert-eest-trie-test-entry-ranges case trie)
-    (assert-eest-trie-test-explicit-entry-ranges case trie)
-    (assert-eest-trie-test-object-form-permutations case)
-    trie))
+  (multiple-value-bind (trie roots)
+      (run-eest-trie-test-case-with-root-history case)
+    (let ((name (fixture-required-field case "name"))
+          (expected-root (fixture-required-field case "root"))
+          (actual-root (mpt-root-hex trie)))
+      (unless (string= expected-root actual-root)
+        (error "EEST trie test case ~A root mismatch: expected ~A, got ~A"
+               name
+               expected-root
+               actual-root))
+      (assert-eest-trie-test-intermediate-roots case roots)
+      (assert-eest-trie-test-case-lookups case trie)
+      (assert-eest-trie-test-case-explicit-output case trie)
+      (assert-eest-trie-test-entry-pair-replay case trie)
+      (assert-eest-trie-test-entry-ranges case trie)
+      (assert-eest-trie-test-explicit-entry-ranges case trie)
+      (assert-eest-trie-test-object-form-permutations case)
+      trie)))
 
 (defun assert-eest-trie-test-case-proof-present
     (case trie key expected-value)
@@ -2267,6 +2376,22 @@
            (loop for secure-p in secure-flags
                  for range-p in explicit-range-flags
                  count (and (not secure-p) range-p)))
+         (intermediate-root-flags
+           (mapcar (lambda (case)
+                     (fixture-field-present-p case "expectedIntermediateRoots"))
+                   cases))
+         (intermediate-root-counts
+           (mapcar (lambda (case)
+                     (if (fixture-field-present-p case "expectedIntermediateRoots")
+                         (length (fixture-object-field
+                                  case
+                                  "expectedIntermediateRoots"))
+                         0))
+                   cases))
+         (plain-intermediate-root-case-count
+           (loop for secure-p in secure-flags
+                 for intermediate-p in intermediate-root-flags
+                 count (and (not secure-p) intermediate-p)))
          (secure-explicit-output-case-count
            (loop for secure-p in secure-flags
                  for output-p in explicit-output-flags
@@ -2895,6 +3020,12 @@
            plain-explicit-range-case-count)
      (cons "explicitEntryRangeCount"
            (reduce #'+ explicit-range-counts :initial-value 0))
+     (cons "intermediateRootCaseCount"
+           (count t intermediate-root-flags))
+     (cons "plainIntermediateRootCaseCount"
+           plain-intermediate-root-case-count)
+     (cons "intermediateRootCount"
+           (reduce #'+ intermediate-root-counts :initial-value 0))
      (cons "writeEntryCounts" write-counts)
      (cons "totalWriteEntryCount" (reduce #'+ write-counts :initial-value 0))
      (cons "proofPresentKeyCounts" proof-present-counts)
@@ -2968,6 +3099,10 @@
    cases
    +phase-a-eest-trie-explicit-output-reference-case-names+
    "Phase A EEST trie subset")
+  (validate-trie-reference-intermediate-root-requirements
+   cases
+   +phase-a-eest-trie-intermediate-root-reference-case-names+
+   "Phase A EEST trie subset")
   (validate-trie-reference-explicit-range-requirements
    cases
    +phase-a-eest-trie-explicit-range-reference-case-names+
@@ -3033,6 +3168,10 @@
       (error "Phase A EEST trie subset must include secure explicit entry range assertions"))
     (when (zerop (fixture-object-field summary "plainExplicitEntryRangeCaseCount"))
       (error "Phase A EEST trie subset must include plain explicit entry range assertions"))
+    (when (zerop (fixture-object-field summary "intermediateRootCaseCount"))
+      (error "Phase A EEST trie subset must include intermediate root assertions"))
+    (when (zerop (fixture-object-field summary "plainIntermediateRootCaseCount"))
+      (error "Phase A EEST trie subset must include plain intermediate root assertions"))
     (when (zerop (fixture-object-field summary "proofPresentKeyCount"))
       (error "Phase A EEST trie subset must include present-key proof coverage"))
     (when (zerop (fixture-object-field summary "proofMissingKeyCount"))
@@ -4589,6 +4728,22 @@
     (is (string= (fixture-object-field case "root")
                  (mpt-root-hex trie))))
   (let* ((case (normalize-eest-trie-test-case
+                "intermediate-roots"
+                (list (cons "in" (list (list "dog" "puppy")
+                                       (list "dog" nil)))
+                      (cons "intermediateRoots"
+                            (list "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
+                                  "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))
+                      (cons "root"
+                            "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+         (roots (fixture-required-field case "expectedIntermediateRoots"))
+         (trie (assert-eest-trie-test-case-root case)))
+    (is (= 2 (length roots)))
+    (is (string= "0xed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"
+                 (first roots)))
+    (is (string= (fixture-object-field case "root")
+                 (mpt-root-hex trie))))
+  (let* ((case (normalize-eest-trie-test-case
                 "explicit-range"
                 (list (cons "in" (list (list "apple" "fruit1")
                                        (list "banana" "fruit2")
@@ -4694,6 +4849,15 @@
                  "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))))
   (signals error
     (normalize-eest-trie-test-case
+     "bad-intermediate-root-count"
+     (list (cons "in" (list (list "dog" "puppy")
+                            (list "dog" nil)))
+           (cons "intermediateRoots"
+                 (list "ed6e08740e4a267eca9d4740f71f573e9aabbcc739b16a2fa6c1baed5ec21278"))
+           (cons "root"
+                 "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))))
+  (signals error
+    (normalize-eest-trie-test-case
      "non-string-root"
      (list (cons "in" nil)
            (cons "root" 1))))
@@ -4786,6 +4950,25 @@
                      case))
                selected-cases)
        '("phase-a-trie-multi.json/geth-tiny-account-step-1")
+       "Phase A EEST trie subset"))
+    (validate-trie-reference-intermediate-root-requirements
+     selected-cases
+     +phase-a-eest-trie-intermediate-root-reference-case-names+
+     "Phase A EEST trie subset")
+    (signals error
+      (validate-trie-reference-intermediate-root-requirements
+       selected-cases
+       '("phase-a-trie-multi.json/missing-geth-case")
+       "Phase A EEST trie subset"))
+    (signals error
+      (validate-trie-reference-intermediate-root-requirements
+       (mapcar (lambda (case)
+                 (if (string= "phase-a-trie-multi.json/geth-stacktrie-short-branch-growth"
+                              (fixture-object-field case "name"))
+                     (remove "expectedIntermediateRoots" case :key #'car :test #'string=)
+                     case))
+               selected-cases)
+       '("phase-a-trie-multi.json/geth-stacktrie-short-branch-growth")
        "Phase A EEST trie subset"))
     (validate-trie-reference-explicit-range-requirements
      selected-cases
@@ -5052,6 +5235,9 @@
     (is (= 1 (fixture-object-field summary "secureExplicitEntryRangeCaseCount")))
     (is (= 1 (fixture-object-field summary "plainExplicitEntryRangeCaseCount")))
     (is (= 10 (fixture-object-field summary "explicitEntryRangeCount")))
+    (is (= 21 (fixture-object-field summary "intermediateRootCaseCount")))
+    (is (= 21 (fixture-object-field summary "plainIntermediateRootCaseCount")))
+    (is (= 69 (fixture-object-field summary "intermediateRootCount")))
     (is (= 237 (fixture-object-field summary "totalWriteEntryCount")))
     (is (= 204 (fixture-object-field summary "proofPresentKeyCount")))
     (is (= 48 (fixture-object-field summary "secureProofPresentKeyCount")))

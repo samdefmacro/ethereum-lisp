@@ -2479,6 +2479,14 @@ splits can land after the Phase A smoke path closes.
     external-style fixture replay covers the same half-open raw-key and secure
     hashed-key iteration as the seed vectors. Reference availability: geth
     `8a0223e`, Nethermind `1c72a72`; local Reth clone absent.
+  - Progress: extended the EEST-style trie-test adapter with
+    fixture-provided `intermediateRoots` and synced the geth StackTrie growth
+    table cases from the seed fixture into the selected external-style trie
+    root. The Phase A EEST trie gate now requires 21 StackTrie cases to pin
+    all 69 post-insert roots, so external-style replay checks per-step
+    StackTrie root evolution instead of only final commitments. Reference
+    availability: geth `8a0223e`, Nethermind `1c72a72`; local Reth clone
+    absent.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.
