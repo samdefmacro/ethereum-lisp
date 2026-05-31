@@ -162,6 +162,14 @@
     (unless (blank-string-p value)
       (probe-file value))))
 
+(defun execution-spec-tests-resolved-root (root)
+  (if root
+      (progn
+        (unless (or (stringp root) (pathnamep root))
+          (error "Execution spec tests fixture root must be a string, pathname, or nil"))
+        (probe-file root))
+      (execution-spec-tests-fixture-root)))
+
 (defun execution-spec-tests-subdirectory (root subdir)
   (probe-file (merge-pathnames subdir (pathname root))))
 
@@ -273,19 +281,19 @@
         cases)))
 
 (defun execution-spec-tests-blockchain-test-root (&optional root)
-  (let ((base (or root (execution-spec-tests-fixture-root))))
+  (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
      base
      +execution-spec-tests-blockchain-test-subdirs+)))
 
 (defun execution-spec-tests-transaction-test-root (&optional root)
-  (let ((base (or root (execution-spec-tests-fixture-root))))
+  (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
      base
      +execution-spec-tests-transaction-test-subdirs+)))
 
 (defun execution-spec-tests-trie-test-root (&optional root)
-  (let ((base (or root (execution-spec-tests-fixture-root))))
+  (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
      base
      +execution-spec-tests-trie-test-subdirs+)))

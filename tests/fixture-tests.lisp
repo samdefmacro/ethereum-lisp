@@ -46,6 +46,16 @@
     (is (execution-spec-tests-transaction-test-root fixtures-root))
     (is (execution-spec-tests-transaction-test-root geth-root))))
 
+(deftest execution-spec-tests-suite-roots-accept-directory-strings
+  (let ((direct-root "tests/fixtures/execution-spec-tests-root")
+        (fixtures-root "tests/fixtures/execution-spec-tests-root/fixtures"))
+    (is (execution-spec-tests-transaction-test-root direct-root))
+    (is (execution-spec-tests-transaction-test-root fixtures-root))
+    (is (execution-spec-tests-blockchain-test-root direct-root))
+    (is (execution-spec-tests-blockchain-test-root fixtures-root))
+    (is (execution-spec-tests-trie-test-root direct-root))
+    (is (execution-spec-tests-trie-test-root fixtures-root))))
+
 (deftest execution-spec-tests-transaction-root-ignores-missing-layout
   (is (null (execution-spec-tests-transaction-test-root
              (probe-file "tests/fixtures/execution-spec-tests/")))))

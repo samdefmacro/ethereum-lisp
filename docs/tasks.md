@@ -308,6 +308,13 @@ ones.
     nonce, balance, code, and normalized storage slots in addition to payload
     status and block-derived roots, so the upstream replay covers actual state
     materialization rather than only header-level commitments.
+  - Progress: hardened the real-root selector synchronization path. The shared
+    execution-spec-tests suite-root helpers now normalize explicit directory
+    strings before probing suite subdirectories, so direct paths such as an
+    unpacked `fixtures` directory work the same way as environment-provided
+    roots even without a trailing slash. The blockchain selector script also
+    accepts the common `-- root` argument form, making the pinned v5.4.0 replay
+    selector table reproducible from the command line.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

@@ -4,6 +4,8 @@
 (defun selector-script-argument-root ()
   #+sbcl
   (let ((args (cdr sb-ext:*posix-argv*)))
+    (when (and args (string= (first args) "--"))
+      (setf args (cdr args)))
     (first args))
   #-sbcl nil)
 
