@@ -160,6 +160,66 @@
        :max-connections 1))
     (is engine-closed-p)))
 
+(deftest devnet-shutdown-controller-stops-split-listeners
+  #-sbcl
+  (skip-test "Devnet split listener shutdown requires SBCL threads")
+  #+sbcl
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+
+                :port 8551
+                :public-port 8545))
+         (controller
+           (ethereum-lisp.cli:make-devnet-shutdown-controller))
+         (engine-accepting-p nil)
+         (public-accepting-p nil)
+         (engine-closed-p nil)
+         (public-closed-p nil)
+         (engine-listener
+           (make-engine-rpc-http-listener
+            :endpoint "engine"
+            :accept-function
+            (lambda ()
+              (setf engine-accepting-p t)
+              (loop until engine-closed-p
+                    do (sleep 0.001))
+              nil)
+            :close-function (lambda () (setf engine-closed-p t))))
+         (public-listener
+           (make-engine-rpc-http-listener
+            :endpoint "public"
+            :accept-function
+            (lambda ()
+              (setf public-accepting-p t)
+              (loop until public-closed-p
+                    do (sleep 0.001))
+              nil)
+            :close-function (lambda () (setf public-closed-p t))))
+         (summary nil))
+    (let ((serve-thread
+            (sb-thread:make-thread
+             (lambda ()
+               (setf summary
+                     (ethereum-lisp.cli:start-devnet-node-listeners
+                      node
+                      engine-listener
+                      public-listener
+                      :shutdown-controller controller)))
+             :name "ethereum-lisp-devnet-shutdown-test")))
+      (loop repeat 1000
+            until (and engine-accepting-p public-accepting-p)
+            do (sleep 0.001))
+      (is engine-accepting-p)
+      (is public-accepting-p)
+      (is (not (ethereum-lisp.cli:devnet-shutdown-requested-p controller)))
+      (is (ethereum-lisp.cli:devnet-shutdown-request controller))
+      (sb-thread:join-thread serve-thread)
+      (is (ethereum-lisp.cli:devnet-shutdown-requested-p controller))
+      (is engine-closed-p)
+      (is public-closed-p)
+      (is (= 0 (getf summary :engine-connections)))
+      (is (= 0 (getf summary :public-connections)))
+      (is (= 0 (getf summary :total-connections))))))
+
 (deftest devnet-node-loads-jwt-secret-file
   (let ((path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
     (unwind-protect

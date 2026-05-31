@@ -3922,6 +3922,12 @@ splits can land after the Phase A smoke path closes.
     public listener fails, the Engine listener is closed before joining the
     worker thread and the public error is re-signaled; if the Engine worker
     fails, it closes the public listener before reporting the Engine error.
+  - Result: added a devnet shutdown controller for the split listener process.
+    The controller records shutdown requests, closes both registered listeners
+    to unblock accepts, feeds the shared stop predicate for Engine/public
+    serving, and the CLI serve path installs SBCL SIGINT/SIGTERM handlers that
+    request the same shutdown before listener cleanup. Tests cover a blocking
+    split-listener serve stopped through the controller.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

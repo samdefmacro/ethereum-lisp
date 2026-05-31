@@ -977,6 +977,11 @@
    #:devnet-node-public-service
    #:devnet-node-telemetry-sink
    #:devnet-node-jwt-secret-path
+   #:devnet-shutdown-controller
+   #:make-devnet-shutdown-controller
+   #:devnet-shutdown-controller-requested-p
+   #:devnet-shutdown-requested-p
+   #:devnet-shutdown-request
    #:devnet-node-summary
    #:start-devnet-node-listeners
    #:start-devnet-node

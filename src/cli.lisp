@@ -13,7 +13,77 @@
   telemetry-sink
   jwt-secret-path)
 
+(defstruct devnet-shutdown-controller
+  requested-p
+  engine-listener
+  public-listener)
+
 (defconstant +devnet-default-public-rpc-port+ 8545)
+
+(defun devnet-shutdown-requested-p (controller)
+  (and controller
+       (devnet-shutdown-controller-requested-p controller)))
+
+(defun devnet-shutdown-controller-register-listeners
+    (controller engine-listener public-listener)
+  (unless (typep controller 'devnet-shutdown-controller)
+    (error "Devnet shutdown controller must be devnet-shutdown-controller"))
+  (setf (devnet-shutdown-controller-engine-listener controller) engine-listener
+        (devnet-shutdown-controller-public-listener controller) public-listener)
+  controller)
+
+(defun devnet-shutdown-request (controller)
+  (unless (typep controller 'devnet-shutdown-controller)
+    (error "Devnet shutdown controller must be devnet-shutdown-controller"))
+  (setf (devnet-shutdown-controller-requested-p controller) t)
+  (let ((engine-listener
+          (devnet-shutdown-controller-engine-listener controller))
+        (public-listener
+          (devnet-shutdown-controller-public-listener controller)))
+    (when engine-listener
+      (ignore-errors
+       (engine-rpc-http-listener-close engine-listener)))
+    (when public-listener
+      (ignore-errors
+       (engine-rpc-http-listener-close public-listener))))
+  t)
+
+(defun devnet-signal-number (name)
+  #+sbcl
+  (let* ((package (find-package "SB-UNIX"))
+         (symbol (and package (find-symbol name package))))
+    (unless (and symbol (boundp symbol))
+      (error "SBCL signal ~A is not available" name))
+    (symbol-value symbol))
+  #-sbcl
+  (declare (ignore name))
+  #-sbcl
+  nil)
+
+(defun call-with-devnet-shutdown-signal-handlers
+    (controller thunk &key (stream *error-output*))
+  (unless (typep controller 'devnet-shutdown-controller)
+    (error "Devnet shutdown controller must be devnet-shutdown-controller"))
+  (unless (functionp thunk)
+    (error "Devnet shutdown signal thunk must be a function"))
+  #-sbcl
+  (declare (ignore controller stream))
+  #-sbcl
+  (funcall thunk)
+  #+sbcl
+  (let ((sigint (devnet-signal-number "SIGINT"))
+        (sigterm (devnet-signal-number "SIGTERM")))
+    (flet ((request-shutdown (&rest ignored)
+             (declare (ignore ignored))
+             (format stream "Devnet shutdown requested; closing RPC listeners.~%")
+             (devnet-shutdown-request controller)))
+      (unwind-protect
+           (progn
+             (sb-sys:enable-interrupt sigint #'request-shutdown)
+             (sb-sys:enable-interrupt sigterm #'request-shutdown)
+             (funcall thunk))
+        (sb-sys:enable-interrupt sigint :default)
+        (sb-sys:enable-interrupt sigterm :default)))))
 
 (defun devnet-cli-read-file-string (path)
   (with-open-file (stream path :direction :input)
@@ -119,22 +189,37 @@
       ("stateAvailable" . ,(if (getf summary :state-available-p) t :false)))))
 
 (defun start-devnet-node-listeners
-    (node engine-listener public-listener &key max-connections stop-p)
+    (node engine-listener public-listener
+     &key max-connections stop-p shutdown-controller)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (unless (typep engine-listener 'engine-rpc-http-listener)
     (error "Devnet Engine listener must be engine-rpc-http-listener"))
   (unless (typep public-listener 'engine-rpc-http-listener)
     (error "Devnet public listener must be engine-rpc-http-listener"))
+  (when (and stop-p (not (functionp stop-p)))
+    (error "Devnet stop predicate must be a function"))
+  (when (and shutdown-controller
+             (not (typep shutdown-controller 'devnet-shutdown-controller)))
+    (error "Devnet shutdown controller must be devnet-shutdown-controller"))
   #-sbcl
-  (declare (ignore node engine-listener public-listener max-connections stop-p))
+  (declare (ignore node engine-listener public-listener max-connections stop-p
+                   shutdown-controller))
   #-sbcl
   (error "Devnet split listener serving requires SBCL threads")
   #+sbcl
-  (let ((engine-count nil)
-        (engine-error nil)
-        (public-count nil)
-        (public-error nil))
+  (let* ((shutdown-controller
+           (or shutdown-controller (make-devnet-shutdown-controller)))
+         (stop-requested-p
+           (lambda ()
+             (or (devnet-shutdown-requested-p shutdown-controller)
+                 (and stop-p (funcall stop-p)))))
+         (engine-count nil)
+         (engine-error nil)
+         (public-count nil)
+         (public-error nil))
+    (devnet-shutdown-controller-register-listeners
+     shutdown-controller engine-listener public-listener)
     (let ((engine-thread
             (sb-thread:make-thread
              (lambda ()
@@ -144,11 +229,10 @@
                           (devnet-node-service node)
                           engine-listener
                           :max-connections max-connections
-                          :stop-p stop-p))
+                          :stop-p stop-requested-p))
                  (error (condition)
                    (setf engine-error condition)
-                   (ignore-errors
-                    (engine-rpc-http-listener-close public-listener)))))
+                   (devnet-shutdown-request shutdown-controller))))
              :name "ethereum-lisp-devnet-engine-rpc")))
       (handler-case
           (setf public-count
@@ -156,14 +240,12 @@
                  (devnet-node-public-service node)
                  public-listener
                  :max-connections max-connections
-                 :stop-p stop-p))
+                 :stop-p stop-requested-p))
         (error (condition)
           (setf public-error condition)
-          (ignore-errors
-           (engine-rpc-http-listener-close engine-listener))))
+          (devnet-shutdown-request shutdown-controller)))
       (when public-count
-        (ignore-errors
-         (engine-rpc-http-listener-close engine-listener)))
+        (devnet-shutdown-request shutdown-controller))
       (sb-thread:join-thread engine-thread)
       (cond
         (public-error (error public-error))
@@ -173,10 +255,17 @@
                :public-connections public-count
                :total-connections (+ engine-count public-count)))))))
 
-(defun start-devnet-node (node &key max-connections stop-p)
+(defun start-devnet-node
+    (node &key max-connections stop-p shutdown-controller
+            install-signal-handlers-p signal-stream)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
-  (let ((engine-listener nil)
+  (when (and shutdown-controller
+             (not (typep shutdown-controller 'devnet-shutdown-controller)))
+    (error "Devnet shutdown controller must be devnet-shutdown-controller"))
+  (let ((shutdown-controller
+          (or shutdown-controller (make-devnet-shutdown-controller)))
+        (engine-listener nil)
         (public-listener nil)
         (served-p nil))
     (unwind-protect
@@ -188,18 +277,23 @@
                  (make-engine-rpc-http-socket-listener
                   (devnet-node-public-service node)))
            (prog1
-               (start-devnet-node-listeners
-                node
-                engine-listener
-                public-listener
-                :max-connections max-connections
-                :stop-p stop-p)
+               (flet ((serve ()
+                        (start-devnet-node-listeners
+                         node
+                         engine-listener
+                         public-listener
+                         :max-connections max-connections
+                         :stop-p stop-p
+                         :shutdown-controller shutdown-controller)))
+                 (if install-signal-handlers-p
+                     (call-with-devnet-shutdown-signal-handlers
+                      shutdown-controller
+                      #'serve
+                      :stream (or signal-stream *error-output*))
+                     (serve)))
              (setf served-p t)))
       (unless served-p
-        (when engine-listener
-          (ignore-errors (engine-rpc-http-listener-close engine-listener)))
-        (when public-listener
-          (ignore-errors (engine-rpc-http-listener-close public-listener)))))))
+        (devnet-shutdown-request shutdown-controller)))))
 
 (defun devnet-cli-option-token-p (value)
   (and (stringp value)
@@ -352,7 +446,9 @@
                 (when (getf options :serve-p)
                   (start-devnet-node
                    node
-                   :max-connections (getf options :max-connections)))
+                   :max-connections (getf options :max-connections)
+                   :install-signal-handlers-p t
+                   :signal-stream error-stream))
                 0))))
     (error (condition)
       (format error-stream "~A~%" condition)
