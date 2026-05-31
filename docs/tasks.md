@@ -3482,12 +3482,11 @@ splits can land after the Phase A smoke path closes.
 - [~] `DOC-ROADMAP-STATUS-SPLIT`: Split detailed implementation history out of
   the strategic roadmap.
   - Milestone: documentation maintenance
-  - Status: a Done/Partial/Missing summary header has been added to Section 5
-    Block Execution; the detailed prose log below it has not yet been moved
-    out. Remaining work is to add equivalent summary headers to other
-    milestone sections (especially Section 4 EVM and Section 7 Engine/RPC)
-    and migrate the historical prose into `docs/status.md` or a changelog
-    document.
+  - Status: Done/Partial/Missing summary headers are present for Section 4
+    EVM, Section 5 Block Execution, and Section 7 Engine/RPC. The Section 7
+    historical log has been moved to `docs/status.md`; remaining work is to
+    migrate the Section 4 and Section 5 detailed prose there as well and add
+    concise summary headers to the earlier milestone sections.
   - Acceptance: every milestone section in `docs/roadmap.md` opens with a
     concise Done/Partial/Missing/Next summary, and detailed historical
     implementation notes are preserved in `docs/status.md` or an equivalent
@@ -3497,6 +3496,11 @@ splits can land after the Phase A smoke path closes.
     and Section 7 Engine API / JSON-RPC, matching the Section 5 Block Execution
     structure while preserving the detailed historical logs for later
     migration.
+  - Progress: moved the detailed Section 7 Engine API / JSON-RPC historical
+    implementation log out of `docs/roadmap.md` and into `docs/status.md`.
+    The roadmap now keeps the concise Phase A Done/Partial/Missing summary and
+    links to the status log, reducing stale "Remaining work" prose in the
+    strategic file.
 
 ## P1: Txpool Beyond Placeholder
 
