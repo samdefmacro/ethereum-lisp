@@ -320,7 +320,7 @@
     },
     {
       "name": "geth-tiny-account-five-step",
-      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "entry-pair-replay", "exact-proof-node-rlp", "proof-node-rlp", "missing-proof-node-rlp"],
+      "tags": ["extension-root", "path-compression", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "entry-pair-replay", "entry-range", "exact-proof-node-rlp", "proof-node-rlp", "missing-proof-node-rlp"],
       "operations": [
         { "op": "put", "keyHex": "0x0000000000000000000000000000000000000000000000000000000000001337", "valueHex": "0xf8638824751dd0cddd966f976bce6c512c3801aacaeedfad5b506664e8c0e4a771ece0a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "op": "put", "keyHex": "0x0000000000000000000000000000000000000000000000000000000000001338", "valueHex": "0xf84e885d9c9c7c1b25819182b8b7a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
@@ -375,6 +375,40 @@
         { "keyHex": "0x0000000000000000000000000000000000000000000000000000000000001339", "valueHex": "0xf84e885d9c9c7c1b25819182b8b7a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "keyHex": "0x000000000000000000000000000000000000000000000000000000000000133a", "valueHex": "0xf854882077ccce0d8fc15988b79ef856f65f67cfa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "keyHex": "0x000000000000000000000000000000000000000000000000000000000000133b", "valueHex": "0xf8658864bed6e2edf354c399e242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" }
+      ],
+      "expectedEntryRanges": [
+        {
+          "startKeyHex": "0x0000000000000000000000000000000000000000000000000000000000001338",
+          "endKeyHex": "0x000000000000000000000000000000000000000000000000000000000000133b",
+          "expectedKeys": [
+            { "keyHex": "0x0000000000000000000000000000000000000000000000000000000000001338" },
+            { "keyHex": "0x0000000000000000000000000000000000000000000000000000000000001339" },
+            { "keyHex": "0x000000000000000000000000000000000000000000000000000000000000133a" }
+          ]
+        },
+        {
+          "startKeyHex": "0x0000000000000000000000000000000000000000000000000000000000001337",
+          "endKeyHex": "0x0000000000000000000000000000000000000000000000000000000000001337",
+          "expectedKeys": []
+        },
+        {
+          "endKeyHex": "0x0000000000000000000000000000000000000000000000000000000000001339",
+          "expectedKeys": [
+            { "keyHex": "0x0000000000000000000000000000000000000000000000000000000000001337" },
+            { "keyHex": "0x0000000000000000000000000000000000000000000000000000000000001338" }
+          ]
+        },
+        {
+          "startKeyHex": "0x000000000000000000000000000000000000000000000000000000000000133a",
+          "expectedKeys": [
+            { "keyHex": "0x000000000000000000000000000000000000000000000000000000000000133a" },
+            { "keyHex": "0x000000000000000000000000000000000000000000000000000000000000133b" }
+          ]
+        },
+        {
+          "startKeyHex": "0x000000000000000000000000000000000000000000000000000000000000133c",
+          "expectedKeys": []
+        }
       ]
     },
     {
@@ -541,7 +575,7 @@
     {
       "name": "geth-secure-account-five-step",
       "secure": true,
-      "tags": ["secure-key", "branch-root", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "entry-pair-replay", "exact-proof-node-rlp", "proof-node-rlp", "missing-proof-node-rlp"],
+      "tags": ["secure-key", "branch-root", "hashed-child-reference", "hex-key", "hex-value", "lookup-assertions", "entry-pair-replay", "entry-range", "exact-proof-node-rlp", "proof-node-rlp", "missing-proof-node-rlp"],
       "operations": [
         { "op": "put", "keyHex": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f", "valueHex": "0xf854882077ccce0d8fc15988b79ef856f65f67cfa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "op": "put", "keyHex": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0", "valueHex": "0xf8658864bed6e2edf354c399e242cf3c6a9f4a578bcb9ef2d4a65314768d6d299761ea9e4fa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
@@ -592,6 +626,41 @@
         { "keyHex": "0xb10d394651850fd4a178892ee285ece151145578", "valueHex": "0xf85a881ec678fcc3aea65a8e20efcd6cea84b6925e607be06371a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "keyHex": "0xf83b8e883bbf857aab99c5b252c7429c32f3a8ae", "valueHex": "0xf84e885d9c9c7c1b25819182b8b7a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" },
         { "keyHex": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f", "valueHex": "0xf854882077ccce0d8fc15988b79ef856f65f67cfa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470" }
+      ],
+      "expectedEntryRanges": [
+        {
+          "startKeyHex": "0x0875d64ee2d3d0d0de6bf8f9b44ce85ff044c6b1",
+          "endKeyHex": "0xf83b8e883bbf857aab99c5b252c7429c32f3a8ae",
+          "expectedKeys": [
+            { "keyHex": "0x0875d64ee2d3d0d0de6bf8f9b44ce85ff044c6b1" },
+            { "keyHex": "0xb10d394651850fd4a178892ee285ece151145578" }
+          ]
+        },
+        {
+          "startKeyHex": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+          "endKeyHex": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0",
+          "expectedKeys": []
+        },
+        {
+          "endKeyHex": "0xb10d394651850fd4a178892ee285ece151145578",
+          "expectedKeys": [
+            { "keyHex": "0xf662a5eee82abdf44a2d0b75fb180daf48a79ee0" },
+            { "keyHex": "0x0875d64ee2d3d0d0de6bf8f9b44ce85ff044c6b1" }
+          ]
+        },
+        {
+          "startKeyHex": "0xf83b8e883bbf857aab99c5b252c7429c32f3a8ae",
+          "expectedKeys": [
+            { "keyHex": "0xf83b8e883bbf857aab99c5b252c7429c32f3a8ae" },
+            { "keyHex": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f" }
+          ]
+        },
+        {
+          "startKeyHex": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f",
+          "expectedKeys": [
+            { "keyHex": "0x0194fdc2fa2ffcc041d3ff12045b73c86e4ff95f" }
+          ]
+        }
       ]
     },
     {

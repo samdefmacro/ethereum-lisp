@@ -2466,6 +2466,12 @@ splits can land after the Phase A smoke path closes.
     EEST-style trie roots carry explicit `out` maps for the same five-account
     coverage. Reference availability: geth `8a0223e`, Nethermind `1c72a72`;
     local Reth clone absent.
+  - Progress: extended the same five-account geth TinyTrie account seed cases
+    with bounded and open-ended `mpt-entry-range` assertions on both plain and
+    secure-key paths. The range checks reuse geth-derived account RLP fixtures
+    and lock half-open range order across raw-key and secure hashed-key
+    iteration. Reference availability: geth `8a0223e`, Nethermind `1c72a72`;
+    local Reth clone absent.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

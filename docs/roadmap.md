@@ -141,7 +141,9 @@ fixes in those areas are allowed; expansion is not.
   The same account-RLP coverage now extends to five geth-derived accounts on
   both plain TinyTrie and secure-key paths, pinning wider root, proof-node RLP,
   entry-export order, and explicit output-map replay beyond the original
-  three-step sequence.
+  three-step sequence. Those five-account seed cases now also assert bounded
+  and open-ended half-open `mpt-entry-range` iteration for both raw-key and
+  secure hashed-key account tries.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the
