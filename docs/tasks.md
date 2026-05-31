@@ -291,10 +291,17 @@ ones.
   - Progress: real EEST blockchain selector names with nested pytest case
     paths after `.json/` are now accepted. The local v5.4.0 extracted
     blockchain root at `/private/tmp/eest-v5.4.0-extract/fixtures/` now loads
-    its four Berlin/Cancun/Paris engine cases instead of failing during
-    source-style selector validation; that root has no Shanghai Phase A replay
-    candidate, so selector discovery correctly reports no materializable
-    Phase A case.
+    its four Berlin/Cancun/Paris/Shanghai engine cases instead of failing
+    during source-style selector validation.
+  - Progress: added official EEST `engineNewPayloads[].params` V2
+    materialization for the pinned v5.4.0 `blockchain_test_engine` shape. The
+    local v5.4.0 root now discovers and auto-selects the Shanghai EIP-2930
+    selector
+    `berlin/eip2930_access_list/test_eip2930_tx_validity.json/tests/berlin/eip2930_access_list/test_tx_type.py::test_eip2930_tx_validity[fork_Shanghai-valid-blockchain_test_engine_from_state_test]=engineNewPayloadV2`.
+    The materializer normalizes EEST short storage slots to 32-byte storage
+    keys, uses the payload `feeRecipient` for execution, and the optional
+    external replay test executes that selector through `engine_newPayloadV2`
+    against expected status, state root, receipts root, and gas used.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

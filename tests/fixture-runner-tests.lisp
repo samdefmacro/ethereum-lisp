@@ -9,6 +9,18 @@
 (defparameter +eest-blockchain-engine-newpayload-v2-fields+
   '("chainId" "config" "parent" "payload" "expect"))
 
+(defparameter +eest-blockchain-engine-newpayloads-fixture-fields+
+  '("network" "lastblockhash" "config" "pre" "postState"
+    "genesisBlockHeader" "engineNewPayloads" "_info"))
+
+(defparameter +eest-blockchain-engine-newpayloads-entry-fields+
+  '("params" "newPayloadVersion" "forkchoiceUpdatedVersion"))
+
+(defparameter +eest-blockchain-rpc-payload-v2-fields+
+  '("parentHash" "feeRecipient" "stateRoot" "receiptsRoot" "logsBloom"
+    "blockNumber" "gasLimit" "gasUsed" "timestamp" "extraData"
+    "prevRandao" "baseFeePerGas" "blockHash" "transactions" "withdrawals"))
+
 (defparameter +eest-blockchain-standard-fixture-fields+
   '("network" "genesisBlockHeader" "pre" "postState" "lastblockhash"
     "sealEngine" "blocks"))
@@ -188,6 +200,9 @@
     (cond
       ((fixture-field-present-p fixture "engineNewPayloadV2")
        "engineNewPayloadV2")
+      ((and (fixture-field-present-p fixture "engineNewPayloads")
+            (eest-blockchain-engine-newpayloads-v2-entry case))
+       "engineNewPayloadV2")
       ((let ((blocks (fixture-object-field fixture "blocks")))
          (and (listp blocks)
               blocks
@@ -205,7 +220,9 @@
                    (string= "Shanghai" network))
           (cond
             ((string= "engineNewPayloadV2" kind)
-             (validate-eest-blockchain-engine-newpayload-v2-case case)
+             (if (fixture-field-present-p fixture "engineNewPayloadV2")
+                 (validate-eest-blockchain-engine-newpayload-v2-case case)
+                 (validate-eest-blockchain-engine-newpayloads-v2-case case))
              kind)
             ((string= "blockRlp" kind)
              (validate-eest-blockchain-standard-newpayload-v2-case case)
@@ -236,7 +253,7 @@
   (let ((blocks (fixture-object-field
                  (fixture-required-field case "fixture")
                  "blocks")))
-    (unless (listp blocks)
+    (unless (or (null blocks) (listp blocks))
       (error "EEST blockchain replay case ~A blocks must be a JSON array"
              (fixture-required-field case "name")))
     (length blocks)))
@@ -302,10 +319,11 @@
     (unless (plusp (or (fixture-object-field kind-counts "engineNewPayloadV2")
                        0))
       (error "Phase A EEST blockchain replay is missing embedded Engine coverage"))
-    (unless (plusp (or (fixture-object-field kind-counts "blockRlp") 0))
-      (error "Phase A EEST blockchain replay is missing standard block RLP coverage"))
-    (unless (plusp block-count)
-      (error "Phase A EEST blockchain replay is missing decoded block coverage"))
+    (when (find "blockRlp" expected-kinds :key #'cdr :test #'string=)
+      (unless (plusp (or (fixture-object-field kind-counts "blockRlp") 0))
+        (error "Phase A EEST blockchain replay is missing standard block RLP coverage"))
+      (unless (plusp block-count)
+        (error "Phase A EEST blockchain replay is missing decoded block coverage")))
     summary))
 
 (defun load-phase-a-eest-blockchain-replay-cases
@@ -397,6 +415,88 @@
        (format nil "~A payload" label))
       engine)))
 
+(defun eest-blockchain-engine-newpayloads-v2-entry (case)
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (entries (fixture-object-field fixture "engineNewPayloads")))
+    (when (listp entries)
+      (find "2" entries
+            :key (lambda (entry)
+                   (and (listp entry)
+                        (fixture-object-field entry "newPayloadVersion")))
+            :test #'string=))))
+
+(defun validate-eest-blockchain-engine-newpayloads-v2-case (case)
+  (let* ((case-name (fixture-required-field case "name"))
+         (fixture (fixture-required-field case "fixture"))
+         (label (format nil "EEST blockchain case ~A" case-name)))
+    (validate-fixture-object-fields
+     fixture
+     +eest-blockchain-engine-newpayloads-fixture-fields+
+     label)
+    (unless (string= "Shanghai" (fixture-required-field fixture "network"))
+      (error "~A engineNewPayloads materializer currently supports Shanghai V2"
+             label))
+    (let ((entries (fixture-required-field fixture "engineNewPayloads")))
+      (unless (and (listp entries) entries)
+        (error "~A engineNewPayloads must be a non-empty JSON array" label))
+      (let ((entry (eest-blockchain-engine-newpayloads-v2-entry case)))
+        (unless entry
+          (error "~A does not carry an engineNewPayloads V2 entry" label))
+        (validate-fixture-object-fields
+         entry
+         +eest-blockchain-engine-newpayloads-entry-fields+
+         (format nil "~A engineNewPayloads entry" label))
+        (unless (string= "2" (fixture-required-field entry "newPayloadVersion"))
+          (error "~A engineNewPayloads entry must be V2" label))
+        (unless (string= "2" (fixture-required-field entry "forkchoiceUpdatedVersion"))
+          (error "~A forkchoiceUpdatedVersion must be V2" label))
+        (let ((params (fixture-required-field entry "params")))
+          (unless (and (listp params) (= 1 (length params)))
+            (error "~A engineNewPayloads V2 params must contain one payload"
+                   label))
+          (let ((payload (first params)))
+            (unless (listp payload)
+              (error "~A engineNewPayloads V2 payload must be a JSON object"
+                     label))
+            (validate-fixture-object-fields
+             payload
+             +eest-blockchain-rpc-payload-v2-fields+
+             (format nil "~A engineNewPayloads V2 payload" label))
+            (dolist (field '("parentHash" "stateRoot" "receiptsRoot"
+                             "prevRandao" "blockHash"))
+              (validate-eest-blockchain-hash-string
+               (fixture-required-field payload field)
+               (format nil "~A payload ~A" label field)))
+            (validate-eest-blockchain-address-string
+             (fixture-required-field payload "feeRecipient")
+             (format nil "~A payload feeRecipient" label))
+            (dolist (field '("blockNumber" "gasLimit" "gasUsed" "timestamp"
+                             "baseFeePerGas"))
+              (validate-eest-blockchain-quantity-string
+               (fixture-required-field payload field)
+               (format nil "~A payload ~A" label field)))
+            (validate-eest-blockchain-hex-string
+             (fixture-required-field payload "extraData")
+             (format nil "~A payload extraData" label))
+            (validate-eest-blockchain-json-array-field
+             payload
+             "transactions"
+             (format nil "~A payload" label))
+            (validate-eest-blockchain-json-array-field
+             payload
+             "withdrawals"
+             (format nil "~A payload" label))
+            (let ((last-block-hash
+                    (fixture-required-field fixture "lastblockhash"))
+                  (block-hash (fixture-required-field payload "blockHash")))
+              (validate-eest-blockchain-hash-string
+               last-block-hash
+               (format nil "~A lastblockhash" label))
+              (unless (string= last-block-hash block-hash)
+                (error "~A lastblockhash does not match engine payload blockHash"
+                       label)))
+            payload))))))
+
 (defun validate-eest-blockchain-hex-string (value label)
   (unless (stringp value)
     (error "~A must be a 0x-prefixed hex string" label))
@@ -459,12 +559,39 @@
       (list
        (cons "address" address)
        (cons "nonce"
-             (or (fixture-object-field account "nonce") "0x0"))
+             (quantity-to-hex
+              (hex-to-quantity
+               (or (fixture-object-field account "nonce") "0x0"))))
        (cons "balance"
-             (or (fixture-object-field account "balance") "0x0"))
+             (quantity-to-hex
+              (hex-to-quantity
+               (or (fixture-object-field account "balance") "0x0"))))
        (cons "code"
              (or (fixture-object-field account "code") "0x"))
-       (cons "storage" storage)))))
+       (cons "storage"
+             (mapcar (lambda (storage-entry)
+                       (cons
+                        (eest-blockchain-normalized-storage-slot
+                         (car storage-entry)
+                         (format nil "~A pre account ~A storage key"
+                                 label
+                                 address))
+                        (quantity-to-hex
+                         (hex-to-quantity (cdr storage-entry)))))
+                     storage))))))
+
+(defun eest-blockchain-normalized-storage-slot (value label)
+  (unless (stringp value)
+    (error "~A must be a hex storage key" label))
+  (handler-case
+      (let ((bytes (hex-to-bytes value)))
+        (when (> (length bytes) 32)
+          (error "~A must be at most 32 bytes" label))
+        (let ((padded (make-byte-vector 32)))
+          (replace padded bytes :start1 (- 32 (length bytes)))
+          (hash32-to-hex (make-hash32 padded))))
+    (error (condition)
+      (error "~A must be hex storage key bytes: ~A" label condition))))
 
 (defun eest-blockchain-standard-parent (fixture label)
   (let ((header (fixture-required-field fixture "genesisBlockHeader")))
@@ -613,7 +740,71 @@
                 (cons "parent" (fixture-required-field engine "parent"))
                 (cons "payload" (fixture-required-field engine "payload"))
                 (cons "expect" (fixture-required-field engine "expect"))))
-        (materialize-eest-blockchain-standard-newpayload-v2-case case))))
+        (if (fixture-field-present-p fixture "engineNewPayloads")
+            (materialize-eest-blockchain-engine-newpayloads-v2-case case)
+            (materialize-eest-blockchain-standard-newpayload-v2-case case)))))
+
+(defun materialize-eest-blockchain-engine-newpayloads-v2-case (case)
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (payload
+           (validate-eest-blockchain-engine-newpayloads-v2-case case)))
+    (list (cons "name" (fixture-required-field case "name"))
+          (cons "network" (fixture-required-field fixture "network"))
+          (cons "chainId"
+                (quantity-to-hex
+                 (hex-to-quantity
+                  (or (fixture-object-field
+                       (fixture-object-field fixture "config")
+                       "chainid")
+                      "0x1"))))
+          (cons "config"
+                '(("berlinBlock" . "0x0")
+                  ("londonBlock" . "0x0")
+                  ("shanghaiTime" . "0x0")))
+          (cons "parent"
+                (mapcar
+                 (lambda (entry)
+                   (if (string= "feeRecipient" (car entry))
+                       (cons "feeRecipient"
+                             (fixture-required-field payload "feeRecipient"))
+                       entry))
+                 (eest-blockchain-standard-parent
+                  fixture
+                  (format nil "EEST blockchain case ~A"
+                          (fixture-required-field case "name")))))
+          (cons "payload"
+                (list
+                 (cons "number"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "blockNumber"))))
+                 (cons "gasLimit"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "gasLimit"))))
+                 (cons "timestamp"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "timestamp"))))
+                 (cons "baseFeePerGas"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "baseFeePerGas"))))
+                 (cons "transactions"
+                       (fixture-required-field payload "transactions"))
+                 (cons "withdrawals"
+                       (fixture-required-field payload "withdrawals"))))
+          (cons "expect"
+                (list
+                 (cons "status" "VALID")
+                 (cons "stateRoot"
+                       (fixture-required-field payload "stateRoot"))
+                 (cons "receiptsRoot"
+                       (fixture-required-field payload "receiptsRoot"))
+                 (cons "gasUsed"
+                       (quantity-to-hex
+                        (hex-to-quantity
+                         (fixture-required-field payload "gasUsed")))))))))
 
 (defun load-handwritten-fixture-file (path)
   (parse-json (fixture-file-string path)))
@@ -805,8 +996,89 @@
       (is (null (phase-a-eest-blockchain-replay-materializable-kind
                  bad-case)))
       (signals error
-        (validate-phase-a-eest-blockchain-replay-summary
-         (list bad-case (second phase-a-cases)))))))
+      (validate-phase-a-eest-blockchain-replay-summary
+       (list bad-case (second phase-a-cases)))))))
+
+(deftest eest-blockchain-engine-newpayloads-v2-materialization
+  (let* ((source-name
+           "berlin/eip2930_access_list/test.json/tests/berlin/test_tx_type.py::test_case[fork_Shanghai]")
+         (case
+           (list
+            (cons "name" source-name)
+            (cons "fixture"
+                  (list
+                   (cons "network" "Shanghai")
+                   (cons "lastblockhash"
+                         "0x2222222222222222222222222222222222222222222222222222222222222222")
+                   (cons "config" '(("chainid" . "0x01")))
+                   (cons "genesisBlockHeader"
+                         '(("coinbase" . "0x0000000000000000000000000000000000000000")
+                           ("number" . "0x00")
+                           ("gasLimit" . "0x07270e00")
+                           ("gasUsed" . "0x00")
+                           ("timestamp" . "0x00")
+                           ("baseFeePerGas" . "0x07")))
+                   (cons "pre"
+                         '(("0x0000000000000000000000000000000000001001"
+                            ("nonce" . "0x00")
+                            ("balance" . "0x10")
+                            ("code" . "0x")
+                            ("storage" ("0x00" . "0x01")))))
+                   (cons "postState" '())
+                   (cons "engineNewPayloads"
+                         (list
+                          (list
+                           (cons "newPayloadVersion" "2")
+                           (cons "forkchoiceUpdatedVersion" "2")
+                           (cons "params"
+                                 (list
+                                  (list
+                                   (cons "parentHash"
+                                         "0x1111111111111111111111111111111111111111111111111111111111111111")
+                                   (cons "feeRecipient"
+                                         "0x0000000000000000000000000000000000000000")
+                                   (cons "stateRoot"
+                                         "0x3333333333333333333333333333333333333333333333333333333333333333")
+                                   (cons "receiptsRoot"
+                                         "0x4444444444444444444444444444444444444444444444444444444444444444")
+                                   (cons "logsBloom"
+                                         "0x")
+                                   (cons "blockNumber" "0x1")
+                                   (cons "gasLimit" "0x7270e00")
+                                   (cons "gasUsed" "0x0")
+                                   (cons "timestamp" "0x3e8")
+                                   (cons "extraData" "0x00")
+                                   (cons "prevRandao"
+                                         "0x0000000000000000000000000000000000000000000000000000000000000000")
+                                   (cons "baseFeePerGas" "0x7")
+                                   (cons "blockHash"
+                                         "0x2222222222222222222222222222222222222222222222222222222222222222")
+                                   (cons "transactions" '())
+                                   (cons "withdrawals" '())))))))
+                   (cons "_info" '()))))))
+    (is (string= "engineNewPayloadV2"
+                 (eest-blockchain-replay-materialization-kind case)))
+    (is (string= "engineNewPayloadV2"
+                 (phase-a-eest-blockchain-replay-materializable-kind case)))
+    (let* ((summary
+             (validate-phase-a-eest-blockchain-replay-summary
+              (list case)
+              :expected-kinds (list (cons source-name "engineNewPayloadV2"))))
+           (materialized
+             (materialize-eest-blockchain-engine-newpayload-v2-case case))
+           (parent (fixture-required-field materialized "parent"))
+           (account (first (fixture-required-field parent "accounts")))
+           (payload (fixture-required-field materialized "payload"))
+           (expect (fixture-required-field materialized "expect")))
+      (is (= 1 (fixture-required-field summary "count")))
+      (is (= 0 (fixture-required-field summary "blockCount")))
+      (is (string= "0x1" (fixture-required-field materialized "chainId")))
+      (is (string= "0x1" (fixture-required-field payload "number")))
+      (is (string= "0x3333333333333333333333333333333333333333333333333333333333333333"
+                   (fixture-required-field expect "stateRoot")))
+      (is (equal '(("0x0000000000000000000000000000000000000000000000000000000000000000"
+                    . "0x1"))
+                 (fixture-required-field account "storage"))))))
 
 (deftest optional-phase-a-eest-blockchain-replay-cases
   (let ((*fixture-root-environment-reader*
