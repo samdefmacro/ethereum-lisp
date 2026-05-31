@@ -2448,6 +2448,11 @@ splits can land after the Phase A smoke path closes.
     one- and two-account geth TinyTrie steps on both plain and secure-key
     seed paths, and added a gate requiring the full geth-derived account
     progression to keep fixture-pinned entry-pair order and values.
+    Extended the same geth TinyTrie account progression with exact present
+    and missing proof-node RLP assertions across all one-, two-, and
+    three-account plain and secure-key seed cases. The seed gate now requires
+    those account-derived reference cases to keep exact-length proof coverage,
+    not only root, lookup, and entry-pair replay.
     Remaining work: replace/extend the in-repo vectors with pinned
     execution-spec-tests trie fixtures and broaden secure/account trie root
     coverage against external references.

@@ -260,6 +260,14 @@
     "geth-secure-account-step-2"
     "geth-secure-account-step-3"))
 
+(defparameter +trie-fixture-account-proof-reference-case-names+
+  '("geth-tiny-account-step-1"
+    "geth-tiny-account-step-2"
+    "geth-tiny-account-step-3"
+    "geth-secure-account-step-1"
+    "geth-secure-account-step-2"
+    "geth-secure-account-step-3"))
+
 (defparameter +phase-a-eest-trie-reference-case-requirements+
   '(("phase-a-trie-multi.json/geth-long-leaf-value" . :plain)
     ("phase-a-trie-multi.json/geth-large-value-branch" . :plain)
@@ -1105,6 +1113,51 @@
                  label
                  name))))))
 
+(defun validate-trie-fixture-account-proof-reference-cases
+    (cases names label)
+  (let ((case-by-name (make-hash-table :test #'equal))
+        (seen-names (make-hash-table :test #'equal)))
+    (dolist (case cases)
+      (setf (gethash (fixture-required-field case "name") case-by-name)
+            case))
+    (dolist (name names)
+      (when (gethash name seen-names)
+        (error "~A account-proof reference list has duplicate name ~A"
+               label
+               name))
+      (setf (gethash name seen-names) t)
+      (let ((case (gethash name case-by-name)))
+        (unless case
+          (error "~A is missing account-proof reference case ~A"
+                 label
+                 name))
+        (unless (member "exact-proof-node-rlp"
+                        (fixture-object-field case "tags")
+                        :test #'string=)
+          (error "~A reference-derived trie case ~A must include exact proof-node RLP"
+                 label
+                 name))
+        (unless (member "missing-proof-node-rlp"
+                        (fixture-object-field case "tags")
+                        :test #'string=)
+          (error "~A reference-derived trie case ~A must include missing proof-node RLP"
+                 label
+                 name))
+        (unless (fixture-object-field case "expectedMissing")
+          (error "~A reference-derived trie case ~A must include missing-key proof assertions"
+                 label
+                 name))
+        (let ((prefixes (fixture-object-field case "expectedProofPrefixes")))
+          (unless prefixes
+            (error "~A reference-derived trie case ~A must include expectedProofPrefixes"
+                   label
+                   name))
+          (dolist (prefix prefixes)
+            (unless (fixture-object-field prefix "exactLength")
+              (error "~A reference-derived trie case ~A proof prefix must be exact-length"
+                     label
+                     name))))))))
+
 (defun validate-trie-fixture-cases (cases)
   (validate-trie-fixture-case-coverage cases)
   (validate-trie-reference-case-requirements
@@ -1114,6 +1167,10 @@
   (validate-trie-fixture-entry-pair-reference-cases
    cases
    +trie-fixture-entry-pair-reference-case-names+
+   "Seed trie fixture")
+  (validate-trie-fixture-account-proof-reference-cases
+   cases
+   +trie-fixture-account-proof-reference-case-names+
    "Seed trie fixture")
   (dolist (case cases)
     (validate-trie-fixture-case-shape case)))
@@ -3945,6 +4002,28 @@
       (validate-trie-fixture-entry-pair-reference-cases
        cases
        '("geth-tiny-account-step-1" "geth-tiny-account-step-1")
+       "Seed trie fixture"))
+    (validate-trie-fixture-account-proof-reference-cases
+     cases
+     +trie-fixture-account-proof-reference-case-names+
+     "Seed trie fixture")
+    (signals error
+      (validate-trie-fixture-account-proof-reference-cases
+       (mapcar (lambda (case)
+                 (if (string= "geth-tiny-account-step-1"
+                              (fixture-object-field case "name"))
+                     (remove "expectedProofPrefixes"
+                             case
+                             :key #'car
+                             :test #'string=)
+                     case))
+               cases)
+       '("geth-tiny-account-step-1")
+       "Seed trie fixture"))
+    (signals error
+      (validate-trie-fixture-account-proof-reference-cases
+       cases
+       '("geth-secure-account-step-1" "geth-secure-account-step-1")
        "Seed trie fixture"))))
 
 (deftest optional-eest-trie-test-root-discovery

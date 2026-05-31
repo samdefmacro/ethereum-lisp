@@ -131,6 +131,9 @@ fixes in those areas are allowed; expansion is not.
   The seed trie fixture now also locks deterministic `mpt-entry-pairs` export
   order and values for the one-, two-, and three-account geth TinyTrie
   progression on both plain and secure-key replay paths.
+  The same geth TinyTrie account progression now pins exact present and
+  missing proof-node RLPs for every plain and secure-key step, so account-trie
+  proof encoding is locked alongside the root and entry-order checks.
   The selected EEST-style trie subset now includes geth `TestEmptyValues`,
   proving that empty string updates delete existing keys and land on the same
   reference root as the explicit delete sequence while still exercising the
