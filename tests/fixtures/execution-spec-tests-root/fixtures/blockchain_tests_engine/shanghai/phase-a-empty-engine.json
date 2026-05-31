@@ -2,6 +2,37 @@
   "phase-a-empty-engine": {
     "fixture-format": "blockchain_test",
     "network": "Shanghai",
-    "blocks": []
+    "blocks": [],
+    "engineNewPayloadV2": {
+      "chainId": "0x1",
+      "config": {
+        "berlinBlock": "0x0",
+        "londonBlock": "0x0",
+        "shanghaiTime": "0x0"
+      },
+      "parent": {
+        "number": "0x29",
+        "gasLimit": "0xc350",
+        "gasUsed": "0x61a8",
+        "timestamp": "0x62",
+        "baseFeePerGas": "0x64",
+        "feeRecipient": "0x0000000000000000000000000000000000000001",
+        "accounts": []
+      },
+      "payload": {
+        "number": "0x2a",
+        "gasLimit": "0xc350",
+        "timestamp": "0x63",
+        "baseFeePerGas": "0x64",
+        "transactions": [],
+        "withdrawals": []
+      },
+      "expect": {
+        "status": "VALID",
+        "stateRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "gasUsed": "0x0"
+      }
+    }
   }
 }

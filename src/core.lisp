@@ -1508,6 +1508,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                     block-hash
                                     transactions
                                     withdrawals
+                                    withdrawals-present-p
                                     blob-gas-used
                                     excess-blob-gas
                                     slot-number
@@ -1527,6 +1528,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   block-hash
   (transactions '() :type list)
   withdrawals
+  withdrawals-present-p
   blob-gas-used
   excess-blob-gas
   slot-number
@@ -1641,6 +1643,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             :withdrawals (when (block-withdrawals-present-p block)
                            (maybe-copy-withdrawals
                             (block-withdrawals block)))
+            :withdrawals-present-p (block-withdrawals-present-p block)
             :blob-gas-used (block-header-blob-gas-used header)
             :excess-blob-gas (block-header-excess-blob-gas header)
             :slot-number (block-header-slot-number header)
@@ -1727,6 +1730,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Executable data payload must be executable-data"))
   (let* ((transactions (executable-data-decoded-transactions payload))
          (withdrawals (executable-data-withdrawals payload))
+         (withdrawals-present-p
+           (or (executable-data-withdrawals-present-p payload)
+               (not (null withdrawals))))
          (extra-data (validate-byte-sequence-field
                       (executable-data-extra-data payload)
                       "Executable data extra data"))
@@ -1743,7 +1749,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (block-access-list-from-rlp encoded-block-access-list))))
     (when (> (length extra-data) +maximum-extra-data-size+)
       (block-validation-fail "Executable data extra data too long"))
-    (when withdrawals
+    (when withdrawals-present-p
       (validate-withdrawal-list-fields withdrawals))
     (validate-executable-data-versioned-hashes transactions versioned-hashes)
     (validate-optional-hash32-field parent-beacon-root
@@ -1797,7 +1803,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (executable-data-required-uint256
               (executable-data-base-fee-per-gas payload)
               "Executable data base fee")
-             :withdrawals-root (when withdrawals
+             :withdrawals-root (when withdrawals-present-p
                                  (withdrawal-list-root withdrawals))
              :blob-gas-used (executable-data-blob-gas-used payload)
              :excess-blob-gas (executable-data-excess-blob-gas payload)
@@ -1818,7 +1824,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    :transactions transactions
                    :ommers '()
                    :withdrawals withdrawals
-                   :withdrawals-present-p (not (null withdrawals))
+                   :withdrawals-present-p withdrawals-present-p
                    :requests requests
                    :requests-present-p requests-supplied-p
                    :block-access-list block-access-list
@@ -1886,20 +1892,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((number (executable-data-number payload))
          (timestamp (executable-data-timestamp payload))
          (withdrawals (executable-data-withdrawals payload))
+         (withdrawals-present-p
+           (or (executable-data-withdrawals-present-p payload)
+               (not (null withdrawals))))
          (shanghai-p (chain-config-shanghai-p config number timestamp))
          (cancun-p (chain-config-cancun-p config number timestamp))
          (prague-p (chain-config-prague-p config number timestamp))
          (amsterdam-p (chain-config-amsterdam-p config number timestamp)))
     (cond
       ((= version 1)
-       (when withdrawals
+       (when withdrawals-present-p
          "withdrawals not supported in newPayloadV1"))
       ((= version 2)
        (cond
          (cancun-p "newPayloadV2 cannot be used after Cancun")
-         ((and shanghai-p (null withdrawals))
+         ((and shanghai-p (not withdrawals-present-p))
           "withdrawals required after Shanghai")
-         ((and (not shanghai-p) withdrawals)
+         ((and (not shanghai-p) withdrawals-present-p)
           "withdrawals not supported before Shanghai")
          ((executable-data-excess-blob-gas payload)
           "excessBlobGas not supported before Cancun")
@@ -1907,7 +1916,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           "blobGasUsed not supported before Cancun")))
       ((= version 3)
        (cond
-         ((null withdrawals) "withdrawals required after Shanghai")
+         ((not withdrawals-present-p) "withdrawals required after Shanghai")
          ((null (executable-data-excess-blob-gas payload))
           "excessBlobGas required after Cancun")
          ((null (executable-data-blob-gas-used payload))
@@ -1920,7 +1929,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           "newPayloadV3 requires Cancun")))
       ((= version 4)
        (cond
-         ((null withdrawals) "withdrawals required after Shanghai")
+         ((not withdrawals-present-p) "withdrawals required after Shanghai")
          ((null (executable-data-excess-blob-gas payload))
           "excessBlobGas required after Cancun")
          ((null (executable-data-blob-gas-used payload))
@@ -1935,7 +1944,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           "newPayloadV4 requires Prague or later")))
       ((= version 5)
        (cond
-         ((null withdrawals) "withdrawals required after Shanghai")
+         ((not withdrawals-present-p) "withdrawals required after Shanghai")
          ((null (executable-data-excess-blob-gas payload))
           "excessBlobGas required after Cancun")
          ((null (executable-data-blob-gas-used payload))

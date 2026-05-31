@@ -216,7 +216,7 @@ ones.
     discovered JSON files into selectable cases and report the selected case
     name, fixture format, network, and block count.
 
-- [ ] `HARNESS-BLOCKCHAIN-FIXTURE-REPLAY`: Materialize selected blockchain
+- [~] `HARNESS-BLOCKCHAIN-FIXTURE-REPLAY`: Materialize selected blockchain
   fixtures into Engine import cases.
   - Milestone: 8
   - Dependencies: `HARNESS-BLOCKCHAIN-FIXTURE-LOADER`,
@@ -231,6 +231,16 @@ ones.
     another seed Engine case.
   - Validation: one selected pinned fixture replay plus
     `sbcl --script tests/run-tests.lisp`.
+  - Progress: added the first executable blockchain-root replay slice. The
+    EEST-style blockchain loader can now materialize a selected Shanghai
+    `engineNewPayloadV2` case into the existing Engine fixture shape, replay
+    it through `engine_newPayloadV2`, and compare status, post-state root,
+    receipts root, and gas used. This exposed and fixed a production Engine
+    boundary: an explicitly present empty `withdrawals` field now survives
+    block / executable-data / Engine-RPC object round-trips, so Shanghai empty
+    payloads are not rejected as missing withdrawals. Remaining work is to
+    broaden the materializer from the in-repo seed root to real pinned v5.4.0
+    upstream selectors and expected post-state payloads.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

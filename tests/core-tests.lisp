@@ -13928,11 +13928,24 @@ Content-Type: application/json
 
 (deftest block-withdrawals-presence-is-distinct-from-empty-list
   (let* ((empty-shanghai-block (make-block :withdrawals '()))
+         (payload
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data empty-shanghai-block)))
+         (payload-object (engine-rpc-executable-data-object payload))
+         (decoded-payload
+           (engine-rpc-executable-data-from-object payload-object))
+         (decoded-block (executable-data-to-block-no-hash decoded-payload))
          (header-with-missing-body
            (make-block-header :withdrawals-root (withdrawal-list-root '())))
          (missing-body-block (make-block :header header-with-missing-body))
          (pre-shanghai-block (make-block :withdrawals '())))
     (is (block-withdrawals-present-p empty-shanghai-block))
+    (is (executable-data-withdrawals-present-p payload))
+    (is (assoc "withdrawals" payload-object :test #'string=))
+    (is (null (cdr (assoc "withdrawals" payload-object :test #'string=))))
+    (is (executable-data-withdrawals-present-p decoded-payload))
+    (is (block-withdrawals-present-p decoded-block))
+    (is (null (block-withdrawals decoded-block)))
     (is (validate-block-body-roots empty-shanghai-block))
     (signals block-validation-error
       (validate-block-body-roots missing-body-block))

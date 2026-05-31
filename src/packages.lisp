@@ -522,6 +522,7 @@
    #:executable-data-block-hash
    #:executable-data-transactions
    #:executable-data-withdrawals
+   #:executable-data-withdrawals-present-p
    #:executable-data-blob-gas-used
    #:executable-data-excess-blob-gas
    #:executable-data-slot-number
@@ -1440,6 +1441,7 @@
    #:executable-data-block-hash
    #:executable-data-transactions
    #:executable-data-withdrawals
+   #:executable-data-withdrawals-present-p
    #:executable-data-blob-gas-used
    #:executable-data-excess-blob-gas
    #:executable-data-slot-number
@@ -2297,6 +2299,7 @@
    #:executable-data-block-hash
    #:executable-data-transactions
    #:executable-data-withdrawals
+   #:executable-data-withdrawals-present-p
    #:executable-data-blob-gas-used
    #:executable-data-excess-blob-gas
    #:executable-data-slot-number

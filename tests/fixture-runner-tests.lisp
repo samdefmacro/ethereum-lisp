@@ -3,6 +3,12 @@
 (defparameter +minimal-blockchain-fixture-path+
   "tests/fixtures/execution-spec-tests/minimal-blockchain.json")
 
+(defparameter +eest-blockchain-engine-fixture-fields+
+  '("fixture-format" "network" "blocks" "engineNewPayloadV2"))
+
+(defparameter +eest-blockchain-engine-newpayload-v2-fields+
+  '("chainId" "config" "parent" "payload" "expect"))
+
 (defun eest-blockchain-test-root-json-paths (root)
   (execution-spec-tests-root-json-paths root "EEST blockchain test"))
 
@@ -78,6 +84,59 @@
           (cons "format" (fixture-object-field fixture "fixture-format"))
           (cons "network" (fixture-object-field fixture "network"))
           (cons "blocks" (length (fixture-object-field fixture "blocks"))))))
+
+(defun validate-eest-blockchain-json-array-field (object field label)
+  (let ((value (fixture-required-field object field)))
+    (unless (listp value)
+      (error "~A ~A must be a JSON array" label field))
+    value))
+
+(defun validate-eest-blockchain-engine-newpayload-v2-case (case)
+  (let* ((case-name (fixture-required-field case "name"))
+         (fixture (fixture-required-field case "fixture"))
+         (label (format nil "EEST blockchain case ~A" case-name)))
+    (validate-fixture-object-fields
+     fixture
+     +eest-blockchain-engine-fixture-fields+
+     label)
+    (unless (string= "blockchain_test"
+                     (fixture-required-field fixture "fixture-format"))
+      (error "~A fixture-format must be blockchain_test" label))
+    (validate-eest-blockchain-json-array-field fixture "blocks" label)
+    (when (plusp (length (fixture-object-field fixture "blocks")))
+      (error "~A replay materializer expects an embedded engineNewPayloadV2 case"
+             label))
+    (let ((engine (fixture-required-field fixture "engineNewPayloadV2")))
+      (validate-fixture-object-fields
+       engine
+       +eest-blockchain-engine-newpayload-v2-fields+
+       (format nil "~A engineNewPayloadV2" label))
+      (dolist (field +eest-blockchain-engine-newpayload-v2-fields+)
+        (fixture-required-field engine field))
+      (validate-eest-blockchain-json-array-field
+       (fixture-required-field engine "parent")
+       "accounts"
+       (format nil "~A parent" label))
+      (validate-eest-blockchain-json-array-field
+       (fixture-required-field engine "payload")
+       "transactions"
+       (format nil "~A payload" label))
+      (validate-eest-blockchain-json-array-field
+       (fixture-required-field engine "payload")
+       "withdrawals"
+       (format nil "~A payload" label))
+      engine)))
+
+(defun materialize-eest-blockchain-engine-newpayload-v2-case (case)
+  (let* ((fixture (fixture-required-field case "fixture"))
+         (engine (validate-eest-blockchain-engine-newpayload-v2-case case)))
+    (list (cons "name" (fixture-required-field case "name"))
+          (cons "network" (fixture-required-field fixture "network"))
+          (cons "chainId" (fixture-required-field engine "chainId"))
+          (cons "config" (fixture-required-field engine "config"))
+          (cons "parent" (fixture-required-field engine "parent"))
+          (cons "payload" (fixture-required-field engine "payload"))
+          (cons "expect" (fixture-required-field engine "expect")))))
 
 (defun load-handwritten-fixture-file (path)
   (parse-json (fixture-file-string path)))
@@ -160,6 +219,15 @@
     (is (string= "blockchain_test" (fixture-object-field report "format")))
     (is (string= "Shanghai" (fixture-object-field report "network")))
     (is (= 0 (fixture-object-field report "blocks")))
+    (let ((materialized
+            (materialize-eest-blockchain-engine-newpayload-v2-case
+             (first selected))))
+      (is (string= "shanghai/phase-a-empty-engine.json"
+                   (fixture-object-field materialized "name")))
+      (is (string= "VALID"
+                   (fixture-object-field
+                    (fixture-object-field materialized "expect")
+                    "status"))))
     (signals error
       (load-eest-blockchain-test-root-cases
        root
