@@ -1,0 +1,246 @@
+(defparameter *ethereum-lisp-smoke-gate-root*
+  (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
+
+(defconstant +smoke-gate-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
+(defconstant +smoke-gate-json-flag+ "--json")
+(defconstant +smoke-gate-default-root+
+  "tests/fixtures/execution-spec-tests-root/")
+
+(defun smoke-gate-arguments ()
+  #+sbcl
+  (let ((args (cdr sb-ext:*posix-argv*)))
+    (when (and args (string= (first args) "--"))
+      (setf args (cdr args)))
+    args)
+  #-sbcl nil)
+
+(defun smoke-gate-pinned-v5.4.0-p (args)
+  (member +smoke-gate-pinned-v5.4.0-flag+ args :test #'string=))
+
+(defun smoke-gate-json-p (args)
+  (member +smoke-gate-json-flag+ args :test #'string=))
+
+(defun smoke-gate-argument-root (args)
+  (let ((root nil))
+    (dolist (arg args)
+      (cond
+        ((string= arg +smoke-gate-pinned-v5.4.0-flag+))
+        ((string= arg +smoke-gate-json-flag+))
+        ((and (plusp (length arg))
+              (char= #\- (char arg 0)))
+         (error "Unsupported smoke gate option ~A" arg))
+        (root
+         (error "Only one fixture root argument is supported"))
+        (t
+         (setf root arg))))
+    root))
+
+(defun smoke-gate-call (name &rest args)
+  (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))
+    (unless (and symbol (fboundp symbol))
+      (error "Fixture helper ~A is unavailable" name))
+    (apply (symbol-function symbol) args)))
+
+(defun smoke-gate-variable (name)
+  (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))
+    (unless (and symbol (boundp symbol))
+      (error "Fixture variable ~A is unavailable" name))
+    (symbol-value symbol)))
+
+(defun smoke-gate-json-encode (object)
+  (let ((symbol (find-symbol "JSON-ENCODE" "ETHEREUM-LISP")))
+    (unless (and symbol (fboundp symbol))
+      (error "JSON encoder is unavailable"))
+    (funcall (symbol-function symbol) object)))
+
+(defun smoke-gate-field (object name)
+  (cdr (assoc name object :test #'string=)))
+
+(defun smoke-gate-kind-count (summary kind)
+  (or (smoke-gate-field
+       (smoke-gate-field summary "materializationKindCounts")
+       kind)
+      0))
+
+(defun smoke-gate-require-positive-field (summary field label)
+  (let ((value (smoke-gate-field summary field)))
+    (unless (and (integerp value) (plusp value))
+      (error "~A must be positive, got ~S" label value))
+    value))
+
+(defun smoke-gate-state-summary (suite-root required-p)
+  (let ((root (smoke-gate-call "execution-spec-tests-state-test-root"
+                               suite-root)))
+    (cond
+      (root
+       (let* ((selectors
+                (smoke-gate-call
+                 "discover-phase-a-eest-state-test-selectors"
+                 root))
+              (cases
+                (smoke-gate-call
+                 "load-eest-state-test-root-cases"
+                 root
+                 :names selectors))
+              (summary
+                (smoke-gate-call
+                 "validate-phase-a-eest-state-test-summary"
+                 cases
+                 :expected-names selectors)))
+         (smoke-gate-require-positive-field
+          summary "count" "Phase A state_tests count")
+         (smoke-gate-require-positive-field
+          summary
+          "transactionCombinationCount"
+          "Phase A state_tests transaction-combination count")
+         (list
+          (cons "status" "ok")
+          (cons "root" (namestring root))
+          (cons "count" (smoke-gate-field summary "count"))
+          (cons "transactionCombinationCount"
+                (smoke-gate-field summary "transactionCombinationCount"))
+          (cons "selectorString"
+                (smoke-gate-call
+                 "phase-a-eest-state-test-selector-string"
+                 selectors)))))
+      (required-p
+       (error "Phase A smoke gate requires an EEST state_tests root under ~A"
+              suite-root))
+      (t
+       (list
+        (cons "status" "missing")
+        (cons "root" nil)
+        (cons "count" 0)
+        (cons "transactionCombinationCount" 0)
+        (cons "selectorString" ""))))))
+
+(defun smoke-gate-transaction-summary (suite-root required-p)
+  (let ((root (smoke-gate-call
+               "execution-spec-tests-transaction-test-root"
+               suite-root)))
+    (cond
+      (root
+       (let* ((vectors
+                (smoke-gate-call
+                 "load-phase-a-eest-transaction-test-root-vectors"
+                 root))
+              (summary
+                (smoke-gate-call
+                 "validate-phase-a-eest-transaction-vector-summary"
+                 vectors))
+              (selectors
+                (smoke-gate-variable
+                 "+phase-a-eest-transaction-test-case-names+")))
+         (smoke-gate-require-positive-field
+          summary "count" "Phase A transaction_tests count")
+         (list
+          (cons "status" "ok")
+          (cons "root" (namestring root))
+          (cons "count" (smoke-gate-field summary "count"))
+          (cons "types" (smoke-gate-field summary "types"))
+          (cons "selectorString"
+                (smoke-gate-call
+                 "phase-a-eest-transaction-test-selector-string"
+                 selectors)))))
+      (required-p
+       (error "Phase A smoke gate requires an EEST transaction_tests root under ~A"
+              suite-root))
+      (t
+       (list
+        (cons "status" "missing")
+        (cons "root" nil)
+        (cons "count" 0)
+        (cons "types" nil)
+        (cons "selectorString" ""))))))
+
+(defun smoke-gate-blockchain-summary (suite-root pinned-p)
+  (let ((root (smoke-gate-call
+               "execution-spec-tests-blockchain-test-root"
+               suite-root)))
+    (unless root
+      (error "Phase A smoke gate requires an EEST blockchain root under ~A"
+             suite-root))
+    (let* ((kinds
+             (if pinned-p
+                 (smoke-gate-call
+                  "phase-a-eest-blockchain-pinned-v5.4.0-replay-materialization-kinds"
+                  root)
+                 (smoke-gate-call
+                  "discover-phase-a-eest-blockchain-replay-selectors"
+                  root)))
+           (cases
+             (smoke-gate-call
+              "load-phase-a-eest-blockchain-replay-cases"
+              root
+              :expected-kinds kinds))
+           (summary
+             (smoke-gate-call
+              "validate-phase-a-eest-blockchain-replay-summary"
+              cases
+              :expected-kinds kinds)))
+      (smoke-gate-require-positive-field
+       summary "count" "Phase A blockchain replay count")
+      (when (and (not pinned-p)
+                 (zerop (smoke-gate-kind-count summary "blockRlp")))
+        (error "Phase A in-repo blockchain replay must include blockRlp coverage"))
+      (when (zerop (smoke-gate-kind-count summary "engineNewPayloadV2"))
+        (error "Phase A blockchain replay must include engineNewPayloadV2 coverage"))
+      (list
+       (cons "status" "ok")
+       (cons "root" (namestring root))
+       (cons "count" (smoke-gate-field summary "count"))
+       (cons "blockCount" (smoke-gate-field summary "blockCount"))
+       (cons "kindCounts"
+             (smoke-gate-field summary "materializationKindCounts"))
+       (cons "selectorString"
+             (smoke-gate-call
+              "phase-a-eest-blockchain-replay-selector-string"
+              kinds))))))
+
+(defun smoke-gate-report (suite-root pinned-p)
+  (let ((state (smoke-gate-state-summary suite-root (not pinned-p)))
+        (transaction
+          (smoke-gate-transaction-summary suite-root (not pinned-p)))
+        (blockchain (smoke-gate-blockchain-summary suite-root pinned-p)))
+    (list
+     (cons "suiteRoot" suite-root)
+     (cons "mode" (if pinned-p "pinned-v5.4.0" "in-repo"))
+     (cons "status" "ok")
+     (cons "state" state)
+     (cons "transaction" transaction)
+     (cons "blockchain" blockchain))))
+
+(defun smoke-gate-print-text (report)
+  (let ((state (smoke-gate-field report "state"))
+        (transaction (smoke-gate-field report "transaction"))
+        (blockchain (smoke-gate-field report "blockchain")))
+    (format t "~&status=~A~%" (smoke-gate-field report "status"))
+    (format t "suiteRoot=~A~%" (smoke-gate-field report "suiteRoot"))
+    (format t "mode=~A~%" (smoke-gate-field report "mode"))
+    (format t "stateStatus=~A~%" (smoke-gate-field state "status"))
+    (format t "stateCount=~D~%" (smoke-gate-field state "count"))
+    (format t "transactionStatus=~A~%"
+            (smoke-gate-field transaction "status"))
+    (format t "transactionCount=~D~%"
+            (smoke-gate-field transaction "count"))
+    (format t "blockchainCount=~D~%"
+            (smoke-gate-field blockchain "count"))
+    (format t "blockchainBlockCount=~D~%"
+            (smoke-gate-field blockchain "blockCount"))
+    (format t "blockchainKindCounts=~S~%"
+            (smoke-gate-field blockchain "kindCounts"))))
+
+(defun smoke-gate-main ()
+  (load (merge-pathnames "tests/load-tests.lisp"
+                         *ethereum-lisp-smoke-gate-root*))
+  (let* ((args (smoke-gate-arguments))
+         (pinned-p (smoke-gate-pinned-v5.4.0-p args))
+         (json-p (smoke-gate-json-p args))
+         (suite-root (or (smoke-gate-argument-root args)
+                         +smoke-gate-default-root+))
+         (report (smoke-gate-report suite-root pinned-p)))
+    (if json-p
+        (format t "~&~A~%" (smoke-gate-json-encode report))
+        (smoke-gate-print-text report))))
+
+(smoke-gate-main)

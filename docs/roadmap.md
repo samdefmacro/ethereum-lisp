@@ -86,16 +86,18 @@ fixes in those areas are allowed; expansion is not.
   in-memory Engine import path is atomic for state DB plus block, receipt,
   transaction, account, pending/filter, blob sidecar, prepared payload,
   forkchoice checkpoint, and invalid-payload cache indexes.
-- **Partial:** trie/state compatibility, EVM fixture coverage, txpool
-  admission, concrete HTTP/socket serving, and cross-client fixture breadth for
-  the Engine import path.
-- **Missing for Phase A:** fixture-grade MPT (Section 3) capable of matching
-  broad reference state roots, wider execution-spec fixture ingestion, and
-  broader cross-client state-transition coverage beyond the current pinned
-  Shanghai Engine smoke.
-- **Next checkpoint:** replace the current in-repo seed fixture cases with a
-  bounded transcribed subset from the pinned execution-spec-tests release,
-  starting with transaction vectors and trie/state-root cases. The selected
+- **Partial:** txpool admission, concrete HTTP/socket serving, production
+  persistence, and cross-client process-level fixture breadth beyond the
+  current bounded Engine import path.
+- **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
+  unless the in-repo Phase A fixture root has selector-gated state,
+  transaction, and blockchain replay coverage, including both `blockRlp` and
+  `engineNewPayloadV2`. Its `--pinned-v5.4.0` mode validates the official
+  stable archive's pinned Shanghai blockchain replay table while explicitly
+  reporting that the archive lacks `state_tests` / `transaction_tests` suites.
+- **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
+  widen only through explicit upstream/pinned synchronization slices or
+  concrete cross-client drift. The selected
   EEST-style trie subset now gates both valueless root-branch child deletion
   outcomes for both plain and secure replay: two-child delete collapse to a
   leaf and three-child delete preservation of the branch root. It also gates
@@ -683,7 +685,11 @@ Detailed historical implementation notes for this section now live in
   stable archive extraction lacks `state_tests` or `transaction_tests` suites.
   The individual state, transaction, and blockchain selector-listing scripts
   now also emit JSON so selector drift checks can consume structured output
-  directly.
+  directly. `scripts/phase-a-smoke-gate.lisp` wraps those selector contracts in
+  a pass/fail acceptance gate for the current bounded Phase A smoke: in-repo
+  roots must include state, transaction, `blockRlp`, and `engineNewPayloadV2`
+  coverage, while pinned v5.4.0 roots must match the official Shanghai
+  blockchain replay table and report absent suites explicitly.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

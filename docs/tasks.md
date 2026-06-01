@@ -362,6 +362,33 @@ ones.
     transaction type counts and blockchain materialization kinds preserved for
     drift checks without text scraping.
 
+- [x] `PHASE-A-SMOKE-GATE`: Add an executable Phase A smoke acceptance gate.
+  - Milestone: 8
+  - Dependencies: `HARNESS-BLOCKCHAIN-FIXTURE-REPLAY`.
+  - References: pinned `ethereum/execution-spec-tests` v5.4.0
+    `fixtures_stable.tar.gz`, geth fixture-gate workflow, Nethermind fixture
+    runner filtering.
+  - Acceptance: one script exits non-zero unless the current in-repo Phase A
+    fixture root has selector-gated `state_tests`, transaction vectors, and
+    blockchain replay coverage, including both `blockRlp` and
+    `engineNewPayloadV2`; in `--pinned-v5.4.0` mode the same script validates
+    the official stable archive's pinned blockchain replay table and reports
+    missing `state_tests` / `transaction_tests` suites explicitly instead of
+    treating them as silent skips.
+  - Validation: `sbcl --script scripts/phase-a-smoke-gate.lisp`,
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --json`,
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0
+    /private/tmp/eest-v5.4.0-extract/fixtures` when that local extraction is
+    present, plus `sbcl --script tests/run-tests.lisp`.
+  - Result: added `scripts/phase-a-smoke-gate.lisp`. The in-repo gate now
+    passes with 4 state selectors, 7 state transaction combinations, 25
+    transaction vectors, and 3 blockchain replay cases split across one
+    `blockRlp` and two `engineNewPayloadV2` materializations. The local
+    pinned v5.4.0 stable extraction passes in pinned mode with the single
+    official Shanghai EIP-2930 `engineNewPayloadV2` selector while reporting
+    state and transaction suites as missing, making the current bounded Phase A
+    smoke contract executable instead of implicit in prose.
+
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
   - Milestone: 2 / 8
