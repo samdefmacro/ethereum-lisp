@@ -1502,6 +1502,24 @@
     (engine-payload-memory-store-account-balances
      (chain-store-require-memory-store store)))))
 
+(defun eth-rpc-txpool-pending-sender-expenditure
+    (store sender transaction)
+  (let ((new-cost (eth-rpc-txpool-upfront-cost transaction))
+        (existing-cost 0)
+        (replacement-cost nil))
+    (dolist (pooled (engine-payload-store-pending-transactions store))
+      (when (and (transaction-sender pooled)
+                 (bytes= (address-bytes (transaction-sender pooled))
+                         (address-bytes sender)))
+        (let ((pooled-cost (eth-rpc-txpool-upfront-cost pooled)))
+          (incf existing-cost pooled-cost)
+          (when (= (transaction-nonce pooled)
+                   (transaction-nonce transaction))
+            (setf replacement-cost pooled-cost)))))
+    (if replacement-cost
+        (+ existing-cost (- new-cost replacement-cost))
+        (+ existing-cost new-cost))))
+
 (defun eth-rpc-validate-txpool-sender-state (store head sender transaction)
   (when (and head
              (chain-store-state-available-p store (block-hash head)))
@@ -1514,7 +1532,10 @@
       (when (and (eth-rpc-account-balance-retained-p
                   store block-hash sender)
                  (< state-balance
-                    (eth-rpc-txpool-upfront-cost transaction)))
+                    (eth-rpc-txpool-pending-sender-expenditure
+                     store
+                     sender
+                     transaction)))
         (block-validation-fail
          "eth_sendRawTransaction insufficient sender balance"))))
   t)

@@ -12279,6 +12279,97 @@
                        (field (field status-response "result")
                               "pending"))))))))
 
+(deftest eth-rpc-send-raw-transaction-enforces-pending-balance-expenditure
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw (transaction id store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding transaction))
+                "\"]}")
+               store
+               config)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (first-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (second-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (first-hash (hash32-to-hex (transaction-hash first-transaction)))
+           (second-hash (hash32-to-hex (transaction-hash second-transaction)))
+           (sender (transaction-sender first-transaction :expected-chain-id 1))
+           (head-block
+             (make-block
+              :header (make-block-header :number 0
+                                         :timestamp 0
+                                         :gas-limit 30000000))))
+      (chain-store-put-block store head-block :state-available-p t)
+      (chain-store-put-account-nonce store (block-hash head-block) sender 0)
+      (chain-store-put-account-balance
+       store (block-hash head-block) sender 30000)
+      (let* ((first-response (send-raw first-transaction 122 store config))
+             (second-response (send-raw second-transaction 123 store config))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":124,\"method\":\"txpool_status\",\"params\":[]}"
+                store
+                config))
+             (content-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":125,\"method\":\"txpool_content\",\"params\":[]}"
+                store
+                config))
+             (second-lookup-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":126,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" second-hash "\"]}")
+                store
+                config))
+             (status (field status-response "result"))
+             (content (field content-response "result"))
+             (pending
+               (field (field content "pending") (address-to-hex sender)))
+             (second-error (field second-response "error")))
+        (is (string= first-hash (field first-response "result")))
+        (is (= -32602 (field second-error "code")))
+        (is (string= "eth_sendRawTransaction insufficient sender balance"
+                     (field second-error "message")))
+        (is (string= (quantity-to-hex 1) (field status "pending")))
+        (is (string= (quantity-to-hex 0) (field status "queued")))
+        (is (string= first-hash (field (field pending "0") "hash")))
+        (is (null (field pending "1")))
+        (is (null (field content "queued")))
+        (is (null (field second-lookup-response "result")))))))
+
 (deftest eth-rpc-send-raw-transaction-queues-retained-state-nonce-gaps
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

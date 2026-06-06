@@ -3902,6 +3902,10 @@ splits can land after the Phase A smoke path closes.
     contiguous pending subpool span from retained state nonce. Queued nonce
     gaps and basefee-ineligible entries no longer consume account nonces
     before promotion.
+  - Progress: retained-balance admission now checks same-sender pending
+    expenditure cumulatively, matching geth's pending-list `totalcost`
+    validation shape. A new submission that would overdraft the account after
+    already-pending transactions is rejected before entering the pool.
   - Progress: nonce-gap routing now compares new submissions against the
     pending-contiguous nonce, not only retained chain state. A transaction that
     immediately follows already-pending same-sender transactions stays in the

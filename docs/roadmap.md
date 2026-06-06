@@ -98,6 +98,9 @@ fixes in those areas are allowed; expansion is not.
   promote basefee entries that become eligible after a base-fee drop. Pending
   nonce RPCs count only the contiguous pending subpool span, so queued gaps and
   basefee-ineligible entries do not consume account nonces before promotion.
+  Retained-balance admission now checks same-sender pending expenditure
+  cumulatively, so new submissions cannot overdraft an account by ignoring
+  already-pending transaction costs.
   Nonce-gap routing now compares submissions against that pending-contiguous
   nonce, so follow-on same-sender transactions remain pending once earlier
   nonces are already pending. Blob subpool admission remains placeholder. A
