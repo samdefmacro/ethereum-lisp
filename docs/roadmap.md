@@ -698,7 +698,9 @@ first pass, but interfaces must not block that path.
   Standalone devnet smoke-gate reports also carry pinned EEST source metadata
   and local reference-client commit/status metadata, and concurrent standalone
   smoke-gate processes use distinct temp files so automation can run parallel
-  checks without JWT cleanup races.
+  checks without JWT cleanup races. Public `safe` / `finalized` block-tag
+  number resolution requires explicit forkchoice checkpoint publication instead
+  of falling back to `latest`, matching the geth/Nethermind checkpoint model.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

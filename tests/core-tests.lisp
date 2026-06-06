@@ -3122,6 +3122,10 @@
                  (hash32-to-hex (chain-store-canonical-hash store 43))))
     (is (= 43 (chain-store-head-number store)))
     (is (= 43 (chain-store-block-tag-number store "latest")))
+    (signals block-validation-error
+      (chain-store-block-tag-number store "safe"))
+    (signals block-validation-error
+      (chain-store-block-tag-number store "finalized"))
     (is (eq block (chain-store-latest-block store)))
     (chain-store-put-block store competing-block)
     (is (eq competing-block
@@ -8462,8 +8466,13 @@
                        :base-fee-per-gas 1000
                        :blob-gas-used 0
                        :excess-blob-gas 0))))
-      (engine-payload-store-put-block store parent)
-      (engine-payload-store-put-block store head)
+      (engine-payload-store-put-block store parent :state-available-p t)
+      (engine-payload-store-put-block store head :state-available-p t)
+      (chain-store-update-forkchoice-checkpoints
+       store
+       (make-forkchoice-state
+        :head-block-hash (block-hash head)
+        :safe-block-hash (block-hash head)))
       (let* ((responses
                (parse-json
                 (engine-rpc-handle-request-json
@@ -11496,7 +11505,9 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"eth_getHeaderByNumber\",\"params\":[]}"
                  store
                  config)))
-             (invalid-error (field invalid-response "error")))
+             (invalid-error (field invalid-response "error"))
+             (safe-error (field safe-response "error"))
+             (finalized-error (field finalized-response "error")))
         (is (string= (quantity-to-hex 12) (field latest "number")))
         (is (string= (hash32-to-hex (block-hash block))
                      (field latest "hash")))
@@ -11532,10 +11543,14 @@
                      (field (field quantity-response "result") "hash")))
         (is (string= (field latest "hash")
                      (field (field pending-response "result") "hash")))
-        (is (string= (field latest "hash")
-                     (field (field safe-response "result") "hash")))
-        (is (string= (field latest "hash")
-                     (field (field finalized-response "result") "hash")))
+        (is (not (field safe-response "result")))
+        (is (= -32602 (field safe-error "code")))
+        (is (string= "safe block not found"
+                     (field safe-error "message")))
+        (is (not (field finalized-response "result")))
+        (is (= -32602 (field finalized-error "code")))
+        (is (string= "finalized block not found"
+                     (field finalized-error "message")))
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 

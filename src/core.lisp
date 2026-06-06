@@ -2395,18 +2395,25 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (gethash (engine-payload-store-key hash)
            (engine-payload-memory-store-blocks store)))
 
-(defun engine-payload-store-checkpoint-number (store checkpoint)
+(defun engine-payload-store-checkpoint-number
+    (store checkpoint &key label fallback-to-head-p)
   (let* ((hash (and checkpoint
                     (chain-store-checkpoint-block-hash checkpoint)))
          (block (and hash (engine-payload-store-known-block store hash))))
-    (if block
-        (block-header-number (block-header block))
-        (engine-payload-memory-store-head-number store))))
+    (cond
+      (block
+       (block-header-number (block-header block)))
+      (fallback-to-head-p
+       (engine-payload-memory-store-head-number store))
+      (t
+       (block-validation-fail "~A block not found" label)))))
 
 (defun engine-payload-store-head-number (store)
   (engine-payload-store-checkpoint-number
    store
-   (engine-payload-memory-store-head-checkpoint store)))
+   (engine-payload-memory-store-head-checkpoint store)
+   :label "head"
+   :fallback-to-head-p t))
 
 (defun engine-payload-store-block-tag-number (store tag)
   (cond
@@ -2415,11 +2422,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     ((string= tag "safe")
      (engine-payload-store-checkpoint-number
       store
-      (engine-payload-memory-store-safe-checkpoint store)))
+      (engine-payload-memory-store-safe-checkpoint store)
+      :label "safe"))
     ((string= tag "finalized")
      (engine-payload-store-checkpoint-number
       store
-      (engine-payload-memory-store-finalized-checkpoint store)))))
+      (engine-payload-memory-store-finalized-checkpoint store)
+      :label "finalized"))))
 
 (defun engine-payload-store-forkchoice-checkpoint-hash (hash)
   (unless (hash32= hash (zero-hash32))

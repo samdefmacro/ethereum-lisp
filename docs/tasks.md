@@ -1365,6 +1365,15 @@ splits can land after the Phase A smoke path closes.
       `finalized`, replaced the memory store's loose checkpoint hash slots with
       typed checkpoint slots, and routed block tag / checkpoint block
       resolution through the checkpoint abstraction.
+    - Aligned public safe/finalized block-tag number resolution with explicit
+      checkpoint publication. `safe` and `finalized` no longer fall back to the
+      current head when those checkpoints have not been set; they now surface
+      `safe block not found` / `finalized block not found` errors until
+      forkchoice publishes the corresponding checkpoint. Reference check: geth
+      `8a0223e` resolves safe/finalized through `CurrentSafeBlock` /
+      `CurrentFinalBlock` and errors when absent; Nethermind `1c72a72` resolves
+      `BlockParameter.Safe` / `Finalized` through distinct block-tree
+      checkpoints.
   - Validation: existing forkchoice/block tag tests plus
     `sbcl --script tests/run-tests.lisp`.
 
