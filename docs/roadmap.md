@@ -739,9 +739,10 @@ Detailed historical implementation notes for this section now live in
   the reference pinning rule without relying on PR prose. They also expose the
   pinned `ethereum/execution-spec-tests` source metadata at top level: release
   `v5.4.0`, tag target `88e9fb8`, and `fixtures_stable.tar.gz`. In pinned
-  mode the smoke gate also defaults to
-  `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` when no explicit suite root is
-  supplied, matching the optional fixture runner contract.
+  mode the smoke gate requires an explicit suite root or
+  `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, matching the optional fixture
+  runner contract while keeping missing pinned fixture configuration
+  distinguishable from selector drift.
   The individual state, transaction, and blockchain selector-listing scripts
   now also emit JSON so selector drift checks can consume structured output
   directly. `scripts/phase-a-smoke-gate.lisp` wraps those selector contracts in
@@ -754,7 +755,9 @@ Detailed historical implementation notes for this section now live in
   mode now requires an explicit root or
   `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, so missing pinned fixture
   configuration is reported as such instead of being misclassified as selector
-  drift against the in-repo seed root.
+  drift against the in-repo seed root. The fixture report and selector-listing
+  scripts now use the same configured-root error classification when the
+  environment variable points to a nonexistent path.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

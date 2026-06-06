@@ -6,6 +6,8 @@
 (defconstant +fixture-report-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +fixture-report-json-flag+ "--json")
 (defconstant +fixture-report-root-option+ "--root")
+(defconstant +fixture-report-eest-root-env+
+  "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 (defconstant +fixture-report-eest-repository+
   "ethereum/execution-spec-tests")
 (defconstant +fixture-report-eest-release+ "v5.4.0")
@@ -30,6 +32,20 @@
   (and (stringp value)
        (plusp (length value))
        (char= #\- (char value 0))))
+
+(defun fixture-report-blank-string-p (value)
+  (or (null value)
+      (zerop (length
+              (string-trim '(#\Space #\Tab #\Newline #\Return) value)))))
+
+(defun fixture-report-reject-missing-configured-root (root-argument)
+  (unless root-argument
+    (let ((root (uiop:getenv +fixture-report-eest-root-env+)))
+      (when (and (not (fixture-report-blank-string-p root))
+                 (not (probe-file root)))
+        (error "Configured EEST fixture root from ~A does not exist: ~A"
+               +fixture-report-eest-root-env+
+               root)))))
 
 (defun fixture-report-set-argument-root (root value)
   (when root
@@ -313,6 +329,7 @@
                 root-argument)
                (fixture-report-call
                 "execution-spec-tests-blockchain-test-root"))))
+    (fixture-report-reject-missing-configured-root root-argument)
     (unless blockchain-root
       (error "No EEST blockchain fixture root found. Pass a root path or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
     (let* ((state-selectors

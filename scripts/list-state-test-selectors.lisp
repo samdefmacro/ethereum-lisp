@@ -1,8 +1,12 @@
 (defparameter *ethereum-lisp-selector-script-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(require :asdf)
+
 (defconstant +selector-script-json-flag+ "--json")
 (defconstant +selector-script-root-option+ "--root")
+(defconstant +selector-script-eest-root-env+
+  "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 
 (defun selector-script-arguments ()
   #+sbcl
@@ -19,6 +23,20 @@
   (and (stringp value)
        (plusp (length value))
        (char= #\- (char value 0))))
+
+(defun selector-script-blank-string-p (value)
+  (or (null value)
+      (zerop (length
+              (string-trim '(#\Space #\Tab #\Newline #\Return) value)))))
+
+(defun selector-script-reject-missing-configured-root (root-argument)
+  (unless root-argument
+    (let ((root (uiop:getenv +selector-script-eest-root-env+)))
+      (when (and (not (selector-script-blank-string-p root))
+                 (not (probe-file root)))
+        (error "Configured EEST fixture root from ~A does not exist: ~A"
+               +selector-script-eest-root-env+
+               root)))))
 
 (defun selector-script-set-argument-root (root value)
   (when root
@@ -72,6 +90,7 @@
                                      root-argument)
                (selector-script-call
                 "execution-spec-tests-state-test-root"))))
+    (selector-script-reject-missing-configured-root root-argument)
     (unless state-root
       (error "No EEST state_tests fixture root found. Pass a root path or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
     (let ((selectors

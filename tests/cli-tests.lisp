@@ -1105,6 +1105,40 @@
     (run-selector-script "scripts/list-transaction-test-selectors.lisp")
     (run-selector-script "scripts/list-blockchain-replay-selectors.lisp")))
 
+(deftest phase-a-fixture-sync-scripts-reject-missing-env-root
+  #-sbcl
+  (skip-test "Phase A fixture sync scripts require SBCL")
+  #+sbcl
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-missing-fixture-sync-root-~A/"
+                    (devnet-cli-temp-token))
+            #P"/private/tmp/"))
+         (root-string (namestring root)))
+    (labels ((run-script (script)
+               (multiple-value-bind (stdout stderr status)
+                   (uiop:run-program
+                    (list "env"
+                          (format nil
+                                  "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=~A"
+                                  root-string)
+                          "sbcl"
+                          "--script"
+                          script
+                          "--"
+                          "--json")
+                    :output :string
+                    :error-output :string
+                    :ignore-error-status t)
+                 (is (not (= 0 status)))
+                 (is (string= "" stdout))
+                 (is (search root-string stderr))
+                 (is (search "Configured EEST fixture root from" stderr)))))
+      (run-script "scripts/phase-a-fixture-report.lisp")
+      (run-script "scripts/list-state-test-selectors.lisp")
+      (run-script "scripts/list-transaction-test-selectors.lisp")
+      (run-script "scripts/list-blockchain-replay-selectors.lisp"))))
+
 (deftest phase-a-smoke-gate-script-can-include-devnet-suite
   #-sbcl
   (skip-test "Phase A smoke gate devnet mode requires SBCL")

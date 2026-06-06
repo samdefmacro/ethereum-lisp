@@ -375,6 +375,12 @@ ones.
     `scripts/phase-a-fixture-report.lisp` now accept `--root PATH` in addition
     to positional roots, so automation can use one explicit-root convention
     across fixture synchronization commands.
+  - Progress: hardened selector/report environment-root diagnostics. The state,
+    transaction, and blockchain selector scripts plus
+    `scripts/phase-a-fixture-report.lisp` now fail with a configuration error
+    when `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` points to a nonexistent
+    path, instead of reporting a generic missing-suite error that hides bad
+    automation configuration.
 
 - [x] `PHASE-A-SMOKE-GATE`: Add an executable Phase A smoke acceptance gate.
   - Milestone: 8
@@ -429,11 +435,6 @@ ones.
     the pinned `ethereum/execution-spec-tests` source as top-level metadata:
     release `v5.4.0`, tag target `88e9fb8`, and
     `fixtures_stable.tar.gz`.
-  - Result: pinned smoke-gate mode now uses
-    `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` as the default suite root when
-    no positional root or `--root PATH` is supplied. This keeps automation that
-    already exports the pinned EEST extraction aligned with the explicit-root
-    gate while preserving the in-repo root default for normal smoke runs.
   - Result: Phase A smoke-gate `--devnet` mode is now independent of the
     caller's current working directory. The parent gate launches the devnet
     child script through the repository-root path, and the devnet gate resolves
