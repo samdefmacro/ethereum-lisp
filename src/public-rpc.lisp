@@ -1577,8 +1577,7 @@
              (previous-receipt
                (when (plusp index)
                  (nth (1- index) (block-receipts block))))
-             (from (or (transaction-sender transaction)
-                       (zero-address)))
+             (from (eth-rpc-transaction-sender transaction))
              (logs
                (loop for log in (receipt-logs receipt)
                      for log-index

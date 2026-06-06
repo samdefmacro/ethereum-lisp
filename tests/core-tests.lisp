@@ -11918,7 +11918,9 @@
               :header (make-block-header :number 16
                                          :timestamp 160
                                          :gas-limit 30000000)
-              :transactions (list transaction)))
+              :transactions (list transaction)
+              :receipts (list (make-receipt :status 1
+                                            :cumulative-gas-used 21000))))
            (block-hash-hex (hash32-to-hex (block-hash block)))
            (config (make-chain-config)))
       (engine-payload-store-put-block store block :state-available-p t)
@@ -11948,12 +11950,32 @@
                   "\"params\":[\"" block-hash-hex "\",true]}")
                  store
                  config)))
+             (receipt-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":100,"
+                  "\"method\":\"eth_getTransactionReceipt\","
+                  "\"params\":[\"" transaction-hash-hex "\"]}")
+                 store
+                 config)))
+             (block-receipts-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":101,\"method\":\"eth_getBlockReceipts\",\"params\":[\"0x10\"]}"
+                 store
+                 config)))
              (by-hash-error (field by-hash-response "error"))
              (by-index-error (field by-index-response "error"))
-             (full-block-error (field full-block-response "error")))
+             (full-block-error (field full-block-response "error"))
+             (receipt-error (field receipt-response "error"))
+             (block-receipts-error (field block-receipts-response "error")))
         (is (= -32602 (field by-hash-error "code")))
         (is (= -32602 (field by-index-error "code")))
-        (is (= -32602 (field full-block-error "code")))))))
+        (is (= -32602 (field full-block-error "code")))
+        (is (= -32602 (field receipt-error "code")))
+        (is (= -32602 (field block-receipts-error "code")))))))
 
 (deftest eth-rpc-send-raw-transaction
   (labels ((field (object name)
@@ -14875,22 +14897,24 @@
                      (make-byte-vector 32 :initial-element #x11)))
            (topic-2 (make-hash32
                      (make-byte-vector 32 :initial-element #x22)))
-           (tx-1 (make-legacy-transaction :nonce 5
-                                          :gas-price 8
-                                          :gas-limit 21000
-                                          :to recipient
-                                          :value 7))
-           (tx-2 (make-dynamic-fee-transaction
-                  :chain-id 1
-                  :nonce 6
-                  :max-priority-fee-per-gas 3
-                  :max-fee-per-gas 10
-                  :gas-limit 23000
-                  :to recipient
-                  :value 8
-                  :y-parity 1
-                  :r 6
-                  :s 7))
+           (tx-1 (fixture-sign-legacy-transaction
+                  (make-legacy-transaction
+                   :nonce 5
+                   :gas-price 8
+                   :gas-limit 21000
+                   :to recipient
+                   :value 7)
+                  1
+                  1))
+           (tx-2 (fixture-sign-legacy-transaction
+                  (make-legacy-transaction
+                   :nonce 6
+                   :gas-price 9
+                   :gas-limit 23000
+                   :to recipient
+                   :value 8)
+                  1
+                  1))
            (receipt-1
              (make-receipt
               :status 1
@@ -14976,7 +15000,9 @@
         (is removed-entry)
         (is (null (cdr removed-entry)))
         (is (stringp (field receipt-result "logsBloom")))
-        (is (string= (quantity-to-hex 2)
+        (is (string= (address-to-hex (transaction-sender tx-2))
+                     (field receipt-result "from")))
+        (is (string= (quantity-to-hex 0)
                      (field receipt-result "type")))
         (is (string= (quantity-to-hex 9)
                      (field receipt-result "effectiveGasPrice")))
@@ -14995,22 +15021,24 @@
              (make-address (make-byte-vector 20 :initial-element #x88)))
            (topic (make-hash32
                    (make-byte-vector 32 :initial-element #x33)))
-           (tx-1 (make-legacy-transaction :nonce 7
-                                          :gas-price 8
-                                          :gas-limit 21000
-                                          :to recipient
-                                          :value 9))
-           (tx-2 (make-dynamic-fee-transaction
-                  :chain-id 1
-                  :nonce 8
-                  :max-priority-fee-per-gas 3
-                  :max-fee-per-gas 10
-                  :gas-limit 23000
-                  :to recipient
-                  :value 10
-                  :y-parity 1
-                  :r 8
-                  :s 9))
+           (tx-1 (fixture-sign-legacy-transaction
+                  (make-legacy-transaction
+                   :nonce 7
+                   :gas-price 8
+                   :gas-limit 21000
+                   :to recipient
+                   :value 9)
+                  1
+                  1))
+           (tx-2 (fixture-sign-legacy-transaction
+                  (make-legacy-transaction
+                   :nonce 8
+                   :gas-price 9
+                   :gas-limit 23000
+                   :to recipient
+                   :value 10)
+                  1
+                  1))
            (receipt-1
              (make-receipt :status 1
                            :cumulative-gas-used 21000))
@@ -15079,6 +15107,8 @@
                      (field second-receipt "transactionIndex")))
         (is (string= (quantity-to-hex 23000)
                      (field second-receipt "gasUsed")))
+        (is (string= (address-to-hex (transaction-sender tx-2))
+                     (field second-receipt "from")))
         (is (= 1 (length (field second-receipt "logs"))))
         (is (string= (quantity-to-hex 0)
                      (field (first (field second-receipt "logs"))

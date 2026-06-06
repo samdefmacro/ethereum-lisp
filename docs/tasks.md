@@ -3295,10 +3295,11 @@ splits can land after the Phase A smoke path closes.
     against `chain-config-chain-id`; tests use a real EIP-155 legacy vector for
     successful pending admission and reject the same transaction under a wrong
     configured chain id while preserving pending pool and filter state. Added
-    mined transaction object sender recovery enforcement for
-    `eth_getTransactionByHash`, transaction-by-block/index, and full block
-    transaction objects; stale or polluted blocks with unrecoverable senders now
-    produce RPC errors instead of zero-address `from` fields. Added typed raw
+    mined transaction and receipt object sender recovery enforcement for
+    `eth_getTransactionByHash`, transaction-by-block/index, full block
+    transaction objects, `eth_getTransactionReceipt`, and
+    `eth_getBlockReceipts`; stale or polluted blocks with unrecoverable senders
+    now produce RPC errors instead of zero-address `from` fields. Added typed raw
     transaction admission coverage for malformed `yParity` and high-s
     signatures, asserting rejection preserves pending pool and filter state.
     Added `eth_sendRawTransaction` set-code authorization admission validation,
