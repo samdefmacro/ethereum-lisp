@@ -3922,6 +3922,10 @@ splits can land after the Phase A smoke path closes.
     transactions and promote newly eligible entries into pending, including
     pending transaction filter notification, so base-fee drops do not leave
     transactions permanently parked in the queued view.
+  - Progress: canonical-head updates now also prune stale txpool transactions
+    whose nonce is below the new retained sender nonce before queued/basefee
+    promotion, so locally pooled transactions that became non-executable on
+    another canonical branch stop appearing in txpool and hash lookups.
   - Progress: queued nonce-gap promotion now lives on the txpool store
     boundary and also runs after canonical-head updates. If retained sender
     state advances and closes a nonce gap, contiguous queued transactions move

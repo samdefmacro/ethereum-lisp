@@ -2572,6 +2572,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (setf (engine-payload-memory-store-head-number store) new-head-number
               (engine-payload-memory-store-head-checkpoint store)
               (make-chain-store-checkpoint :label :head :block-hash hash)))
+      (engine-payload-store-remove-stale-txpool-transactions store)
       (engine-payload-store-promote-queued-transactions store)
       (engine-payload-store-promote-basefee-transactions store)
       head-block)))
@@ -3691,6 +3692,44 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (transaction-hash transaction))
       (engine-payload-store-put-pending-transaction store transaction))
     transactions))
+
+(defun engine-payload-store-stale-txpool-transaction-p
+    (store head transaction)
+  (let ((sender (transaction-sender transaction)))
+    (and sender
+         (chain-store-state-available-p store (block-hash head))
+         (< (transaction-nonce transaction)
+            (chain-store-account-nonce
+             store
+             (block-hash head)
+             sender)))))
+
+(defun engine-payload-store-remove-stale-txpool-transactions (store)
+  (let ((head (chain-store-latest-block store))
+        (removed-transactions nil))
+    (when (and head
+               (chain-store-state-available-p store (block-hash head)))
+      (flet ((remove-stale (transactions remove-function)
+               (dolist (transaction transactions)
+                 (when (engine-payload-store-stale-txpool-transaction-p
+                        store head transaction)
+                   (funcall remove-function
+                            (engine-payload-store-txpool store)
+                            (transaction-hash transaction))
+                   (push transaction removed-transactions)))))
+        (remove-stale
+         (engine-payload-store-pending-transactions store)
+         #'engine-pending-txpool-remove-pending-transaction)
+        (remove-stale
+         (engine-payload-store-queued-transactions store)
+         #'engine-pending-txpool-remove-queued-transaction)
+        (remove-stale
+         (engine-payload-store-basefee-transactions store)
+         #'engine-pending-txpool-remove-basefee-transaction)
+        (remove-stale
+         (engine-payload-store-blob-transactions store)
+         #'engine-pending-txpool-remove-blob-transaction)))
+    (nreverse removed-transactions)))
 
 (defun engine-payload-store-pending-transaction (store hash)
   (engine-pending-txpool-pending-transaction
