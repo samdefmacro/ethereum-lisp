@@ -3970,6 +3970,11 @@ splits can land after the Phase A smoke path closes.
     `eth_pendingTransactions` and pending transaction filters remain limited to
     executable pending transactions. Sidecar/KZG-backed blob execution remains
     out of the Shanghai Phase A gate.
+  - Progress: basefee and blob placeholder subpools now maintain sender/nonce
+    indexes like pending and queued transactions. Replacement, included-tx
+    removal, cross-subpool conflict checks, and txpool snapshot copying no
+    longer depend on scanning those placeholder hash tables for
+    same-sender/same-nonce entries.
 
 ## P1: Public RPC Execution APIs
 

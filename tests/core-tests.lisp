@@ -3610,13 +3610,6 @@
               transaction)
              (ethereum-lisp.core::engine-payload-store-index-queued-transaction
               store
-              transaction))
-           (put-by-hash (table transaction)
-             (setf
-              (gethash
-               (ethereum-lisp.core::engine-pending-txpool-hash-key
-                (transaction-hash transaction))
-               table)
               transaction)))
     (let* ((store (make-engine-payload-memory-store))
            (recipient
@@ -3640,10 +3633,10 @@
                :to recipient)
               private-key
               1))
-           (basefee-conflict
+           (basefee-exact
              (fixture-sign-legacy-transaction
               (make-legacy-transaction
-               :nonce 4
+               :nonce 6
                :gas-price 90
                :gas-limit 21000
                :to recipient)
@@ -3658,6 +3651,15 @@
                :to recipient)
               private-key
               1))
+           (blob-exact
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 7
+               :gas-price 130
+               :gas-limit 21000
+               :to recipient)
+              private-key
+              1))
            (sender-key
              (ethereum-lisp.core::engine-payload-store-pending-sender-key
               queued-conflict))
@@ -3668,7 +3670,8 @@
                                  :parent-hash (zero-hash32)
                                  :state-root +empty-trie-hash+
                                  :gas-used 0)
-              :transactions (list mined-conflict queued-exact))))
+              :transactions
+              (list mined-conflict queued-exact basefee-exact blob-exact))))
       (is (not (string=
                 (hash32-to-hex (transaction-hash queued-conflict))
                 (hash32-to-hex (transaction-hash mined-conflict)))))
@@ -3676,13 +3679,12 @@
                   (address-bytes (transaction-sender mined-conflict))))
       (put-queued store queued-conflict)
       (put-queued store queued-exact)
-      (put-by-hash
-       (ethereum-lisp.core::engine-payload-store-basefee-transaction-table
-        store)
-       basefee-conflict)
-      (put-by-hash
-       (ethereum-lisp.core::engine-payload-store-blob-transaction-table store)
-       queued-exact)
+      (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+       store
+       basefee-exact)
+      (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+       store
+       blob-exact)
       (is (= 2
              (ethereum-lisp.core::engine-payload-store-queued-transaction-count
               store)))
@@ -3890,6 +3892,114 @@
                (transaction-hash replacement-transaction))))
       (is (eq replacement-transaction
               (gethash nonce-key sender-transactions))))))
+
+(deftest engine-pending-txpool-indexes-basefee-and-blob-subpools
+  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (private-key 1)
+         (basefee-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 6
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (underpriced-basefee
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 6
+             :gas-price 109
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (replacement-basefee
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 6
+             :gas-price 110
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (blob-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 7
+             :gas-price 120
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (sender-key
+           (address-to-hex
+            (or (transaction-sender basefee-transaction)
+                (zero-address)))))
+    (ethereum-lisp.core::engine-pending-txpool-put-basefee-transaction
+     txpool
+     basefee-transaction)
+    (ethereum-lisp.core::engine-pending-txpool-put-blob-transaction
+     txpool
+     blob-transaction)
+    (let ((basefee-by-nonce
+            (gethash
+             sender-key
+             (ethereum-lisp.core::engine-pending-txpool-basefee-transactions-by-sender
+              txpool)))
+          (blob-by-nonce
+            (gethash
+             sender-key
+             (ethereum-lisp.core::engine-pending-txpool-blob-transactions-by-sender
+              txpool))))
+      (is (eq basefee-transaction (gethash "6" basefee-by-nonce)))
+      (is (eq blob-transaction (gethash "7" blob-by-nonce))))
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-pending-txpool-put-basefee-transaction
+       txpool
+       underpriced-basefee))
+    (ethereum-lisp.core::engine-pending-txpool-put-basefee-transaction
+     txpool
+     replacement-basefee)
+    (let ((basefee-by-nonce
+            (gethash
+             sender-key
+             (ethereum-lisp.core::engine-pending-txpool-basefee-transactions-by-sender
+              txpool))))
+      (is (= 1
+             (ethereum-lisp.core::engine-pending-txpool-basefee-count
+              txpool)))
+      (is (eq replacement-basefee (gethash "6" basefee-by-nonce)))
+      (is (null
+           (gethash
+            (ethereum-lisp.core::engine-pending-txpool-hash-key
+             (transaction-hash basefee-transaction))
+            (ethereum-lisp.core::engine-pending-txpool-basefee-transactions
+             txpool)))))
+    (ethereum-lisp.core::engine-pending-txpool-remove-basefee-transaction
+     txpool
+     (transaction-hash replacement-basefee))
+    (ethereum-lisp.core::engine-pending-txpool-remove-blob-transaction
+     txpool
+     (transaction-hash blob-transaction))
+    (is (= 0
+           (ethereum-lisp.core::engine-pending-txpool-basefee-count
+            txpool)))
+    (is (= 0
+           (ethereum-lisp.core::engine-pending-txpool-blob-count
+            txpool)))
+    (is (null
+         (gethash
+          sender-key
+          (ethereum-lisp.core::engine-pending-txpool-basefee-transactions-by-sender
+           txpool))))
+    (is (null
+         (gethash
+          sender-key
+          (ethereum-lisp.core::engine-pending-txpool-blob-transactions-by-sender
+           txpool))))))
 
 (deftest engine-pending-txpool-copy-isolates-sender-indexes
   (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
