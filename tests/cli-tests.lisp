@@ -897,6 +897,63 @@
           (is (string= "0x2a"
                        (fixture-object-field case "blockNumber"))))))))
 
+(defun phase-a-smoke-gate-reference-client
+    (reference-clients name)
+  (find name reference-clients
+        :key (lambda (client)
+               (fixture-object-field client "name"))
+        :test #'string=))
+
+(defun phase-a-smoke-gate-reference-commit-p (commit)
+  (and (stringp commit)
+       (= 40 (length commit))
+       (every (lambda (char)
+                (or (and (char<= #\0 char) (char<= char #\9))
+                    (and (char<= #\a char) (char<= char #\f))))
+              commit)))
+
+(defun phase-a-smoke-gate-assert-reference-client (reference-clients name)
+  (let* ((client
+           (phase-a-smoke-gate-reference-client reference-clients name))
+         (status (and client
+                      (fixture-object-field client "status")))
+         (commit (and client
+                      (fixture-object-field client "commit"))))
+    (is client)
+    (is (member status '("ok" "missing" "unavailable") :test #'string=))
+    (if (string= "ok" status)
+        (is (phase-a-smoke-gate-reference-commit-p commit))
+        (is (null commit)))))
+
+(deftest phase-a-fixture-report-includes-reference-client-pins
+  #-sbcl
+  (skip-test "Phase A fixture report script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-fixture-report.lisp"
+             "--"
+             "--json"
+             "tests/fixtures/execution-spec-tests-root/")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (reference-clients
+               (fixture-object-field report "referenceClients")))
+        (is (= 3 (length reference-clients)))
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "geth")
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "nethermind")
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "reth")))))
+
 (deftest phase-a-smoke-gate-script-can-include-devnet-suite
   #-sbcl
   (skip-test "Phase A smoke gate devnet mode requires SBCL")
@@ -916,9 +973,18 @@
     (is (string= "" stderr))
     (when (= 0 status)
       (let* ((report (parse-json stdout))
+             (reference-clients
+               (fixture-object-field report "referenceClients"))
              (devnet (fixture-object-field report "devnet")))
         (is (string= "ok" (fixture-object-field report "status")))
         (is (string= "in-repo" (fixture-object-field report "mode")))
+        (is (= 3 (length reference-clients)))
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "geth")
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "nethermind")
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "reth")
         (is (string= "ok" (fixture-object-field devnet "status")))
         (is (string= "devnet-listener-boundary-suite"
                      (fixture-object-field devnet "mode")))

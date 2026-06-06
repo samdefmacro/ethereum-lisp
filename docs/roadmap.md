@@ -728,6 +728,10 @@ Detailed historical implementation notes for this section now live in
   the selected state/transaction/blockchain ingestion tables for a suite root,
   and it can still validate the pinned v5.4.0 blockchain replay table when the
   stable archive extraction lacks `state_tests` or `transaction_tests` suites.
+  Fixture report and smoke-gate outputs also record local geth, Nethermind, and
+  optional Reth reference-client commit metadata when those clones are present,
+  or explicit missing status when they are absent, so replay reports satisfy
+  the reference pinning rule without relying on PR prose.
   The individual state, transaction, and blockchain selector-listing scripts
   now also emit JSON so selector drift checks can consume structured output
   directly. `scripts/phase-a-smoke-gate.lisp` wraps those selector contracts in

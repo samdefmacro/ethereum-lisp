@@ -105,6 +105,50 @@
 (defun smoke-gate-field (object name)
   (cdr (assoc name object :test #'string=)))
 
+(defun smoke-gate-root-directory ()
+  (make-pathname :name nil
+                 :type nil
+                 :defaults *ethereum-lisp-smoke-gate-root*))
+
+(defun smoke-gate-reference-path (relative-path)
+  (merge-pathnames relative-path (smoke-gate-root-directory)))
+
+(defun smoke-gate-reference-client-object (name relative-path)
+  (let ((path (smoke-gate-reference-path relative-path)))
+    (cond
+      ((not (probe-file path))
+       (list
+        (cons "name" name)
+        (cons "status" "missing")
+        (cons "path" (namestring path))
+        (cons "commit" nil)))
+      (t
+       (multiple-value-bind (stdout stderr status)
+           (uiop:run-program
+            (list "git" "-C" (namestring path) "rev-parse" "HEAD")
+            :output :string
+            :error-output :string
+            :ignore-error-status t)
+         (declare (ignore stderr))
+         (if (= 0 status)
+             (list
+              (cons "name" name)
+              (cons "status" "ok")
+              (cons "path" (namestring path))
+              (cons "commit" (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                          stdout)))
+             (list
+              (cons "name" name)
+              (cons "status" "unavailable")
+              (cons "path" (namestring path))
+              (cons "commit" nil))))))))
+
+(defun smoke-gate-reference-clients ()
+  (list
+   (smoke-gate-reference-client-object "geth" "references/go-ethereum/")
+   (smoke-gate-reference-client-object "nethermind" "references/nethermind/")
+   (smoke-gate-reference-client-object "reth" "references/reth/")))
+
 (defun smoke-gate-kind-count (summary kind)
   (or (smoke-gate-field
        (smoke-gate-field summary "materializationKindCounts")
@@ -304,6 +348,7 @@
       (cons "suiteRoot" suite-root)
       (cons "mode" (if pinned-p "pinned-v5.4.0" "in-repo"))
       (cons "status" "ok")
+      (cons "referenceClients" (smoke-gate-reference-clients))
       (cons "state" state)
       (cons "transaction" transaction)
       (cons "blockchain" blockchain))
@@ -314,10 +359,18 @@
   (let ((state (smoke-gate-field report "state"))
         (transaction (smoke-gate-field report "transaction"))
         (blockchain (smoke-gate-field report "blockchain"))
+        (reference-clients (smoke-gate-field report "referenceClients"))
         (devnet (smoke-gate-field report "devnet")))
     (format t "~&status=~A~%" (smoke-gate-field report "status"))
     (format t "suiteRoot=~A~%" (smoke-gate-field report "suiteRoot"))
     (format t "mode=~A~%" (smoke-gate-field report "mode"))
+    (dolist (client reference-clients)
+      (format t "referenceClient[~A]=~A"
+              (smoke-gate-field client "name")
+              (smoke-gate-field client "status"))
+      (when (smoke-gate-field client "commit")
+        (format t ":~A" (smoke-gate-field client "commit")))
+      (format t "~%"))
     (format t "stateStatus=~A~%" (smoke-gate-field state "status"))
     (format t "stateCount=~D~%" (smoke-gate-field state "count"))
     (format t "stateExecuted=~D~%"

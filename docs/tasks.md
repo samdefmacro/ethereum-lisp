@@ -414,6 +414,11 @@ ones.
     subprocess and include its JSON report, so one automation command can cover
     the core in-repo fixture gate plus the devnet Engine/public process-boundary
     import smoke.
+  - Result: Phase A fixture report and smoke gate JSON/text output now include
+    reference-client pin metadata for local geth, Nethermind, and optional Reth
+    clones. Present clones report their exact git commit; absent clones are
+    reported explicitly as missing, matching the reference pinning rule instead
+    of leaving fixture-only runs ambiguous.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

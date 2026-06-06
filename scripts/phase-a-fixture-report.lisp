@@ -1,6 +1,8 @@
 (defparameter *ethereum-lisp-fixture-report-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(require :asdf)
+
 (defconstant +fixture-report-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +fixture-report-json-flag+ "--json")
 
@@ -47,6 +49,50 @@
 
 (defun fixture-report-field (object name)
   (cdr (assoc name object :test #'string=)))
+
+(defun fixture-report-root-directory ()
+  (make-pathname :name nil
+                 :type nil
+                 :defaults *ethereum-lisp-fixture-report-root*))
+
+(defun fixture-report-reference-path (relative-path)
+  (merge-pathnames relative-path (fixture-report-root-directory)))
+
+(defun fixture-report-reference-client-object (name relative-path)
+  (let ((path (fixture-report-reference-path relative-path)))
+    (cond
+      ((not (probe-file path))
+       (list
+        (cons "name" name)
+        (cons "status" "missing")
+        (cons "path" (namestring path))
+        (cons "commit" nil)))
+      (t
+       (multiple-value-bind (stdout stderr status)
+           (uiop:run-program
+            (list "git" "-C" (namestring path) "rev-parse" "HEAD")
+            :output :string
+            :error-output :string
+            :ignore-error-status t)
+         (declare (ignore stderr))
+         (if (= 0 status)
+             (list
+              (cons "name" name)
+              (cons "status" "ok")
+              (cons "path" (namestring path))
+              (cons "commit" (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                          stdout)))
+             (list
+              (cons "name" name)
+              (cons "status" "unavailable")
+              (cons "path" (namestring path))
+              (cons "commit" nil))))))))
+
+(defun fixture-report-reference-clients ()
+  (list
+   (fixture-report-reference-client-object "geth" "references/go-ethereum/")
+   (fixture-report-reference-client-object "nethermind" "references/nethermind/")
+   (fixture-report-reference-client-object "reth" "references/reth/")))
 
 (defun fixture-report-kind-string (kinds)
   (fixture-report-call
@@ -125,6 +171,7 @@
   (list
    (cons "suiteRoot" suite-root)
    (cons "mode" mode)
+   (cons "referenceClients" (fixture-report-reference-clients))
    (cons "state" (fixture-report-state-object
                   state-root state-selectors state-summary))
    (cons "transaction" (fixture-report-transaction-object
@@ -148,9 +195,17 @@
 (defun fixture-report-print-text (report)
   (let ((state (fixture-report-field report "state"))
         (transaction (fixture-report-field report "transaction"))
-        (blockchain (fixture-report-field report "blockchain")))
+        (blockchain (fixture-report-field report "blockchain"))
+        (reference-clients (fixture-report-field report "referenceClients")))
     (format t "~&suiteRoot=~A~%" (fixture-report-field report "suiteRoot"))
     (format t "mode=~A~%" (fixture-report-field report "mode"))
+    (dolist (client reference-clients)
+      (format t "referenceClient[~A]=~A"
+              (fixture-report-field client "name")
+              (fixture-report-field client "status"))
+      (when (fixture-report-field client "commit")
+        (format t ":~A" (fixture-report-field client "commit")))
+      (format t "~%"))
     (format t "stateStatus=~A~%" (fixture-report-field state "status"))
     (format t "stateRoot=~A~%" (or (fixture-report-field state "root")
                                    "missing"))
