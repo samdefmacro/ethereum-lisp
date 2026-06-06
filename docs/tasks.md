@@ -3308,7 +3308,10 @@ splits can land after the Phase A smoke path closes.
     payload containing a real EIP-155 transaction signed for chain id 1 returns
     Engine `INVALID` when imported under chain id 2, preserves the parent
     state projection, and does not commit the child block, state availability,
-    or transaction lookup index.
+    or transaction lookup index. Tightened the lower-level txpool mutation
+    boundary so direct pending/queued/basefee/blob insertion paths reject
+    transactions whose sender cannot be recovered instead of indexing them
+    under the zero address.
 
 - [x] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.

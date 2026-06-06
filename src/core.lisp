@@ -2995,9 +2995,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (chain-store-require-memory-store store)
    payload-id))
 
+(defun engine-pending-txpool-sender (transaction)
+  (or (transaction-sender transaction)
+      (block-validation-fail
+       "Txpool transaction sender recovery failed")))
+
 (defun engine-pending-txpool-sender-key (transaction)
-  (address-to-hex (or (transaction-sender transaction)
-                      (zero-address))))
+  (address-to-hex (engine-pending-txpool-sender transaction)))
 
 (defun engine-pending-txpool-nonce-key (transaction)
   (write-to-string (transaction-nonce transaction) :base 10))
@@ -3173,20 +3177,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (engine-pending-txpool-remove-queued-transaction txpool hash)
     (engine-pending-txpool-remove-basefee-transaction txpool hash)
     (engine-pending-txpool-remove-blob-transaction txpool hash))
-  (engine-pending-txpool-remove-pending-conflict txpool transaction)
-  (engine-pending-txpool-remove-queued-conflict txpool transaction)
-  (let ((basefee-conflict
-          (engine-pending-txpool-basefee-conflict txpool transaction)))
-    (when basefee-conflict
-      (engine-pending-txpool-remove-basefee-transaction
-       txpool
-       (transaction-hash basefee-conflict))))
-  (let ((blob-conflict
-          (engine-pending-txpool-blob-conflict txpool transaction)))
-    (when blob-conflict
-      (engine-pending-txpool-remove-blob-transaction
-       txpool
-       (transaction-hash blob-conflict))))
+  (when (transaction-sender transaction)
+    (engine-pending-txpool-remove-pending-conflict txpool transaction)
+    (engine-pending-txpool-remove-queued-conflict txpool transaction)
+    (let ((basefee-conflict
+            (engine-pending-txpool-basefee-conflict txpool transaction)))
+      (when basefee-conflict
+        (engine-pending-txpool-remove-basefee-transaction
+         txpool
+         (transaction-hash basefee-conflict))))
+    (let ((blob-conflict
+            (engine-pending-txpool-blob-conflict txpool transaction)))
+      (when blob-conflict
+        (engine-pending-txpool-remove-blob-transaction
+         txpool
+         (transaction-hash blob-conflict)))))
   transaction)
 
 (defun engine-pending-txpool-cross-subpool-conflicts

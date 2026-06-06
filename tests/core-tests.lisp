@@ -3804,6 +3804,67 @@
        filter
        (make-array 31 :element-type '(unsigned-byte 8) :initial-element 0)))))
 
+(deftest engine-pending-txpool-rejects-unrecoverable-sender
+  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (make-legacy-transaction
+            :nonce 0
+            :gas-price 100
+            :gas-limit 21000
+            :to recipient))
+         (zero-sender-key (address-to-hex (zero-address))))
+    (is (null (transaction-sender transaction)))
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+       txpool
+       transaction))
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-pending-txpool-put-queued-transaction
+       txpool
+       transaction))
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-pending-txpool-put-basefee-transaction
+       txpool
+       transaction))
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-pending-txpool-put-blob-transaction
+       txpool
+       transaction))
+    (is (= 0
+           (ethereum-lisp.core::engine-pending-txpool-pending-count
+            txpool)))
+    (is (= 0
+           (ethereum-lisp.core::engine-pending-txpool-queued-count
+            txpool)))
+    (is (= 0
+           (ethereum-lisp.core::engine-pending-txpool-basefee-count
+            txpool)))
+    (is (= 0
+           (ethereum-lisp.core::engine-pending-txpool-blob-count
+            txpool)))
+    (is (null
+         (gethash
+          zero-sender-key
+          (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
+           txpool))))
+    (is (null
+         (gethash
+          zero-sender-key
+          (ethereum-lisp.core::engine-pending-txpool-queued-transactions-by-sender
+           txpool))))
+    (is (null
+         (gethash
+          zero-sender-key
+          (ethereum-lisp.core::engine-pending-txpool-basefee-transactions-by-sender
+           txpool))))
+    (is (null
+         (gethash
+          zero-sender-key
+          (ethereum-lisp.core::engine-pending-txpool-blob-transactions-by-sender
+           txpool))))))
+
 (deftest engine-pending-txpool-replaces-same-sender-nonce-directly
   (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
          (recipient
