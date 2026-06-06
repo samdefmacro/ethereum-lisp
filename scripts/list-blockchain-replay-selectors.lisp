@@ -3,6 +3,7 @@
 
 (defconstant +selector-script-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +selector-script-json-flag+ "--json")
+(defconstant +selector-script-root-option+ "--root")
 
 (defun selector-script-arguments ()
   #+sbcl
@@ -18,19 +19,38 @@
 (defun selector-script-json-p (args)
   (member +selector-script-json-flag+ args :test #'string=))
 
+(defun selector-script-option-like-p (value)
+  (and (stringp value)
+       (plusp (length value))
+       (char= #\- (char value 0))))
+
+(defun selector-script-set-argument-root (root value)
+  (when root
+    (error "Only one fixture root argument is supported"))
+  value)
+
 (defun selector-script-argument-root (args)
   (let ((root nil))
-    (dolist (arg args)
+    (loop while args
+          for arg = (pop args)
+          do
       (cond
         ((string= arg +selector-script-pinned-v5.4.0-flag+))
         ((string= arg +selector-script-json-flag+))
-        ((and (plusp (length arg))
-              (char= #\- (char arg 0)))
+        ((string= arg +selector-script-root-option+)
+         (unless args
+           (error "~A requires a fixture root path"
+                  +selector-script-root-option+))
+         (let ((value (pop args)))
+           (when (selector-script-option-like-p value)
+             (error "~A requires a fixture root path, got option ~A"
+                    +selector-script-root-option+
+                    value))
+           (setf root (selector-script-set-argument-root root value))))
+        ((selector-script-option-like-p arg)
          (error "Unsupported selector script option ~A" arg))
-        (root
-         (error "Only one fixture root argument is supported"))
         (t
-         (setf root arg))))
+         (setf root (selector-script-set-argument-root root arg)))))
     root))
 
 (defun selector-script-call (name &rest args)

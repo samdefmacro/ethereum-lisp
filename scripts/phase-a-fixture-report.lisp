@@ -5,6 +5,7 @@
 
 (defconstant +fixture-report-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +fixture-report-json-flag+ "--json")
+(defconstant +fixture-report-root-option+ "--root")
 (defconstant +fixture-report-eest-repository+
   "ethereum/execution-spec-tests")
 (defconstant +fixture-report-eest-release+ "v5.4.0")
@@ -25,19 +26,38 @@
 (defun fixture-report-json-p (args)
   (member +fixture-report-json-flag+ args :test #'string=))
 
+(defun fixture-report-option-like-p (value)
+  (and (stringp value)
+       (plusp (length value))
+       (char= #\- (char value 0))))
+
+(defun fixture-report-set-argument-root (root value)
+  (when root
+    (error "Only one fixture root argument is supported"))
+  value)
+
 (defun fixture-report-argument-root (args)
   (let ((root nil))
-    (dolist (arg args)
+    (loop while args
+          for arg = (pop args)
+          do
       (cond
         ((string= arg +fixture-report-pinned-v5.4.0-flag+))
         ((string= arg +fixture-report-json-flag+))
-        ((and (plusp (length arg))
-              (char= #\- (char arg 0)))
+        ((string= arg +fixture-report-root-option+)
+         (unless args
+           (error "~A requires a fixture root path"
+                  +fixture-report-root-option+))
+         (let ((value (pop args)))
+           (when (fixture-report-option-like-p value)
+             (error "~A requires a fixture root path, got option ~A"
+                    +fixture-report-root-option+
+                    value))
+           (setf root (fixture-report-set-argument-root root value))))
+        ((fixture-report-option-like-p arg)
          (error "Unsupported fixture report option ~A" arg))
-        (root
-         (error "Only one fixture root argument is supported"))
         (t
-         (setf root arg))))
+         (setf root (fixture-report-set-argument-root root arg)))))
     root))
 
 (defun fixture-report-call (name &rest args)

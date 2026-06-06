@@ -1057,6 +1057,7 @@
              "scripts/phase-a-fixture-report.lisp"
              "--"
              "--json"
+             "--root"
              "tests/fixtures/execution-spec-tests-root/")
        :output :string
        :error-output :string
@@ -1075,6 +1076,34 @@
          reference-clients "nethermind")
         (phase-a-smoke-gate-assert-reference-client
          reference-clients "reth")))))
+
+(deftest phase-a-selector-scripts-accept-root-option
+  #-sbcl
+  (skip-test "Phase A selector scripts require SBCL")
+  #+sbcl
+  (labels ((run-selector-script (script)
+             (multiple-value-bind (stdout stderr status)
+                 (uiop:run-program
+                  (list "sbcl"
+                        "--script"
+                        script
+                        "--"
+                        "--json"
+                        "--root"
+                        "tests/fixtures/execution-spec-tests-root/")
+                  :output :string
+                  :error-output :string
+                  :ignore-error-status t)
+               (is (= 0 status))
+               (is (string= "" stderr))
+               (when (= 0 status)
+                 (let ((report (parse-json stdout)))
+                   (is (search "tests/fixtures/execution-spec-tests-root/"
+                               (fixture-object-field report "root")))
+                   (is (plusp (fixture-object-field report "count"))))))))
+    (run-selector-script "scripts/list-state-test-selectors.lisp")
+    (run-selector-script "scripts/list-transaction-test-selectors.lisp")
+    (run-selector-script "scripts/list-blockchain-replay-selectors.lisp")))
 
 (deftest phase-a-smoke-gate-script-can-include-devnet-suite
   #-sbcl

@@ -368,6 +368,13 @@ ones.
     root, mode, count, structured selector entries, and selector strings, with
     transaction type counts and blockchain materialization kinds preserved for
     drift checks without text scraping.
+  - Progress: unified selector/report root argument handling with the smoke
+    gate. `scripts/list-state-test-selectors.lisp`,
+    `scripts/list-transaction-test-selectors.lisp`,
+    `scripts/list-blockchain-replay-selectors.lisp`, and
+    `scripts/phase-a-fixture-report.lisp` now accept `--root PATH` in addition
+    to positional roots, so automation can use one explicit-root convention
+    across fixture synchronization commands.
 
 - [x] `PHASE-A-SMOKE-GATE`: Add an executable Phase A smoke acceptance gate.
   - Milestone: 8
