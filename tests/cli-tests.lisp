@@ -897,6 +897,37 @@
           (is (string= "0x2a"
                        (fixture-object-field case "blockNumber"))))))))
 
+(deftest phase-a-smoke-gate-script-can-include-devnet-suite
+  #-sbcl
+  (skip-test "Phase A smoke gate devnet mode requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-smoke-gate.lisp"
+             "--"
+             "--json"
+             "--devnet")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (devnet (fixture-object-field report "devnet")))
+        (is (string= "ok" (fixture-object-field report "status")))
+        (is (string= "in-repo" (fixture-object-field report "mode")))
+        (is (string= "ok" (fixture-object-field devnet "status")))
+        (is (string= "devnet-listener-boundary-suite"
+                     (fixture-object-field devnet "mode")))
+        (is (= (length +engine-newpayload-v2-smoke-case-names+)
+               (fixture-object-field devnet "caseCount")))
+        (is (= 10 (fixture-object-field devnet "engineConnections")))
+        (is (= 10 (fixture-object-field devnet "publicConnections")))
+        (is (= 20 (fixture-object-field devnet "totalConnections")))))))
+
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))

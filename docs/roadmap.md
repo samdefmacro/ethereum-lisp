@@ -706,7 +706,9 @@ Detailed historical implementation notes for this section now live in
   a pass/fail acceptance gate for the current bounded Phase A smoke: in-repo
   roots must include state, transaction, `blockRlp`, and `engineNewPayloadV2`
   coverage, while pinned v5.4.0 roots must match the official Shanghai
-  blockchain replay table and report absent suites explicitly.
+  blockchain replay table and report absent suites explicitly. Its `--devnet`
+  mode also runs the standalone devnet listener-boundary all-fixtures smoke and
+  includes that process-boundary report in the gate output.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

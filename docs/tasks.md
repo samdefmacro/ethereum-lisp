@@ -409,6 +409,11 @@ ones.
     test system. The validation command can now spell pinned roots as
     `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root
     /path/to/fixtures`.
+  - Result: added a `--devnet` mode to the Phase A smoke gate. The gate can now
+    run the standalone devnet listener-boundary `--all-fixtures` smoke as a
+    subprocess and include its JSON report, so one automation command can cover
+    the core in-repo fixture gate plus the devnet Engine/public process-boundary
+    import smoke.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

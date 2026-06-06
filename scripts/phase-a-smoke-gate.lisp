@@ -1,7 +1,10 @@
 (defparameter *ethereum-lisp-smoke-gate-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(require :asdf)
+
 (defconstant +smoke-gate-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
+(defconstant +smoke-gate-devnet-flag+ "--devnet")
 (defconstant +smoke-gate-json-flag+ "--json")
 (defconstant +smoke-gate-root-option+ "--root")
 (defconstant +smoke-gate-help-flag+ "--help")
@@ -18,6 +21,9 @@
 
 (defun smoke-gate-pinned-v5.4.0-p (args)
   (member +smoke-gate-pinned-v5.4.0-flag+ args :test #'string=))
+
+(defun smoke-gate-devnet-p (args)
+  (member +smoke-gate-devnet-flag+ args :test #'string=))
 
 (defun smoke-gate-json-p (args)
   (member +smoke-gate-json-flag+ args :test #'string=))
@@ -42,6 +48,7 @@
           do
       (cond
         ((string= arg +smoke-gate-pinned-v5.4.0-flag+))
+        ((string= arg +smoke-gate-devnet-flag+))
         ((string= arg +smoke-gate-json-flag+))
         ((string= arg +smoke-gate-help-flag+))
         ((string= arg +smoke-gate-root-option+)
@@ -65,6 +72,7 @@
   (format t "Options:~%")
   (format t "  --root PATH        Fixture suite root. Equivalent to positional ROOT.~%")
   (format t "  --pinned-v5.4.0    Validate the pinned EEST v5.4.0 stable archive subset.~%")
+  (format t "  --devnet           Also run the devnet listener-boundary all-fixtures gate.~%")
   (format t "  --json             Print machine-readable JSON output.~%")
   (format t "  --help             Print this help without loading the test system.~%")
   (format t "~%")
@@ -87,6 +95,12 @@
     (unless (and symbol (fboundp symbol))
       (error "JSON encoder is unavailable"))
     (funcall (symbol-function symbol) object)))
+
+(defun smoke-gate-json-decode (string)
+  (let ((symbol (find-symbol "PARSE-JSON" "ETHEREUM-LISP")))
+    (unless (and symbol (fboundp symbol))
+      (error "JSON parser is unavailable"))
+    (funcall (symbol-function symbol) string)))
 
 (defun smoke-gate-field (object name)
   (cdr (assoc name object :test #'string=)))
@@ -258,25 +272,49 @@
        (cons "selectorString"
              (smoke-gate-call
               "phase-a-eest-blockchain-replay-selector-string"
-              kinds))))))
+             kinds))))))
 
-(defun smoke-gate-report (suite-root pinned-p)
+(defun smoke-gate-devnet-summary ()
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/devnet-smoke-gate.lisp"
+             "--"
+             "--json"
+             "--all-fixtures")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (unless (= 0 status)
+      (error "Devnet smoke gate failed with status ~D: ~A" status stderr))
+    (let ((report (smoke-gate-json-decode stdout)))
+      (unless (string= "ok" (smoke-gate-field report "status"))
+        (error "Devnet smoke gate returned non-ok status: ~S" report))
+      report)))
+
+(defun smoke-gate-report (suite-root pinned-p &key devnet-p)
   (let ((state (smoke-gate-state-summary suite-root (not pinned-p)))
         (transaction
           (smoke-gate-transaction-summary suite-root (not pinned-p)))
-        (blockchain (smoke-gate-blockchain-summary suite-root pinned-p)))
-    (list
-     (cons "suiteRoot" suite-root)
-     (cons "mode" (if pinned-p "pinned-v5.4.0" "in-repo"))
-     (cons "status" "ok")
-     (cons "state" state)
-     (cons "transaction" transaction)
-     (cons "blockchain" blockchain))))
+        (blockchain (smoke-gate-blockchain-summary suite-root pinned-p))
+        (devnet (and devnet-p (smoke-gate-devnet-summary))))
+    (append
+     (list
+      (cons "suiteRoot" suite-root)
+      (cons "mode" (if pinned-p "pinned-v5.4.0" "in-repo"))
+      (cons "status" "ok")
+      (cons "state" state)
+      (cons "transaction" transaction)
+      (cons "blockchain" blockchain))
+     (when devnet
+       (list (cons "devnet" devnet))))))
 
 (defun smoke-gate-print-text (report)
   (let ((state (smoke-gate-field report "state"))
         (transaction (smoke-gate-field report "transaction"))
-        (blockchain (smoke-gate-field report "blockchain")))
+        (blockchain (smoke-gate-field report "blockchain"))
+        (devnet (smoke-gate-field report "devnet")))
     (format t "~&status=~A~%" (smoke-gate-field report "status"))
     (format t "suiteRoot=~A~%" (smoke-gate-field report "suiteRoot"))
     (format t "mode=~A~%" (smoke-gate-field report "mode"))
@@ -297,12 +335,18 @@
     (format t "blockchainBlockCount=~D~%"
             (smoke-gate-field blockchain "blockCount"))
     (format t "blockchainKindCounts=~S~%"
-            (smoke-gate-field blockchain "kindCounts"))))
+            (smoke-gate-field blockchain "kindCounts"))
+    (when devnet
+      (format t "devnetStatus=~A~%" (smoke-gate-field devnet "status"))
+      (format t "devnetCaseCount=~D~%" (smoke-gate-field devnet "caseCount"))
+      (format t "devnetTotalConnections=~D~%"
+              (smoke-gate-field devnet "totalConnections")))))
 
 (defun smoke-gate-main ()
   (let* ((args (smoke-gate-arguments))
          (help-p (smoke-gate-help-p args))
          (pinned-p (smoke-gate-pinned-v5.4.0-p args))
+         (devnet-p (smoke-gate-devnet-p args))
          (json-p (smoke-gate-json-p args))
          (suite-root (or (smoke-gate-argument-root args)
                          +smoke-gate-default-root+)))
@@ -311,7 +355,8 @@
         (progn
           (load (merge-pathnames "tests/load-tests.lisp"
                                  *ethereum-lisp-smoke-gate-root*))
-          (let ((report (smoke-gate-report suite-root pinned-p)))
+          (let ((report (smoke-gate-report
+                         suite-root pinned-p :devnet-p devnet-p)))
             (if json-p
                 (format t "~&~A~%" (smoke-gate-json-encode report))
                 (smoke-gate-print-text report)))))))
