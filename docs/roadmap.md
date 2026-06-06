@@ -94,7 +94,8 @@ fixes in those areas are allowed; expansion is not.
   transaction, and blockchain replay coverage, including both `blockRlp` and
   `engineNewPayloadV2`. Its `--pinned-v5.4.0` mode validates the official
   stable archive's pinned Shanghai blockchain replay table while explicitly
-  reporting that the archive lacks `state_tests` / `transaction_tests` suites.
+  reporting that the archive lacks `state_tests` / `transaction_tests` suites;
+  `--root PATH` makes the fixture root explicit for CI and automation.
   The gate now executes the selected state-test cases, transaction vectors,
   and blockchain replay imports rather than only reporting selector counts,
   and its text/JSON output records per-suite execution counts.

@@ -402,6 +402,13 @@ ones.
     `engine_newPayloadV2` path; text and JSON output include per-suite
     `executed` counts so automation can distinguish a real replay gate from a
     metadata-only fixture report.
+  - Result: hardened the smoke gate command-line contract for automation. The
+    script now accepts an explicit `--root PATH` option in addition to the
+    existing positional root, rejects duplicate or missing root arguments
+    before loading the fixture suites, and exposes `--help` without loading the
+    test system. The validation command can now spell pinned roots as
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root
+    /path/to/fixtures`.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

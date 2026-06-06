@@ -3,6 +3,8 @@
 
 (defconstant +smoke-gate-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +smoke-gate-json-flag+ "--json")
+(defconstant +smoke-gate-root-option+ "--root")
+(defconstant +smoke-gate-help-flag+ "--help")
 (defconstant +smoke-gate-default-root+
   "tests/fixtures/execution-spec-tests-root/")
 
@@ -20,20 +22,53 @@
 (defun smoke-gate-json-p (args)
   (member +smoke-gate-json-flag+ args :test #'string=))
 
+(defun smoke-gate-help-p (args)
+  (member +smoke-gate-help-flag+ args :test #'string=))
+
+(defun smoke-gate-option-like-p (value)
+  (and (stringp value)
+       (plusp (length value))
+       (char= #\- (char value 0))))
+
+(defun smoke-gate-set-argument-root (root value)
+  (when root
+    (error "Only one fixture root argument is supported"))
+  value)
+
 (defun smoke-gate-argument-root (args)
   (let ((root nil))
-    (dolist (arg args)
+    (loop while args
+          for arg = (pop args)
+          do
       (cond
         ((string= arg +smoke-gate-pinned-v5.4.0-flag+))
         ((string= arg +smoke-gate-json-flag+))
-        ((and (plusp (length arg))
-              (char= #\- (char arg 0)))
+        ((string= arg +smoke-gate-help-flag+))
+        ((string= arg +smoke-gate-root-option+)
+         (unless args
+           (error "~A requires a fixture root path" +smoke-gate-root-option+))
+         (let ((value (pop args)))
+           (when (smoke-gate-option-like-p value)
+             (error "~A requires a fixture root path, got option ~A"
+                    +smoke-gate-root-option+
+                    value))
+           (setf root (smoke-gate-set-argument-root root value))))
+        ((smoke-gate-option-like-p arg)
          (error "Unsupported smoke gate option ~A" arg))
-        (root
-         (error "Only one fixture root argument is supported"))
         (t
-         (setf root arg))))
+         (setf root (smoke-gate-set-argument-root root arg)))))
     root))
+
+(defun smoke-gate-print-help ()
+  (format t "~&Usage: sbcl --script scripts/phase-a-smoke-gate.lisp -- [options] [ROOT]~%")
+  (format t "~%")
+  (format t "Options:~%")
+  (format t "  --root PATH        Fixture suite root. Equivalent to positional ROOT.~%")
+  (format t "  --pinned-v5.4.0    Validate the pinned EEST v5.4.0 stable archive subset.~%")
+  (format t "  --json             Print machine-readable JSON output.~%")
+  (format t "  --help             Print this help without loading the test system.~%")
+  (format t "~%")
+  (format t "Default ROOT: ~A~%" +smoke-gate-default-root+))
 
 (defun smoke-gate-call (name &rest args)
   (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))
@@ -265,16 +300,20 @@
             (smoke-gate-field blockchain "kindCounts"))))
 
 (defun smoke-gate-main ()
-  (load (merge-pathnames "tests/load-tests.lisp"
-                         *ethereum-lisp-smoke-gate-root*))
   (let* ((args (smoke-gate-arguments))
+         (help-p (smoke-gate-help-p args))
          (pinned-p (smoke-gate-pinned-v5.4.0-p args))
          (json-p (smoke-gate-json-p args))
          (suite-root (or (smoke-gate-argument-root args)
-                         +smoke-gate-default-root+))
-         (report (smoke-gate-report suite-root pinned-p)))
-    (if json-p
-        (format t "~&~A~%" (smoke-gate-json-encode report))
-        (smoke-gate-print-text report))))
+                         +smoke-gate-default-root+)))
+    (if help-p
+        (smoke-gate-print-help)
+        (progn
+          (load (merge-pathnames "tests/load-tests.lisp"
+                                 *ethereum-lisp-smoke-gate-root*))
+          (let ((report (smoke-gate-report suite-root pinned-p)))
+            (if json-p
+                (format t "~&~A~%" (smoke-gate-json-encode report))
+                (smoke-gate-print-text report)))))))
 
 (smoke-gate-main)
