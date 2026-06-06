@@ -4208,6 +4208,11 @@ splits can land after the Phase A smoke path closes.
     Nethermind, and optional Reth reference-client commit/status metadata as
     the Phase A fixture report. Direct devnet runner logs can therefore satisfy
     the reference pinning rule without relying on the outer Phase A wrapper.
+  - Result: devnet smoke-gate subprocess runs now use process-unique temporary
+    file names, and the CLI test suite covers two concurrent standalone smoke
+    gate invocations. This closes the process-level harness race where two
+    automation jobs could choose the same JWT temp file and race during
+    cleanup.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

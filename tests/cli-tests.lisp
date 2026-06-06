@@ -6,9 +6,18 @@
 (defconstant +devnet-cli-jwt-secret+
   "1111111111111111111111111111111111111111111111111111111111111111")
 
+(defvar *devnet-cli-temp-counter* 0)
+
+(defun devnet-cli-temp-token ()
+  (format nil "~A-~D-~A"
+          #+sbcl (sb-unix:unix-getpid)
+          #-sbcl "nopid"
+          (incf *devnet-cli-temp-counter*)
+          (gensym)))
+
 (defun devnet-cli-temp-path (name type)
   (merge-pathnames
-   (make-pathname :name (format nil "~A-~A" name (gensym))
+   (make-pathname :name (format nil "~A-~A" name (devnet-cli-temp-token))
                   :type type)
    #P"/private/tmp/"))
 
@@ -34,7 +43,7 @@
 (defun devnet-cli-temp-directory (name)
   (let ((path
           (merge-pathnames
-           (format nil "~A-~A/" name (gensym))
+           (format nil "~A-~A/" name (devnet-cli-temp-token))
            #P"/private/tmp/")))
     (ensure-directories-exist path)
     path))
@@ -846,6 +855,31 @@
     (is (string= "fixtures_stable.tar.gz"
                  (fixture-object-field source "archive")))))
 
+(defun devnet-cli-read-stream-string (stream)
+  (with-output-to-string (output)
+    (loop for char = (read-char stream nil nil)
+          while char
+          do (write-char char output))))
+
+(defun devnet-smoke-gate-launch-json-process ()
+  (uiop:launch-program
+   (list "sbcl"
+         "--script"
+         "scripts/devnet-smoke-gate.lisp"
+         "--"
+         "--json")
+   :output :stream
+   :error-output :stream))
+
+(defun devnet-smoke-gate-finish-json-process (process)
+  (let ((status (uiop:wait-process process))
+        (stdout
+          (devnet-cli-read-stream-string (uiop:process-info-output process)))
+        (stderr
+          (devnet-cli-read-stream-string
+           (uiop:process-info-error-output process))))
+    (values stdout stderr status)))
+
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
@@ -964,6 +998,30 @@
           (is (= 2 (fixture-object-field case "publicConnections")))
           (is (string= "0x2a"
                        (fixture-object-field case "blockNumber"))))))))
+
+(deftest devnet-smoke-gate-script-runs-concurrently
+  #-sbcl
+  (skip-test "Devnet smoke gate script requires SBCL")
+  #+sbcl
+  (let ((first-process (devnet-smoke-gate-launch-json-process))
+        (second-process (devnet-smoke-gate-launch-json-process)))
+    (multiple-value-bind (first-stdout first-stderr first-status)
+        (devnet-smoke-gate-finish-json-process first-process)
+      (multiple-value-bind (second-stdout second-stderr second-status)
+          (devnet-smoke-gate-finish-json-process second-process)
+        (is (= 0 first-status))
+        (is (= 0 second-status))
+        (is (string= "" first-stderr))
+        (is (string= "" second-stderr))
+        (when (and (= 0 first-status) (= 0 second-status))
+          (dolist (report (list (parse-json first-stdout)
+                                (parse-json second-stdout)))
+            (is (string= "ok" (fixture-object-field report "status")))
+            (is (string= "devnet-listener-boundary"
+                         (fixture-object-field report "mode")))
+            (phase-a-smoke-gate-assert-execution-spec-tests-source report)
+            (is (= 3 (length (fixture-object-field report
+                                                   "referenceClients"))))))))))
 
 (deftest phase-a-fixture-report-includes-reference-client-pins
   #-sbcl
