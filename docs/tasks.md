@@ -3894,6 +3894,10 @@ splits can land after the Phase A smoke path closes.
     Public txpool RPCs expose those transactions through the queued view and
     hash lookups, and the pending nonce view accounts for them without
     notifying pending transaction filters.
+  - Progress: when retained sender state is available, accepting a transaction
+    that closes a nonce gap now promotes contiguous queued transactions for
+    that sender into pending and notifies pending transaction filters only at
+    promotion time.
 
 ## P1: Public RPC Execution APIs
 

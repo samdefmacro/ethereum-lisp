@@ -1541,6 +1541,60 @@
       (and base-fee
            (< (transaction-max-fee-per-gas transaction) base-fee)))))
 
+(defun eth-rpc-txpool-retained-sender-nonce (store sender)
+  (multiple-value-bind (head block-number timestamp)
+      (eth-rpc-txpool-admission-head-context store)
+    (declare (ignore block-number timestamp))
+    (when (and head
+               (chain-store-state-available-p store (block-hash head)))
+      (values (chain-store-account-nonce store (block-hash head) sender)
+              t))))
+
+(defun eth-rpc-txpool-indexed-sender-nonce-transaction
+    (sender-index sender nonce)
+  (let ((sender-transactions
+          (gethash (address-to-hex sender) sender-index)))
+    (when sender-transactions
+      (gethash (write-to-string nonce :base 10) sender-transactions))))
+
+(defun eth-rpc-txpool-pending-contiguous-nonce
+    (store sender state-nonce)
+  (loop with next-nonce = state-nonce
+        for transaction =
+          (eth-rpc-txpool-indexed-sender-nonce-transaction
+           (engine-payload-store-pending-transactions-by-sender store)
+           sender
+           next-nonce)
+        while transaction
+          do (incf next-nonce)
+        finally (return next-nonce)))
+
+(defun eth-rpc-txpool-promote-queued-transactions (store sender)
+  (multiple-value-bind (state-nonce retained-p)
+      (eth-rpc-txpool-retained-sender-nonce store sender)
+    (when retained-p
+      (loop for next-nonce =
+              (eth-rpc-txpool-pending-contiguous-nonce
+               store sender state-nonce)
+            for transaction =
+              (eth-rpc-txpool-indexed-sender-nonce-transaction
+               (engine-payload-store-queued-sender-index store)
+               sender
+               next-nonce)
+            while transaction
+              do (progn
+                   (engine-payload-store-remove-queued-transaction
+                    store
+                    (transaction-hash transaction))
+                   (if (eth-rpc-txpool-basefee-ineligible-p
+                        store transaction)
+                       (progn
+                         (engine-payload-store-put-basefee-transaction
+                          store transaction)
+                         (return))
+                       (engine-payload-store-put-pending-transaction
+                        store transaction)))))))
+
 (defun eth-rpc-validate-txpool-admission
     (transaction sender store config)
   (multiple-value-bind (head block-number timestamp)
@@ -1723,7 +1777,8 @@
           ((eth-rpc-txpool-queued-nonce-gap-p store sender transaction)
            (engine-payload-store-put-queued-transaction store transaction))
           (t
-           (engine-payload-store-put-pending-transaction store transaction)))))
+           (engine-payload-store-put-pending-transaction store transaction)
+           (eth-rpc-txpool-promote-queued-transactions store sender)))))
     (hash32-to-hex hash)))
 
 (defun eth-rpc-txpool-queued-view-transactions (store)

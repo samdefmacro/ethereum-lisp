@@ -3393,6 +3393,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-txpool store)
    hash))
 
+(defun engine-payload-store-remove-queued-transaction (store hash)
+  (engine-pending-txpool-remove-queued-transaction
+   (engine-payload-store-txpool store)
+   hash))
+
 (defun engine-payload-store-remove-pending-conflict (store transaction)
   (engine-pending-txpool-remove-pending-conflict
    (engine-payload-store-txpool store)
