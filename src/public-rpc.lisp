@@ -415,7 +415,7 @@
 
 (defun eth-rpc-pending-account-nonce (store address state-nonce)
   (loop with next-nonce = state-nonce
-        for transaction in (engine-payload-store-pending-transactions store)
+        for transaction in (engine-payload-store-pooled-transactions store)
         for sender = (or (transaction-sender transaction) (zero-address))
         when (bytes= (address-bytes sender) (address-bytes address))
           do (setf next-nonce
@@ -1522,6 +1522,15 @@
          "eth_sendRawTransaction insufficient sender balance"))))
   t)
 
+(defun eth-rpc-txpool-queued-nonce-gap-p (store sender transaction)
+  (multiple-value-bind (head block-number timestamp)
+      (eth-rpc-txpool-admission-head-context store)
+    (declare (ignore block-number timestamp))
+    (and head
+         (chain-store-state-available-p store (block-hash head))
+         (> (transaction-nonce transaction)
+            (chain-store-account-nonce store (block-hash head) sender)))))
+
 (defun eth-rpc-validate-txpool-admission
     (transaction sender store config)
   (multiple-value-bind (head block-number timestamp)
@@ -1675,7 +1684,7 @@
          (location (chain-store-transaction-location store hash)))
     (or (eth-rpc-raw-transaction-from-location location)
         (eth-rpc-raw-transaction
-         (engine-payload-store-pending-transaction store hash)))))
+         (engine-payload-store-pooled-transaction store hash)))))
 
 (defun engine-rpc-handle-eth-send-raw-transaction (params store config)
   (unless (= 1 (length params))
@@ -1695,9 +1704,12 @@
                  :expected-chain-id (chain-config-chain-id config))
                 (block-validation-fail
                  "eth_sendRawTransaction transaction sender recovery failed"))))
-      (eth-rpc-validate-txpool-admission transaction sender store config))
-    (unless (chain-store-transaction-location store hash)
-      (engine-payload-store-put-pending-transaction store transaction))
+      (eth-rpc-validate-txpool-admission transaction sender store config)
+      (unless (or (chain-store-transaction-location store hash)
+                  (engine-payload-store-pooled-transaction store hash))
+        (if (eth-rpc-txpool-queued-nonce-gap-p store sender transaction)
+            (engine-payload-store-put-queued-transaction store transaction)
+            (engine-payload-store-put-pending-transaction store transaction))))
     (hash32-to-hex hash)))
 
 (defun engine-rpc-handle-eth-pending-transactions (params store)
@@ -1786,7 +1798,7 @@
          (location (chain-store-transaction-location store hash)))
     (or (eth-rpc-transaction-from-location location)
         (eth-rpc-pending-transaction-object
-         (engine-payload-store-pending-transaction store hash)))))
+         (engine-payload-store-pooled-transaction store hash)))))
 
 (defun engine-rpc-handle-eth-get-transaction-receipt (params store)
   (let* ((hash (eth-rpc-hash-param

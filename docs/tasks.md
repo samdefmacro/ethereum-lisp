@@ -3884,6 +3884,11 @@ splits can land after the Phase A smoke path closes.
     placeholder subpools. `txpool_status`, `txpool_content`,
     `txpool_contentFrom`, and `txpool_inspect` read queued data from the
     queued subpool instead of hard-coded empty placeholders.
+  - Progress: retained-state nonce-gap submissions through
+    `eth_sendRawTransaction` now enter the queued subpool instead of pending.
+    Queued transactions remain visible through hash transaction lookups and
+    `txpool_*` queued views, while `eth_pendingTransactions` and pending
+    transaction filters stay limited to pending transactions.
 
 ## P1: Public RPC Execution APIs
 

@@ -3182,15 +3182,58 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            transaction)
           (values transaction t)))))
 
+(defun engine-pending-txpool-put-queued-transaction
+    (txpool transaction)
+  (let ((key (engine-pending-txpool-hash-key
+              (transaction-hash transaction)))
+        (transactions (engine-pending-txpool-queued-transactions txpool)))
+    (if (gethash key transactions)
+        (values transaction nil)
+        (progn
+          (let ((conflict
+                  (engine-pending-txpool-queued-conflict
+                   txpool
+                   transaction)))
+            (when conflict
+              (unless (engine-pending-txpool-replacement-transaction-p
+                       conflict transaction)
+                (block-validation-fail
+                 "Queued transaction replacement underpriced"))
+              (engine-pending-txpool-unindex-queued-transaction
+               txpool
+               conflict)
+              (remhash
+               (engine-pending-txpool-hash-key (transaction-hash conflict))
+               transactions)))
+          (setf (gethash key transactions) transaction)
+          (engine-pending-txpool-index-queued-transaction
+           txpool
+           transaction)
+          (values transaction t)))))
+
 (defun engine-pending-txpool-pending-transaction (txpool hash)
   (gethash (engine-pending-txpool-hash-key hash)
            (engine-pending-txpool-transactions txpool)))
+
+(defun engine-pending-txpool-queued-transaction (txpool hash)
+  (gethash (engine-pending-txpool-hash-key hash)
+           (engine-pending-txpool-queued-transactions txpool)))
 
 (defun engine-pending-txpool-pending-transactions (txpool)
   (sort
    (loop for transaction
            being the hash-values of
              (engine-pending-txpool-transactions txpool)
+         collect transaction)
+   #'string<
+   :key (lambda (transaction)
+          (hash32-to-hex (transaction-hash transaction)))))
+
+(defun engine-pending-txpool-queued-transaction-list (txpool)
+  (sort
+   (loop for transaction
+           being the hash-values of
+             (engine-pending-txpool-queued-transactions txpool)
          collect transaction)
    #'string<
    :key (lambda (transaction)
@@ -3321,14 +3364,52 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        transaction))
     transaction))
 
+(defun engine-payload-store-put-queued-transaction (store transaction)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep transaction
+                 '(or legacy-transaction
+                      access-list-transaction
+                      dynamic-fee-transaction
+                      blob-transaction
+                      set-code-transaction))
+    (block-validation-fail "Queued transaction must be a transaction"))
+  (multiple-value-bind (transaction inserted-p)
+      (engine-pending-txpool-put-queued-transaction
+       (engine-payload-store-txpool store)
+       transaction)
+    (declare (ignore inserted-p))
+    transaction))
+
 (defun engine-payload-store-pending-transaction (store hash)
   (engine-pending-txpool-pending-transaction
    (engine-payload-store-txpool store)
    hash))
 
+(defun engine-payload-store-queued-transaction (store hash)
+  (engine-pending-txpool-queued-transaction
+   (engine-payload-store-txpool store)
+   hash))
+
+(defun engine-payload-store-pooled-transaction (store hash)
+  (or (engine-payload-store-pending-transaction store hash)
+      (engine-payload-store-queued-transaction store hash)))
+
 (defun engine-payload-store-pending-transactions (store)
   (engine-pending-txpool-pending-transactions
    (engine-payload-store-txpool store)))
+
+(defun engine-payload-store-queued-transactions (store)
+  (engine-pending-txpool-queued-transaction-list
+   (engine-payload-store-txpool store)))
+
+(defun engine-payload-store-pooled-transactions (store)
+  (sort
+   (append (engine-payload-store-pending-transactions store)
+           (engine-payload-store-queued-transactions store))
+   #'string<
+   :key (lambda (transaction)
+          (hash32-to-hex (transaction-hash transaction)))))
 
 (defun engine-payload-store-pending-transactions-by-sender (store)
   (engine-payload-store-pending-sender-index store))
