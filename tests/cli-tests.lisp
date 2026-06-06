@@ -855,6 +855,35 @@
     (is (string= "fixtures_stable.tar.gz"
                  (fixture-object-field source "archive")))))
 
+(defun phase-a-smoke-gate-section-count (section field)
+  (or (fixture-object-field section field) 0))
+
+(defun phase-a-smoke-gate-assert-counts (report)
+  (let* ((state (fixture-object-field report "state"))
+         (transaction (fixture-object-field report "transaction"))
+         (blockchain (fixture-object-field report "blockchain"))
+         (devnet (fixture-object-field report "devnet"))
+         (fixture-case-count
+           (+ (phase-a-smoke-gate-section-count state "count")
+              (phase-a-smoke-gate-section-count transaction "count")
+              (phase-a-smoke-gate-section-count blockchain "count")))
+         (fixture-executed-count
+           (+ (phase-a-smoke-gate-section-count state "executedCount")
+              (phase-a-smoke-gate-section-count transaction "executedCount")
+              (phase-a-smoke-gate-section-count blockchain "executedCount")))
+         (devnet-case-count
+           (if devnet
+               (phase-a-smoke-gate-section-count devnet "caseCount")
+               0)))
+    (is (= fixture-case-count
+           (fixture-object-field report "fixtureCaseCount")))
+    (is (= fixture-executed-count
+           (fixture-object-field report "fixtureExecutedCount")))
+    (is (= (+ fixture-case-count devnet-case-count)
+           (fixture-object-field report "totalCaseCount")))
+    (is (= (+ fixture-executed-count devnet-case-count)
+           (fixture-object-field report "totalExecutedCount")))))
+
 (defun devnet-cli-read-stream-string (stream)
   (with-output-to-string (output)
     (loop for char = (read-char stream nil nil)
@@ -1196,6 +1225,7 @@
         (is (string= "ok" (fixture-object-field report "status")))
         (is (string= "in-repo" (fixture-object-field report "mode")))
         (phase-a-smoke-gate-assert-execution-spec-tests-source report)
+        (phase-a-smoke-gate-assert-counts report)
         (is (= 3 (length reference-clients)))
         (phase-a-smoke-gate-assert-reference-client
          reference-clients "geth")
@@ -1239,9 +1269,32 @@
         (let* ((report (parse-json stdout))
                (devnet (fixture-object-field report "devnet")))
           (is (string= "ok" (fixture-object-field report "status")))
+          (phase-a-smoke-gate-assert-counts report)
           (is (string= "ok" (fixture-object-field devnet "status")))
           (is (string= "devnet-listener-boundary-suite"
                        (fixture-object-field devnet "mode"))))))))
+
+(deftest phase-a-smoke-gate-text-output-includes-aggregate-counts
+  #-sbcl
+  (skip-test "Phase A smoke gate text output test requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-smoke-gate.lisp"
+             "--"
+             "--root"
+             "tests/fixtures/execution-spec-tests-root/")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (is (search "fixtureCaseCount=" stdout))
+    (is (search "fixtureExecutedCount=" stdout))
+    (is (search "totalCaseCount=" stdout))
+    (is (search "totalExecutedCount=" stdout))))
 
 (deftest phase-a-smoke-gate-pinned-mode-defaults-to-eest-root-env
   #-sbcl

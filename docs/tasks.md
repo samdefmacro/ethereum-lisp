@@ -427,6 +427,11 @@ ones.
     subprocess and include its JSON report, so one automation command can cover
     the core in-repo fixture gate plus the devnet Engine/public process-boundary
     import smoke.
+  - Result: smoke gate JSON and text output now include aggregate
+    `fixtureCaseCount`, `fixtureExecutedCount`, `totalCaseCount`, and
+    `totalExecutedCount` fields. Automation can assert a single summary boundary
+    while retaining per-suite state, transaction, blockchain, and optional
+    devnet details.
   - Result: Phase A fixture report and smoke gate JSON/text output now include
     reference-client pin metadata for local geth, Nethermind, and optional Reth
     clones. Present clones report their exact git commit; absent clones are

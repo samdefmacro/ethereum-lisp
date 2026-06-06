@@ -140,7 +140,8 @@ fixes in those areas are allowed; expansion is not.
   `--root PATH` makes the fixture root explicit for CI and automation.
   The gate now executes the selected state-test cases, transaction vectors,
   and blockchain replay imports rather than only reporting selector counts,
-  and its text/JSON output records per-suite execution counts.
+  and its text/JSON output records per-suite execution counts plus aggregate
+  fixture/total case and executed counts.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

@@ -377,6 +377,27 @@
         (error "Devnet smoke gate returned non-ok status: ~S" report))
       report)))
 
+(defun smoke-gate-numeric-field (object field)
+  (or (smoke-gate-field object field) 0))
+
+(defun smoke-gate-report-counts (state transaction blockchain devnet)
+  (let* ((fixture-case-count
+           (+ (smoke-gate-numeric-field state "count")
+              (smoke-gate-numeric-field transaction "count")
+              (smoke-gate-numeric-field blockchain "count")))
+         (fixture-executed-count
+           (+ (smoke-gate-numeric-field state "executedCount")
+              (smoke-gate-numeric-field transaction "executedCount")
+              (smoke-gate-numeric-field blockchain "executedCount")))
+         (devnet-case-count
+           (if devnet (smoke-gate-numeric-field devnet "caseCount") 0)))
+    (list
+     (cons "fixtureCaseCount" fixture-case-count)
+     (cons "fixtureExecutedCount" fixture-executed-count)
+     (cons "totalCaseCount" (+ fixture-case-count devnet-case-count))
+     (cons "totalExecutedCount"
+           (+ fixture-executed-count devnet-case-count)))))
+
 (defun smoke-gate-report (suite-root pinned-p &key devnet-p)
   (let ((state (smoke-gate-state-summary suite-root (not pinned-p)))
         (transaction
@@ -394,6 +415,7 @@
       (cons "state" state)
       (cons "transaction" transaction)
       (cons "blockchain" blockchain))
+     (smoke-gate-report-counts state transaction blockchain devnet)
      (when devnet
        (list (cons "devnet" devnet))))))
 
@@ -441,6 +463,14 @@
             (smoke-gate-field blockchain "blockCount"))
     (format t "blockchainKindCounts=~S~%"
             (smoke-gate-field blockchain "kindCounts"))
+    (format t "fixtureCaseCount=~D~%"
+            (smoke-gate-field report "fixtureCaseCount"))
+    (format t "fixtureExecutedCount=~D~%"
+            (smoke-gate-field report "fixtureExecutedCount"))
+    (format t "totalCaseCount=~D~%"
+            (smoke-gate-field report "totalCaseCount"))
+    (format t "totalExecutedCount=~D~%"
+            (smoke-gate-field report "totalExecutedCount"))
     (when devnet
       (format t "devnetStatus=~A~%" (smoke-gate-field devnet "status"))
       (format t "devnetCaseCount=~D~%" (smoke-gate-field devnet "caseCount"))
