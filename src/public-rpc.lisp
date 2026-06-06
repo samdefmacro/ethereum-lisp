@@ -414,13 +414,10 @@
       store (block-hash block) address))))
 
 (defun eth-rpc-pending-account-nonce (store address state-nonce)
-  (loop with next-nonce = state-nonce
-        for transaction in (engine-payload-store-pooled-transactions store)
-        for sender = (or (transaction-sender transaction) (zero-address))
-        when (bytes= (address-bytes sender) (address-bytes address))
-          do (setf next-nonce
-                   (max next-nonce (1+ (transaction-nonce transaction))))
-        finally (return next-nonce)))
+  (engine-payload-store-pending-contiguous-nonce
+   store
+   address
+   state-nonce))
 
 (defun engine-rpc-handle-eth-get-transaction-count (params store)
   (unless (= 2 (length params))

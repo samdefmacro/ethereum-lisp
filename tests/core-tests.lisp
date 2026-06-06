@@ -8003,7 +8003,7 @@
              (address-from-hex "0x00000000000000000000000000000000000000dd"))
            (pending-transaction
            (make-legacy-transaction
-              :nonce 9
+              :nonce 7
               :gas-price 11
               :gas-limit 21100
               :to empty-address
@@ -8121,7 +8121,7 @@
                      (field hash-response "result")))
         (is (string= (hash32-to-hex (transaction-hash pending-transaction))
                      (field send-pending-response "result")))
-        (is (string= (quantity-to-hex 10)
+        (is (string= (quantity-to-hex 8)
                      (field pending-response "result")))
         (is (string= (quantity-to-hex 0)
                      (field empty-account-response "result")))
@@ -12412,7 +12412,7 @@
         (is (null (field pooled-transaction "blockHash")))
         (is (string= (bytes-to-hex (transaction-encoding transaction))
                      (field raw-response "result")))
-        (is (string= (quantity-to-hex 4)
+        (is (string= (quantity-to-hex 0)
                      (field transaction-count-response "result")))
         (is (= 0 (length (field filter-changes "result"))))))))
 
@@ -12669,7 +12669,7 @@
         (is (string= transaction-hash (field queued-from "hash")))
         (is (string= transaction-hash (field pooled-transaction "hash")))
         (is (null (field pooled-transaction "blockHash")))
-        (is (string= (quantity-to-hex 1)
+        (is (string= (quantity-to-hex 0)
                      (field transaction-count-response "result")))
         (is (= 0 (length (field filter-changes "result"))))))))
 

@@ -3897,8 +3897,11 @@ splits can land after the Phase A smoke path closes.
   - Progress: base-fee-ineligible submissions now enter the basefee subpool
     when the latest head has a base fee higher than the transaction max fee.
     Public txpool RPCs expose those transactions through the queued view and
-    hash lookups, and the pending nonce view accounts for them without
-    notifying pending transaction filters.
+    hash lookups without notifying pending transaction filters.
+  - Progress: `eth_getTransactionCount(..., "pending")` now counts only the
+    contiguous pending subpool span from retained state nonce. Queued nonce
+    gaps and basefee-ineligible entries no longer consume account nonces
+    before promotion.
   - Progress: when retained sender state is available, accepting a transaction
     that closes a nonce gap now promotes contiguous queued transactions for
     that sender into pending and notifies pending transaction filters only at
