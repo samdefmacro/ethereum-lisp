@@ -1,6 +1,36 @@
 (defparameter *ethereum-lisp-devnet-smoke-gate-root*
   (merge-pathnames "../" (or *load-truename* *default-pathname-defaults*)))
 
+(defconstant +devnet-smoke-gate-early-help-flag+ "--help")
+
+(defun devnet-smoke-gate-early-arguments ()
+  #+sbcl
+  (let ((args (cdr sb-ext:*posix-argv*)))
+    (when (and args (string= (first args) "--"))
+      (setf args (cdr args)))
+    args)
+  #-sbcl nil)
+
+(defun devnet-smoke-gate-early-help-p (args)
+  (member +devnet-smoke-gate-early-help-flag+ args :test #'string=))
+
+(defun devnet-smoke-gate-print-early-help ()
+  (format t "~&Usage: sbcl --script scripts/devnet-smoke-gate.lisp -- [options] [FIXTURE-CASE]~%")
+  (format t "~%")
+  (format t "Options:~%")
+  (format t "  --fixture-case NAME  Engine newPayloadV2 fixture case to import.~%")
+  (format t "  --all-fixtures       Import every pinned Phase A newPayloadV2 smoke case.~%")
+  (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
+  (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
+  (format t "  --json               Print machine-readable JSON output.~%")
+  (format t "  --help               Print this help.~%")
+  (format t "~%"))
+
+#+sbcl
+(when (devnet-smoke-gate-early-help-p (devnet-smoke-gate-early-arguments))
+  (devnet-smoke-gate-print-early-help)
+  (sb-ext:exit :code 0))
+
 (load (merge-pathnames "tests/load-tests.lisp"
                        *ethereum-lisp-devnet-smoke-gate-root*))
 

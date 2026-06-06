@@ -4213,6 +4213,10 @@ splits can land after the Phase A smoke path closes.
     gate invocations. This closes the process-level harness race where two
     automation jobs could choose the same JWT temp file and race during
     cleanup.
+  - Result: `scripts/devnet-smoke-gate.lisp -- --help` now prints usage and
+    exits before loading the test system. This keeps process runners and
+    automation probes from depending on full fixture/test initialization merely
+    to discover the standalone devnet gate contract.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

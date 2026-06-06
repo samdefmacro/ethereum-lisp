@@ -880,6 +880,29 @@
            (uiop:process-info-error-output process))))
     (values stdout stderr status)))
 
+(deftest devnet-smoke-gate-script-help-prints-without-loading-errors
+  #-sbcl
+  (skip-test "Devnet smoke gate script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/devnet-smoke-gate.lisp"
+             "--"
+             "--help"
+             "--unsupported-option")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (is (search "Usage: sbcl --script scripts/devnet-smoke-gate.lisp"
+                stdout))
+    (is (search "--all-fixtures" stdout))
+    (is (search "--ready-file PATH" stdout))
+    (is (search "--log-file PATH" stdout))))
+
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
