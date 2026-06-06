@@ -3926,6 +3926,11 @@ splits can land after the Phase A smoke path closes.
     whose nonce is below the new retained sender nonce before queued/basefee
     promotion, so locally pooled transactions that became non-executable on
     another canonical branch stop appearing in txpool and hash lookups.
+  - Progress: basefee subpool promotion now respects the same retained-state
+    pending-contiguous nonce boundary as queued promotion. Basefee drops no
+    longer promote nonce-gap transactions directly into pending, and closing
+    the gap with a local pending submission promotes newly executable basefee
+    entries in order.
   - Progress: queued nonce-gap promotion now lives on the txpool store
     boundary and also runs after canonical-head updates. If retained sender
     state advances and closes a nonce gap, contiguous queued transactions move

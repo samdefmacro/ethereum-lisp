@@ -1749,7 +1749,8 @@
           (t
            (engine-payload-store-put-pending-transaction store transaction)
            (engine-payload-store-promote-queued-transactions
-            store sender)))))
+            store sender)
+           (engine-payload-store-promote-basefee-transactions store)))))
     (hash32-to-hex hash)))
 
 (defun eth-rpc-txpool-queued-view-transactions (store)

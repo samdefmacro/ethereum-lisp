@@ -104,6 +104,9 @@ fixes in those areas are allowed; expansion is not.
   Canonical-head updates prune stale txpool entries below the new retained
   sender nonce before promotion, so transactions made obsolete by another
   canonical branch disappear from txpool and hash lookups.
+  Basefee subpool promotion now respects the pending-contiguous nonce boundary,
+  so a base-fee drop cannot make nonce-gap transactions executable until the
+  missing nonce is pending or retained state advances.
   Nonce-gap routing now compares submissions against that pending-contiguous
   nonce, so follow-on same-sender transactions remain pending once earlier
   nonces are already pending. Blob subpool admission remains placeholder. A
