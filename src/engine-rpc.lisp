@@ -742,9 +742,6 @@
         (payload-attributes
           (when (< 1 (length params))
             (second params))))
-    (setf payload-attributes
-          (when payload-attributes
-            (funcall payload-attributes-parser payload-attributes)))
     (let ((status (engine-forkchoice-memory-status store state))
           (payload-id nil))
       (when (string= +payload-status-valid+
@@ -773,7 +770,14 @@
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))
-        (let* ((head-hash (forkchoice-state-head-block-hash state))
+        (let* ((payload-attributes
+                 (handler-case
+                     (funcall payload-attributes-parser payload-attributes)
+                   (block-validation-error (condition)
+                     (engine-rpc-fail
+                      +engine-rpc-error-invalid-payload-attributes+
+                      (block-validation-error-message condition)))))
+               (head-hash (forkchoice-state-head-block-hash state))
                (parent-block
                  (chain-store-known-block store head-hash))
                (candidate-id

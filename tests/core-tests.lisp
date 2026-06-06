@@ -7049,6 +7049,20 @@
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
+                 42
+                 (forkchoice-state-object unknown-hash)
+                 (invalid-payload-attributes-object))
+                store
+                config))
+             (payload-status
+               (field (field response "result") "payloadStatus")))
+        (is (= 42 (field response "id")))
+        (is (string= +payload-status-syncing+
+                     (field payload-status "status")))
+        (is (not (field payload-status "latestValidHash"))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
                  37
                  (forkchoice-state-object (block-hash unprocessed-block)))
                 store
