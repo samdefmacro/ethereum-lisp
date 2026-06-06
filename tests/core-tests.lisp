@@ -7169,6 +7169,58 @@
              (error (field response "error")))
         (is (= -32602 (field error "code"))))))))
 
+(deftest engine-rpc-forkchoice-updated-known-block-precedes-invalid-cache
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (forkchoice-state-object
+               (head &key
+                     (safe (zero-hash32))
+                     (finalized (zero-hash32)))
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex safe))
+                   (cons "finalizedBlockHash"
+                         (hash32-to-hex finalized))))
+           (forkchoice-request (id state)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV1")
+                   (cons "params" (list state)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (genesis
+             (make-block
+              :header (make-block-header :number 0
+                                         :parent-hash (zero-hash32)
+                                         :timestamp 0
+                                         :gas-limit 30000000)))
+           (head
+             (make-block
+              :header (make-block-header :parent-hash (block-hash genesis)
+                                         :number 1
+                                         :timestamp 12
+                                         :gas-limit 30000000))))
+      (engine-payload-store-put-block store genesis :state-available-p t)
+      (engine-payload-store-put-block store head :state-available-p t)
+      (engine-payload-store-mark-invalid store head)
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 41
+                 (forkchoice-state-object (block-hash head)))
+                store
+                config))
+             (result (field response "result"))
+             (payload-status (field result "payloadStatus")))
+        (is (= 41 (field response "id")))
+        (is (string= +payload-status-valid+
+                     (field payload-status "status")))
+        (is (string= (hash32-to-hex (block-hash head))
+                     (field payload-status "latestValidHash")))
+        (is (not (field result "payloadId")))
+        (is (string= (hash32-to-hex (block-hash head))
+                     (hash32-to-hex
+                      (chain-store-canonical-hash store 1))))))))
+
 (deftest engine-rpc-forkchoice-update-rolls-back-checkpoints-on-head-rewrite-error
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

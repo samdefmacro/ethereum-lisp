@@ -4648,13 +4648,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (cond
       ((hash32= head-hash (zero-hash32))
        (forkchoice-state-zero-head-status))
-      ((engine-payload-store-invalid-ancestor-status
-        store head-hash head-hash))
       ((and (chain-store-known-block store head-hash)
             (chain-store-state-available-p store head-hash))
        (make-payload-status
         :status +payload-status-valid+
         :latest-valid-hash head-hash))
+      ((engine-payload-store-invalid-ancestor-status
+        store head-hash head-hash))
       (t
        (make-payload-status :status +payload-status-syncing+)))))
 
