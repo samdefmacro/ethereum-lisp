@@ -3193,6 +3193,49 @@
     (is (eq prepared-payload
             (chain-store-prepared-payload store payload-id)))))
 
+(deftest chain-store-update-forkchoice-checkpoints-rejects-safe-before-finalized
+  (let* ((store (make-engine-payload-memory-store))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :timestamp 0
+                               :gas-limit 30000000)))
+         (safe
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (finalized
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash safe)
+                               :timestamp 2
+                               :gas-limit 30000000)))
+         (head
+           (make-block
+            :header
+            (make-block-header :number 3
+                               :parent-hash (block-hash finalized)
+                               :timestamp 3
+                               :gas-limit 30000000))))
+    (dolist (block (list genesis safe finalized head))
+      (engine-payload-store-put-block store block :state-available-p t))
+    (signals block-validation-error
+      (chain-store-update-forkchoice-checkpoints
+       store
+       (make-forkchoice-state
+        :head-block-hash (block-hash head)
+        :safe-block-hash (block-hash safe)
+        :finalized-block-hash (block-hash finalized))))
+    (is (not (chain-store-head-block store)))
+    (is (not (chain-store-safe-block store)))
+    (is (not (chain-store-finalized-block store)))))
+
 (deftest chain-store-state-db-reconstructs-account-projection
   (let* ((store (make-engine-payload-memory-store))
          (missing-state-store (make-engine-payload-memory-store))
@@ -7172,6 +7215,22 @@
         (is (= -38002 (field error "code")))
         (is (string= "forkchoice finalized block is not an ancestor of head"
                      (field error "message")))
+        (is (eq finalized-block (chain-store-finalized-block store))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 43
+                 (forkchoice-state-object
+                  (block-hash head-block)
+                  :safe (block-hash safe-block)
+                  :finalized (block-hash head-block)))
+                store
+                config))
+             (error (field response "error")))
+        (is (= -38002 (field error "code")))
+        (is (string= "forkchoice safe block is older than finalized block"
+                     (field error "message")))
+        (is (eq safe-block (chain-store-safe-block store)))
         (is (eq finalized-block (chain-store-finalized-block store))))
       (let* ((bad-state
                (list (cons "headBlockHash" (hash32-to-hex known-hash))))

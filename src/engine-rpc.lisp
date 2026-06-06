@@ -755,7 +755,9 @@
                  (engine-forkchoice-checkpoint-error-message
                   store (forkchoice-state-safe-block-hash state)
                   "safe"
-                  :head-hash (forkchoice-state-head-block-hash state)))))
+                  :head-hash (forkchoice-state-head-block-hash state))
+                 (engine-forkchoice-checkpoint-order-error-message
+                  store state))))
           (when checkpoint-error
             (engine-rpc-fail
              +engine-rpc-error-invalid-forkchoice-state+

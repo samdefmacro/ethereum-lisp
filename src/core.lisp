@@ -2442,7 +2442,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (not (engine-payload-store-ancestor-p
                      store finalized-hash head-hash)))
       (block-validation-fail
-       "forkchoice finalized block is not an ancestor of head")))
+       "forkchoice finalized block is not an ancestor of head"))
+    (let ((safe-block
+            (and safe-hash
+                 (engine-payload-store-known-block store safe-hash)))
+          (finalized-block
+            (and finalized-hash
+                 (engine-payload-store-known-block store finalized-hash))))
+      (when (and safe-block finalized-block
+                 (< (block-header-number (block-header safe-block))
+                    (block-header-number (block-header finalized-block))))
+        (block-validation-fail
+         "forkchoice safe block is older than finalized block"))))
   (setf (engine-payload-memory-store-head-checkpoint store)
         (make-chain-store-checkpoint
          :label :head
@@ -4635,6 +4646,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (not (engine-payload-store-ancestor-p store hash head-hash)))
        (format nil "forkchoice ~A block is not an ancestor of head"
                label)))))
+
+(defun engine-forkchoice-checkpoint-order-error-message (store state)
+  (let* ((safe-hash (forkchoice-state-safe-block-hash state))
+         (finalized-hash (forkchoice-state-finalized-block-hash state))
+         (safe-block
+           (unless (hash32= safe-hash (zero-hash32))
+             (chain-store-known-block store safe-hash)))
+         (finalized-block
+           (unless (hash32= finalized-hash (zero-hash32))
+             (chain-store-known-block store finalized-hash))))
+    (when (and safe-block finalized-block
+               (< (block-header-number (block-header safe-block))
+                  (block-header-number (block-header finalized-block))))
+      "forkchoice safe block is older than finalized block")))
 
 (defun engine-forkchoice-memory-status (store state)
   (unless (typep store 'engine-payload-memory-store)
