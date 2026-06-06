@@ -91,6 +91,14 @@
    (vector (kv-chain-record-kind-prefix kind))
    (kv-chain-record-identifier-bytes identifier)))
 
+(defun kv-chain-record-key-identifier (kind key)
+  (let ((bytes (ensure-byte-vector key))
+        (prefix (kv-chain-record-kind-prefix kind)))
+    (unless (and (> (length bytes) 0)
+                 (= (aref bytes 0) prefix))
+      (error "Chain record key does not match kind ~S" kind))
+    (subseq bytes 1)))
+
 (defun kv-chain-record-kind-start-key (kind)
   (vector (kv-chain-record-kind-prefix kind)))
 
@@ -109,6 +117,12 @@
 (defun kv-delete-chain-record (database kind identifier)
   (kv-delete database (kv-chain-record-key kind identifier)))
 
+(defun kv-batch-put-chain-record (batch kind identifier value)
+  (kv-batch-put batch (kv-chain-record-key kind identifier) value))
+
+(defun kv-batch-delete-chain-record (batch kind identifier)
+  (kv-batch-delete batch (kv-chain-record-key kind identifier)))
+
 (defun kv-chain-records (database kind)
   (let ((iterator
           (kv-iterator database
@@ -120,6 +134,13 @@
                (unless present-p
                  (return (nreverse records)))
                (push (cons key value) records)))))
+
+(defun kv-chain-record-entries (database kind)
+  (mapcar
+   (lambda (record)
+     (cons (kv-chain-record-key-identifier kind (car record))
+           (cdr record)))
+   (kv-chain-records database kind)))
 
 (defun kv-put-memory-entry (database key value)
   (let ((entry (make-kv-memory-entry :key (kv-copy-bytes key)

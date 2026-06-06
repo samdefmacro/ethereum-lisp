@@ -134,7 +134,7 @@ fixes in those areas are allowed; expansion is not.
   database now has a stable chain-record namespace for block/header/receipt,
   canonical-hash, checkpoint, state, and transaction-location records, giving
   the future chain-store persistence backend ordered keys for canonical-height
-  iteration.
+  iteration and batch helpers for atomic multi-record commits.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and

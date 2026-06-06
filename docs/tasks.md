@@ -4125,6 +4125,12 @@ splits can land after the Phase A smoke path closes.
     transaction-location records. Numeric identifiers such as block heights are
     encoded as fixed-width big-endian keys, so file-backed stores can iterate
     canonical records in numeric order before a full chain-store backend lands.
+  - Result: chain-record writes now have batch helpers for put/delete
+    operations and an iterator that returns record identifiers without the
+    namespace prefix. This gives a future persistent chain-store backend the
+    same atomic multi-record write shape as the existing KV batch protocol
+    instead of forcing block/header/receipt/index commits through separate
+    per-record writes.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6
