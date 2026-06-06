@@ -5645,25 +5645,6 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (when invalid-status
         (return-from engine-new-payload-memory-status
           (values invalid-status nil)))
-      (handler-case
-          (engine-new-payload-require-transaction-senders block config)
-        (block-validation-error (condition)
-          (engine-payload-store-mark-invalid store block)
-          (return-from engine-new-payload-memory-status
-            (values
-             (make-payload-status
-              :status +payload-status-invalid+
-              :latest-valid-hash
-              (let* ((header (block-header block))
-                     (number (block-header-number header))
-                     (parent-hash (block-header-parent-hash header)))
-                (when (and (integerp number)
-                           (plusp number)
-                           (chain-store-known-block store parent-hash))
-                  parent-hash))
-              :validation-error
-              (block-validation-error-message condition))
-             nil))))
       (when (and known-block
                  (chain-store-state-available-p store hash))
         (return-from engine-new-payload-memory-status
@@ -5712,6 +5693,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (return-from engine-new-payload-memory-status
             (values (make-payload-status :status +payload-status-accepted+)
                     block)))
+        (handler-case
+            (engine-new-payload-require-transaction-senders block config)
+          (block-validation-error (condition)
+            (engine-payload-store-mark-invalid store block)
+            (return-from engine-new-payload-memory-status
+              (values
+               (make-payload-status
+                :status +payload-status-invalid+
+                :latest-valid-hash (and parent-block parent-hash)
+                :validation-error
+                (block-validation-error-message condition))
+               nil))))
         (if import-function
             (handler-case
                 (multiple-value-bind (imported-block receipts)
