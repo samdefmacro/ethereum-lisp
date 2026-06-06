@@ -3593,6 +3593,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (and (or (null base-fee)
            (>= (transaction-max-fee-per-gas transaction) base-fee))
        (engine-payload-store-transaction-executable-nonce-p store transaction)
+       (engine-payload-store-transaction-funded-p store transaction)
        (not (engine-pending-txpool-pending-conflict
              (engine-payload-store-txpool store)
              transaction))
@@ -3621,6 +3622,57 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         while transaction
           do (incf next-nonce)
         finally (return next-nonce)))
+
+(defun engine-payload-store-txpool-upfront-cost (transaction)
+  (+ (transaction-value transaction)
+     (* (transaction-gas-limit transaction)
+        (transaction-max-fee-per-gas transaction))
+     (* (transaction-blob-gas-used transaction)
+        (if (typep transaction 'blob-transaction)
+            (blob-transaction-max-fee-per-blob-gas transaction)
+            0))))
+
+(defun engine-payload-store-account-balance-retained-p
+    (store block-hash sender)
+  (nth-value
+   1
+   (gethash
+    (engine-payload-store-account-key block-hash sender)
+    (engine-payload-memory-store-account-balances
+     (chain-store-require-memory-store store)))))
+
+(defun engine-payload-store-pending-sender-expenditure
+    (store sender transaction)
+  (let ((new-cost (engine-payload-store-txpool-upfront-cost transaction))
+        (existing-cost 0)
+        (replacement-cost nil))
+    (dolist (pooled (engine-payload-store-pending-transactions store))
+      (when (and (transaction-sender pooled)
+                 (bytes= (address-bytes (transaction-sender pooled))
+                         (address-bytes sender)))
+        (let ((pooled-cost
+                (engine-payload-store-txpool-upfront-cost pooled)))
+          (incf existing-cost pooled-cost)
+          (when (= (transaction-nonce pooled)
+                   (transaction-nonce transaction))
+            (setf replacement-cost pooled-cost)))))
+    (if replacement-cost
+        (+ existing-cost (- new-cost replacement-cost))
+        (+ existing-cost new-cost))))
+
+(defun engine-payload-store-transaction-funded-p
+    (store transaction)
+  (let ((head (chain-store-latest-block store))
+        (sender (transaction-sender transaction)))
+    (or (null head)
+        (null sender)
+        (not (chain-store-state-available-p store (block-hash head)))
+        (let ((block-hash (block-hash head)))
+          (or (not (engine-payload-store-account-balance-retained-p
+                    store block-hash sender))
+              (>= (chain-store-account-balance store block-hash sender)
+                  (engine-payload-store-pending-sender-expenditure
+                   store sender transaction)))))))
 
 (defun engine-payload-store-transaction-executable-nonce-p
     (store transaction)
@@ -3666,7 +3718,6 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    (engine-payload-store-remove-queued-transaction
                     store
                     (transaction-hash transaction))
-                   (push transaction promoted-transactions)
                    (if (and base-fee
                             (< (transaction-max-fee-per-gas transaction)
                                base-fee))
@@ -3674,8 +3725,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                          (engine-payload-store-put-basefee-transaction
                           store transaction)
                          (return))
-                       (engine-payload-store-put-pending-transaction
-                        store transaction))))))
+                       (if (engine-payload-store-transaction-funded-p
+                            store transaction)
+                           (progn
+                             (engine-payload-store-put-pending-transaction
+                              store transaction)
+                             (push transaction promoted-transactions))
+                           (progn
+                             (engine-payload-store-put-queued-transaction
+                              store transaction)
+                             (return))))))))
     (nreverse promoted-transactions)))
 
 (defun engine-payload-store-promote-queued-transactions

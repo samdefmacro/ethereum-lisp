@@ -107,6 +107,9 @@ fixes in those areas are allowed; expansion is not.
   Basefee subpool promotion now respects the pending-contiguous nonce boundary,
   so a base-fee drop cannot make nonce-gap transactions executable until the
   missing nonce is pending or retained state advances.
+  Queued/basefee promotion also rechecks retained sender balance against
+  cumulative pending expenditure, so transactions that were individually
+  admissible while parked cannot overdraw the pending set after promotion.
   Nonce-gap routing now compares submissions against that pending-contiguous
   nonce, so follow-on same-sender transactions remain pending once earlier
   nonces are already pending. Blob subpool admission remains placeholder. A
