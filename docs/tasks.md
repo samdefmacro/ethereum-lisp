@@ -4120,6 +4120,11 @@ splits can land after the Phase A smoke path closes.
     that persists the key-value table after puts, deletes, and ordered write
     batches. Tests verify block/header/receipt-style byte records survive
     reopening the database and remain visible through range iteration.
+  - Result: added a stable chain-record key namespace on top of the KV
+    protocol for block, header, receipt, canonical-hash, checkpoint, state, and
+    transaction-location records. Numeric identifiers such as block heights are
+    encoded as fixed-width big-endian keys, so file-backed stores can iterate
+    canonical records in numeric order before a full chain-store backend lands.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

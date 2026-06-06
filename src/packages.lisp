@@ -36,7 +36,12 @@
    #:kv-batch-put
    #:kv-batch-delete
    #:kv-apply-batch
-   #:kv-iterator))
+   #:kv-iterator
+   #:kv-chain-record-key
+   #:kv-put-chain-record
+   #:kv-get-chain-record
+   #:kv-delete-chain-record
+   #:kv-chain-records))
 
 (defpackage #:ethereum-lisp.telemetry
   (:use #:cl)
@@ -1027,7 +1032,12 @@
    #:kv-batch-put
    #:kv-batch-delete
    #:kv-apply-batch
-   #:kv-iterator)
+   #:kv-iterator
+   #:kv-chain-record-key
+   #:kv-put-chain-record
+   #:kv-get-chain-record
+   #:kv-delete-chain-record
+   #:kv-chain-records)
   (:import-from #:ethereum-lisp.rlp
    #:rlp-error
    #:rlp-list
@@ -1905,6 +1915,11 @@
    #:kv-batch-delete
    #:kv-apply-batch
    #:kv-iterator
+   #:kv-chain-record-key
+   #:kv-put-chain-record
+   #:kv-get-chain-record
+   #:kv-delete-chain-record
+   #:kv-chain-records
    #:rlp-error
    #:rlp-list
    #:rlp-list-p
