@@ -4203,6 +4203,11 @@ splits can land after the Phase A smoke path closes.
     dynamic-fee, contract-creation, and internal Create2 paths, while checking
     Engine import, forkchoice, public block number, and the relevant recipient
     or contract balance for each case.
+  - Result: standalone devnet smoke-gate JSON/text output now includes the
+    same pinned `execution-spec-tests` source metadata and local geth,
+    Nethermind, and optional Reth reference-client commit/status metadata as
+    the Phase A fixture report. Direct devnet runner logs can therefore satisfy
+    the reference pinning rule without relying on the outer Phase A wrapper.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

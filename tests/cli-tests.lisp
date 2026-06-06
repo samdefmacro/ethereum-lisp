@@ -806,6 +806,46 @@
       (when (probe-file log-path)
         (delete-file log-path)))))
 
+(defun phase-a-smoke-gate-reference-client
+    (reference-clients name)
+  (find name reference-clients
+        :key (lambda (client)
+               (fixture-object-field client "name"))
+        :test #'string=))
+
+(defun phase-a-smoke-gate-reference-commit-p (commit)
+  (and (stringp commit)
+       (= 40 (length commit))
+       (every (lambda (char)
+                (or (and (char<= #\0 char) (char<= char #\9))
+                    (and (char<= #\a char) (char<= char #\f))))
+              commit)))
+
+(defun phase-a-smoke-gate-assert-reference-client (reference-clients name)
+  (let* ((client
+           (phase-a-smoke-gate-reference-client reference-clients name))
+         (status (and client
+                      (fixture-object-field client "status")))
+         (commit (and client
+                      (fixture-object-field client "commit"))))
+    (is client)
+    (is (member status '("ok" "missing" "unavailable") :test #'string=))
+    (if (string= "ok" status)
+        (is (phase-a-smoke-gate-reference-commit-p commit))
+        (is (null commit)))))
+
+(defun phase-a-smoke-gate-assert-execution-spec-tests-source (report)
+  (let ((source (fixture-object-field report "executionSpecTests")))
+    (is source)
+    (is (string= "ethereum/execution-spec-tests"
+                 (fixture-object-field source "repository")))
+    (is (string= "v5.4.0"
+                 (fixture-object-field source "release")))
+    (is (string= "88e9fb8"
+                 (fixture-object-field source "tagTarget")))
+    (is (string= "fixtures_stable.tar.gz"
+                 (fixture-object-field source "archive")))))
+
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
@@ -834,12 +874,22 @@
                     (ready-summary
                       (parse-json (devnet-cli-file-string ready-path)))
                     (log-records (devnet-cli-file-forms log-path))
+                    (reference-clients
+                      (fixture-object-field report "referenceClients"))
                     (log-names
                       (mapcar (lambda (record) (getf record :name))
                               log-records)))
                (is (string= "ok" (fixture-object-field report "status")))
                (is (string= "devnet-listener-boundary"
                             (fixture-object-field report "mode")))
+               (phase-a-smoke-gate-assert-execution-spec-tests-source report)
+               (is (= 3 (length reference-clients)))
+               (phase-a-smoke-gate-assert-reference-client
+                reference-clients "geth")
+               (phase-a-smoke-gate-assert-reference-client
+                reference-clients "nethermind")
+               (phase-a-smoke-gate-assert-reference-client
+                reference-clients "reth")
                (is (string= (namestring ready-path)
                             (fixture-object-field report "readyFile")))
                (is (string= (namestring log-path)
@@ -881,6 +931,8 @@
     (when (= 0 status)
       (let* ((report (parse-json stdout))
              (cases (fixture-object-field report "cases"))
+             (reference-clients
+               (fixture-object-field report "referenceClients"))
              (case-names
                (mapcar (lambda (case)
                          (fixture-object-field case "fixtureCase"))
@@ -888,6 +940,14 @@
         (is (string= "ok" (fixture-object-field report "status")))
         (is (string= "devnet-listener-boundary-suite"
                      (fixture-object-field report "mode")))
+        (phase-a-smoke-gate-assert-execution-spec-tests-source report)
+        (is (= 3 (length reference-clients)))
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "geth")
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "nethermind")
+        (phase-a-smoke-gate-assert-reference-client
+         reference-clients "reth")
         (is (= (length +engine-newpayload-v2-smoke-case-names+)
                (fixture-object-field report "caseCount")))
         (is (= 10 (fixture-object-field report "engineConnections")))
@@ -904,46 +964,6 @@
           (is (= 2 (fixture-object-field case "publicConnections")))
           (is (string= "0x2a"
                        (fixture-object-field case "blockNumber"))))))))
-
-(defun phase-a-smoke-gate-reference-client
-    (reference-clients name)
-  (find name reference-clients
-        :key (lambda (client)
-               (fixture-object-field client "name"))
-        :test #'string=))
-
-(defun phase-a-smoke-gate-reference-commit-p (commit)
-  (and (stringp commit)
-       (= 40 (length commit))
-       (every (lambda (char)
-                (or (and (char<= #\0 char) (char<= char #\9))
-                    (and (char<= #\a char) (char<= char #\f))))
-              commit)))
-
-(defun phase-a-smoke-gate-assert-reference-client (reference-clients name)
-  (let* ((client
-           (phase-a-smoke-gate-reference-client reference-clients name))
-         (status (and client
-                      (fixture-object-field client "status")))
-         (commit (and client
-                      (fixture-object-field client "commit"))))
-    (is client)
-    (is (member status '("ok" "missing" "unavailable") :test #'string=))
-    (if (string= "ok" status)
-        (is (phase-a-smoke-gate-reference-commit-p commit))
-        (is (null commit)))))
-
-(defun phase-a-smoke-gate-assert-execution-spec-tests-source (report)
-  (let ((source (fixture-object-field report "executionSpecTests")))
-    (is source)
-    (is (string= "ethereum/execution-spec-tests"
-                 (fixture-object-field source "repository")))
-    (is (string= "v5.4.0"
-                 (fixture-object-field source "release")))
-    (is (string= "88e9fb8"
-                 (fixture-object-field source "tagTarget")))
-    (is (string= "fixtures_stable.tar.gz"
-                 (fixture-object-field source "archive")))))
 
 (deftest phase-a-fixture-report-includes-reference-client-pins
   #-sbcl

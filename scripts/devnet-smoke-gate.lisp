@@ -6,6 +6,9 @@
 
 (in-package #:ethereum-lisp.test)
 
+(defparameter *ethereum-lisp-devnet-smoke-gate-root*
+  (symbol-value 'cl-user::*ethereum-lisp-devnet-smoke-gate-root*))
+
 (defconstant +devnet-smoke-gate-json-flag+ "--json")
 (defconstant +devnet-smoke-gate-help-flag+ "--help")
 (defconstant +devnet-smoke-gate-fixture-case-option+ "--fixture-case")
@@ -14,6 +17,11 @@
 (defconstant +devnet-smoke-gate-all-fixtures-flag+ "--all-fixtures")
 (defconstant +devnet-smoke-gate-default-fixture-case+
   "shanghai-one-transfer-with-withdrawal")
+(defconstant +devnet-smoke-gate-eest-repository+
+  "ethereum/execution-spec-tests")
+(defconstant +devnet-smoke-gate-eest-release+ "v5.4.0")
+(defconstant +devnet-smoke-gate-eest-tag-target+ "88e9fb8")
+(defconstant +devnet-smoke-gate-eest-archive+ "fixtures_stable.tar.gz")
 
 (defun devnet-smoke-gate-arguments ()
   #+sbcl
@@ -231,6 +239,73 @@
 
 (defun devnet-smoke-gate-field (object name)
   (cdr (assoc name object :test #'string=)))
+
+(defun devnet-smoke-gate-root-directory ()
+  (truename
+   (make-pathname :name nil
+                  :type nil
+                  :defaults *ethereum-lisp-devnet-smoke-gate-root*)))
+
+(defun devnet-smoke-gate-reference-path (relative-path)
+  (merge-pathnames relative-path (devnet-smoke-gate-root-directory)))
+
+(defun devnet-smoke-gate-reference-client-object (name relative-path)
+  (let ((path (devnet-smoke-gate-reference-path relative-path)))
+    (cond
+      ((not (probe-file path))
+       (list
+        (cons "name" name)
+        (cons "status" "missing")
+        (cons "path" (namestring path))
+        (cons "commit" nil)))
+      (t
+       (multiple-value-bind (stdout stderr status)
+           (uiop:run-program
+            (list "git" "-C" (namestring path) "rev-parse" "HEAD")
+            :output :string
+            :error-output :string
+            :ignore-error-status t)
+         (declare (ignore stderr))
+         (if (= 0 status)
+             (list
+              (cons "name" name)
+              (cons "status" "ok")
+              (cons "path" (namestring path))
+              (cons "commit" (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                          stdout)))
+             (list
+              (cons "name" name)
+              (cons "status" "unavailable")
+              (cons "path" (namestring path))
+              (cons "commit" nil))))))))
+
+(defun devnet-smoke-gate-reference-clients ()
+  (list
+   (devnet-smoke-gate-reference-client-object "geth" "references/go-ethereum/")
+   (devnet-smoke-gate-reference-client-object "nethermind" "references/nethermind/")
+   (devnet-smoke-gate-reference-client-object "reth" "references/reth/")))
+
+(defun devnet-smoke-gate-execution-spec-tests-source ()
+  (list
+   (cons "repository" +devnet-smoke-gate-eest-repository+)
+   (cons "release" +devnet-smoke-gate-eest-release+)
+   (cons "tagTarget" +devnet-smoke-gate-eest-tag-target+)
+   (cons "archive" +devnet-smoke-gate-eest-archive+)))
+
+(defun devnet-smoke-gate-add-run-metadata (report)
+  (append
+   (list
+    (cons "executionSpecTests"
+          (devnet-smoke-gate-execution-spec-tests-source))
+    (cons "referenceClients" (devnet-smoke-gate-reference-clients)))
+   report))
+
+(defun devnet-smoke-gate-strip-run-metadata (report)
+  (remove-if (lambda (entry)
+               (member (car entry)
+                       '("executionSpecTests" "referenceClients")
+                       :test #'string=))
+             report))
 
 (defun devnet-smoke-gate-balance-target (expect)
   (cond
@@ -512,7 +587,8 @@
                  "eth_getBalance mismatch: expected ~A got ~A"
                  expected-balance
                  actual-balance)
-                 (list
+                 (devnet-smoke-gate-add-run-metadata
+                  (list
                   (cons "status" "ok")
                   (cons "mode" "devnet-listener-boundary")
                   (cons "fixtureCase" case-name)
@@ -534,7 +610,7 @@
                   (cons "checkedBalance" actual-balance)
                   (cons "recipientBalance" actual-balance)
                   (cons "readyFile" (or ready-file :false))
-                  (cons "logFile" (or log-file :false))))))))))
+                  (cons "logFile" (or log-file :false)))))))))))
              (when ready-file
                (devnet-smoke-gate-verify-ready-file ready-file))
              (when log-file
@@ -547,7 +623,10 @@
 
 (defun devnet-smoke-gate-run-all (case-names)
   (let* ((reports
-           (mapcar #'devnet-smoke-gate-run case-names))
+           (mapcar (lambda (case-name)
+                     (devnet-smoke-gate-strip-run-metadata
+                      (devnet-smoke-gate-run case-name)))
+                   case-names))
          (engine-connections
            (reduce #'+ reports
                    :key (lambda (report)
@@ -563,7 +642,8 @@
     (devnet-smoke-gate-require
      (= (length case-names) (length reports))
      "Devnet smoke gate suite case count mismatch")
-    (list
+    (devnet-smoke-gate-add-run-metadata
+     (list
      (cons "status" "ok")
      (cons "mode" "devnet-listener-boundary-suite")
      (cons "caseCount" (length reports))
@@ -571,7 +651,7 @@
      (cons "engineConnections" engine-connections)
      (cons "publicConnections" public-connections)
      (cons "totalConnections" (+ engine-connections public-connections))
-     (cons "cases" reports))))
+     (cons "cases" reports)))))
 
 (defun devnet-smoke-gate-suite-report-p (report)
   (string= "devnet-listener-boundary-suite"
@@ -580,6 +660,25 @@
 (defun devnet-smoke-gate-print-text (report)
   (format t "~&status=~A~%" (devnet-smoke-gate-field report "status"))
   (format t "mode=~A~%" (devnet-smoke-gate-field report "mode"))
+  (let ((execution-spec-tests
+          (devnet-smoke-gate-field report "executionSpecTests"))
+        (reference-clients
+          (devnet-smoke-gate-field report "referenceClients")))
+    (format t "executionSpecTestsRepository=~A~%"
+            (devnet-smoke-gate-field execution-spec-tests "repository"))
+    (format t "executionSpecTestsRelease=~A~%"
+            (devnet-smoke-gate-field execution-spec-tests "release"))
+    (format t "executionSpecTestsTagTarget=~A~%"
+            (devnet-smoke-gate-field execution-spec-tests "tagTarget"))
+    (format t "executionSpecTestsArchive=~A~%"
+            (devnet-smoke-gate-field execution-spec-tests "archive"))
+    (dolist (client reference-clients)
+      (format t "referenceClient[~A]=~A"
+              (devnet-smoke-gate-field client "name")
+              (devnet-smoke-gate-field client "status"))
+      (when (devnet-smoke-gate-field client "commit")
+        (format t ":~A" (devnet-smoke-gate-field client "commit")))
+      (format t "~%")))
   (when (devnet-smoke-gate-suite-report-p report)
     (format t "caseCount=~D~%" (devnet-smoke-gate-field report "caseCount")))
   (unless (devnet-smoke-gate-suite-report-p report)
