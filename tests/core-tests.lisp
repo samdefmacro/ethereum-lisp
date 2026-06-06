@@ -2647,6 +2647,50 @@
       (is (string= +payload-status-valid+ (payload-status-status status)))
       (is (typep block 'ethereum-block)))))
 
+(deftest engine-new-payload-memory-status-rejects-unrecoverable-transaction-sender
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (config (make-chain-config :chain-id 1 :london-block 0))
+         (transaction
+           (make-dynamic-fee-transaction
+            :chain-id 1
+            :nonce 0
+            :max-priority-fee-per-gas 0
+            :max-fee-per-gas #x0fa0
+            :gas-limit #x84d0
+            :to recipient
+            :value 0
+            :y-parity 1
+            :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+            :s #x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1))
+         (header (make-block-header
+                  :parent-hash (zero-hash32)
+                  :beneficiary address
+                  :state-root +empty-trie-hash+
+                  :mix-hash (zero-hash32)
+                  :number 0
+                  :gas-limit 50000
+                  :gas-used 0
+                  :timestamp 99
+                  :base-fee-per-gas 100))
+         (block (make-block :header header :transactions (list transaction)))
+         (payload (execution-payload-envelope-execution-payload
+                   (block-to-executable-data block)))
+         (store (make-engine-payload-memory-store)))
+    (is (null (transaction-sender transaction :expected-chain-id 1)))
+    (multiple-value-bind (status imported-block)
+        (engine-new-payload-memory-status store 2 payload config)
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (not imported-block))
+      (is (not (payload-status-latest-valid-hash status)))
+      (is (search "transaction 0 sender"
+                  (payload-status-validation-error status))))
+    (is (null (engine-payload-store-known-block store (block-hash block))))
+    (is (null (chain-store-transaction-location
+               store
+               (transaction-hash transaction))))))
+
 (deftest engine-new-payload-memory-status-validates-known-parent-before-accepted
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :london-block 0))
@@ -5366,7 +5410,7 @@
           (is (string= +payload-status-invalid+ (field result "status")))
           (is (string= (hash32-to-hex (block-hash parent-block))
                        (field result "latestValidHash")))
-          (is (string= "Invalid transaction signature"
+          (is (string= "Invalid executable data transaction 0 sender"
                        (field result "validationError")))
           (is (not (chain-store-known-block store (block-hash child-block))))
           (is (not (chain-store-state-available-p

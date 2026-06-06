@@ -1821,6 +1821,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         append (coerce (transaction-blob-versioned-hashes transaction)
                        'list)))
 
+(defun engine-new-payload-require-transaction-senders (block config)
+  (let ((chain-id (chain-config-chain-id config)))
+    (loop for transaction in (block-transactions block)
+          for index from 0
+          unless (transaction-sender transaction
+                                     :expected-chain-id chain-id)
+            do (block-validation-fail
+                "Invalid executable data transaction ~D sender"
+                index)))
+  t)
+
 (defun validate-executable-data-versioned-hashes
     (transactions versioned-hashes)
   (unless (listp versioned-hashes)
@@ -5634,6 +5645,25 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (when invalid-status
         (return-from engine-new-payload-memory-status
           (values invalid-status nil)))
+      (handler-case
+          (engine-new-payload-require-transaction-senders block config)
+        (block-validation-error (condition)
+          (engine-payload-store-mark-invalid store block)
+          (return-from engine-new-payload-memory-status
+            (values
+             (make-payload-status
+              :status +payload-status-invalid+
+              :latest-valid-hash
+              (let* ((header (block-header block))
+                     (number (block-header-number header))
+                     (parent-hash (block-header-parent-hash header)))
+                (when (and (integerp number)
+                           (plusp number)
+                           (chain-store-known-block store parent-hash))
+                  parent-hash))
+              :validation-error
+              (block-validation-error-message condition))
+             nil))))
       (when (and known-block
                  (chain-store-state-available-p store hash))
         (return-from engine-new-payload-memory-status
