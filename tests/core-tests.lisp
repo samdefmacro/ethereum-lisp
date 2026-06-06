@@ -3236,6 +3236,59 @@
     (is (not (chain-store-safe-block store)))
     (is (not (chain-store-finalized-block store)))))
 
+(deftest chain-store-update-forkchoice-checkpoints-requires-available-state
+  (let* ((unknown-store (make-engine-payload-memory-store))
+         (missing-state-store (make-engine-payload-memory-store))
+         (missing-safe-state-store (make-engine-payload-memory-store))
+         (unknown-hash
+           (hash32-from-hex
+            "0x2222222222222222222222222222222222222222222222222222222222222222"))
+         (head
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (zero-hash32)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (safe
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (zero-hash32)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (head-over-safe
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash safe)
+                               :timestamp 2
+                               :gas-limit 30000000))))
+    (signals block-validation-error
+      (chain-store-update-forkchoice-checkpoints
+       unknown-store
+       (make-forkchoice-state
+        :head-block-hash unknown-hash)))
+    (is (not (chain-store-head-block unknown-store)))
+    (engine-payload-store-put-block missing-state-store head)
+    (signals block-validation-error
+      (chain-store-update-forkchoice-checkpoints
+       missing-state-store
+       (make-forkchoice-state
+        :head-block-hash (block-hash head))))
+    (is (not (chain-store-head-block missing-state-store)))
+    (engine-payload-store-put-block missing-safe-state-store safe)
+    (engine-payload-store-put-block
+     missing-safe-state-store head-over-safe :state-available-p t)
+    (signals block-validation-error
+      (chain-store-update-forkchoice-checkpoints
+       missing-safe-state-store
+       (make-forkchoice-state
+        :head-block-hash (block-hash head-over-safe)
+        :safe-block-hash (block-hash safe))))
+    (is (not (chain-store-head-block missing-safe-state-store)))
+    (is (not (chain-store-safe-block missing-safe-state-store)))))
+
 (deftest chain-store-state-db-reconstructs-account-projection
   (let* ((store (make-engine-payload-memory-store))
          (missing-state-store (make-engine-payload-memory-store))

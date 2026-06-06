@@ -2426,13 +2426,33 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     hash))
 
 (defun engine-payload-store-update-forkchoice-checkpoints (store state)
-  (let ((head-hash (forkchoice-state-head-block-hash state))
-        (safe-hash
-          (engine-payload-store-forkchoice-checkpoint-hash
-           (forkchoice-state-safe-block-hash state)))
-        (finalized-hash
-          (engine-payload-store-forkchoice-checkpoint-hash
-           (forkchoice-state-finalized-block-hash state))))
+  (let* ((head-hash (forkchoice-state-head-block-hash state))
+         (head-block (engine-payload-store-known-block store head-hash))
+         (safe-hash
+           (engine-payload-store-forkchoice-checkpoint-hash
+            (forkchoice-state-safe-block-hash state)))
+         (finalized-hash
+           (engine-payload-store-forkchoice-checkpoint-hash
+            (forkchoice-state-finalized-block-hash state))))
+    (unless head-block
+      (block-validation-fail "forkchoice head block is not available"))
+    (unless (engine-payload-store-state-available-p store head-hash)
+      (block-validation-fail "forkchoice head block state is not available"))
+    (when (and safe-hash
+               (not (engine-payload-store-known-block store safe-hash)))
+      (block-validation-fail "forkchoice safe block is not available"))
+    (when (and safe-hash
+               (not (engine-payload-store-state-available-p
+                     store safe-hash)))
+      (block-validation-fail "forkchoice safe block state is not available"))
+    (when (and finalized-hash
+               (not (engine-payload-store-known-block store finalized-hash)))
+      (block-validation-fail "forkchoice finalized block is not available"))
+    (when (and finalized-hash
+               (not (engine-payload-store-state-available-p
+                     store finalized-hash)))
+      (block-validation-fail
+       "forkchoice finalized block state is not available"))
     (when (and safe-hash
                (not (engine-payload-store-ancestor-p
                      store safe-hash head-hash)))
