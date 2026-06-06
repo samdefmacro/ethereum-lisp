@@ -3998,6 +3998,10 @@ splits can land after the Phase A smoke path closes.
   - Progress: `txpool_contentFrom` now reads pending plus queued/basefee/blob
     subpool entries through sender/nonce indexes instead of filtering the full
     queued view, keeping the per-sender RPC path aligned with txpool indexing.
+  - Progress: `txpool_content` and `txpool_inspect` queued views now merge the
+    queued/basefee/blob sender indexes directly instead of rebuilding sender /
+    nonce groupings from concatenated transaction lists. This keeps all txpool
+    read RPCs on the indexed subpool boundary.
 
 ## P1: Public RPC Execution APIs
 

@@ -4068,7 +4068,7 @@
           sender
           replacement)))))
 
-(deftest txpool-content-from-uses-subpool-sender-indexes
+(deftest txpool-rpc-views-use-subpool-sender-indexes
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
            (request (json store config)
@@ -4153,11 +4153,21 @@
                  "\"]}")
                 store
                 config))
+             (content-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":90,\"method\":\"txpool_content\",\"params\":[]}"
+                store
+                config))
+             (inspect-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"txpool_inspect\",\"params\":[]}"
+                store
+                config))
              (other-response
                (request
                 (concatenate
                  'string
-                 "{\"jsonrpc\":\"2.0\",\"id\":89,"
+                 "{\"jsonrpc\":\"2.0\",\"id\":92,"
                  "\"method\":\"txpool_contentFrom\",\"params\":[\""
                  (address-to-hex other-sender)
                  "\"]}")
@@ -4166,6 +4176,12 @@
              (result (field response "result"))
              (pending (field result "pending"))
              (queued (field result "queued"))
+             (content-queued
+               (field (field (field content-response "result") "queued")
+                      sender-key))
+             (inspect-queued
+               (field (field (field inspect-response "result") "queued")
+                      sender-key))
              (other-queued (field (field other-response "result")
                                   "queued")))
         (is (string= (hash32-to-hex
@@ -4181,6 +4197,18 @@
                       (transaction-hash blob-transaction))
                      (field (field queued "3") "hash")))
         (is (null (field queued "4")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash queued-transaction))
+                     (field (field content-queued "1") "hash")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash basefee-transaction))
+                     (field (field content-queued "2") "hash")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash blob-transaction))
+                     (field (field content-queued "3") "hash")))
+        (is (search "110 wei" (field inspect-queued "1")))
+        (is (search "120 wei" (field inspect-queued "2")))
+        (is (search "130 wei" (field inspect-queued "3")))
         (is (string= (hash32-to-hex
                       (transaction-hash other-transaction))
                      (field (field other-queued "1") "hash")))))))

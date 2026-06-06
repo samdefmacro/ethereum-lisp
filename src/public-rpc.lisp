@@ -1326,14 +1326,6 @@
                              #'string<)
             collect (cons key (gethash key table)))))
 
-(defun txpool-rpc-transaction-sender (transaction)
-  (or (transaction-sender transaction)
-      (zero-address)))
-
-(defun txpool-rpc-transaction-sender-p (transaction address)
-  (bytes= (address-bytes (txpool-rpc-transaction-sender transaction))
-          (address-bytes address)))
-
 (defun txpool-rpc-nonce-transactions (transactions)
   (let ((nonce-transactions (make-hash-table :test 'equal)))
     (dolist (transaction transactions)
@@ -1386,6 +1378,25 @@
                    (gethash sender sender-index)
                    value-function)))))
 
+(defun txpool-rpc-indexed-sender-transactions-from-indexes
+    (value-function &rest sender-indexes)
+  (let ((merged-senders (make-hash-table :test 'equal)))
+    (dolist (sender-index sender-indexes)
+      (maphash
+       (lambda (sender sender-transactions)
+         (let ((merged-transactions
+                 (or (gethash sender merged-senders)
+                     (setf (gethash sender merged-senders)
+                           (make-hash-table :test 'equal)))))
+           (maphash
+            (lambda (nonce transaction)
+              (setf (gethash nonce merged-transactions) transaction))
+            sender-transactions)))
+       sender-index))
+    (txpool-rpc-indexed-sender-transactions
+     merged-senders
+     value-function)))
+
 (defun txpool-rpc-transaction-summary (transaction)
   (let ((to (transaction-to transaction)))
     (format nil "~A: ~D wei + ~D gas x ~D wei"
@@ -1396,56 +1407,10 @@
             (transaction-gas-limit transaction)
             (transaction-max-fee-per-gas transaction))))
 
-(defun txpool-rpc-content-transactions (transactions)
-  (let ((senders (make-hash-table :test 'equal)))
-    (dolist (transaction transactions)
-      (let* ((sender (address-to-hex
-                      (txpool-rpc-transaction-sender transaction)))
-             (nonce (write-to-string (transaction-nonce transaction)
-                                     :base 10))
-             (sender-transactions (or (gethash sender senders)
-                                      (setf (gethash sender senders)
-                                            (make-hash-table :test 'equal)))))
-        (setf (gethash nonce sender-transactions)
-              (eth-rpc-pending-transaction-object transaction))))
-    (if (zerop (hash-table-count senders))
-        +json-empty-object+
-        (loop for sender in (sort (loop for sender being the hash-keys
-                                          of senders
-                                        collect sender)
-                                  #'string<)
-              collect
-              (cons sender
-                    (eth-rpc-hash-table-object
-                     (gethash sender senders)))))))
-
 (defun txpool-rpc-indexed-content-transactions (sender-index)
   (txpool-rpc-indexed-sender-transactions
    sender-index
    #'eth-rpc-pending-transaction-object))
-
-(defun txpool-rpc-inspect-transactions (transactions)
-  (let ((senders (make-hash-table :test 'equal)))
-    (dolist (transaction transactions)
-      (let* ((sender (address-to-hex
-                      (txpool-rpc-transaction-sender transaction)))
-             (nonce (write-to-string (transaction-nonce transaction)
-                                     :base 10))
-             (sender-transactions (or (gethash sender senders)
-                                      (setf (gethash sender senders)
-                                            (make-hash-table :test 'equal)))))
-        (setf (gethash nonce sender-transactions)
-              (txpool-rpc-transaction-summary transaction))))
-    (if (zerop (hash-table-count senders))
-        +json-empty-object+
-        (loop for sender in (sort (loop for sender being the hash-keys
-                                          of senders
-                                        collect sender)
-                                  #'string<)
-              collect
-              (cons sender
-                    (eth-rpc-hash-table-object
-                     (gethash sender senders)))))))
 
 (defun txpool-rpc-indexed-inspect-transactions (sender-index)
   (txpool-rpc-indexed-sender-transactions
@@ -1782,8 +1747,11 @@
          (txpool-rpc-indexed-content-transactions
           (engine-payload-store-pending-transactions-by-sender store)))
    (cons "queued"
-         (txpool-rpc-content-transactions
-          (eth-rpc-txpool-queued-view-transactions store)))))
+         (txpool-rpc-indexed-sender-transactions-from-indexes
+          #'eth-rpc-pending-transaction-object
+          (engine-payload-store-queued-sender-index store)
+          (engine-payload-store-basefee-sender-index store)
+          (engine-payload-store-blob-sender-index store)))))
 
 (defun engine-rpc-handle-txpool-content-from (params store)
   (unless (= 1 (length params))
@@ -1814,8 +1782,11 @@
          (txpool-rpc-indexed-inspect-transactions
           (engine-payload-store-pending-transactions-by-sender store)))
    (cons "queued"
-         (txpool-rpc-inspect-transactions
-          (eth-rpc-txpool-queued-view-transactions store)))))
+         (txpool-rpc-indexed-sender-transactions-from-indexes
+          #'txpool-rpc-transaction-summary
+          (engine-payload-store-queued-sender-index store)
+          (engine-payload-store-basefee-sender-index store)
+          (engine-payload-store-blob-sender-index store)))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
