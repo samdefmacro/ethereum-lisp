@@ -3906,6 +3906,10 @@ splits can land after the Phase A smoke path closes.
     transactions and promote newly eligible entries into pending, including
     pending transaction filter notification, so base-fee drops do not leave
     transactions permanently parked in the queued view.
+  - Progress: queued nonce-gap promotion now lives on the txpool store
+    boundary and also runs after canonical-head updates. If retained sender
+    state advances and closes a nonce gap, contiguous queued transactions move
+    into pending without waiting for another local submission.
 
 ## P1: Public RPC Execution APIs
 

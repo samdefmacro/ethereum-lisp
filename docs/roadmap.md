@@ -90,7 +90,8 @@ fixes in those areas are allowed; expansion is not.
   persistence, and cross-client process-level fixture breadth beyond the
   current bounded Engine import path. Retained-state nonce-gap
   `eth_sendRawTransaction` submissions now route into the queued txpool view
-  instead of pending and promote into pending when the gap closes. Base-fee
+  instead of pending and promote into pending when the gap closes, including
+  after canonical-head updates advance retained sender nonces. Base-fee
   ineligible submissions now route into the basefee txpool view, and bumped
   same-sender/same-nonce replacements can move them into pending without
   leaving duplicate subpool entries behind; canonical-head updates also

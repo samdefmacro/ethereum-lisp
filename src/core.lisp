@@ -2572,6 +2572,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (setf (engine-payload-memory-store-head-number store) new-head-number
               (engine-payload-memory-store-head-checkpoint store)
               (make-chain-store-checkpoint :label :head :block-hash hash)))
+      (engine-payload-store-promote-queued-transactions store)
       (engine-payload-store-promote-basefee-transactions store)
       head-block)))
 
@@ -3600,8 +3601,81 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (engine-payload-store-blob-transaction-table store)
              transaction))))
 
+(defun engine-payload-store-indexed-sender-nonce-transaction
+    (sender-index sender nonce)
+  (let ((sender-transactions
+          (gethash (address-to-hex sender) sender-index)))
+    (when sender-transactions
+      (gethash (write-to-string nonce :base 10) sender-transactions))))
+
+(defun engine-payload-store-pending-contiguous-nonce
+    (store sender state-nonce)
+  (loop with next-nonce = state-nonce
+        for transaction =
+          (engine-payload-store-indexed-sender-nonce-transaction
+           (engine-payload-store-pending-sender-index store)
+           sender
+           next-nonce)
+        while transaction
+          do (incf next-nonce)
+        finally (return next-nonce)))
+
+(defun engine-payload-store-queued-promotion-senders (store sender)
+  (if sender
+      (list sender)
+      (loop for sender-key
+              being the hash-keys of
+                (engine-payload-store-queued-sender-index store)
+            collect (address-from-hex sender-key))))
+
+(defun engine-payload-store-promote-queued-sender-transactions
+    (store sender head base-fee)
+  (let ((promoted-transactions nil))
+    (when (and head
+               (chain-store-state-available-p store (block-hash head)))
+      (let ((state-nonce
+              (chain-store-account-nonce store (block-hash head) sender)))
+        (loop for next-nonce =
+                (engine-payload-store-pending-contiguous-nonce
+                 store sender state-nonce)
+              for transaction =
+                (engine-payload-store-indexed-sender-nonce-transaction
+                 (engine-payload-store-queued-sender-index store)
+                 sender
+                 next-nonce)
+              while transaction
+              do (progn
+                   (engine-payload-store-remove-queued-transaction
+                    store
+                    (transaction-hash transaction))
+                   (push transaction promoted-transactions)
+                   (if (and base-fee
+                            (< (transaction-max-fee-per-gas transaction)
+                               base-fee))
+                       (progn
+                         (engine-payload-store-put-basefee-transaction
+                          store transaction)
+                         (return))
+                       (engine-payload-store-put-pending-transaction
+                        store transaction))))))
+    (nreverse promoted-transactions)))
+
+(defun engine-payload-store-promote-queued-transactions
+    (store &optional sender)
+  (let* ((head (chain-store-latest-block store))
+         (header (and head (block-header head)))
+         (base-fee (and header (block-header-base-fee-per-gas header)))
+         (promoted-transactions nil))
+    (dolist (candidate-sender
+             (engine-payload-store-queued-promotion-senders store sender))
+      (setf promoted-transactions
+            (nconc promoted-transactions
+                   (engine-payload-store-promote-queued-sender-transactions
+                    store candidate-sender head base-fee))))
+    promoted-transactions))
+
 (defun engine-payload-store-promote-basefee-transactions (store)
-  (let* ((head (chain-store-head-block store))
+  (let* ((head (chain-store-latest-block store))
          (header (and head (block-header head)))
          (base-fee (and header (block-header-base-fee-per-gas header)))
          (transactions
