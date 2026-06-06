@@ -110,6 +110,10 @@ fixes in those areas are allowed; expansion is not.
   Queued/basefee promotion also rechecks retained sender balance against
   cumulative pending expenditure, so transactions that were individually
   admissible while parked cannot overdraw the pending set after promotion.
+  Canonical-head updates now revalidate pending transactions against the new
+  retained base fee and sender balance before promotion, demoting
+  non-executable pending entries so public pending views expose only the
+  executable contiguous prefix.
   Nonce-gap routing now compares submissions against that pending-contiguous
   nonce, so follow-on same-sender transactions remain pending once earlier
   nonces are already pending. Blob subpool admission remains placeholder. A

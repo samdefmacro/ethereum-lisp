@@ -2573,6 +2573,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (engine-payload-memory-store-head-checkpoint store)
               (make-chain-store-checkpoint :label :head :block-hash hash)))
       (engine-payload-store-remove-stale-txpool-transactions store)
+      (engine-payload-store-revalidate-pending-transactions store)
       (engine-payload-store-promote-queued-transactions store)
       (engine-payload-store-promote-basefee-transactions store)
       head-block)))
@@ -3808,6 +3809,94 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (engine-payload-store-blob-transactions store)
          #'engine-pending-txpool-remove-blob-transaction)))
     (nreverse removed-transactions)))
+
+(defun engine-payload-store-pending-revalidation-senders (store)
+  (loop for sender-key
+          being the hash-keys of
+            (engine-payload-store-pending-sender-index store)
+        collect (address-from-hex sender-key)))
+
+(defun engine-payload-store-pending-sender-transactions
+    (store sender)
+  (sort
+   (loop for transaction in (engine-payload-store-pending-transactions store)
+         when (and (transaction-sender transaction)
+                   (bytes= (address-bytes (transaction-sender transaction))
+                           (address-bytes sender)))
+           collect transaction)
+   #'<
+   :key #'transaction-nonce))
+
+(defun engine-payload-store-demote-pending-transaction
+    (store transaction base-fee)
+  (engine-payload-store-remove-pending-transaction
+   store
+   (transaction-hash transaction))
+  (if (and base-fee
+           (< (transaction-max-fee-per-gas transaction) base-fee))
+      (engine-payload-store-put-basefee-transaction store transaction)
+      (engine-payload-store-put-queued-transaction store transaction))
+  transaction)
+
+(defun engine-payload-store-revalidate-pending-sender-transactions
+    (store sender head base-fee)
+  (let* ((block-hash (block-hash head))
+         (state-nonce
+           (chain-store-account-nonce store block-hash sender))
+         (balance-retained-p
+           (engine-payload-store-account-balance-retained-p
+            store block-hash sender))
+         (remaining-balance
+           (and balance-retained-p
+                (chain-store-account-balance store block-hash sender)))
+         (next-nonce state-nonce)
+         (blocked-p nil)
+         (demoted-transactions nil))
+    (dolist (transaction
+             (engine-payload-store-pending-sender-transactions store sender))
+      (cond
+        ((< (transaction-nonce transaction) state-nonce)
+         (engine-payload-store-remove-pending-transaction
+          store
+          (transaction-hash transaction)))
+        ((or blocked-p
+             (/= (transaction-nonce transaction) next-nonce)
+             (and base-fee
+                  (< (transaction-max-fee-per-gas transaction) base-fee)))
+         (engine-payload-store-demote-pending-transaction
+          store transaction base-fee)
+         (setf blocked-p t)
+         (push transaction demoted-transactions))
+        ((and balance-retained-p
+              (< remaining-balance
+                 (engine-payload-store-txpool-upfront-cost transaction)))
+         (engine-payload-store-demote-pending-transaction
+          store transaction base-fee)
+         (setf blocked-p t)
+         (push transaction demoted-transactions))
+        (t
+         (when balance-retained-p
+           (decf remaining-balance
+                 (engine-payload-store-txpool-upfront-cost transaction)))
+         (incf next-nonce))))
+    (nreverse demoted-transactions)))
+
+(defun engine-payload-store-revalidate-pending-transactions (store)
+  (let ((head (chain-store-latest-block store))
+        (demoted-transactions nil))
+    (when (and head
+               (chain-store-state-available-p store (block-hash head)))
+      (let* ((header (block-header head))
+             (base-fee (and header
+                            (block-header-base-fee-per-gas header))))
+        (dolist (sender
+                 (engine-payload-store-pending-revalidation-senders store))
+          (setf demoted-transactions
+                (nconc
+                 demoted-transactions
+                 (engine-payload-store-revalidate-pending-sender-transactions
+                  store sender head base-fee))))))
+    demoted-transactions))
 
 (defun engine-payload-store-pending-transaction (store hash)
   (engine-pending-txpool-pending-transaction

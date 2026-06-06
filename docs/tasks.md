@@ -3936,6 +3936,12 @@ splits can land after the Phase A smoke path closes.
     pending. Transactions that were individually admissible while parked in a
     non-executable subpool no longer make the pending set overdrawn after a
     nonce gap closes or a base-fee drop makes them otherwise eligible.
+  - Progress: canonical-head updates now also revalidate the existing pending
+    subpool against the new retained state before promotion. Pending
+    transactions that become base-fee ineligible are demoted into the basefee
+    queued view, and same-sender pending tails that exceed the new retained
+    balance are demoted into queued so `eth_pendingTransactions` and pending
+    nonces only expose the executable contiguous prefix.
   - Progress: queued nonce-gap promotion now lives on the txpool store
     boundary and also runs after canonical-head updates. If retained sender
     state advances and closes a nonce gap, contiguous queued transactions move
