@@ -11,6 +11,7 @@
 (defconstant +devnet-smoke-gate-fixture-case-option+ "--fixture-case")
 (defconstant +devnet-smoke-gate-ready-file-option+ "--ready-file")
 (defconstant +devnet-smoke-gate-log-file-option+ "--log-file")
+(defconstant +devnet-smoke-gate-all-fixtures-flag+ "--all-fixtures")
 (defconstant +devnet-smoke-gate-default-fixture-case+
   "shanghai-one-transfer-with-withdrawal")
 
@@ -28,10 +29,35 @@
 (defun devnet-smoke-gate-help-p (args)
   (member +devnet-smoke-gate-help-flag+ args :test #'string=))
 
+(defun devnet-smoke-gate-all-fixtures-p (args)
+  (member +devnet-smoke-gate-all-fixtures-flag+ args :test #'string=))
+
 (defun devnet-smoke-gate-option-like-p (value)
   (and (stringp value)
        (plusp (length value))
        (char= #\- (char value 0))))
+
+(defun devnet-smoke-gate-fixture-case-specified-p (args)
+  (let ((specified-p nil))
+    (loop while args
+          for arg = (pop args)
+          do
+          (cond
+            ((or (string= arg +devnet-smoke-gate-json-flag+)
+                 (string= arg +devnet-smoke-gate-help-flag+)
+                 (string= arg +devnet-smoke-gate-all-fixtures-flag+)))
+            ((or (string= arg +devnet-smoke-gate-ready-file-option+)
+                 (string= arg +devnet-smoke-gate-log-file-option+)
+                 (string= arg +devnet-smoke-gate-fixture-case-option+))
+             (when (and (string= arg +devnet-smoke-gate-fixture-case-option+)
+                        args)
+               (setf specified-p t))
+             (when args
+               (pop args)))
+            ((devnet-smoke-gate-option-like-p arg))
+            (t
+             (setf specified-p t))))
+    specified-p))
 
 (defun devnet-smoke-gate-fixture-case-name (args)
   (let ((fixture-case nil))
@@ -41,6 +67,7 @@
           (cond
             ((string= arg +devnet-smoke-gate-json-flag+))
             ((string= arg +devnet-smoke-gate-help-flag+))
+            ((string= arg +devnet-smoke-gate-all-fixtures-flag+))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
                  (string= arg +devnet-smoke-gate-log-file-option+))
              (unless args
@@ -97,6 +124,7 @@
   (format t "~%")
   (format t "Options:~%")
   (format t "  --fixture-case NAME  Engine newPayloadV2 fixture case to import.~%")
+  (format t "  --all-fixtures       Import every pinned Phase A newPayloadV2 smoke case.~%")
   (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
   (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
@@ -204,6 +232,19 @@
 (defun devnet-smoke-gate-field (object name)
   (cdr (assoc name object :test #'string=)))
 
+(defun devnet-smoke-gate-balance-target (expect)
+  (cond
+    ((fixture-field-present-p expect "recipient")
+     (values (fixture-address-field expect "recipient")
+             (fixture-object-field expect "recipientBalance")
+             "recipientBalance"))
+    ((fixture-field-present-p expect "contractAddress")
+     (values (fixture-address-field expect "contractAddress")
+             (fixture-object-field expect "contractBalance")
+             "contractBalance"))
+    (t
+     (error "Devnet smoke gate fixture expect must contain recipient or contractAddress"))))
+
 (defun devnet-smoke-gate-verify-ready-file (path)
   (let ((summary (parse-json (devnet-smoke-gate-file-string path))))
     (devnet-smoke-gate-require
@@ -284,7 +325,9 @@
                                 :jwt-secret-path (namestring jwt-path)
                                 :log-path log-file
                                 :telemetry-sink telemetry-sink))
-                  (recipient (fixture-address-field expect "recipient"))
+                  (balance-address nil)
+                  (expected-balance nil)
+                  (balance-field nil)
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token secret 0))
                   (new-payload-output (make-string-output-stream))
@@ -305,18 +348,23 @@
                         :finalized (block-hash parent-block)))
                       forkchoice-output)))
                   (public-requests
-                    (list
-                     (cons
-                      (json-encode
-                       (list (cons "jsonrpc" "2.0")
-                             (cons "id" 31)
-                             (cons "method" "eth_blockNumber")
-                             (cons "params" '())))
-                      block-number-output)
-                     (cons
-                      (json-encode
-                       (engine-fixture-balance-request 32 recipient))
-                      balance-output)))
+                    (multiple-value-bind (address balance field)
+                        (devnet-smoke-gate-balance-target expect)
+                      (setf balance-address address
+                            expected-balance balance
+                            balance-field field)
+                      (list
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 31)
+                               (cons "method" "eth_blockNumber")
+                               (cons "params" '())))
+                        block-number-output)
+                       (cons
+                        (json-encode
+                         (engine-fixture-balance-request 32 balance-address))
+                        balance-output))))
                   (engine-served-count 0)
                   (engine-done-p nil)
                   (public-served-count 0))
@@ -417,8 +465,6 @@
                         (hash32-to-hex (block-hash child-block)))
                       (expected-block-number
                         (fixture-object-field payload-case "number"))
-                      (expected-balance
-                        (fixture-object-field expect "recipientBalance"))
                       (actual-block-number
                         (fixture-object-field block-number-rpc "result"))
                       (actual-balance
@@ -462,10 +508,10 @@
                   expected-block-number
                   actual-block-number)
                  (devnet-smoke-gate-require
-                  (string= expected-balance actual-balance)
-                  "eth_getBalance mismatch: expected ~A got ~A"
-                  expected-balance
-                  actual-balance)
+                 (string= expected-balance actual-balance)
+                 "eth_getBalance mismatch: expected ~A got ~A"
+                 expected-balance
+                 actual-balance)
                  (list
                   (cons "status" "ok")
                   (cons "mode" "devnet-listener-boundary")
@@ -482,6 +528,10 @@
                   (cons "forkchoiceStatus"
                         (fixture-object-field forkchoice-status "status"))
                   (cons "blockNumber" actual-block-number)
+                  (cons "checkedBalanceAddress"
+                        (address-to-hex balance-address))
+                  (cons "checkedBalanceField" balance-field)
+                  (cons "checkedBalance" actual-balance)
                   (cons "recipientBalance" actual-balance)
                   (cons "readyFile" (or ready-file :false))
                   (cons "logFile" (or log-file :false))))))))))
@@ -495,32 +545,84 @@
   #-sbcl
   (error "Devnet smoke gate requires SBCL threads"))
 
+(defun devnet-smoke-gate-run-all (case-names)
+  (let* ((reports
+           (mapcar #'devnet-smoke-gate-run case-names))
+         (engine-connections
+           (reduce #'+ reports
+                   :key (lambda (report)
+                          (devnet-smoke-gate-field report
+                                                   "engineConnections"))
+                   :initial-value 0))
+         (public-connections
+           (reduce #'+ reports
+                   :key (lambda (report)
+                          (devnet-smoke-gate-field report
+                                                   "publicConnections"))
+                   :initial-value 0)))
+    (devnet-smoke-gate-require
+     (= (length case-names) (length reports))
+     "Devnet smoke gate suite case count mismatch")
+    (list
+     (cons "status" "ok")
+     (cons "mode" "devnet-listener-boundary-suite")
+     (cons "caseCount" (length reports))
+     (cons "fixtureCases" case-names)
+     (cons "engineConnections" engine-connections)
+     (cons "publicConnections" public-connections)
+     (cons "totalConnections" (+ engine-connections public-connections))
+     (cons "cases" reports))))
+
+(defun devnet-smoke-gate-suite-report-p (report)
+  (string= "devnet-listener-boundary-suite"
+           (or (devnet-smoke-gate-field report "mode") "")))
+
 (defun devnet-smoke-gate-print-text (report)
   (format t "~&status=~A~%" (devnet-smoke-gate-field report "status"))
   (format t "mode=~A~%" (devnet-smoke-gate-field report "mode"))
-  (format t "fixtureCase=~A~%" (devnet-smoke-gate-field report "fixtureCase"))
+  (when (devnet-smoke-gate-suite-report-p report)
+    (format t "caseCount=~D~%" (devnet-smoke-gate-field report "caseCount")))
+  (unless (devnet-smoke-gate-suite-report-p report)
+    (format t "fixtureCase=~A~%"
+            (devnet-smoke-gate-field report "fixtureCase")))
   (format t "engineConnections=~D~%"
           (devnet-smoke-gate-field report "engineConnections"))
   (format t "publicConnections=~D~%"
           (devnet-smoke-gate-field report "publicConnections"))
   (format t "totalConnections=~D~%"
           (devnet-smoke-gate-field report "totalConnections"))
-  (format t "newPayloadStatus=~A~%"
-          (devnet-smoke-gate-field report "newPayloadStatus"))
-  (format t "latestValidHash=~A~%"
-          (devnet-smoke-gate-field report "latestValidHash"))
-  (format t "forkchoiceStatus=~A~%"
-          (devnet-smoke-gate-field report "forkchoiceStatus"))
-  (format t "blockNumber=~A~%" (devnet-smoke-gate-field report "blockNumber"))
-  (format t "recipientBalance=~A~%"
-          (devnet-smoke-gate-field report "recipientBalance"))
-  (format t "readyFile=~A~%" (devnet-smoke-gate-field report "readyFile"))
-  (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile")))
+  (if (devnet-smoke-gate-suite-report-p report)
+      (dolist (case-report (devnet-smoke-gate-field report "cases"))
+        (format t "case=~A status=~A blockNumber=~A checkedBalance=~A~%"
+                (devnet-smoke-gate-field case-report "fixtureCase")
+                (devnet-smoke-gate-field case-report "newPayloadStatus")
+                (devnet-smoke-gate-field case-report "blockNumber")
+                (devnet-smoke-gate-field case-report "checkedBalance")))
+      (progn
+        (format t "newPayloadStatus=~A~%"
+                (devnet-smoke-gate-field report "newPayloadStatus"))
+        (format t "latestValidHash=~A~%"
+                (devnet-smoke-gate-field report "latestValidHash"))
+        (format t "forkchoiceStatus=~A~%"
+                (devnet-smoke-gate-field report "forkchoiceStatus"))
+        (format t "blockNumber=~A~%"
+                (devnet-smoke-gate-field report "blockNumber"))
+        (format t "checkedBalanceAddress=~A~%"
+                (devnet-smoke-gate-field report "checkedBalanceAddress"))
+        (format t "checkedBalanceField=~A~%"
+                (devnet-smoke-gate-field report "checkedBalanceField"))
+        (format t "checkedBalance=~A~%"
+                (devnet-smoke-gate-field report "checkedBalance"))
+        (format t "recipientBalance=~A~%"
+                (devnet-smoke-gate-field report "recipientBalance"))
+        (format t "readyFile=~A~%" (devnet-smoke-gate-field report "readyFile"))
+        (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))
          (help-p (devnet-smoke-gate-help-p args))
          (json-p (devnet-smoke-gate-json-p args))
+         (all-fixtures-p (devnet-smoke-gate-all-fixtures-p args))
          (ready-file
            (devnet-smoke-gate-path-option
             args +devnet-smoke-gate-ready-file-option+))
@@ -530,10 +632,21 @@
          (case-name (devnet-smoke-gate-fixture-case-name args)))
     (if help-p
         (devnet-smoke-gate-print-help)
-        (let ((report (devnet-smoke-gate-run
-                       case-name
-                       :ready-file ready-file
-                       :log-file log-file)))
+        (let ((report
+                (if all-fixtures-p
+                    (progn
+                      (when (devnet-smoke-gate-fixture-case-specified-p args)
+                        (error "~A cannot be combined with a fixture case"
+                               +devnet-smoke-gate-all-fixtures-flag+))
+                      (when (or ready-file log-file)
+                        (error "~A cannot be combined with --ready-file or --log-file"
+                               +devnet-smoke-gate-all-fixtures-flag+))
+                      (devnet-smoke-gate-run-all
+                       +engine-newpayload-v2-smoke-case-names+))
+                    (devnet-smoke-gate-run
+                     case-name
+                     :ready-file ready-file
+                     :log-file log-file))))
           (if json-p
               (format t "~&~A~%" (json-encode report))
               (devnet-smoke-gate-print-text report))))))

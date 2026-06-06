@@ -665,12 +665,12 @@ first pass, but interfaces must not block that path.
   `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, unauthenticated public latest-state reads, and
   standalone smoke-gate validation of readiness JSON plus ready/shutdown
-  telemetry.
+  telemetry across every pinned Phase A `engine_newPayloadV2` smoke fixture.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
-  cross-client Engine fixture breadth beyond the pinned v5.4.0 Shanghai
-  `engine_newPayloadV2` replay slice, and concrete long-running devnet/Hive
-  lifecycle ergonomics beyond the current readiness, log-file, and shutdown
-  contract.
+  cross-client Engine fixture breadth beyond the local pinned Shanghai
+  `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
+  lifecycle ergonomics beyond the current readiness, log-file, shutdown, and
+  bounded fixture-import smoke contract.
 - *Missing for Phase A:* broader cross-client Engine payload smoke breadth
   around the existing Shanghai path, plus any Cancun blob execution acceptance
   until real KZG verification is available.

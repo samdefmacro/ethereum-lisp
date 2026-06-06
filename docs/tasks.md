@@ -4137,6 +4137,12 @@ splits can land after the Phase A smoke path closes.
     readiness JSON plus `devnet.ready`/`devnet.shutdown` telemetry around the
     same authenticated Engine import and public latest-state read sequence, so
     the process-runner contract is covered by an executable smoke script.
+  - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
+    The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
+    declared in the fixture metadata, including legacy, access-list,
+    dynamic-fee, contract-creation, and internal Create2 paths, while checking
+    Engine import, forkchoice, public block number, and the relevant recipient
+    or contract balance for each case.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

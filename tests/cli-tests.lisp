@@ -853,6 +853,50 @@
       (when (probe-file log-path)
         (delete-file log-path)))))
 
+(deftest devnet-smoke-gate-script-runs-all-pinned-fixtures
+  #-sbcl
+  (skip-test "Devnet smoke gate script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/devnet-smoke-gate.lisp"
+             "--"
+             "--json"
+             "--all-fixtures")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (cases (fixture-object-field report "cases"))
+             (case-names
+               (mapcar (lambda (case)
+                         (fixture-object-field case "fixtureCase"))
+                       cases)))
+        (is (string= "ok" (fixture-object-field report "status")))
+        (is (string= "devnet-listener-boundary-suite"
+                     (fixture-object-field report "mode")))
+        (is (= (length +engine-newpayload-v2-smoke-case-names+)
+               (fixture-object-field report "caseCount")))
+        (is (= 10 (fixture-object-field report "engineConnections")))
+        (is (= 10 (fixture-object-field report "publicConnections")))
+        (is (= 20 (fixture-object-field report "totalConnections")))
+        (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
+        (dolist (case cases)
+          (is (string= "ok" (fixture-object-field case "status")))
+          (is (string= +payload-status-valid+
+                       (fixture-object-field case "newPayloadStatus")))
+          (is (string= +payload-status-valid+
+                       (fixture-object-field case "forkchoiceStatus")))
+          (is (= 2 (fixture-object-field case "engineConnections")))
+          (is (= 2 (fixture-object-field case "publicConnections")))
+          (is (string= "0x2a"
+                       (fixture-object-field case "blockNumber"))))))))
+
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))
