@@ -354,7 +354,9 @@
       (uiop:run-program
        (list "sbcl"
              "--script"
-             "scripts/devnet-smoke-gate.lisp"
+             (namestring
+              (smoke-gate-reference-path
+               "scripts/devnet-smoke-gate.lisp"))
              "--"
              "--json"
              "--all-fixtures")

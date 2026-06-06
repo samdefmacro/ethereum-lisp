@@ -427,6 +427,11 @@ ones.
     no positional root or `--root PATH` is supplied. This keeps automation that
     already exports the pinned EEST extraction aligned with the explicit-root
     gate while preserving the in-repo root default for normal smoke runs.
+  - Result: Phase A smoke-gate `--devnet` mode is now independent of the
+    caller's current working directory. The parent gate launches the devnet
+    child script through the repository-root path, and the devnet gate resolves
+    its genesis plus Engine fixture inputs from the script root, so external
+    runners can invoke the gate from temporary working directories.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

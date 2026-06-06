@@ -204,7 +204,9 @@
 (defun devnet-smoke-gate-engine-fixture (case-name)
   (let* ((case
            (select-engine-newpayload-v2-fixture-case
-            +engine-newpayload-v2-fixture-path+
+            (namestring
+             (devnet-smoke-gate-reference-path
+              +engine-newpayload-v2-fixture-path+))
             case-name))
          (store (make-engine-payload-memory-store))
          (config (engine-fixture-chain-config case))
@@ -424,7 +426,10 @@
                                (devnet-smoke-gate-field fixture "expect"))
                              (node
                                (ethereum-lisp.cli:make-devnet-node
-                                :genesis-path +devnet-cli-genesis-fixture+
+                                :genesis-path
+                                (namestring
+                                 (devnet-smoke-gate-reference-path
+                                  +devnet-cli-genesis-fixture+))
                                 :port 8551
                                 :public-port 8545
                                 :jwt-secret-path (namestring jwt-path)

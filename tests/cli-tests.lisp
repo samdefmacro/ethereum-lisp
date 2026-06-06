@@ -1117,6 +1117,37 @@
         (is (= 10 (fixture-object-field devnet "publicConnections")))
         (is (= 20 (fixture-object-field devnet "totalConnections")))))))
 
+(deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
+  #-sbcl
+  (skip-test "Phase A smoke gate cwd-independent devnet mode requires SBCL")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/phase-a-smoke-gate.lisp")))
+        (root (namestring
+               (truename "tests/fixtures/execution-spec-tests-root/"))))
+    (multiple-value-bind (stdout stderr status)
+        (uiop:run-program
+         (list "sbcl"
+               "--script"
+               script
+               "--"
+               "--json"
+               "--devnet"
+               "--root"
+               root)
+         :directory #P"/private/tmp/"
+         :output :string
+         :error-output :string
+         :ignore-error-status t)
+      (is (= 0 status))
+      (is (string= "" stderr))
+      (when (= 0 status)
+        (let* ((report (parse-json stdout))
+               (devnet (fixture-object-field report "devnet")))
+          (is (string= "ok" (fixture-object-field report "status")))
+          (is (string= "ok" (fixture-object-field devnet "status")))
+          (is (string= "devnet-listener-boundary-suite"
+                       (fixture-object-field devnet "mode"))))))))
+
 (deftest phase-a-smoke-gate-pinned-mode-defaults-to-eest-root-env
   #-sbcl
   (skip-test "Phase A smoke gate pinned mode requires SBCL")
