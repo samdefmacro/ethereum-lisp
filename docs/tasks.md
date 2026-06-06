@@ -3980,6 +3980,11 @@ splits can land after the Phase A smoke path closes.
     removal, cross-subpool conflict checks, and txpool snapshot copying no
     longer depend on scanning those placeholder hash tables for
     same-sender/same-nonce entries.
+  - Progress: retained-state basefee promotion now walks the basefee
+    sender/nonce index by sender and executable nonce, instead of repeatedly
+    searching the whole basefee subpool. The old flat search remains only for
+    the no-retained-state fallback path, preserving edge behavior while keeping
+    canonical-head basefee drops aligned with sender-grouped txpool structure.
 
 ## P1: Public RPC Execution APIs
 

@@ -3681,6 +3681,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (loop for transaction being the hash-values of sender-transactions
             collect transaction))))
 
+(defun engine-payload-store-indexed-senders (sender-index)
+  (loop for sender-key being the hash-keys of sender-index
+        collect (address-from-hex sender-key)))
+
 (defun engine-payload-store-pending-contiguous-nonce
     (store sender state-nonce)
   (loop with next-nonce = state-nonce
@@ -3826,19 +3830,49 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (header (and head (block-header head)))
          (base-fee (and header (block-header-base-fee-per-gas header)))
          (promoted-transactions nil))
-    (loop for transaction =
-            (find-if
-             (lambda (transaction)
-               (engine-payload-store-basefee-promotable-transaction-p
-                store transaction base-fee))
-             (engine-payload-store-basefee-transactions store))
-          while transaction
-          do (progn
-               (engine-pending-txpool-remove-basefee-transaction
-                (engine-payload-store-txpool store)
-                (transaction-hash transaction))
-               (engine-payload-store-put-pending-transaction store transaction)
-               (push transaction promoted-transactions)))
+    (if (and head
+             (chain-store-state-available-p store (block-hash head)))
+        (dolist (sender
+                 (engine-payload-store-indexed-senders
+                  (engine-payload-store-basefee-sender-index store)))
+          (loop for next-nonce =
+                  (engine-payload-store-pending-contiguous-nonce
+                   store
+                   sender
+                   (chain-store-account-nonce
+                    store
+                    (block-hash head)
+                    sender))
+                for transaction =
+                  (engine-payload-store-indexed-sender-nonce-transaction
+                   (engine-payload-store-basefee-sender-index store)
+                   sender
+                   next-nonce)
+                while transaction
+                do (if (engine-payload-store-basefee-promotable-transaction-p
+                        store transaction base-fee)
+                       (progn
+                         (engine-pending-txpool-remove-basefee-transaction
+                          (engine-payload-store-txpool store)
+                          (transaction-hash transaction))
+                         (engine-payload-store-put-pending-transaction
+                          store transaction)
+                         (push transaction promoted-transactions))
+                       (return))))
+        (loop for transaction =
+                (find-if
+                 (lambda (transaction)
+                   (engine-payload-store-basefee-promotable-transaction-p
+                    store transaction base-fee))
+                 (engine-payload-store-basefee-transactions store))
+              while transaction
+              do (progn
+                   (engine-pending-txpool-remove-basefee-transaction
+                    (engine-payload-store-txpool store)
+                    (transaction-hash transaction))
+                   (engine-payload-store-put-pending-transaction
+                    store transaction)
+                   (push transaction promoted-transactions))))
     (nreverse promoted-transactions)))
 
 (defun engine-payload-store-stale-txpool-transaction-p

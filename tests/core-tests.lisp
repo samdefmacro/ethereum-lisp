@@ -13628,6 +13628,101 @@
           (is (string= closing-hash (first filter-hashes)))
           (is (string= gap-hash (second filter-hashes))))))))
 
+(deftest engine-payload-store-promotes-basefee-transactions-by-sender-index
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (sender-a-nonce-zero
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 4
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (sender-a-nonce-one
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1
+             :gas-price 4
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (sender-a-nonce-three
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 3
+             :gas-price 4
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (sender-b-nonce-zero
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 4
+             :gas-limit 21000
+             :to recipient)
+            2
+            1))
+         (sender-a
+           (transaction-sender sender-a-nonce-zero :expected-chain-id 1))
+         (sender-b
+           (transaction-sender sender-b-nonce-zero :expected-chain-id 1))
+         (head-block
+           (make-block
+            :header (make-block-header :number 0
+                                       :timestamp 0
+                                       :gas-limit 30000000
+                                       :base-fee-per-gas 3))))
+    (chain-store-put-block store head-block :state-available-p t)
+    (chain-store-put-account-nonce store (block-hash head-block) sender-a 0)
+    (chain-store-put-account-nonce store (block-hash head-block) sender-b 0)
+    (chain-store-put-account-balance
+     store (block-hash head-block) sender-a 1000000)
+    (chain-store-put-account-balance
+     store (block-hash head-block) sender-b 1000000)
+    (dolist (transaction
+             (list sender-a-nonce-three
+                   sender-b-nonce-zero
+                   sender-a-nonce-one
+                   sender-a-nonce-zero))
+      (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+       store
+       transaction))
+    (let ((promoted
+            (ethereum-lisp.core::engine-payload-store-promote-basefee-transactions
+             store))
+          (sender-a-pending
+            (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+             store
+             sender-a))
+          (sender-b-pending
+            (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+             store
+             sender-b)))
+      (is (= 3 (length promoted)))
+      (is (= 3
+             (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+              store)))
+      (is (= 1
+             (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+              store)))
+      (is (eq sender-a-nonce-zero (first sender-a-pending)))
+      (is (eq sender-a-nonce-one (second sender-a-pending)))
+      (is (eq sender-b-nonce-zero (first sender-b-pending)))
+      (is (null
+           (ethereum-lisp.core::engine-payload-store-pending-transaction
+            store
+            (transaction-hash sender-a-nonce-three))))
+      (is (eq sender-a-nonce-three
+              (ethereum-lisp.core::engine-payload-store-pooled-transaction
+               store
+               (transaction-hash sender-a-nonce-three)))))))
+
 (deftest txpool-queued-promotion-rechecks-pending-balance
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
