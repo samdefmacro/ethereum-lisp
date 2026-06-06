@@ -3889,6 +3889,11 @@ splits can land after the Phase A smoke path closes.
     Queued transactions remain visible through hash transaction lookups and
     `txpool_*` queued views, while `eth_pendingTransactions` and pending
     transaction filters stay limited to pending transactions.
+  - Progress: base-fee-ineligible submissions now enter the basefee subpool
+    when the latest head has a base fee higher than the transaction max fee.
+    Public txpool RPCs expose those transactions through the queued view and
+    hash lookups, and the pending nonce view accounts for them without
+    notifying pending transaction filters.
 
 ## P1: Public RPC Execution APIs
 

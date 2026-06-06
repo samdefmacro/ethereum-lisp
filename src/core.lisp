@@ -3131,6 +3131,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (engine-pending-txpool-remove-blob-transaction txpool hash))
   (engine-pending-txpool-remove-pending-conflict txpool transaction)
   (engine-pending-txpool-remove-queued-conflict txpool transaction)
+  (engine-pending-txpool-remove-flat-conflict
+   (engine-pending-txpool-basefee-transactions txpool)
+   transaction)
+  (engine-pending-txpool-remove-flat-conflict
+   (engine-pending-txpool-blob-transactions txpool)
+   transaction)
   transaction)
 
 (defun engine-pending-txpool-replacement-price-bumped-p
@@ -3211,6 +3217,64 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            transaction)
           (values transaction t)))))
 
+(defun engine-pending-txpool-flat-conflict
+    (transactions transaction)
+  (loop for candidate being the hash-values of transactions
+        when (and (equal (engine-pending-txpool-sender-key candidate)
+                         (engine-pending-txpool-sender-key transaction))
+                  (string= (engine-pending-txpool-nonce-key candidate)
+                           (engine-pending-txpool-nonce-key transaction)))
+          return candidate))
+
+(defun engine-pending-txpool-remove-flat-conflict
+    (transactions transaction)
+  (let ((conflict
+          (engine-pending-txpool-flat-conflict
+           transactions
+           transaction)))
+    (when conflict
+      (remhash
+       (engine-pending-txpool-hash-key (transaction-hash conflict))
+       transactions)
+      conflict)))
+
+(defun engine-pending-txpool-put-flat-transaction
+    (transactions transaction replacement-label)
+  (let ((key (engine-pending-txpool-hash-key
+              (transaction-hash transaction))))
+    (if (gethash key transactions)
+        (values transaction nil)
+        (progn
+          (let ((conflict
+                  (engine-pending-txpool-flat-conflict
+                   transactions
+                   transaction)))
+            (when conflict
+              (unless (engine-pending-txpool-replacement-transaction-p
+                       conflict transaction)
+                (block-validation-fail
+                 "~A transaction replacement underpriced"
+                 replacement-label))
+              (remhash
+               (engine-pending-txpool-hash-key (transaction-hash conflict))
+               transactions)))
+          (setf (gethash key transactions) transaction)
+          (values transaction t)))))
+
+(defun engine-pending-txpool-put-basefee-transaction
+    (txpool transaction)
+  (engine-pending-txpool-put-flat-transaction
+   (engine-pending-txpool-basefee-transactions txpool)
+   transaction
+   "Basefee"))
+
+(defun engine-pending-txpool-put-blob-transaction
+    (txpool transaction)
+  (engine-pending-txpool-put-flat-transaction
+   (engine-pending-txpool-blob-transactions txpool)
+   transaction
+   "Blob"))
+
 (defun engine-pending-txpool-pending-transaction (txpool hash)
   (gethash (engine-pending-txpool-hash-key hash)
            (engine-pending-txpool-transactions txpool)))
@@ -3219,25 +3283,31 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (gethash (engine-pending-txpool-hash-key hash)
            (engine-pending-txpool-queued-transactions txpool)))
 
-(defun engine-pending-txpool-pending-transactions (txpool)
+(defun engine-pending-txpool-transaction-list (transactions)
   (sort
    (loop for transaction
            being the hash-values of
-             (engine-pending-txpool-transactions txpool)
+             transactions
          collect transaction)
    #'string<
    :key (lambda (transaction)
           (hash32-to-hex (transaction-hash transaction)))))
 
+(defun engine-pending-txpool-pending-transactions (txpool)
+  (engine-pending-txpool-transaction-list
+   (engine-pending-txpool-transactions txpool)))
+
 (defun engine-pending-txpool-queued-transaction-list (txpool)
-  (sort
-   (loop for transaction
-           being the hash-values of
-             (engine-pending-txpool-queued-transactions txpool)
-         collect transaction)
-   #'string<
-   :key (lambda (transaction)
-          (hash32-to-hex (transaction-hash transaction)))))
+  (engine-pending-txpool-transaction-list
+   (engine-pending-txpool-queued-transactions txpool)))
+
+(defun engine-pending-txpool-basefee-transaction-list (txpool)
+  (engine-pending-txpool-transaction-list
+   (engine-pending-txpool-basefee-transactions txpool)))
+
+(defun engine-pending-txpool-blob-transaction-list (txpool)
+  (engine-pending-txpool-transaction-list
+   (engine-pending-txpool-blob-transactions txpool)))
 
 (defun engine-pending-txpool-pending-count (txpool)
   (hash-table-count (engine-pending-txpool-transactions txpool)))
@@ -3381,6 +3451,40 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (declare (ignore inserted-p))
     transaction))
 
+(defun engine-payload-store-put-basefee-transaction (store transaction)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep transaction
+                 '(or legacy-transaction
+                      access-list-transaction
+                      dynamic-fee-transaction
+                      blob-transaction
+                      set-code-transaction))
+    (block-validation-fail "Basefee transaction must be a transaction"))
+  (multiple-value-bind (transaction inserted-p)
+      (engine-pending-txpool-put-basefee-transaction
+       (engine-payload-store-txpool store)
+       transaction)
+    (declare (ignore inserted-p))
+    transaction))
+
+(defun engine-payload-store-put-blob-transaction (store transaction)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep transaction
+                 '(or legacy-transaction
+                      access-list-transaction
+                      dynamic-fee-transaction
+                      blob-transaction
+                      set-code-transaction))
+    (block-validation-fail "Blob transaction must be a transaction"))
+  (multiple-value-bind (transaction inserted-p)
+      (engine-pending-txpool-put-blob-transaction
+       (engine-payload-store-txpool store)
+       transaction)
+    (declare (ignore inserted-p))
+    transaction))
+
 (defun engine-payload-store-pending-transaction (store hash)
   (engine-pending-txpool-pending-transaction
    (engine-payload-store-txpool store)
@@ -3393,7 +3497,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-pooled-transaction (store hash)
   (or (engine-payload-store-pending-transaction store hash)
-      (engine-payload-store-queued-transaction store hash)))
+      (engine-payload-store-queued-transaction store hash)
+      (gethash (engine-pending-txpool-hash-key hash)
+               (engine-payload-store-basefee-transaction-table store))
+      (gethash (engine-pending-txpool-hash-key hash)
+               (engine-payload-store-blob-transaction-table store))))
 
 (defun engine-payload-store-pending-transactions (store)
   (engine-pending-txpool-pending-transactions
@@ -3403,10 +3511,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (engine-pending-txpool-queued-transaction-list
    (engine-payload-store-txpool store)))
 
+(defun engine-payload-store-basefee-transactions (store)
+  (engine-pending-txpool-basefee-transaction-list
+   (engine-payload-store-txpool store)))
+
+(defun engine-payload-store-blob-transactions (store)
+  (engine-pending-txpool-blob-transaction-list
+   (engine-payload-store-txpool store)))
+
 (defun engine-payload-store-pooled-transactions (store)
   (sort
    (append (engine-payload-store-pending-transactions store)
-           (engine-payload-store-queued-transactions store))
+           (engine-payload-store-queued-transactions store)
+           (engine-payload-store-basefee-transactions store)
+           (engine-payload-store-blob-transactions store))
    #'string<
    :key (lambda (transaction)
           (hash32-to-hex (transaction-hash transaction)))))

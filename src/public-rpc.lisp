@@ -1531,6 +1531,16 @@
          (> (transaction-nonce transaction)
             (chain-store-account-nonce store (block-hash head) sender)))))
 
+(defun eth-rpc-txpool-basefee-ineligible-p (store transaction)
+  (multiple-value-bind (head block-number timestamp)
+      (eth-rpc-txpool-admission-head-context store)
+    (declare (ignore block-number timestamp))
+    (let* ((header (and head (block-header head)))
+           (base-fee (and header
+                          (block-header-base-fee-per-gas header))))
+      (and base-fee
+           (< (transaction-max-fee-per-gas transaction) base-fee)))))
+
 (defun eth-rpc-validate-txpool-admission
     (transaction sender store config)
   (multiple-value-bind (head block-number timestamp)
@@ -1707,10 +1717,24 @@
       (eth-rpc-validate-txpool-admission transaction sender store config)
       (unless (or (chain-store-transaction-location store hash)
                   (engine-payload-store-pooled-transaction store hash))
-        (if (eth-rpc-txpool-queued-nonce-gap-p store sender transaction)
-            (engine-payload-store-put-queued-transaction store transaction)
-            (engine-payload-store-put-pending-transaction store transaction))))
+        (cond
+          ((eth-rpc-txpool-basefee-ineligible-p store transaction)
+           (engine-payload-store-put-basefee-transaction store transaction))
+          ((eth-rpc-txpool-queued-nonce-gap-p store sender transaction)
+           (engine-payload-store-put-queued-transaction store transaction))
+          (t
+           (engine-payload-store-put-pending-transaction store transaction)))))
     (hash32-to-hex hash)))
+
+(defun eth-rpc-txpool-queued-view-transactions (store)
+  (append (engine-payload-store-queued-transactions store)
+          (engine-payload-store-basefee-transactions store)
+          (engine-payload-store-blob-transactions store)))
+
+(defun eth-rpc-txpool-queued-view-count (store)
+  (+ (engine-payload-store-queued-transaction-count store)
+     (engine-payload-store-basefee-transaction-count store)
+     (engine-payload-store-blob-transaction-count store)))
 
 (defun engine-rpc-handle-eth-pending-transactions (params store)
   (when params
@@ -1727,7 +1751,7 @@
           (engine-payload-store-pending-transaction-count store)))
    (cons "queued"
          (quantity-to-hex
-          (engine-payload-store-queued-transaction-count store)))))
+          (eth-rpc-txpool-queued-view-count store)))))
 
 (defun engine-rpc-handle-txpool-content (params store)
   (when params
@@ -1737,8 +1761,8 @@
          (txpool-rpc-indexed-content-transactions
           (engine-payload-store-pending-transactions-by-sender store)))
    (cons "queued"
-         (txpool-rpc-indexed-content-transactions
-          (engine-payload-store-queued-sender-index store)))))
+         (txpool-rpc-content-transactions
+          (eth-rpc-txpool-queued-view-transactions store)))))
 
 (defun engine-rpc-handle-txpool-content-from (params store)
   (unless (= 1 (length params))
@@ -1754,11 +1778,11 @@
              (engine-payload-store-pending-transactions-by-sender store))
             #'eth-rpc-pending-transaction-object))
      (cons "queued"
-           (txpool-rpc-indexed-nonce-transactions
-            (gethash
-             (address-to-hex address)
-             (engine-payload-store-queued-sender-index store))
-            #'eth-rpc-pending-transaction-object)))))
+           (txpool-rpc-nonce-transactions
+            (remove-if-not
+             (lambda (transaction)
+               (txpool-rpc-transaction-sender-p transaction address))
+             (eth-rpc-txpool-queued-view-transactions store)))))))
 
 (defun engine-rpc-handle-txpool-inspect (params store)
   (when params
@@ -1768,8 +1792,8 @@
          (txpool-rpc-indexed-inspect-transactions
           (engine-payload-store-pending-transactions-by-sender store)))
    (cons "queued"
-         (txpool-rpc-indexed-inspect-transactions
-          (engine-payload-store-queued-sender-index store)))))
+         (txpool-rpc-inspect-transactions
+          (eth-rpc-txpool-queued-view-transactions store)))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
