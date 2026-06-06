@@ -3772,15 +3772,6 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (blob-transaction-max-fee-per-blob-gas transaction)
             0))))
 
-(defun engine-payload-store-account-balance-retained-p
-    (store block-hash sender)
-  (nth-value
-   1
-   (gethash
-    (engine-payload-store-account-key block-hash sender)
-    (engine-payload-memory-store-account-balances
-     (chain-store-require-memory-store store)))))
-
 (defun engine-payload-store-pending-sender-expenditure
     (store sender transaction)
   (let ((new-cost (engine-payload-store-txpool-upfront-cost transaction))
@@ -3808,11 +3799,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (null sender)
         (not (chain-store-state-available-p store (block-hash head)))
         (let ((block-hash (block-hash head)))
-          (or (not (engine-payload-store-account-balance-retained-p
-                    store block-hash sender))
-              (>= (chain-store-account-balance store block-hash sender)
-                  (engine-payload-store-pending-sender-expenditure
-                   store sender transaction)))))))
+          (>= (chain-store-account-balance store block-hash sender)
+              (engine-payload-store-pending-sender-expenditure
+               store sender transaction))))))
 
 (defun engine-payload-store-transaction-executable-nonce-p
     (store transaction)
@@ -4028,12 +4017,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((block-hash (block-hash head))
          (state-nonce
            (chain-store-account-nonce store block-hash sender))
-         (balance-retained-p
-           (engine-payload-store-account-balance-retained-p
-            store block-hash sender))
          (remaining-balance
-           (and balance-retained-p
-                (chain-store-account-balance store block-hash sender)))
+           (chain-store-account-balance store block-hash sender))
          (next-nonce state-nonce)
          (blocked-p nil)
          (demoted-transactions nil))
@@ -4052,17 +4037,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           store transaction base-fee)
          (setf blocked-p t)
          (push transaction demoted-transactions))
-        ((and balance-retained-p
-              (< remaining-balance
-                 (engine-payload-store-txpool-upfront-cost transaction)))
+        ((< remaining-balance
+            (engine-payload-store-txpool-upfront-cost transaction))
          (engine-payload-store-demote-pending-transaction
           store transaction base-fee)
          (setf blocked-p t)
          (push transaction demoted-transactions))
         (t
-         (when balance-retained-p
-           (decf remaining-balance
-                 (engine-payload-store-txpool-upfront-cost transaction)))
+         (decf remaining-balance
+               (engine-payload-store-txpool-upfront-cost transaction))
          (incf next-nonce))))
     (nreverse demoted-transactions)))
 

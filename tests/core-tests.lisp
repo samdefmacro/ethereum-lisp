@@ -8901,6 +8901,8 @@
       (engine-payload-store-put-block store state-block)
       (engine-payload-store-put-account-nonce
        store (block-hash state-block) address 7)
+      (engine-payload-store-put-account-balance
+       store (block-hash state-block) address 1000000)
       (let* ((number-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -13025,6 +13027,7 @@
            (typed-store (make-engine-payload-memory-store))
            (nonce-store (make-engine-payload-memory-store))
            (balance-store (make-engine-payload-memory-store))
+           (missing-balance-store (make-engine-payload-memory-store))
            (sender-code-store (make-engine-payload-memory-store))
            (config (make-chain-config))
            (low-gas-transaction
@@ -13096,7 +13099,12 @@
       (chain-store-put-block balance-store head-block :state-available-p t)
       (chain-store-put-account-balance
        balance-store (block-hash head-block) sender 100)
+      (chain-store-put-block missing-balance-store
+                             head-block
+                             :state-available-p t)
       (engine-payload-store-put-block sender-code-store head-block)
+      (engine-payload-store-put-account-balance
+       sender-code-store (block-hash head-block) sender 1000000)
       (engine-payload-store-put-account-code
        sender-code-store (block-hash head-block) sender #(1 2 3))
       (let* ((low-gas-response
@@ -13109,6 +13117,11 @@
                (send-raw insufficient-balance-transaction
                          115
                          balance-store
+                         config))
+             (missing-balance-response
+               (send-raw insufficient-balance-transaction
+                         122
+                         missing-balance-store
                          config))
              (sender-code-response
                (send-raw sender-code-transaction
@@ -13139,6 +13152,12 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":120,\"method\":\"txpool_status\",\"params\":[]}"
                  balance-store
                  config)))
+             (missing-balance-status
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":123,\"method\":\"txpool_status\",\"params\":[]}"
+                 missing-balance-store
+                 config)))
              (sender-code-status
                (parse-json
                 (engine-rpc-handle-request-json
@@ -13163,6 +13182,13 @@
              "eth_sendRawTransaction insufficient sender balance"
              (field (field insufficient-balance-response "error")
                     "message")))
+        (is (= -32602
+               (field (field missing-balance-response "error")
+                      "code")))
+        (is (string=
+             "eth_sendRawTransaction insufficient sender balance"
+             (field (field missing-balance-response "error")
+                    "message")))
         (is (= -32602 (field (field sender-code-response "error") "code")))
         (is (string=
              "eth_sendRawTransaction sender has non-delegation code"
@@ -13172,6 +13198,7 @@
                        typed-status
                        nonce-status
                        balance-status
+                       missing-balance-status
                        sender-code-status))
           (is (string= (quantity-to-hex 0)
                        (field (field status-response "result")
@@ -14074,6 +14101,8 @@
                             "queued")))
         (is (= 0 (length (field queued-filter-changes "result"))))
         (chain-store-put-block store child-block :state-available-p t)
+        (chain-store-put-account-balance
+         store (block-hash child-block) sender 1000000)
         (chain-store-set-canonical-head store (block-hash child-block))
         (let* ((promoted-status-response
                  (request
@@ -14106,6 +14135,52 @@
           (is (null (field content "queued")))
           (is (= 1 (length filter-hashes)))
           (is (string= transaction-hash (first filter-hashes))))))))
+
+(deftest txpool-pending-revalidation-treats-missing-balance-as-zero
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 1
+             :gas-limit 21000
+             :to recipient
+             :value 0)
+            1
+            1))
+         (sender (transaction-sender transaction :expected-chain-id 1))
+         (head-block
+           (make-block
+            :header (make-block-header :number 0
+                                       :timestamp 0
+                                       :gas-limit 30000000))))
+    (chain-store-put-block store head-block :state-available-p t)
+    (chain-store-put-account-nonce store (block-hash head-block) sender 0)
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store
+     transaction)
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+            store)))
+    (is (= 1
+           (length
+            (ethereum-lisp.core::engine-payload-store-revalidate-pending-transactions
+             store))))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+            store)))
+    (is (eq transaction
+            (ethereum-lisp.core::engine-payload-store-queued-transaction
+             store
+             (transaction-hash transaction))))))
 
 (deftest txpool-basefee-promotion-drains-newly-contiguous-queued-tail
   (labels ((field (object name)
@@ -14376,6 +14451,10 @@
           (is (string= gap-hash
                        (field (field after-drop-queued "1") "hash")))
           (is (= 0 (length (field after-drop-filter-changes "result")))))
+        (chain-store-put-account-nonce
+         store (block-hash child-block) sender 0)
+        (chain-store-put-account-balance
+         store (block-hash child-block) sender 1000000)
         (let* ((closing-response (send-raw closing-transaction 195 store config))
                (promoted-status-response
                  (request

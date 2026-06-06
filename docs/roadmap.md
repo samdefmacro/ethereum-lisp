@@ -103,7 +103,9 @@ fixes in those areas are allowed; expansion is not.
   basefee-ineligible entries do not consume account nonces before promotion.
   Retained-balance admission now checks same-sender pending expenditure
   cumulatively, so new submissions cannot overdraft an account by ignoring
-  already-pending transaction costs.
+  already-pending transaction costs. When retained state is available, a
+  missing sender balance entry is treated as the known zero balance rather
+  than as unknown state, so absent senders cannot bypass txpool funding checks.
   Canonical-head updates prune stale txpool entries below the new retained
   sender nonce before promotion, so transactions made obsolete by another
   canonical branch disappear from txpool and hash lookups.

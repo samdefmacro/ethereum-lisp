@@ -1463,9 +1463,6 @@
 (defun eth-rpc-txpool-upfront-cost (transaction)
   (engine-payload-store-txpool-upfront-cost transaction))
 
-(defun eth-rpc-account-balance-retained-p (store block-hash sender)
-  (engine-payload-store-account-balance-retained-p store block-hash sender))
-
 (defun eth-rpc-txpool-pending-sender-expenditure
     (store sender transaction)
   (engine-payload-store-pending-sender-expenditure
@@ -1480,13 +1477,11 @@
              (chain-store-account-balance store block-hash sender)))
       (when (< (transaction-nonce transaction) state-nonce)
         (block-validation-fail "eth_sendRawTransaction nonce too low"))
-      (when (and (eth-rpc-account-balance-retained-p
-                  store block-hash sender)
-                 (< state-balance
-                    (eth-rpc-txpool-pending-sender-expenditure
-                     store
-                     sender
-                     transaction)))
+      (when (< state-balance
+               (eth-rpc-txpool-pending-sender-expenditure
+                store
+                sender
+                transaction))
         (block-validation-fail
          "eth_sendRawTransaction insufficient sender balance"))))
   t)

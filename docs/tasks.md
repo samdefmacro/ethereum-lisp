@@ -3999,6 +3999,11 @@ splits can land after the Phase A smoke path closes.
     queued view, and same-sender pending tails that exceed the new retained
     balance are demoted into queued so `eth_pendingTransactions` and pending
     nonces only expose the executable contiguous prefix.
+  - Progress: retained-state txpool balance checks now treat a missing sender
+    balance entry as the known zero balance returned by retained state, rather
+    than as unknown state. Raw submissions from absent senders are rejected for
+    insufficient balance, and pending revalidation demotes already-pooled
+    transactions that no longer have retained funds.
   - Progress: queued nonce-gap promotion now lives on the txpool store
     boundary and also runs after canonical-head updates. If retained sender
     state advances and closes a nonce gap, contiguous queued transactions move
