@@ -1326,14 +1326,9 @@
                              #'string<)
             collect (cons key (gethash key table)))))
 
-(defun txpool-rpc-nonce-transactions (transactions)
-  (let ((nonce-transactions (make-hash-table :test 'equal)))
-    (dolist (transaction transactions)
-      (setf (gethash
-             (write-to-string (transaction-nonce transaction) :base 10)
-             nonce-transactions)
-            (eth-rpc-pending-transaction-object transaction)))
-    (eth-rpc-hash-table-object nonce-transactions)))
+(defun txpool-rpc-nonce-key< (left right)
+  (< (parse-integer left :junk-allowed nil)
+     (parse-integer right :junk-allowed nil)))
 
 (defun txpool-rpc-indexed-nonce-transactions
     (sender-transactions value-function)
@@ -1343,7 +1338,7 @@
       (loop for nonce in (sort (loop for nonce being the hash-keys
                                        of sender-transactions
                                      collect nonce)
-                               #'string<)
+                               #'txpool-rpc-nonce-key<)
             collect
             (cons nonce
                   (funcall value-function

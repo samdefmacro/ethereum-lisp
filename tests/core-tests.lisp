@@ -4114,6 +4114,15 @@
                :to recipient)
               1
               1))
+           (queued-high-nonce-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 10
+               :gas-price 150
+               :gas-limit 21000
+               :to recipient)
+              1
+              1))
            (other-transaction
              (fixture-sign-legacy-transaction
               (make-legacy-transaction
@@ -4140,6 +4149,9 @@
       (ethereum-lisp.core::engine-payload-store-put-blob-transaction
        store
        blob-transaction)
+      (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+       store
+       queued-high-nonce-transaction)
       (ethereum-lisp.core::engine-payload-store-put-queued-transaction
        store
        other-transaction)
@@ -4197,6 +4209,7 @@
                       (transaction-hash blob-transaction))
                      (field (field queued "3") "hash")))
         (is (null (field queued "4")))
+        (is (equal '("1" "2" "3" "10") (mapcar #'car queued)))
         (is (string= (hash32-to-hex
                       (transaction-hash queued-transaction))
                      (field (field content-queued "1") "hash")))
@@ -4206,9 +4219,15 @@
         (is (string= (hash32-to-hex
                       (transaction-hash blob-transaction))
                      (field (field content-queued "3") "hash")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash queued-high-nonce-transaction))
+                     (field (field content-queued "10") "hash")))
+        (is (equal '("1" "2" "3" "10") (mapcar #'car content-queued)))
         (is (search "110 wei" (field inspect-queued "1")))
         (is (search "120 wei" (field inspect-queued "2")))
         (is (search "130 wei" (field inspect-queued "3")))
+        (is (search "150 wei" (field inspect-queued "10")))
+        (is (equal '("1" "2" "3" "10") (mapcar #'car inspect-queued)))
         (is (string= (hash32-to-hex
                       (transaction-hash other-transaction))
                      (field (field other-queued "1") "hash")))))))

@@ -4002,6 +4002,9 @@ splits can land after the Phase A smoke path closes.
     queued/basefee/blob sender indexes directly instead of rebuilding sender /
     nonce groupings from concatenated transaction lists. This keeps all txpool
     read RPCs on the indexed subpool boundary.
+  - Progress: txpool sender/nonce RPC views now sort nonce keys numerically,
+    so multi-digit nonces are reported in executable nonce order instead of
+    lexicographic string order.
 
 ## P1: Public RPC Execution APIs
 
