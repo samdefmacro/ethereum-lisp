@@ -88,7 +88,10 @@ fixes in those areas are allowed; expansion is not.
   forkchoice checkpoint, and invalid-payload cache indexes.
 - **Partial:** txpool admission, concrete HTTP/socket serving, production
   persistence, and cross-client process-level fixture breadth beyond the
-  current bounded Engine import path.
+  current bounded Engine import path. A standalone
+  `scripts/devnet-smoke-gate.lisp` now exercises the local split
+  Engine/public listener boundary with authenticated payload import,
+  forkchoice, and public retained-state reads.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and

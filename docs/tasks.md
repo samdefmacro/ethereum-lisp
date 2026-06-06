@@ -4100,6 +4100,12 @@ splits can land after the Phase A smoke path closes.
     `eth_getBalance` over the public listener. This covers the devnet process
     boundary for payload import, canonical-head switching, retained-state
     persistence, and public latest-state reads.
+  - Result: added `scripts/devnet-smoke-gate.lisp` as a standalone executable
+    devnet listener-boundary gate. The script replays the same Phase A
+    `engine_newPayloadV2` transfer fixture over authenticated Engine HTTP,
+    applies forkchoice, reads public latest-state RPCs, and prints text or JSON
+    summaries with connection counts, payload status, latest valid hash,
+    block number, and recipient balance.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8
