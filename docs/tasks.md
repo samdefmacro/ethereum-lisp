@@ -3985,6 +3985,11 @@ splits can land after the Phase A smoke path closes.
     searching the whole basefee subpool. The old flat search remains only for
     the no-retained-state fallback path, preserving edge behavior while keeping
     canonical-head basefee drops aligned with sender-grouped txpool structure.
+  - Progress: canonical-head and local-submission promotion now re-run queued
+    promotion for senders whose basefee transactions just became pending. This
+    lets a basefee drop promote nonce `N` and the newly contiguous queued nonce
+    `N+1` in the same pass instead of leaving the queued tail parked until a
+    later txpool event.
 
 ## P1: Public RPC Execution APIs
 

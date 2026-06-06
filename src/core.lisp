@@ -2581,7 +2581,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-payload-store-remove-stale-txpool-transactions store)
       (engine-payload-store-revalidate-pending-transactions store)
       (engine-payload-store-promote-queued-transactions store)
-      (engine-payload-store-promote-basefee-transactions store)
+      (engine-payload-store-promote-basefee-and-queued-transactions store)
       head-block)))
 
 (defun engine-payload-store-transaction-location (store hash)
@@ -3874,6 +3874,24 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                     store transaction)
                    (push transaction promoted-transactions))))
     (nreverse promoted-transactions)))
+
+(defun engine-payload-store-promote-basefee-and-queued-transactions (store)
+  (let ((basefee-promoted
+          (engine-payload-store-promote-basefee-transactions store))
+        (queued-promoted nil)
+        (seen-senders (make-hash-table :test 'equal)))
+    (dolist (transaction basefee-promoted)
+      (let ((sender (transaction-sender transaction)))
+        (when sender
+          (let ((sender-key (address-to-hex sender)))
+            (unless (gethash sender-key seen-senders)
+              (setf (gethash sender-key seen-senders) t)
+              (setf queued-promoted
+                    (nconc queued-promoted
+                           (engine-payload-store-promote-queued-transactions
+                            store
+                            sender))))))))
+    (values basefee-promoted queued-promoted)))
 
 (defun engine-payload-store-stale-txpool-transaction-p
     (store head transaction)
