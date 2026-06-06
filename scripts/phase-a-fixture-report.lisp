@@ -5,6 +5,11 @@
 
 (defconstant +fixture-report-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +fixture-report-json-flag+ "--json")
+(defconstant +fixture-report-eest-repository+
+  "ethereum/execution-spec-tests")
+(defconstant +fixture-report-eest-release+ "v5.4.0")
+(defconstant +fixture-report-eest-tag-target+ "88e9fb8")
+(defconstant +fixture-report-eest-archive+ "fixtures_stable.tar.gz")
 
 (defun fixture-report-arguments ()
   #+sbcl
@@ -94,6 +99,13 @@
    (fixture-report-reference-client-object "nethermind" "references/nethermind/")
    (fixture-report-reference-client-object "reth" "references/reth/")))
 
+(defun fixture-report-execution-spec-tests-source ()
+  (list
+   (cons "repository" +fixture-report-eest-repository+)
+   (cons "release" +fixture-report-eest-release+)
+   (cons "tagTarget" +fixture-report-eest-tag-target+)
+   (cons "archive" +fixture-report-eest-archive+)))
+
 (defun fixture-report-kind-string (kinds)
   (fixture-report-call
    "phase-a-eest-blockchain-replay-selector-string"
@@ -171,6 +183,8 @@
   (list
    (cons "suiteRoot" suite-root)
    (cons "mode" mode)
+   (cons "executionSpecTests"
+         (fixture-report-execution-spec-tests-source))
    (cons "referenceClients" (fixture-report-reference-clients))
    (cons "state" (fixture-report-state-object
                   state-root state-selectors state-summary))
@@ -196,9 +210,19 @@
   (let ((state (fixture-report-field report "state"))
         (transaction (fixture-report-field report "transaction"))
         (blockchain (fixture-report-field report "blockchain"))
+        (execution-spec-tests
+          (fixture-report-field report "executionSpecTests"))
         (reference-clients (fixture-report-field report "referenceClients")))
     (format t "~&suiteRoot=~A~%" (fixture-report-field report "suiteRoot"))
     (format t "mode=~A~%" (fixture-report-field report "mode"))
+    (format t "executionSpecTestsRepository=~A~%"
+            (fixture-report-field execution-spec-tests "repository"))
+    (format t "executionSpecTestsRelease=~A~%"
+            (fixture-report-field execution-spec-tests "release"))
+    (format t "executionSpecTestsTagTarget=~A~%"
+            (fixture-report-field execution-spec-tests "tagTarget"))
+    (format t "executionSpecTestsArchive=~A~%"
+            (fixture-report-field execution-spec-tests "archive"))
     (dolist (client reference-clients)
       (format t "referenceClient[~A]=~A"
               (fixture-report-field client "name")

@@ -10,6 +10,11 @@
 (defconstant +smoke-gate-help-flag+ "--help")
 (defconstant +smoke-gate-default-root+
   "tests/fixtures/execution-spec-tests-root/")
+(defconstant +smoke-gate-eest-repository+
+  "ethereum/execution-spec-tests")
+(defconstant +smoke-gate-eest-release+ "v5.4.0")
+(defconstant +smoke-gate-eest-tag-target+ "88e9fb8")
+(defconstant +smoke-gate-eest-archive+ "fixtures_stable.tar.gz")
 
 (defun smoke-gate-arguments ()
   #+sbcl
@@ -148,6 +153,13 @@
    (smoke-gate-reference-client-object "geth" "references/go-ethereum/")
    (smoke-gate-reference-client-object "nethermind" "references/nethermind/")
    (smoke-gate-reference-client-object "reth" "references/reth/")))
+
+(defun smoke-gate-execution-spec-tests-source ()
+  (list
+   (cons "repository" +smoke-gate-eest-repository+)
+   (cons "release" +smoke-gate-eest-release+)
+   (cons "tagTarget" +smoke-gate-eest-tag-target+)
+   (cons "archive" +smoke-gate-eest-archive+)))
 
 (defun smoke-gate-kind-count (summary kind)
   (or (smoke-gate-field
@@ -348,6 +360,8 @@
       (cons "suiteRoot" suite-root)
       (cons "mode" (if pinned-p "pinned-v5.4.0" "in-repo"))
       (cons "status" "ok")
+      (cons "executionSpecTests"
+            (smoke-gate-execution-spec-tests-source))
       (cons "referenceClients" (smoke-gate-reference-clients))
       (cons "state" state)
       (cons "transaction" transaction)
@@ -359,11 +373,21 @@
   (let ((state (smoke-gate-field report "state"))
         (transaction (smoke-gate-field report "transaction"))
         (blockchain (smoke-gate-field report "blockchain"))
+        (execution-spec-tests
+          (smoke-gate-field report "executionSpecTests"))
         (reference-clients (smoke-gate-field report "referenceClients"))
         (devnet (smoke-gate-field report "devnet")))
     (format t "~&status=~A~%" (smoke-gate-field report "status"))
     (format t "suiteRoot=~A~%" (smoke-gate-field report "suiteRoot"))
     (format t "mode=~A~%" (smoke-gate-field report "mode"))
+    (format t "executionSpecTestsRepository=~A~%"
+            (smoke-gate-field execution-spec-tests "repository"))
+    (format t "executionSpecTestsRelease=~A~%"
+            (smoke-gate-field execution-spec-tests "release"))
+    (format t "executionSpecTestsTagTarget=~A~%"
+            (smoke-gate-field execution-spec-tests "tagTarget"))
+    (format t "executionSpecTestsArchive=~A~%"
+            (smoke-gate-field execution-spec-tests "archive"))
     (dolist (client reference-clients)
       (format t "referenceClient[~A]=~A"
               (smoke-gate-field client "name")

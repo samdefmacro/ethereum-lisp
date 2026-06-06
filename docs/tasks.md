@@ -418,7 +418,10 @@ ones.
     reference-client pin metadata for local geth, Nethermind, and optional Reth
     clones. Present clones report their exact git commit; absent clones are
     reported explicitly as missing, matching the reference pinning rule instead
-    of leaving fixture-only runs ambiguous.
+    of leaving fixture-only runs ambiguous. The same reports now also expose
+    the pinned `ethereum/execution-spec-tests` source as top-level metadata:
+    release `v5.4.0`, tag target `88e9fb8`, and
+    `fixtures_stable.tar.gz`.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

@@ -925,6 +925,18 @@
         (is (phase-a-smoke-gate-reference-commit-p commit))
         (is (null commit)))))
 
+(defun phase-a-smoke-gate-assert-execution-spec-tests-source (report)
+  (let ((source (fixture-object-field report "executionSpecTests")))
+    (is source)
+    (is (string= "ethereum/execution-spec-tests"
+                 (fixture-object-field source "repository")))
+    (is (string= "v5.4.0"
+                 (fixture-object-field source "release")))
+    (is (string= "88e9fb8"
+                 (fixture-object-field source "tagTarget")))
+    (is (string= "fixtures_stable.tar.gz"
+                 (fixture-object-field source "archive")))))
+
 (deftest phase-a-fixture-report-includes-reference-client-pins
   #-sbcl
   (skip-test "Phase A fixture report script requires SBCL")
@@ -946,6 +958,7 @@
       (let* ((report (parse-json stdout))
              (reference-clients
                (fixture-object-field report "referenceClients")))
+        (phase-a-smoke-gate-assert-execution-spec-tests-source report)
         (is (= 3 (length reference-clients)))
         (phase-a-smoke-gate-assert-reference-client
          reference-clients "geth")
@@ -978,6 +991,7 @@
              (devnet (fixture-object-field report "devnet")))
         (is (string= "ok" (fixture-object-field report "status")))
         (is (string= "in-repo" (fixture-object-field report "mode")))
+        (phase-a-smoke-gate-assert-execution-spec-tests-source report)
         (is (= 3 (length reference-clients)))
         (phase-a-smoke-gate-assert-reference-client
          reference-clients "geth")
