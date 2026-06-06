@@ -422,6 +422,11 @@ ones.
     the pinned `ethereum/execution-spec-tests` source as top-level metadata:
     release `v5.4.0`, tag target `88e9fb8`, and
     `fixtures_stable.tar.gz`.
+  - Result: pinned smoke-gate mode now uses
+    `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` as the default suite root when
+    no positional root or `--root PATH` is supplied. This keeps automation that
+    already exports the pinned EEST extraction aligned with the explicit-root
+    gate while preserving the in-repo root default for normal smoke runs.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

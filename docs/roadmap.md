@@ -733,7 +733,10 @@ Detailed historical implementation notes for this section now live in
   or explicit missing status when they are absent, so replay reports satisfy
   the reference pinning rule without relying on PR prose. They also expose the
   pinned `ethereum/execution-spec-tests` source metadata at top level: release
-  `v5.4.0`, tag target `88e9fb8`, and `fixtures_stable.tar.gz`.
+  `v5.4.0`, tag target `88e9fb8`, and `fixtures_stable.tar.gz`. In pinned
+  mode the smoke gate also defaults to
+  `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` when no explicit suite root is
+  supplied, matching the optional fixture runner contract.
   The individual state, transaction, and blockchain selector-listing scripts
   now also emit JSON so selector drift checks can consume structured output
   directly. `scripts/phase-a-smoke-gate.lisp` wraps those selector contracts in

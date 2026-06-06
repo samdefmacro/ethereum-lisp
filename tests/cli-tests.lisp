@@ -31,6 +31,14 @@
           until (eq form :eof)
           collect form)))
 
+(defun devnet-cli-temp-directory (name)
+  (let ((path
+          (merge-pathnames
+           (format nil "~A-~A/" name (gensym))
+           #P"/private/tmp/")))
+    (ensure-directories-exist path)
+    path))
+
 (defun devnet-cli-http-body (response)
   (let ((boundary (search (format nil "~C~C~C~C"
                                   #\Return #\Newline
@@ -1007,6 +1015,34 @@
         (is (= 10 (fixture-object-field devnet "engineConnections")))
         (is (= 10 (fixture-object-field devnet "publicConnections")))
         (is (= 20 (fixture-object-field devnet "totalConnections")))))))
+
+(deftest phase-a-smoke-gate-pinned-mode-defaults-to-eest-root-env
+  #-sbcl
+  (skip-test "Phase A smoke gate pinned mode requires SBCL")
+  #+sbcl
+  (let* ((root
+           (devnet-cli-temp-directory
+            "ethereum-lisp-pinned-smoke-root"))
+         (root-string (namestring root)))
+    (multiple-value-bind (stdout stderr status)
+        (uiop:run-program
+         (list "env"
+               (format nil "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=~A"
+                       root-string)
+               "sbcl"
+               "--script"
+               "scripts/phase-a-smoke-gate.lisp"
+               "--"
+               "--pinned-v5.4.0"
+               "--json")
+         :output :string
+         :error-output :string
+         :ignore-error-status t)
+      (is (not (= 0 status)))
+      (is (string= "" stdout))
+      (is (search root-string stderr))
+      (is (search "Phase A smoke gate requires an EEST blockchain root"
+                  stderr)))))
 
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))

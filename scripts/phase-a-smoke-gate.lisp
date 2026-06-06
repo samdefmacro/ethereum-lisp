@@ -10,6 +10,8 @@
 (defconstant +smoke-gate-help-flag+ "--help")
 (defconstant +smoke-gate-default-root+
   "tests/fixtures/execution-spec-tests-root/")
+(defconstant +smoke-gate-eest-root-env+
+  "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 (defconstant +smoke-gate-eest-repository+
   "ethereum/execution-spec-tests")
 (defconstant +smoke-gate-eest-release+ "v5.4.0")
@@ -81,7 +83,9 @@
   (format t "  --json             Print machine-readable JSON output.~%")
   (format t "  --help             Print this help without loading the test system.~%")
   (format t "~%")
-  (format t "Default ROOT: ~A~%" +smoke-gate-default-root+))
+  (format t "Default ROOT: ~A~%" +smoke-gate-default-root+)
+  (format t "Pinned mode uses ~A when ROOT is omitted and the variable is set.~%"
+          +smoke-gate-eest-root-env+))
 
 (defun smoke-gate-call (name &rest args)
   (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))
@@ -94,6 +98,21 @@
     (unless (and symbol (boundp symbol))
       (error "Fixture variable ~A is unavailable" name))
     (symbol-value symbol)))
+
+(defun smoke-gate-pinned-default-root ()
+  (let ((root
+          (smoke-gate-call
+           "execution-spec-tests-fixture-root"
+           :env-var +smoke-gate-eest-root-env+)))
+    (if root
+        (namestring root)
+        +smoke-gate-default-root+)))
+
+(defun smoke-gate-suite-root (root-argument pinned-p)
+  (or root-argument
+      (if pinned-p
+          (smoke-gate-pinned-default-root)
+          +smoke-gate-default-root+)))
 
 (defun smoke-gate-json-encode (object)
   (let ((symbol (find-symbol "JSON-ENCODE" "ETHEREUM-LISP")))
@@ -425,15 +444,15 @@
          (pinned-p (smoke-gate-pinned-v5.4.0-p args))
          (devnet-p (smoke-gate-devnet-p args))
          (json-p (smoke-gate-json-p args))
-         (suite-root (or (smoke-gate-argument-root args)
-                         +smoke-gate-default-root+)))
+         (root-argument (smoke-gate-argument-root args)))
     (if help-p
         (smoke-gate-print-help)
         (progn
           (load (merge-pathnames "tests/load-tests.lisp"
                                  *ethereum-lisp-smoke-gate-root*))
-          (let ((report (smoke-gate-report
-                         suite-root pinned-p :devnet-p devnet-p)))
+          (let* ((suite-root (smoke-gate-suite-root root-argument pinned-p))
+                 (report (smoke-gate-report
+                          suite-root pinned-p :devnet-p devnet-p)))
             (if json-p
                 (format t "~&~A~%" (smoke-gate-json-encode report))
                 (smoke-gate-print-text report)))))))
