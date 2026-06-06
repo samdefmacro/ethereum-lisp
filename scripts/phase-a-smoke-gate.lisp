@@ -68,6 +68,25 @@
       (error "~A must be positive, got ~S" label value))
     value))
 
+(defun smoke-gate-execute-state-cases (cases)
+  (dolist (case cases)
+    (smoke-gate-call "assert-eest-state-test-case" case))
+  (length cases))
+
+(defun smoke-gate-execute-transaction-vectors (vectors)
+  (smoke-gate-call "assert-transaction-fixture-vectors-replay" vectors)
+  (length vectors))
+
+(defun smoke-gate-execute-blockchain-cases (cases)
+  (dolist (source-case cases)
+    (smoke-gate-call
+     "assert-eest-blockchain-engine-newpayload-v2-replay"
+     (smoke-gate-call
+      "materialize-eest-blockchain-engine-newpayload-v2-case"
+      source-case)
+     :source-case source-case))
+  (length cases))
+
 (defun smoke-gate-state-summary (suite-root required-p)
   (let ((root (smoke-gate-call "execution-spec-tests-state-test-root"
                                suite-root)))
@@ -86,7 +105,8 @@
                 (smoke-gate-call
                  "validate-phase-a-eest-state-test-summary"
                  cases
-                 :expected-names selectors)))
+                 :expected-names selectors))
+              (executed (smoke-gate-execute-state-cases cases)))
          (smoke-gate-require-positive-field
           summary "count" "Phase A state_tests count")
          (smoke-gate-require-positive-field
@@ -97,6 +117,7 @@
           (cons "status" "ok")
           (cons "root" (namestring root))
           (cons "count" (smoke-gate-field summary "count"))
+          (cons "executedCount" executed)
           (cons "transactionCombinationCount"
                 (smoke-gate-field summary "transactionCombinationCount"))
           (cons "selectorString"
@@ -111,6 +132,7 @@
         (cons "status" "missing")
         (cons "root" nil)
         (cons "count" 0)
+        (cons "executedCount" 0)
         (cons "transactionCombinationCount" 0)
         (cons "selectorString" ""))))))
 
@@ -128,6 +150,8 @@
                 (smoke-gate-call
                  "validate-phase-a-eest-transaction-vector-summary"
                  vectors))
+              (executed
+                (smoke-gate-execute-transaction-vectors vectors))
               (selectors
                 (smoke-gate-variable
                  "+phase-a-eest-transaction-test-case-names+")))
@@ -137,6 +161,7 @@
           (cons "status" "ok")
           (cons "root" (namestring root))
           (cons "count" (smoke-gate-field summary "count"))
+          (cons "executedCount" executed)
           (cons "types" (smoke-gate-field summary "types"))
           (cons "selectorString"
                 (smoke-gate-call
@@ -150,6 +175,7 @@
         (cons "status" "missing")
         (cons "root" nil)
         (cons "count" 0)
+        (cons "executedCount" 0)
         (cons "types" nil)
         (cons "selectorString" ""))))))
 
@@ -177,7 +203,8 @@
              (smoke-gate-call
               "validate-phase-a-eest-blockchain-replay-summary"
               cases
-              :expected-kinds kinds)))
+              :expected-kinds kinds))
+           (executed (smoke-gate-execute-blockchain-cases cases)))
       (smoke-gate-require-positive-field
        summary "count" "Phase A blockchain replay count")
       (when (and (not pinned-p)
@@ -189,6 +216,7 @@
        (cons "status" "ok")
        (cons "root" (namestring root))
        (cons "count" (smoke-gate-field summary "count"))
+       (cons "executedCount" executed)
        (cons "blockCount" (smoke-gate-field summary "blockCount"))
        (cons "kindCounts"
              (smoke-gate-field summary "materializationKindCounts"))
@@ -219,12 +247,18 @@
     (format t "mode=~A~%" (smoke-gate-field report "mode"))
     (format t "stateStatus=~A~%" (smoke-gate-field state "status"))
     (format t "stateCount=~D~%" (smoke-gate-field state "count"))
+    (format t "stateExecuted=~D~%"
+            (smoke-gate-field state "executedCount"))
     (format t "transactionStatus=~A~%"
             (smoke-gate-field transaction "status"))
     (format t "transactionCount=~D~%"
             (smoke-gate-field transaction "count"))
+    (format t "transactionExecuted=~D~%"
+            (smoke-gate-field transaction "executedCount"))
     (format t "blockchainCount=~D~%"
             (smoke-gate-field blockchain "count"))
+    (format t "blockchainExecuted=~D~%"
+            (smoke-gate-field blockchain "executedCount"))
     (format t "blockchainBlockCount=~D~%"
             (smoke-gate-field blockchain "blockCount"))
     (format t "blockchainKindCounts=~S~%"

@@ -95,6 +95,9 @@ fixes in those areas are allowed; expansion is not.
   `engineNewPayloadV2`. Its `--pinned-v5.4.0` mode validates the official
   stable archive's pinned Shanghai blockchain replay table while explicitly
   reporting that the archive lacks `state_tests` / `transaction_tests` suites.
+  The gate now executes the selected state-test cases, transaction vectors,
+  and blockchain replay imports rather than only reporting selector counts,
+  and its text/JSON output records per-suite execution counts.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

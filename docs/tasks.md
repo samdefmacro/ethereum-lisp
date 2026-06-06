@@ -388,6 +388,13 @@ ones.
     official Shanghai EIP-2930 `engineNewPayloadV2` selector while reporting
     state and transaction suites as missing, making the current bounded Phase A
     smoke contract executable instead of implicit in prose.
+  - Result: upgraded the smoke gate from selector/count validation to direct
+    replay execution. The script now executes the selected EEST-style
+    `state_tests` cases, replays the selected transaction vectors, and imports
+    each selected blockchain replay case through the existing
+    `engine_newPayloadV2` path; text and JSON output include per-suite
+    `executed` counts so automation can distinguish a real replay gate from a
+    metadata-only fixture report.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
