@@ -3139,6 +3139,70 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    transaction)
   transaction)
 
+(defun engine-pending-txpool-cross-subpool-conflicts
+    (txpool transaction target)
+  (let ((conflicts nil))
+    (unless (eq target :pending)
+      (let ((conflict
+              (engine-pending-txpool-pending-conflict
+               txpool
+               transaction)))
+        (when conflict
+          (push (list "Pending"
+                      conflict
+                      #'engine-pending-txpool-remove-pending-transaction)
+                conflicts))))
+    (unless (eq target :queued)
+      (let ((conflict
+              (engine-pending-txpool-queued-conflict
+               txpool
+               transaction)))
+        (when conflict
+          (push (list "Queued"
+                      conflict
+                      #'engine-pending-txpool-remove-queued-transaction)
+                conflicts))))
+    (unless (eq target :basefee)
+      (let ((conflict
+              (engine-pending-txpool-flat-conflict
+               (engine-pending-txpool-basefee-transactions txpool)
+               transaction)))
+        (when conflict
+          (push (list "Basefee"
+                      conflict
+                      #'engine-pending-txpool-remove-basefee-transaction)
+                conflicts))))
+    (unless (eq target :blob)
+      (let ((conflict
+              (engine-pending-txpool-flat-conflict
+               (engine-pending-txpool-blob-transactions txpool)
+               transaction)))
+        (when conflict
+          (push (list "Blob"
+                      conflict
+                      #'engine-pending-txpool-remove-blob-transaction)
+                conflicts))))
+    (nreverse conflicts)))
+
+(defun engine-pending-txpool-validate-replacement-conflicts
+    (conflicts transaction)
+  (dolist (conflict-entry conflicts)
+    (destructuring-bind (label conflict remove-function) conflict-entry
+      (declare (ignore remove-function))
+      (unless (engine-pending-txpool-replacement-transaction-p
+               conflict
+               transaction)
+        (block-validation-fail
+         "~A transaction replacement underpriced"
+         label)))))
+
+(defun engine-pending-txpool-remove-replacement-conflicts
+    (txpool conflicts)
+  (dolist (conflict-entry conflicts)
+    (destructuring-bind (label conflict remove-function) conflict-entry
+      (declare (ignore label))
+      (funcall remove-function txpool (transaction-hash conflict)))))
+
 (defun engine-pending-txpool-replacement-price-bumped-p
     (old-transaction new-transaction price-function)
   (let ((old-price (funcall price-function old-transaction))
@@ -3163,10 +3227,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (txpool transaction)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
-        (transactions (engine-pending-txpool-transactions txpool)))
+        (transactions (engine-pending-txpool-transactions txpool))
+        (cross-subpool-conflicts
+          (engine-pending-txpool-cross-subpool-conflicts
+           txpool transaction :pending)))
     (if (gethash key transactions)
         (values transaction nil)
         (progn
+          (engine-pending-txpool-validate-replacement-conflicts
+           cross-subpool-conflicts
+           transaction)
           (let ((conflict
                   (engine-pending-txpool-pending-conflict
                    txpool
@@ -3182,6 +3252,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
                transactions)))
+          (engine-pending-txpool-remove-replacement-conflicts
+           txpool
+           cross-subpool-conflicts)
           (setf (gethash key transactions) transaction)
           (engine-pending-txpool-index-pending-transaction
            txpool
@@ -3192,10 +3265,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (txpool transaction)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
-        (transactions (engine-pending-txpool-queued-transactions txpool)))
+        (transactions (engine-pending-txpool-queued-transactions txpool))
+        (cross-subpool-conflicts
+          (engine-pending-txpool-cross-subpool-conflicts
+           txpool transaction :queued)))
     (if (gethash key transactions)
         (values transaction nil)
         (progn
+          (engine-pending-txpool-validate-replacement-conflicts
+           cross-subpool-conflicts
+           transaction)
           (let ((conflict
                   (engine-pending-txpool-queued-conflict
                    txpool
@@ -3211,6 +3290,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
                transactions)))
+          (engine-pending-txpool-remove-replacement-conflicts
+           txpool
+           cross-subpool-conflicts)
           (setf (gethash key transactions) transaction)
           (engine-pending-txpool-index-queued-transaction
            txpool
@@ -3239,12 +3321,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       conflict)))
 
 (defun engine-pending-txpool-put-flat-transaction
-    (transactions transaction replacement-label)
+    (txpool transactions transaction target replacement-label)
   (let ((key (engine-pending-txpool-hash-key
-              (transaction-hash transaction))))
+              (transaction-hash transaction)))
+        (cross-subpool-conflicts
+          (engine-pending-txpool-cross-subpool-conflicts
+           txpool transaction target)))
     (if (gethash key transactions)
         (values transaction nil)
         (progn
+          (engine-pending-txpool-validate-replacement-conflicts
+           cross-subpool-conflicts
+           transaction)
           (let ((conflict
                   (engine-pending-txpool-flat-conflict
                    transactions
@@ -3258,21 +3346,28 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (remhash
                (engine-pending-txpool-hash-key (transaction-hash conflict))
                transactions)))
+          (engine-pending-txpool-remove-replacement-conflicts
+           txpool
+           cross-subpool-conflicts)
           (setf (gethash key transactions) transaction)
           (values transaction t)))))
 
 (defun engine-pending-txpool-put-basefee-transaction
     (txpool transaction)
   (engine-pending-txpool-put-flat-transaction
+   txpool
    (engine-pending-txpool-basefee-transactions txpool)
    transaction
+   :basefee
    "Basefee"))
 
 (defun engine-pending-txpool-put-blob-transaction
     (txpool transaction)
   (engine-pending-txpool-put-flat-transaction
+   txpool
    (engine-pending-txpool-blob-transactions txpool)
    transaction
+   :blob
    "Blob"))
 
 (defun engine-pending-txpool-pending-transaction (txpool hash)

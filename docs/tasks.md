@@ -3898,6 +3898,10 @@ splits can land after the Phase A smoke path closes.
     that closes a nonce gap now promotes contiguous queued transactions for
     that sender into pending and notifies pending transaction filters only at
     promotion time.
+  - Progress: txpool insertion now enforces same-sender/same-nonce replacement
+    across pending, queued, basefee, and blob placeholder subpools. A bumped
+    eligible replacement can move a transaction out of the basefee queued view
+    into pending without leaving a duplicate pooled transaction behind.
 
 ## P1: Public RPC Execution APIs
 
