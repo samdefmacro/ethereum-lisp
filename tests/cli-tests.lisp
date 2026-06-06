@@ -25,6 +25,12 @@
       (read-sequence string stream)
       string)))
 
+(defun devnet-cli-file-forms (path)
+  (with-open-file (stream path :direction :input)
+    (loop for form = (read stream nil :eof)
+          until (eq form :eof)
+          collect form)))
+
 (defun devnet-cli-http-body (response)
   (let ((boundary (search (format nil "~C~C~C~C"
                                   #\Return #\Newline
@@ -787,6 +793,61 @@
                           (cdr (assoc "chainId" fields :test #'string=))))
              (is (string= log-path-string
                           (cdr (assoc "logPath" fields :test #'string=)))))))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path)))))
+
+(deftest devnet-smoke-gate-script-writes-ready-and-log-files
+  #-sbcl
+  (skip-test "Devnet smoke gate script requires SBCL")
+  #+sbcl
+  (let ((ready-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-ready" "json"))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke" "log")))
+    (unwind-protect
+         (multiple-value-bind (stdout stderr status)
+             (uiop:run-program
+              (list "sbcl"
+                    "--script"
+                    "scripts/devnet-smoke-gate.lisp"
+                    "--"
+                    "--json"
+                    "--ready-file" (namestring ready-path)
+                    "--log-file" (namestring log-path))
+              :output :string
+              :error-output :string
+              :ignore-error-status t)
+           (is (= 0 status))
+           (is (string= "" stderr))
+           (when (= 0 status)
+             (let* ((report (parse-json stdout))
+                    (ready-summary
+                      (parse-json (devnet-cli-file-string ready-path)))
+                    (log-records (devnet-cli-file-forms log-path))
+                    (log-names
+                      (mapcar (lambda (record) (getf record :name))
+                              log-records)))
+               (is (string= "ok" (fixture-object-field report "status")))
+               (is (string= "devnet-listener-boundary"
+                            (fixture-object-field report "mode")))
+               (is (string= (namestring ready-path)
+                            (fixture-object-field report "readyFile")))
+               (is (string= (namestring log-path)
+                            (fixture-object-field report "logFile")))
+               (is (string= "engine"
+                            (fixture-object-field ready-summary
+                                                  "engineEndpoint")))
+               (is (string= "public"
+                            (fixture-object-field ready-summary
+                                                  "rpcEndpoint")))
+               (is (eq t (fixture-object-field ready-summary
+                                                "authRequired")))
+               (is (eq t (fixture-object-field ready-summary
+                                                "stateAvailable")))
+               (is (member "devnet.ready" log-names :test #'string=))
+               (is (member "devnet.shutdown" log-names :test #'string=)))))
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)

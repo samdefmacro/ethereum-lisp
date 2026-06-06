@@ -663,7 +663,9 @@ first pass, but interfaces must not block that path.
   split-listener shutdown, and
   has a split-listener smoke covering authenticated Engine JSON-RPC,
   `engine_newPayloadV2` import,
-  `engine_forkchoiceUpdatedV2`, and unauthenticated public latest-state reads.
+  `engine_forkchoiceUpdatedV2`, unauthenticated public latest-state reads, and
+  standalone smoke-gate validation of readiness JSON plus ready/shutdown
+  telemetry.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the pinned v5.4.0 Shanghai
   `engine_newPayloadV2` replay slice, and concrete long-running devnet/Hive

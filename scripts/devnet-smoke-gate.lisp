@@ -9,6 +9,8 @@
 (defconstant +devnet-smoke-gate-json-flag+ "--json")
 (defconstant +devnet-smoke-gate-help-flag+ "--help")
 (defconstant +devnet-smoke-gate-fixture-case-option+ "--fixture-case")
+(defconstant +devnet-smoke-gate-ready-file-option+ "--ready-file")
+(defconstant +devnet-smoke-gate-log-file-option+ "--log-file")
 (defconstant +devnet-smoke-gate-default-fixture-case+
   "shanghai-one-transfer-with-withdrawal")
 
@@ -39,6 +41,13 @@
           (cond
             ((string= arg +devnet-smoke-gate-json-flag+))
             ((string= arg +devnet-smoke-gate-help-flag+))
+            ((or (string= arg +devnet-smoke-gate-ready-file-option+)
+                 (string= arg +devnet-smoke-gate-log-file-option+))
+             (unless args
+               (error "~A requires a path" arg))
+             (let ((value (pop args)))
+               (when (devnet-smoke-gate-option-like-p value)
+                 (error "~A requires a path, got option ~A" arg value))))
             ((string= arg +devnet-smoke-gate-fixture-case-option+)
              (when fixture-case
                (error "Only one fixture case argument is supported"))
@@ -59,11 +68,37 @@
              (setf fixture-case arg))))
     (or fixture-case +devnet-smoke-gate-default-fixture-case+)))
 
+(defun devnet-smoke-gate-path-option (args option)
+  (let ((path nil))
+    (loop while args
+          for arg = (pop args)
+          do
+          (cond
+            ((string= arg option)
+             (when path
+               (error "Only one ~A option is supported" option))
+             (unless args
+               (error "~A requires a path" option))
+             (let ((value (pop args)))
+               (when (devnet-smoke-gate-option-like-p value)
+                 (error "~A requires a path, got option ~A" option value))
+               (setf path value)))
+            ((string= arg +devnet-smoke-gate-fixture-case-option+)
+             (when args
+               (pop args)))
+            ((or (string= arg +devnet-smoke-gate-ready-file-option+)
+                 (string= arg +devnet-smoke-gate-log-file-option+))
+             (when args
+               (pop args)))))
+    path))
+
 (defun devnet-smoke-gate-print-help ()
   (format t "~&Usage: sbcl --script scripts/devnet-smoke-gate.lisp -- [options] [FIXTURE-CASE]~%")
   (format t "~%")
   (format t "Options:~%")
   (format t "  --fixture-case NAME  Engine newPayloadV2 fixture case to import.~%")
+  (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
+  (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
@@ -76,6 +111,29 @@
 
 (defun devnet-smoke-gate-rpc-body (response)
   (parse-json (devnet-cli-http-body response)))
+
+(defun devnet-smoke-gate-call-with-telemetry-sink (log-file thunk)
+  (if log-file
+      (with-open-file (stream log-file
+                              :direction :output
+                              :if-exists :supersede
+                              :if-does-not-exist :create)
+        (funcall thunk
+                 (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                  :stream stream)))
+      (funcall thunk ethereum-lisp.telemetry:*telemetry-sink*)))
+
+(defun devnet-smoke-gate-file-string (path)
+  (with-open-file (stream path :direction :input)
+    (let ((string (make-string (file-length stream))))
+      (read-sequence string stream)
+      string)))
+
+(defun devnet-smoke-gate-file-forms (path)
+  (with-open-file (stream path :direction :input)
+    (loop for form = (read stream nil :eof)
+          until (eq form :eof)
+          collect form)))
 
 (defun devnet-smoke-gate-engine-fixture (case-name)
   (let* ((case
@@ -146,31 +204,86 @@
 (defun devnet-smoke-gate-field (object name)
   (cdr (assoc name object :test #'string=)))
 
-(defun devnet-smoke-gate-run (case-name)
+(defun devnet-smoke-gate-verify-ready-file (path)
+  (let ((summary (parse-json (devnet-smoke-gate-file-string path))))
+    (devnet-smoke-gate-require
+     (string= "engine" (fixture-object-field summary "engineEndpoint"))
+     "Ready file Engine endpoint mismatch")
+    (devnet-smoke-gate-require
+     (string= "public" (fixture-object-field summary "rpcEndpoint"))
+     "Ready file public RPC endpoint mismatch")
+    (devnet-smoke-gate-require
+     (eq t (fixture-object-field summary "authRequired"))
+     "Ready file must report authenticated Engine RPC")
+    (devnet-smoke-gate-require
+     (eq t (fixture-object-field summary "stateAvailable"))
+     "Ready file must report available head state")
+    summary))
+
+(defun devnet-smoke-gate-verify-log-file (path)
+  (let* ((records (devnet-smoke-gate-file-forms path))
+         (names (mapcar (lambda (record) (getf record :name)) records)))
+    (devnet-smoke-gate-require
+     (member "devnet.ready" names :test #'string=)
+     "Log file missing devnet.ready event")
+    (devnet-smoke-gate-require
+     (member "devnet.shutdown" names :test #'string=)
+     "Log file missing devnet.shutdown event")
+    (dolist (record records)
+      (when (member (getf record :name)
+                    '("devnet.ready" "devnet.shutdown")
+                    :test #'string=)
+        (let ((fields (getf record :fields)))
+          (devnet-smoke-gate-require
+           (string= "engine"
+                    (cdr (assoc "engineEndpoint" fields :test #'string=)))
+           "Log file Engine endpoint mismatch")
+          (devnet-smoke-gate-require
+           (string= "public"
+                    (cdr (assoc "rpcEndpoint" fields :test #'string=)))
+           "Log file public RPC endpoint mismatch"))))
+    records))
+
+(defun devnet-smoke-gate-run (case-name &key ready-file log-file)
   #+sbcl
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-jwt" "hex")))
     (unwind-protect
          (progn
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
-           (let* ((fixture (devnet-smoke-gate-engine-fixture case-name))
-                  (store (devnet-smoke-gate-field fixture "store"))
-                  (config (devnet-smoke-gate-field fixture "config"))
-                  (parent-state
-                    (devnet-smoke-gate-field fixture "parentState"))
-                  (parent-block
-                    (devnet-smoke-gate-field fixture "parentBlock"))
-                  (child-block
-                    (devnet-smoke-gate-field fixture "childBlock"))
-                  (payload (devnet-smoke-gate-field fixture "payload"))
-                  (payload-case
-                    (devnet-smoke-gate-field fixture "payloadCase"))
-                  (expect (devnet-smoke-gate-field fixture "expect"))
-                  (node
-                    (ethereum-lisp.cli:make-devnet-node
-                     :genesis-path +devnet-cli-genesis-fixture+
-                     :port 8551
-                     :public-port 8545
-                     :jwt-secret-path (namestring jwt-path)))
+           (let ((report
+                   (devnet-smoke-gate-call-with-telemetry-sink
+                    log-file
+                    (lambda (telemetry-sink)
+                      (let* ((fixture
+                               (devnet-smoke-gate-engine-fixture case-name))
+                             (store
+                               (devnet-smoke-gate-field fixture "store"))
+                             (config
+                               (devnet-smoke-gate-field fixture "config"))
+                             (parent-state
+                               (devnet-smoke-gate-field fixture
+                                                        "parentState"))
+                             (parent-block
+                               (devnet-smoke-gate-field fixture
+                                                        "parentBlock"))
+                             (child-block
+                               (devnet-smoke-gate-field fixture
+                                                        "childBlock"))
+                             (payload
+                               (devnet-smoke-gate-field fixture "payload"))
+                             (payload-case
+                               (devnet-smoke-gate-field fixture
+                                                        "payloadCase"))
+                             (expect
+                               (devnet-smoke-gate-field fixture "expect"))
+                             (node
+                               (ethereum-lisp.cli:make-devnet-node
+                                :genesis-path +devnet-cli-genesis-fixture+
+                                :port 8551
+                                :public-port 8545
+                                :jwt-secret-path (namestring jwt-path)
+                                :log-path log-file
+                                :telemetry-sink telemetry-sink))
                   (recipient (fixture-address-field expect "recipient"))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token secret 0))
@@ -251,7 +364,33 @@
                               :close-function
                               (lambda () (incf public-served-count))))))
                        :close-function (lambda () nil))
-                      :max-connections 2)))
+                      :max-connections 2
+                      :on-listeners-ready
+                      (lambda (engine-listener public-listener)
+                        (let ((engine-endpoint
+                                (engine-rpc-http-listener-endpoint
+                                 engine-listener))
+                              (rpc-endpoint
+                                (engine-rpc-http-listener-endpoint
+                                 public-listener)))
+                          (when ready-file
+                            (ethereum-lisp.cli::devnet-cli-write-ready-file
+                             node
+                             ready-file
+                             :engine-endpoint engine-endpoint
+                             :rpc-endpoint rpc-endpoint))
+                          (when log-file
+                            (ethereum-lisp.cli::devnet-cli-log-event
+                             node
+                             "devnet.ready"
+                             :engine-endpoint engine-endpoint
+                             :rpc-endpoint rpc-endpoint)))))))
+               (when log-file
+                 (ethereum-lisp.cli::devnet-cli-log-event
+                  node
+                  "devnet.shutdown"
+                  :engine-endpoint "engine"
+                  :rpc-endpoint "public"))
                (let* ((new-payload-response
                         (get-output-stream-string new-payload-output))
                       (forkchoice-response
@@ -343,7 +482,14 @@
                   (cons "forkchoiceStatus"
                         (fixture-object-field forkchoice-status "status"))
                   (cons "blockNumber" actual-block-number)
-                  (cons "recipientBalance" actual-balance))))))
+                  (cons "recipientBalance" actual-balance)
+                  (cons "readyFile" (or ready-file :false))
+                  (cons "logFile" (or log-file :false))))))))))
+             (when ready-file
+               (devnet-smoke-gate-verify-ready-file ready-file))
+             (when log-file
+               (devnet-smoke-gate-verify-log-file log-file))
+             report))
       (when (probe-file jwt-path)
         (delete-file jwt-path))))
   #-sbcl
@@ -367,16 +513,27 @@
           (devnet-smoke-gate-field report "forkchoiceStatus"))
   (format t "blockNumber=~A~%" (devnet-smoke-gate-field report "blockNumber"))
   (format t "recipientBalance=~A~%"
-          (devnet-smoke-gate-field report "recipientBalance")))
+          (devnet-smoke-gate-field report "recipientBalance"))
+  (format t "readyFile=~A~%" (devnet-smoke-gate-field report "readyFile"))
+  (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile")))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))
          (help-p (devnet-smoke-gate-help-p args))
          (json-p (devnet-smoke-gate-json-p args))
+         (ready-file
+           (devnet-smoke-gate-path-option
+            args +devnet-smoke-gate-ready-file-option+))
+         (log-file
+           (devnet-smoke-gate-path-option
+            args +devnet-smoke-gate-log-file-option+))
          (case-name (devnet-smoke-gate-fixture-case-name args)))
     (if help-p
         (devnet-smoke-gate-print-help)
-        (let ((report (devnet-smoke-gate-run case-name)))
+        (let ((report (devnet-smoke-gate-run
+                       case-name
+                       :ready-file ready-file
+                       :log-file log-file)))
           (if json-p
               (format t "~&~A~%" (json-encode report))
               (devnet-smoke-gate-print-text report))))))
