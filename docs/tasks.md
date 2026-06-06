@@ -3312,7 +3312,10 @@ splits can land after the Phase A smoke path closes.
     or transaction lookup index. Tightened the lower-level txpool mutation
     boundary so direct pending/queued/basefee/blob insertion paths reject
     transactions whose sender cannot be recovered instead of indexing them
-    under the zero address.
+    under the zero address. Tightened block-store included-transaction cleanup
+    so committing a block while txpool entries are present first requires every
+    included transaction sender to be recoverable; failure happens before block
+    or transaction indexes are written, preserving txpool state.
 
 - [x] `RECEIPT-DERIVATION-INVARIANTS`: Lock typed receipt encoding and
   derivation invariants on the import path.

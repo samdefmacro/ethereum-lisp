@@ -2330,6 +2330,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep block 'ethereum-block)
     (block-validation-fail "Engine payload store block must be a block"))
+  (let ((txpool (engine-payload-store-txpool store)))
+    (unless (engine-pending-txpool-empty-p txpool)
+      (dolist (transaction (block-transactions block))
+        (engine-pending-txpool-sender transaction))))
   (let ((key (engine-payload-store-key (block-hash block)))
         (canonicalized-p nil))
     (setf (gethash key (engine-payload-memory-store-blocks store)) block)
@@ -3457,6 +3461,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-pending-txpool-blob-count (txpool)
   (hash-table-count (engine-pending-txpool-blob-transactions txpool)))
+
+(defun engine-pending-txpool-empty-p (txpool)
+  (and (zerop (engine-pending-txpool-pending-count txpool))
+       (zerop (engine-pending-txpool-queued-count txpool))
+       (zerop (engine-pending-txpool-basefee-count txpool))
+       (zerop (engine-pending-txpool-blob-count txpool))))
 
 (defun engine-payload-store-txpool (store)
   (unless (typep store 'engine-payload-memory-store)

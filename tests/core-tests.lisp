@@ -3711,6 +3711,56 @@
                 store)))
         (is (null queued-sender-transactions))))))
 
+(deftest engine-payload-store-requires-recoverable-included-senders-with-txpool
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (pending-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 4
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (polluted-transaction
+           (make-dynamic-fee-transaction
+            :chain-id 1
+            :nonce 4
+            :max-priority-fee-per-gas 0
+            :max-fee-per-gas #x0fa0
+            :gas-limit #x84d0
+            :to recipient
+            :value 0
+            :y-parity 1
+            :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+            :s #x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-used 0)
+            :transactions (list polluted-transaction)))
+         (block-hash (block-hash block))
+         (polluted-hash (transaction-hash polluted-transaction)))
+    (is (null (transaction-sender polluted-transaction)))
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store pending-transaction)
+    (signals block-validation-error
+      (engine-payload-store-put-block store block))
+    (is (null (chain-store-known-block store block-hash)))
+    (is (null (chain-store-transaction-location store polluted-hash)))
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (eq pending-transaction
+            (ethereum-lisp.core::engine-payload-store-pending-transaction
+             store
+             (transaction-hash pending-transaction))))))
+
 (deftest engine-payload-store-replaces-same-sender-nonce-with-price-bump
   (let* ((store (make-engine-payload-memory-store))
          (recipient
