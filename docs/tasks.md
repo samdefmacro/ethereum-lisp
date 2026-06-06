@@ -3902,6 +3902,10 @@ splits can land after the Phase A smoke path closes.
     across pending, queued, basefee, and blob placeholder subpools. A bumped
     eligible replacement can move a transaction out of the basefee queued view
     into pending without leaving a duplicate pooled transaction behind.
+  - Progress: canonical-head updates now recheck basefee placeholder
+    transactions and promote newly eligible entries into pending, including
+    pending transaction filter notification, so base-fee drops do not leave
+    transactions permanently parked in the queued view.
 
 ## P1: Public RPC Execution APIs
 

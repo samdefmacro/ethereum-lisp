@@ -93,8 +93,9 @@ fixes in those areas are allowed; expansion is not.
   instead of pending and promote into pending when the gap closes. Base-fee
   ineligible submissions now route into the basefee txpool view, and bumped
   same-sender/same-nonce replacements can move them into pending without
-  leaving duplicate subpool entries behind; blob subpool admission remains
-  placeholder. A standalone
+  leaving duplicate subpool entries behind; canonical-head updates also
+  promote basefee entries that become eligible after a base-fee drop. Blob
+  subpool admission remains placeholder. A standalone
   `scripts/devnet-smoke-gate.lisp` now exercises the local split
   Engine/public listener boundary with authenticated payload import,
   forkchoice, and public retained-state reads.

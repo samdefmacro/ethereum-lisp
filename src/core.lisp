@@ -2572,6 +2572,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (setf (engine-payload-memory-store-head-number store) new-head-number
               (engine-payload-memory-store-head-checkpoint store)
               (make-chain-store-checkpoint :label :head :block-hash hash)))
+      (engine-payload-store-promote-basefee-transactions store)
       head-block)))
 
 (defun engine-payload-store-transaction-location (store hash)
@@ -3584,6 +3585,38 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        transaction)
     (declare (ignore inserted-p))
     transaction))
+
+(defun engine-payload-store-basefee-promotable-transaction-p
+    (store transaction base-fee)
+  (and (or (null base-fee)
+           (>= (transaction-max-fee-per-gas transaction) base-fee))
+       (not (engine-pending-txpool-pending-conflict
+             (engine-payload-store-txpool store)
+             transaction))
+       (not (engine-pending-txpool-queued-conflict
+             (engine-payload-store-txpool store)
+             transaction))
+       (not (engine-pending-txpool-flat-conflict
+             (engine-payload-store-blob-transaction-table store)
+             transaction))))
+
+(defun engine-payload-store-promote-basefee-transactions (store)
+  (let* ((head (chain-store-head-block store))
+         (header (and head (block-header head)))
+         (base-fee (and header (block-header-base-fee-per-gas header)))
+         (transactions
+           (loop for transaction
+                   being the hash-values of
+                     (engine-payload-store-basefee-transaction-table store)
+                 when (engine-payload-store-basefee-promotable-transaction-p
+                       store transaction base-fee)
+                   collect transaction)))
+    (dolist (transaction transactions)
+      (engine-pending-txpool-remove-basefee-transaction
+       (engine-payload-store-txpool store)
+       (transaction-hash transaction))
+      (engine-payload-store-put-pending-transaction store transaction))
+    transactions))
 
 (defun engine-payload-store-pending-transaction (store hash)
   (engine-pending-txpool-pending-transaction
