@@ -439,6 +439,11 @@ ones.
     child script through the repository-root path, and the devnet gate resolves
     its genesis plus Engine fixture inputs from the script root, so external
     runners can invoke the gate from temporary working directories.
+  - Result: hardened pinned smoke-gate root handling. `--pinned-v5.4.0` now
+    requires an explicit `--root PATH` or
+    `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent
+    pinned root fails with a configuration error instead of falling back to the
+    in-repo seed root and reporting a misleading selector mismatch.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

@@ -84,7 +84,7 @@
   (format t "  --help             Print this help without loading the test system.~%")
   (format t "~%")
   (format t "Default ROOT: ~A~%" +smoke-gate-default-root+)
-  (format t "Pinned mode uses ~A when ROOT is omitted and the variable is set.~%"
+  (format t "Pinned mode requires ROOT or ~A when ROOT is omitted.~%"
           +smoke-gate-eest-root-env+))
 
 (defun smoke-gate-call (name &rest args)
@@ -100,13 +100,20 @@
     (symbol-value symbol)))
 
 (defun smoke-gate-pinned-default-root ()
-  (let ((root
-          (smoke-gate-call
-           "execution-spec-tests-fixture-root"
-           :env-var +smoke-gate-eest-root-env+)))
-    (if root
-        (namestring root)
-        +smoke-gate-default-root+)))
+  (let ((root (uiop:getenv +smoke-gate-eest-root-env+)))
+    (when (or (null root)
+              (zerop (length
+                      (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                   root))))
+      (error "Pinned Phase A smoke gate requires an EEST fixture root via ~A or ~A"
+             +smoke-gate-root-option+
+             +smoke-gate-eest-root-env+))
+    (let ((resolved-root (probe-file root)))
+      (unless resolved-root
+        (error "Pinned Phase A smoke gate root from ~A does not exist: ~A"
+               +smoke-gate-eest-root-env+
+               root))
+      (namestring resolved-root))))
 
 (defun smoke-gate-suite-root (root-argument pinned-p)
   (or root-argument

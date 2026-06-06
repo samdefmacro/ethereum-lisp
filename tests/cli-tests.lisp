@@ -1205,6 +1205,62 @@
       (is (search "Phase A smoke gate requires an EEST blockchain root"
                   stderr)))))
 
+(deftest phase-a-smoke-gate-pinned-mode-requires-root
+  #-sbcl
+  (skip-test "Phase A smoke gate pinned mode requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "env"
+             "-u"
+             "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
+             "sbcl"
+             "--script"
+             "scripts/phase-a-smoke-gate.lisp"
+             "--"
+             "--pinned-v5.4.0"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (not (= 0 status)))
+    (is (string= "" stdout))
+    (is (search "Pinned Phase A smoke gate requires an EEST fixture root"
+                stderr))
+    (is (search "--root" stderr))
+    (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" stderr))
+    (is (not (search "do not match pinned selectors" stderr)))))
+
+(deftest phase-a-smoke-gate-pinned-mode-rejects-missing-env-root
+  #-sbcl
+  (skip-test "Phase A smoke gate pinned mode requires SBCL")
+  #+sbcl
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-missing-pinned-smoke-root-~A/"
+                    (devnet-cli-temp-token))
+            #P"/private/tmp/"))
+         (root-string (namestring root)))
+    (multiple-value-bind (stdout stderr status)
+        (uiop:run-program
+         (list "env"
+               (format nil "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=~A"
+                       root-string)
+               "sbcl"
+               "--script"
+               "scripts/phase-a-smoke-gate.lisp"
+               "--"
+               "--pinned-v5.4.0"
+               "--json")
+         :output :string
+         :error-output :string
+         :ignore-error-status t)
+      (is (not (= 0 status)))
+      (is (string= "" stdout))
+      (is (search root-string stderr))
+      (is (search "Pinned Phase A smoke gate root from" stderr))
+      (is (not (search "do not match pinned selectors" stderr))))))
+
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))

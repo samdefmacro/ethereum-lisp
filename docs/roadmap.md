@@ -750,7 +750,11 @@ Detailed historical implementation notes for this section now live in
   coverage, while pinned v5.4.0 roots must match the official Shanghai
   blockchain replay table and report absent suites explicitly. Its `--devnet`
   mode also runs the standalone devnet listener-boundary all-fixtures smoke and
-  includes that process-boundary report in the gate output.
+  includes that process-boundary report in the gate output. Pinned smoke-gate
+  mode now requires an explicit root or
+  `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, so missing pinned fixture
+  configuration is reported as such instead of being misclassified as selector
+  drift against the in-repo seed root.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
