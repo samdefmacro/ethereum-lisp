@@ -1375,6 +1375,11 @@ splits can land after the Phase A smoke path closes.
       that are not ancestors of the requested head. Invalid checkpoint updates
       return Engine invalid-forkchoice-state errors and leave the previous
       typed checkpoints intact.
+    - Engine forkchoice checkpoint publication and canonical-head rewrite now
+      share the chain-store atomic commit boundary. If a VALID forkchoice
+      update hits an incomplete canonical ancestry or another head rewrite
+      error, the prior head/safe/finalized checkpoints and canonical indexes
+      are restored instead of leaking a partial forkchoice update.
   - Validation: two-branch reorg fixtures plus
     `sbcl --script tests/run-tests.lisp`.
 

@@ -763,10 +763,13 @@
             (engine-rpc-fail
              +engine-rpc-error-invalid-forkchoice-state+
              checkpoint-error)))
-        (chain-store-update-forkchoice-checkpoints store state)
-        (chain-store-set-canonical-head
+        (chain-store-atomic-commit
          store
-         (forkchoice-state-head-block-hash state)))
+         (lambda ()
+           (chain-store-update-forkchoice-checkpoints store state)
+           (chain-store-set-canonical-head
+            store
+            (forkchoice-state-head-block-hash state)))))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))

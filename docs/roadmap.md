@@ -85,7 +85,10 @@ fixes in those areas are allowed; expansion is not.
   objects require real sender recovery rather than zero-address fallbacks. The
   in-memory Engine import path is atomic for state DB plus block, receipt,
   transaction, account, pending/filter, blob sidecar, prepared payload,
-  forkchoice checkpoint, and invalid-payload cache indexes.
+  forkchoice checkpoint, and invalid-payload cache indexes. Forkchoice
+  checkpoint publication and canonical-head rewrite now share the same atomic
+  commit boundary, so failed head rewrites do not leak partial head/safe/
+  finalized checkpoint changes.
 - **Partial:** txpool admission, concrete HTTP/socket serving, production
   persistence, and cross-client process-level fixture breadth beyond the
   current bounded Engine import path. Retained-state nonce-gap

@@ -6558,6 +6558,78 @@
              (error (field response "error")))
         (is (= -32602 (field error "code"))))))))
 
+(deftest engine-rpc-forkchoice-update-rolls-back-checkpoints-on-head-rewrite-error
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (forkchoice-state-object
+               (head &key
+                     (safe (zero-hash32))
+                     (finalized (zero-hash32)))
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex safe))
+                   (cons "finalizedBlockHash"
+                         (hash32-to-hex finalized))))
+           (forkchoice-request (id state)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" "engine_forkchoiceUpdatedV1")
+                   (cons "params" (list state)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (genesis
+             (make-block
+              :header (make-block-header :number 0
+                                         :parent-hash (zero-hash32)
+                                         :timestamp 0
+                                         :gas-limit 30000000)))
+           (old-head
+             (make-block
+              :header (make-block-header :parent-hash (block-hash genesis)
+                                         :number 1
+                                         :timestamp 12
+                                         :gas-limit 30000000)))
+           (missing-parent-hash
+             (hash32-from-hex
+              "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+           (orphan-head
+             (make-block
+              :header (make-block-header :parent-hash missing-parent-hash
+                                         :number 2
+                                         :timestamp 24
+                                         :gas-limit 30000000))))
+      (engine-payload-store-put-block store genesis :state-available-p t)
+      (engine-payload-store-put-block store old-head :state-available-p t)
+      (engine-payload-store-put-block store orphan-head :state-available-p t)
+      (engine-rpc-handle-request
+       (forkchoice-request
+        39
+        (forkchoice-state-object
+         (block-hash old-head)
+         :safe (block-hash genesis)
+         :finalized (block-hash genesis)))
+       store
+       config)
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request
+                 40
+                 (forkchoice-state-object
+                  (block-hash orphan-head)))
+                store
+                config))
+             (error (field response "error")))
+        (is (= 40 (field response "id")))
+        (is (= -32602 (field error "code")))
+        (is (string= "Canonical head ancestry must be fully known"
+                     (field error "message")))
+        (is (eq old-head (chain-store-head-block store)))
+        (is (eq genesis (chain-store-safe-block store)))
+        (is (eq genesis (chain-store-finalized-block store)))
+        (is (string= (hash32-to-hex (block-hash old-head))
+                     (hash32-to-hex
+                      (chain-store-canonical-hash store 1))))
+        (is (not (chain-store-canonical-hash store 2)))))))
+
 (deftest engine-rpc-forkchoice-updated-v2-prepares-withdrawal-payload
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
