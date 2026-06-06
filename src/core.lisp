@@ -5638,13 +5638,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (return-from engine-new-payload-memory-status
         (values status nil)))
     (let* ((hash (block-hash block))
-           (invalid-status
-             (engine-payload-store-invalid-ancestor-status
-              store hash hash))
            (known-block (chain-store-known-block store hash)))
-      (when invalid-status
-        (return-from engine-new-payload-memory-status
-          (values invalid-status nil)))
       (when (and known-block
                  (chain-store-state-available-p store hash))
         (return-from engine-new-payload-memory-status
@@ -5652,6 +5646,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    :status +payload-status-valid+
                    :latest-valid-hash hash)
                   known-block)))
+      (let ((invalid-status
+              (engine-payload-store-invalid-ancestor-status
+               store hash hash)))
+        (when invalid-status
+          (return-from engine-new-payload-memory-status
+            (values invalid-status nil))))
       (let* ((header (block-header block))
              (number (block-header-number header))
              (parent-hash (block-header-parent-hash header))
