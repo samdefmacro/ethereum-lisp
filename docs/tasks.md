@@ -3902,6 +3902,10 @@ splits can land after the Phase A smoke path closes.
     contiguous pending subpool span from retained state nonce. Queued nonce
     gaps and basefee-ineligible entries no longer consume account nonces
     before promotion.
+  - Progress: nonce-gap routing now compares new submissions against the
+    pending-contiguous nonce, not only retained chain state. A transaction that
+    immediately follows already-pending same-sender transactions stays in the
+    pending subpool and can trigger queued promotion.
   - Progress: when retained sender state is available, accepting a transaction
     that closes a nonce gap now promotes contiguous queued transactions for
     that sender into pending and notifies pending transaction filters only at

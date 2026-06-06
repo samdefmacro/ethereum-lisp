@@ -1526,7 +1526,13 @@
     (and head
          (chain-store-state-available-p store (block-hash head))
          (> (transaction-nonce transaction)
-            (chain-store-account-nonce store (block-hash head) sender)))))
+            (engine-payload-store-pending-contiguous-nonce
+             store
+             sender
+             (chain-store-account-nonce
+              store
+              (block-hash head)
+              sender))))))
 
 (defun eth-rpc-txpool-basefee-ineligible-p (store transaction)
   (multiple-value-bind (head block-number timestamp)

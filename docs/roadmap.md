@@ -98,7 +98,10 @@ fixes in those areas are allowed; expansion is not.
   promote basefee entries that become eligible after a base-fee drop. Pending
   nonce RPCs count only the contiguous pending subpool span, so queued gaps and
   basefee-ineligible entries do not consume account nonces before promotion.
-  Blob subpool admission remains placeholder. A standalone
+  Nonce-gap routing now compares submissions against that pending-contiguous
+  nonce, so follow-on same-sender transactions remain pending once earlier
+  nonces are already pending. Blob subpool admission remains placeholder. A
+  standalone
   `scripts/devnet-smoke-gate.lisp` now exercises the local split
   Engine/public listener boundary with authenticated payload import,
   forkchoice, and public retained-state reads.
