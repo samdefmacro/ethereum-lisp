@@ -4068,6 +4068,123 @@
           sender
           replacement)))))
 
+(deftest txpool-content-from-uses-subpool-sender-indexes
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (pending-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 100
+               :gas-limit 21000
+               :to recipient)
+              1
+              1))
+           (queued-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1
+               :gas-price 110
+               :gas-limit 21000
+               :to recipient)
+              1
+              1))
+           (basefee-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 2
+               :gas-price 120
+               :gas-limit 21000
+               :to recipient)
+              1
+              1))
+           (blob-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 3
+               :gas-price 130
+               :gas-limit 21000
+               :to recipient)
+              1
+              1))
+           (other-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1
+               :gas-price 140
+               :gas-limit 21000
+               :to recipient)
+              2
+              1))
+           (sender
+             (transaction-sender pending-transaction :expected-chain-id 1))
+           (sender-key (address-to-hex sender))
+           (other-sender
+             (transaction-sender other-transaction :expected-chain-id 1)))
+      (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+       store
+       pending-transaction)
+      (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+       store
+       queued-transaction)
+      (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+       store
+       basefee-transaction)
+      (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+       store
+       blob-transaction)
+      (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+       store
+       other-transaction)
+      (let* ((response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":88,"
+                 "\"method\":\"txpool_contentFrom\",\"params\":[\""
+                 sender-key
+                 "\"]}")
+                store
+                config))
+             (other-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":89,"
+                 "\"method\":\"txpool_contentFrom\",\"params\":[\""
+                 (address-to-hex other-sender)
+                 "\"]}")
+                store
+                config))
+             (result (field response "result"))
+             (pending (field result "pending"))
+             (queued (field result "queued"))
+             (other-queued (field (field other-response "result")
+                                  "queued")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash pending-transaction))
+                     (field (field pending "0") "hash")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash queued-transaction))
+                     (field (field queued "1") "hash")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash basefee-transaction))
+                     (field (field queued "2") "hash")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash blob-transaction))
+                     (field (field queued "3") "hash")))
+        (is (null (field queued "4")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash other-transaction))
+                     (field (field other-queued "1") "hash")))))))
+
 (deftest engine-pending-txpool-copy-isolates-sender-indexes
   (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
          (recipient

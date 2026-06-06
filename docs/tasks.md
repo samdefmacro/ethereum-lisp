@@ -3990,6 +3990,9 @@ splits can land after the Phase A smoke path closes.
     lets a basefee drop promote nonce `N` and the newly contiguous queued nonce
     `N+1` in the same pass instead of leaving the queued tail parked until a
     later txpool event.
+  - Progress: `txpool_contentFrom` now reads pending plus queued/basefee/blob
+    subpool entries through sender/nonce indexes instead of filtering the full
+    queued view, keeping the per-sender RPC path aligned with txpool indexing.
 
 ## P1: Public RPC Execution APIs
 

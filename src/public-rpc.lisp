@@ -1357,6 +1357,21 @@
                   (funcall value-function
                            (gethash nonce sender-transactions))))))
 
+(defun txpool-rpc-indexed-nonce-transactions-from-sender-indexes
+    (address value-function &rest sender-indexes)
+  (let ((sender-key (address-to-hex address))
+        (merged-transactions (make-hash-table :test 'equal)))
+    (dolist (sender-index sender-indexes)
+      (let ((sender-transactions (gethash sender-key sender-index)))
+        (when sender-transactions
+          (maphash
+           (lambda (nonce transaction)
+             (setf (gethash nonce merged-transactions) transaction))
+           sender-transactions))))
+    (txpool-rpc-indexed-nonce-transactions
+     merged-transactions
+     value-function)))
+
 (defun txpool-rpc-indexed-sender-transactions
     (sender-index value-function)
   (if (zerop (hash-table-count sender-index))
@@ -1784,11 +1799,12 @@
              (engine-payload-store-pending-transactions-by-sender store))
             #'eth-rpc-pending-transaction-object))
      (cons "queued"
-           (txpool-rpc-nonce-transactions
-            (remove-if-not
-             (lambda (transaction)
-               (txpool-rpc-transaction-sender-p transaction address))
-             (eth-rpc-txpool-queued-view-transactions store)))))))
+           (txpool-rpc-indexed-nonce-transactions-from-sender-indexes
+            address
+            #'eth-rpc-pending-transaction-object
+            (engine-payload-store-queued-sender-index store)
+            (engine-payload-store-basefee-sender-index store)
+            (engine-payload-store-blob-sender-index store))))))
 
 (defun engine-rpc-handle-txpool-inspect (params store)
   (when params
