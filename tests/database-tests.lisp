@@ -125,6 +125,43 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest file-key-value-database-replaces-through-temp-file
+  (let* ((name (format nil "ethereum-lisp-kv-replace-~A" (gensym)))
+         (path
+           (merge-pathnames
+            (make-pathname :name name :type "sexp")
+            #P"/private/tmp/"))
+         (temp-pattern
+           (merge-pathnames
+            (make-pathname
+             :name (format nil ".~A.*" name)
+             :type "sexp")
+            #P"/private/tmp/")))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path))
+                 (batch (make-kv-write-batch)))
+             (kv-put database #(1) #(1))
+             (kv-batch-put batch #(2) #(2))
+             (kv-batch-put batch #(3) #(3))
+             (kv-apply-batch database batch)
+             (kv-put database #(1) #(9)))
+           (is (null (directory temp-pattern)))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(1))
+               (is present-p)
+               (is (bytes= #(9) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get database #(2))
+               (is present-p)
+               (is (bytes= #(2) value)))))
+      (when (probe-file path)
+        (delete-file path))
+      (dolist (temp-path (directory temp-pattern))
+        (when (probe-file temp-path)
+          (delete-file temp-path))))))
+
 (deftest chain-record-keys-namespace-chain-data
   (let ((database (make-memory-key-value-database))
         (block-hash (make-byte-vector 32 :initial-element #xaa))

@@ -4131,6 +4131,11 @@ splits can land after the Phase A smoke path closes.
     same atomic multi-record write shape as the existing KV batch protocol
     instead of forcing block/header/receipt/index commits through separate
     per-record writes.
+  - Result: file-backed database persistence now writes serialized records to
+    a same-directory temporary file and then replaces the target path. This
+    keeps successful put/delete/batch writes from exposing a directly half-
+    written target file while the development backend remains intentionally
+    simple.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

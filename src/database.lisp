@@ -178,6 +178,15 @@
     (error "Invalid key-value database file"))
   (second object))
 
+(defun kv-file-database-temp-path (path)
+  (let* ((pathname (pathname path))
+         (name (or (pathname-name pathname) "kv"))
+         (type (pathname-type pathname)))
+    (make-pathname
+     :name (format nil ".~A.~A" name (symbol-name (gensym "TMP")))
+     :type type
+     :defaults pathname)))
+
 (defun kv-load-file-database (database)
   (let ((path (file-key-value-database-path database)))
     (when (probe-file path)
@@ -196,16 +205,25 @@
   database)
 
 (defun kv-persist-file-database (database)
-  (let ((path (file-key-value-database-path database)))
+  (let* ((path (file-key-value-database-path database))
+         (temp-path (kv-file-database-temp-path path))
+         (renamed-p nil))
     (ensure-directories-exist path)
-    (with-open-file (stream path
-                            :direction :output
-                            :if-exists :supersede
-                            :if-does-not-exist :create)
-      (let ((*print-readably* t)
-            (*print-pretty* nil))
-        (write (kv-serialize-file-database database) :stream stream)
-        (terpri stream))))
+    (unwind-protect
+         (progn
+           (with-open-file (stream temp-path
+                                   :direction :output
+                                   :if-exists :error
+                                   :if-does-not-exist :create)
+             (let ((*print-readably* t)
+                   (*print-pretty* nil))
+               (write (kv-serialize-file-database database) :stream stream)
+               (terpri stream)))
+           (uiop:rename-file-overwriting-target temp-path path)
+           (setf renamed-p t))
+      (unless renamed-p
+        (when (probe-file temp-path)
+          (ignore-errors (delete-file temp-path))))))
   database)
 
 (defmethod kv-get ((database memory-key-value-database) key &optional default)

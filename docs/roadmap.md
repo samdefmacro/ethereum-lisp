@@ -649,7 +649,8 @@ Detailed historical implementation notes for this section now live in
 - pluggable key-value database: first-pass protocol and in-memory backend are
   present, covering byte-vector put/get/delete, ordered write batches, and
   sorted range iteration; a simple S-expression file-backed development
-  backend now persists records across process restarts
+  backend now persists records across process restarts and replaces target
+  files through same-directory temporary writes
 - freezer/history abstractions: immutable finalized bodies, receipts,
   transaction lookup records, and historical header/body payload bytes should
   move to append-only/static files once finalized beyond the retention window;
