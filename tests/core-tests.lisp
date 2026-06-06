@@ -4001,6 +4001,73 @@
           (ethereum-lisp.core::engine-pending-txpool-blob-transactions-by-sender
            txpool))))))
 
+(deftest engine-payload-store-uses-sender-index-for-pending-account-view
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (sender-nonce-two
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 2
+             :gas-price 2
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (sender-nonce-zero
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 1
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (replacement
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 3
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (other-sender
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            2
+            1))
+         (sender (transaction-sender sender-nonce-zero :expected-chain-id 1)))
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store
+     sender-nonce-two)
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store
+     other-sender)
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store
+     sender-nonce-zero)
+    (let ((sender-transactions
+            (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+             store
+             sender)))
+      (is (= 2 (length sender-transactions)))
+      (is (eq sender-nonce-zero (first sender-transactions)))
+      (is (eq sender-nonce-two (second sender-transactions))))
+    (is (=
+         (+ (ethereum-lisp.core::engine-payload-store-txpool-upfront-cost
+             sender-nonce-two)
+            (ethereum-lisp.core::engine-payload-store-txpool-upfront-cost
+             replacement))
+         (ethereum-lisp.core::engine-payload-store-pending-sender-expenditure
+          store
+          sender
+          replacement)))))
+
 (deftest engine-pending-txpool-copy-isolates-sender-indexes
   (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
          (recipient

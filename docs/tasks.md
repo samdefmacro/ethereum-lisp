@@ -3865,6 +3865,11 @@ splits can land after the Phase A smoke path closes.
     sender/nonce, same-sender/nonce replacement is enforced with the configured
     price bump, and txpool content/inspect APIs read from the sender index
     instead of rebuilding sender groupings from the flat pending set.
+  - Progress: pending sender expenditure and canonical-head pending
+    revalidation now read the per-sender nonce bucket instead of scanning the
+    whole pending table. This keeps balance checks and executable-prefix
+    demotion aligned with the local geth `pending map[address]` and Nethermind
+    sender-grouped sorted-pool reference shape.
 
 - [x] Add basic txpool admission preflight.
   - Milestone: 7
