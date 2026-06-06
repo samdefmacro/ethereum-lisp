@@ -317,6 +317,13 @@ ones.
     roots even without a trailing slash. The blockchain selector script also
     accepts the common `-- root` argument form, making the pinned v5.4.0 replay
     selector table reproducible from the command line.
+  - Progress: hardened suite-root layout selection for upstream roots that
+    carry multiple candidate directories. Shared suite discovery now prefers
+    the first candidate root that actually contains JSON files, while still
+    returning the first existing empty candidate when all candidates are empty
+    so empty roots fail loudly. This prevents an empty preferred
+    `blockchain_tests_engine` directory from hiding a populated generic
+    `blockchain_tests` fallback in execution-spec-tests or geth-style roots.
   - Progress: added a pinned v5.4.0 selector mode for the real Phase A
     blockchain replay path. `ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS`
     can now be set to `pinned-v5.4.0`, which validates the current discovered

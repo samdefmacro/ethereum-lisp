@@ -180,12 +180,25 @@
 (defun execution-spec-tests-subdirectory (root subdir)
   (probe-file (merge-pathnames subdir (pathname root))))
 
-(defun execution-spec-tests-first-existing-subdirectory (root subdirs)
+(defun execution-spec-tests-subdirectory-json-p (root subdir)
+  (let ((candidate (execution-spec-tests-subdirectory root subdir)))
+    (and candidate
+         (not (null (execution-spec-tests-json-paths candidate))))))
+
+(defun execution-spec-tests-first-existing-subdirectory
+    (root subdirs &key require-json-p)
   (when root
-    (dolist (subdir subdirs)
-      (let ((candidate (execution-spec-tests-subdirectory root subdir)))
-        (when candidate
-          (return candidate))))))
+    (let ((first-existing nil))
+      (dolist (subdir subdirs)
+        (let ((candidate (execution-spec-tests-subdirectory root subdir)))
+          (when candidate
+            (unless first-existing
+              (setf first-existing candidate))
+            (when (or (not require-json-p)
+                      (execution-spec-tests-subdirectory-json-p root subdir))
+              (return-from execution-spec-tests-first-existing-subdirectory
+                candidate)))))
+      first-existing)))
 
 (defun execution-spec-tests-json-paths (root)
   (let* ((root-path (pathname root))
@@ -291,25 +304,29 @@
   (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
      base
-     +execution-spec-tests-blockchain-test-subdirs+)))
+     +execution-spec-tests-blockchain-test-subdirs+
+     :require-json-p t)))
 
 (defun execution-spec-tests-transaction-test-root (&optional root)
   (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
      base
-     +execution-spec-tests-transaction-test-subdirs+)))
+     +execution-spec-tests-transaction-test-subdirs+
+     :require-json-p t)))
 
 (defun execution-spec-tests-state-test-root (&optional root)
   (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
      base
-     +execution-spec-tests-state-test-subdirs+)))
+     +execution-spec-tests-state-test-subdirs+
+     :require-json-p t)))
 
 (defun execution-spec-tests-trie-test-root (&optional root)
   (let ((base (execution-spec-tests-resolved-root root)))
     (execution-spec-tests-first-existing-subdirectory
      base
-     +execution-spec-tests-trie-test-subdirs+)))
+     +execution-spec-tests-trie-test-subdirs+
+     :require-json-p t)))
 
 (defmacro with-execution-spec-tests-fixture-root ((root) &body body)
   `(let ((,root (execution-spec-tests-fixture-root)))

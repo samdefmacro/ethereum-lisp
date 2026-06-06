@@ -1171,6 +1171,30 @@
                  "shanghai/phase-a-transfer-engine.json")
                (eest-blockchain-test-root-file-names root)))))
 
+(deftest eest-blockchain-test-root-skips-empty-preferred-layout
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-fixture-root-~A/" (gensym))
+            #P"/private/tmp/"))
+         (engine-root
+           (merge-pathnames "blockchain_tests_engine/" root))
+         (generic-root
+           (merge-pathnames "blockchain_tests/" root))
+         (json-path
+           (merge-pathnames "shanghai/test.json" generic-root)))
+    (ensure-directories-exist engine-root)
+    (ensure-directories-exist json-path)
+    (with-open-file (stream json-path
+                            :direction :output
+                            :if-exists :supersede
+                            :if-does-not-exist :create)
+      (write-string "{}" stream))
+    (let ((selected-root (execution-spec-tests-blockchain-test-root root)))
+      (is (string= (namestring (truename generic-root))
+                   (namestring (truename selected-root))))
+      (is (equal '("shanghai/test.json")
+                 (eest-blockchain-test-root-file-names selected-root))))))
+
 (deftest eest-blockchain-test-root-json-discovery-rejects-empty-roots
   (let ((root (execution-spec-tests-blockchain-test-root
                "tests/fixtures/geth-spec-tests-root/")))
