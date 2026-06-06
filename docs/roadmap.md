@@ -119,7 +119,11 @@ fixes in those areas are allowed; expansion is not.
   executable contiguous prefix.
   Nonce-gap routing now compares submissions against that pending-contiguous
   nonce, so follow-on same-sender transactions remain pending once earlier
-  nonces are already pending. Blob subpool admission remains placeholder. A
+  nonces are already pending. Blob transactions that pass Cancun/type/sender
+  admission now route into the blob subpool and remain visible through the
+  queued txpool view and hash lookup without pending-filter notification; real
+  sidecar/KZG-backed executable blob promotion remains outside the Shanghai
+  Phase A gate. A
   standalone
   `scripts/devnet-smoke-gate.lisp` now exercises the local split
   Engine/public listener boundary with authenticated payload import,

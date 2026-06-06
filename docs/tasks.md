@@ -3951,6 +3951,12 @@ splits can land after the Phase A smoke path closes.
     boundary and also runs after canonical-head updates. If retained sender
     state advances and closes a nonce gap, contiguous queued transactions move
     into pending without waiting for another local submission.
+  - Progress: blob raw transactions that pass Cancun/type/sender admission now
+    route into the blob subpool instead of pending. Public `txpool_*` queued
+    views and `eth_getTransactionByHash` can observe them, while
+    `eth_pendingTransactions` and pending transaction filters remain limited to
+    executable pending transactions. Sidecar/KZG-backed blob execution remains
+    out of the Shanghai Phase A gate.
 
 ## P1: Public RPC Execution APIs
 

@@ -1718,6 +1718,8 @@
       (unless (or (chain-store-transaction-location store hash)
                   (engine-payload-store-pooled-transaction store hash))
         (cond
+          ((typep transaction 'blob-transaction)
+           (engine-payload-store-put-blob-transaction store transaction))
           ((eth-rpc-txpool-basefee-ineligible-p store transaction)
            (engine-payload-store-put-basefee-transaction store transaction))
           ((eth-rpc-txpool-queued-nonce-gap-p store sender transaction)

@@ -12948,6 +12948,106 @@
                      (field transaction-count-response "result")))
         (is (= 0 (length (field filter-changes "result"))))))))
 
+(deftest eth-rpc-send-raw-transaction-routes-blob-transactions-to-blob-subpool
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1337
+                                      :london-block 0
+                                      :cancun-time 0))
+           (raw-transaction
+             "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675")
+           (transaction
+             (transaction-from-encoding (hex-to-bytes raw-transaction)))
+           (transaction-hash
+             (hash32-to-hex (transaction-hash transaction)))
+           (sender (transaction-sender transaction :expected-chain-id 1337))
+           (filter-response
+             (request
+              "{\"jsonrpc\":\"2.0\",\"id\":167,\"method\":\"eth_newPendingTransactionFilter\"}"
+              store
+              config))
+           (filter-id (field filter-response "result"))
+           (send-response
+             (request
+              (concatenate
+               'string
+               "{\"jsonrpc\":\"2.0\",\"id\":166,"
+               "\"method\":\"eth_sendRawTransaction\","
+               "\"params\":[\"" raw-transaction "\"]}")
+              store
+              config))
+           (pending-response
+             (request
+              "{\"jsonrpc\":\"2.0\",\"id\":168,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+              store
+              config))
+           (status-response
+             (request
+              "{\"jsonrpc\":\"2.0\",\"id\":169,\"method\":\"txpool_status\",\"params\":[]}"
+              store
+              config))
+           (content-response
+             (request
+              "{\"jsonrpc\":\"2.0\",\"id\":170,\"method\":\"txpool_content\",\"params\":[]}"
+              store
+              config))
+           (content-from-response
+             (request
+              (concatenate
+               'string
+               "{\"jsonrpc\":\"2.0\",\"id\":171,"
+               "\"method\":\"txpool_contentFrom\",\"params\":[\""
+               (address-to-hex sender)
+               "\"]}")
+              store
+              config))
+           (lookup-response
+             (request
+              (concatenate
+               'string
+               "{\"jsonrpc\":\"2.0\",\"id\":172,"
+               "\"method\":\"eth_getTransactionByHash\","
+               "\"params\":[\"" transaction-hash "\"]}")
+              store
+              config))
+           (filter-changes
+             (request
+              (concatenate
+               'string
+               "{\"jsonrpc\":\"2.0\",\"id\":173,"
+               "\"method\":\"eth_getFilterChanges\","
+               "\"params\":[\"" filter-id "\"]}")
+              store
+              config))
+           (status (field status-response "result"))
+           (content (field content-response "result"))
+           (queued (field (field content "queued") (address-to-hex sender)))
+           (queued-from
+             (field (field (field content-from-response "result") "queued")
+                    (write-to-string (transaction-nonce transaction)
+                                     :base 10)))
+           (pooled-transaction (field lookup-response "result")))
+      (is (typep transaction 'blob-transaction))
+      (is (string= transaction-hash (field send-response "result")))
+      (is (= 0 (length (field pending-response "result"))))
+      (is (string= (quantity-to-hex 0) (field status "pending")))
+      (is (string= (quantity-to-hex 1) (field status "queued")))
+      (is (null (field content "pending")))
+      (is (string= transaction-hash
+                   (field (field queued
+                                 (write-to-string
+                                  (transaction-nonce transaction)
+                                  :base 10))
+                          "hash")))
+      (is (string= transaction-hash (field queued-from "hash")))
+      (is (string= transaction-hash (field pooled-transaction "hash")))
+      (is (null (field pooled-transaction "blockHash")))
+      (is (= 0 (length (field filter-changes "result")))))))
+
 (deftest eth-rpc-send-raw-transaction-replaces-basefee-conflict-with-pending
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
