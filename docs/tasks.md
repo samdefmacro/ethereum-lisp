@@ -375,12 +375,12 @@ ones.
     `scripts/phase-a-fixture-report.lisp` now accept `--root PATH` in addition
     to positional roots, so automation can use one explicit-root convention
     across fixture synchronization commands.
-  - Progress: hardened selector/report environment-root diagnostics. The state,
+  - Progress: hardened selector/report configured-root diagnostics. The state,
     transaction, and blockchain selector scripts plus
     `scripts/phase-a-fixture-report.lisp` now fail with a configuration error
-    when `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` points to a nonexistent
-    path, instead of reporting a generic missing-suite error that hides bad
-    automation configuration.
+    when `--root PATH` or `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` points to
+    a nonexistent path, instead of reporting a generic missing-suite error that
+    hides bad automation configuration.
 
 - [x] `PHASE-A-SMOKE-GATE`: Add an executable Phase A smoke acceptance gate.
   - Milestone: 8

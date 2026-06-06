@@ -30,13 +30,17 @@
               (string-trim '(#\Space #\Tab #\Newline #\Return) value)))))
 
 (defun selector-script-reject-missing-configured-root (root-argument)
-  (unless root-argument
-    (let ((root (uiop:getenv +selector-script-eest-root-env+)))
-      (when (and (not (selector-script-blank-string-p root))
-                 (not (probe-file root)))
+  (if root-argument
+      (unless (probe-file root-argument)
         (error "Configured EEST fixture root from ~A does not exist: ~A"
-               +selector-script-eest-root-env+
-               root)))))
+               +selector-script-root-option+
+               root-argument))
+      (let ((root (uiop:getenv +selector-script-eest-root-env+)))
+        (when (and (not (selector-script-blank-string-p root))
+                   (not (probe-file root)))
+          (error "Configured EEST fixture root from ~A does not exist: ~A"
+                 +selector-script-eest-root-env+
+                 root)))))
 
 (defun selector-script-set-argument-root (root value)
   (when root

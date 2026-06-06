@@ -756,8 +756,8 @@ Detailed historical implementation notes for this section now live in
   `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, so missing pinned fixture
   configuration is reported as such instead of being misclassified as selector
   drift against the in-repo seed root. The fixture report and selector-listing
-  scripts now use the same configured-root error classification when the
-  environment variable points to a nonexistent path.
+  scripts now use the same configured-root error classification when either
+  `--root PATH` or the environment variable points to a nonexistent path.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

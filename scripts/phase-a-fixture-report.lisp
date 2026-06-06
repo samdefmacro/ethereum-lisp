@@ -39,13 +39,17 @@
               (string-trim '(#\Space #\Tab #\Newline #\Return) value)))))
 
 (defun fixture-report-reject-missing-configured-root (root-argument)
-  (unless root-argument
-    (let ((root (uiop:getenv +fixture-report-eest-root-env+)))
-      (when (and (not (fixture-report-blank-string-p root))
-                 (not (probe-file root)))
+  (if root-argument
+      (unless (probe-file root-argument)
         (error "Configured EEST fixture root from ~A does not exist: ~A"
-               +fixture-report-eest-root-env+
-               root)))))
+               +fixture-report-root-option+
+               root-argument))
+      (let ((root (uiop:getenv +fixture-report-eest-root-env+)))
+        (when (and (not (fixture-report-blank-string-p root))
+                   (not (probe-file root)))
+          (error "Configured EEST fixture root from ~A does not exist: ~A"
+                 +fixture-report-eest-root-env+
+                 root)))))
 
 (defun fixture-report-set-argument-root (root value)
   (when root
