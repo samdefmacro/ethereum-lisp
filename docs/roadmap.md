@@ -170,7 +170,7 @@ fixes in those areas are allowed; expansion is not.
   file-backed KV database export/restore enabled for every pinned Shanghai
   case. Restored KV snapshots are also served through a fresh public RPC
   listener and checked for `eth_blockNumber` plus retained-state balance,
-  code, storage, and proof reads, `eth_getTransactionReceipt` canonical
+  nonce, code, storage, and proof reads, `eth_getTransactionReceipt` canonical
   receipt lookup, `eth_getBlockByHash` / `eth_getBlockByNumber` canonical
   block lookup,
   `eth_getTransactionByHash` canonical transaction lookup, and

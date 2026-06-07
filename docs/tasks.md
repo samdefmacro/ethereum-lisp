@@ -4394,6 +4394,10 @@ splits can land after the Phase A smoke path closes.
     state snapshot can generate account/storage proof output for the
     fixture-declared code/storage account, including code hash, storage key,
     storage value, and proof entry counts.
+  - Result: extended the restored public-RPC database check to retained-state
+    `eth_getTransactionCount`. Each database-backed devnet case now verifies
+    the fixture-declared post-execution sender nonce survives KV export/import
+    and remains readable through a fresh public RPC listener.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,

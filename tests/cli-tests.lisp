@@ -1082,6 +1082,8 @@
                (is (string= (fixture-object-field report "checkedBalance")
                             (fixture-object-field
                              report "databaseRpcBalance")))
+               (is (string= (fixture-object-field report "checkedNonce")
+                            (fixture-object-field report "databaseRpcNonce")))
                (is (string= (fixture-object-field report "checkedCode")
                             (fixture-object-field report "databaseRpcCode")))
                (is (string= (fixture-object-field report "checkedStorage")
@@ -1154,7 +1156,7 @@
                (is (string= (fixture-object-field
                               report "databaseRpcBlockReceiptBlockNumber")
                             (fixture-object-field report "blockNumber")))
-               (is (= 10 (fixture-object-field
+               (is (= 11 (fixture-object-field
                          report "databaseRpcPublicConnections")))
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
@@ -1283,6 +1285,9 @@
                  (is (string= (fixture-object-field case "checkedBalance")
                               (fixture-object-field
                                case "databaseRpcBalance")))
+                 (is (string= (fixture-object-field case "checkedNonce")
+                              (fixture-object-field
+                               case "databaseRpcNonce")))
                  (is (string= (fixture-object-field case "checkedCode")
                               (fixture-object-field
                                case "databaseRpcCode")))
@@ -1356,7 +1361,7 @@
                  (is (string= (fixture-object-field
                                 case "databaseRpcBlockReceiptBlockNumber")
                               (fixture-object-field case "blockNumber")))
-                 (is (= 10 (fixture-object-field
+                 (is (= 11 (fixture-object-field
                            case "databaseRpcPublicConnections")))
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
@@ -1583,6 +1588,9 @@
           (is (string= (fixture-object-field case "checkedBalance")
                        (fixture-object-field
                         case "databaseRpcBalance")))
+          (is (string= (fixture-object-field case "checkedNonce")
+                       (fixture-object-field
+                        case "databaseRpcNonce")))
           (is (string= (fixture-object-field case "checkedCode")
                        (fixture-object-field
                         case "databaseRpcCode")))
@@ -1653,7 +1661,7 @@
           (is (string= (fixture-object-field
                         case "databaseRpcBlockReceiptBlockNumber")
                        (fixture-object-field case "blockNumber")))
-          (is (= 10 (fixture-object-field
+          (is (= 11 (fixture-object-field
                     case "databaseRpcPublicConnections"))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent

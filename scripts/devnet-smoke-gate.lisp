@@ -400,11 +400,13 @@
 
 (defun devnet-smoke-gate-verify-restored-public-rpc
     (node expected-block-number balance-address expected-balance
+     sender-address expected-sender-nonce
      code-address expected-code storage-address storage-key expected-storage
      transaction-hash block-hash)
   #+sbcl
   (let ((block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
+        (nonce-output (make-string-output-stream))
         (code-output (make-string-output-stream))
         (storage-output (make-string-output-stream))
         (proof-output (make-string-output-stream))
@@ -431,6 +433,14 @@
             (json-encode
              (list (cons "jsonrpc" "2.0")
                    (cons "id" 43)
+                   (cons "method" "eth_getTransactionCount")
+                   (cons "params" (list (address-to-hex sender-address)
+                                        expected-block-number))))
+            nonce-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 44)
                    (cons "method" "eth_getCode")
                    (cons "params" (list (address-to-hex code-address)
                                         expected-block-number))))
@@ -438,7 +448,7 @@
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 44)
+                   (cons "id" 45)
                    (cons "method" "eth_getStorageAt")
                    (cons "params" (list (address-to-hex storage-address)
                                         storage-key
@@ -447,7 +457,7 @@
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 45)
+                   (cons "id" 46)
                    (cons "method" "eth_getProof")
                    (cons "params" (list (address-to-hex storage-address)
                                         (list storage-key)
@@ -456,14 +466,14 @@
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 46)
+                   (cons "id" 47)
                    (cons "method" "eth_getTransactionReceipt")
                    (cons "params" (list (hash32-to-hex transaction-hash)))))
             receipt-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 47)
+                   (cons "id" 48)
                    (cons "method" "eth_getBlockByHash")
                    (cons "params" (list (hash32-to-hex block-hash)
                                         :false))))
@@ -471,21 +481,21 @@
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 48)
+                   (cons "id" 49)
                    (cons "method" "eth_getBlockByNumber")
                    (cons "params" (list expected-block-number :false))))
             block-by-number-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 49)
+                   (cons "id" 50)
                    (cons "method" "eth_getTransactionByHash")
                    (cons "params" (list (hash32-to-hex transaction-hash)))))
             transaction-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 50)
+                   (cons "id" 51)
                    (cons "method" "eth_getBlockReceipts")
                    (cons "params" (list (hash32-to-hex block-hash)))))
             block-receipts-output)))
@@ -510,11 +520,13 @@
                      :output-stream output
                      :close-function (lambda () nil)))))
               :close-function (lambda () nil))
-             :max-connections 10)))
+             :max-connections 11)))
       (let* ((block-number-response
                (get-output-stream-string block-number-output))
              (balance-response
                (get-output-stream-string balance-output))
+             (nonce-response
+               (get-output-stream-string nonce-output))
              (code-response
                (get-output-stream-string code-output))
              (storage-response
@@ -535,6 +547,8 @@
                (devnet-smoke-gate-rpc-body block-number-response))
              (balance-rpc
                (devnet-smoke-gate-rpc-body balance-response))
+             (nonce-rpc
+               (devnet-smoke-gate-rpc-body nonce-response))
              (code-rpc
                (devnet-smoke-gate-rpc-body code-response))
              (storage-rpc
@@ -555,6 +569,8 @@
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
                (fixture-object-field balance-rpc "result"))
+             (actual-nonce
+               (fixture-object-field nonce-rpc "result"))
              (actual-code
                (fixture-object-field code-rpc "result"))
              (actual-storage
@@ -619,8 +635,8 @@
          (= 0 (getf summary :engine-connections))
          "Restored database verification should not use Engine RPC")
         (devnet-smoke-gate-require
-         (= 10 (getf summary :public-connections))
-         "Restored database verification expected 10 public RPC connections, got ~S"
+         (= 11 (getf summary :public-connections))
+         "Restored database verification expected 11 public RPC connections, got ~S"
          (getf summary :public-connections))
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status block-number-response))
@@ -628,6 +644,9 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status balance-response))
          "Restored eth_getBalance HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status nonce-response))
+         "Restored eth_getTransactionCount HTTP status mismatch")
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status code-response))
          "Restored eth_getCode HTTP status mismatch")
@@ -662,6 +681,11 @@
          "Restored eth_getBalance mismatch: expected ~A got ~A"
          expected-balance
          actual-balance)
+        (devnet-smoke-gate-require
+         (string= expected-sender-nonce actual-nonce)
+         "Restored eth_getTransactionCount mismatch: expected ~A got ~A"
+         expected-sender-nonce
+         actual-nonce)
         (devnet-smoke-gate-require
          (string= expected-code actual-code)
          "Restored eth_getCode mismatch: expected ~A got ~A"
@@ -760,6 +784,7 @@
          "Restored eth_getBlockReceipts block number mismatch")
         (list :block-number actual-block-number
               :balance actual-balance
+              :nonce actual-nonce
               :code actual-code
               :storage actual-storage
               :proof-address (fixture-object-field actual-proof "address")
@@ -795,6 +820,7 @@
 
 (defun devnet-smoke-gate-verify-database
     (path expected-block-number balance-address expected-balance
+     sender-address expected-sender-nonce
      code-address expected-code storage-address storage-key expected-storage
      transaction-hash block-hash)
   (let* ((database (make-file-key-value-database path))
@@ -813,6 +839,8 @@
             expected-block-number
             balance-address
             expected-balance
+            sender-address
+            expected-sender-nonce
             code-address
             expected-code
             storage-address
@@ -840,6 +868,8 @@
                   (getf public-rpc-summary :block-number)
                   :rpc-balance
                   (getf public-rpc-summary :balance)
+                  :rpc-nonce
+                  (getf public-rpc-summary :nonce)
                   :rpc-code
                   (getf public-rpc-summary :code)
                   :rpc-storage
@@ -938,6 +968,8 @@
                   (balance-address nil)
                   (expected-balance nil)
                   (balance-field nil)
+                  (sender-address nil)
+                  (expected-sender-nonce nil)
                   (code-address nil)
                   (expected-code nil)
                   (storage-address nil)
@@ -970,6 +1002,10 @@
                       (setf balance-address address
                             expected-balance balance
                             balance-field field
+                            sender-address
+                            (fixture-address-field expect "sender")
+                            expected-sender-nonce
+                            (fixture-object-field expect "senderNonce")
                             code-address
                             (fixture-address-field expect "codeAddress")
                             expected-code
@@ -1101,6 +1137,8 @@
                               expected-block-number
                               balance-address
                               expected-balance
+                              sender-address
+                              expected-sender-nonce
                               code-address
                               expected-code
                               storage-address
@@ -1177,6 +1215,8 @@
                   (cons "checkedBalanceField" balance-field)
                   (cons "checkedBalance" actual-balance)
                   (cons "recipientBalance" actual-balance)
+                  (cons "checkedNonceAddress" (address-to-hex sender-address))
+                  (cons "checkedNonce" expected-sender-nonce)
                   (cons "checkedCodeAddress" (address-to-hex code-address))
                   (cons "checkedCode" expected-code)
                   (cons "checkedStorageAddress"
@@ -1203,6 +1243,10 @@
                   (cons "databaseRpcBalance"
                         (if database-summary
                             (getf database-summary :rpc-balance)
+                            :false))
+                  (cons "databaseRpcNonce"
+                        (if database-summary
+                            (getf database-summary :rpc-nonce)
                             :false))
                   (cons "databaseRpcCode"
                         (if database-summary
@@ -1396,6 +1440,11 @@
          "Devnet smoke gate suite restored code mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "checkedNonce")
+                  (devnet-smoke-gate-field report "databaseRpcNonce"))
+         "Devnet smoke gate suite restored nonce mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
          (string= (devnet-smoke-gate-field report "checkedStorage")
                   (devnet-smoke-gate-field report "databaseRpcStorage"))
          "Devnet smoke gate suite restored storage mismatch for ~A"
@@ -1559,6 +1608,10 @@
                 (devnet-smoke-gate-field report "checkedBalance"))
         (format t "recipientBalance=~A~%"
                 (devnet-smoke-gate-field report "recipientBalance"))
+        (format t "checkedNonceAddress=~A~%"
+                (devnet-smoke-gate-field report "checkedNonceAddress"))
+        (format t "checkedNonce=~A~%"
+                (devnet-smoke-gate-field report "checkedNonce"))
         (format t "checkedCodeAddress=~A~%"
                 (devnet-smoke-gate-field report "checkedCodeAddress"))
         (format t "checkedCode=~A~%"
@@ -1584,6 +1637,8 @@
                 (devnet-smoke-gate-field report "databaseRpcBlockNumber"))
         (format t "databaseRpcBalance=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcBalance"))
+        (format t "databaseRpcNonce=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcNonce"))
         (format t "databaseRpcCode=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcCode"))
         (format t "databaseRpcStorage=~A~%"
