@@ -1088,6 +1088,25 @@
                             (fixture-object-field
                              report "databaseRpcStorage")))
                (is (string= (fixture-object-field
+                              report "checkedStorageAddress")
+                            (fixture-object-field
+                             report "databaseRpcProofAddress")))
+               (is (string= (fixture-object-field
+                              report "checkedProofCodeHash")
+                            (fixture-object-field
+                             report "databaseRpcProofCodeHash")))
+               (is (string= (fixture-object-field report "checkedStorageKey")
+                            (fixture-object-field
+                             report "databaseRpcProofStorageKey")))
+               (is (string= (fixture-object-field
+                              report "checkedProofStorageValue")
+                            (fixture-object-field
+                             report "databaseRpcProofStorageValue")))
+               (is (= 1 (fixture-object-field
+                         report "databaseRpcProofStorageCount")))
+               (is (<= 0 (fixture-object-field
+                          report "databaseRpcProofAccountProofCount")))
+               (is (string= (fixture-object-field
                               report "databaseRpcReceiptBlockNumber")
                             (fixture-object-field report "blockNumber")))
                (is (stringp
@@ -1135,7 +1154,7 @@
                (is (string= (fixture-object-field
                               report "databaseRpcBlockReceiptBlockNumber")
                             (fixture-object-field report "blockNumber")))
-               (is (= 9 (fixture-object-field
+               (is (= 10 (fixture-object-field
                          report "databaseRpcPublicConnections")))
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
@@ -1271,6 +1290,25 @@
                               (fixture-object-field
                                case "databaseRpcStorage")))
                  (is (string= (fixture-object-field
+                                case "checkedStorageAddress")
+                              (fixture-object-field
+                               case "databaseRpcProofAddress")))
+                 (is (string= (fixture-object-field
+                                case "checkedProofCodeHash")
+                              (fixture-object-field
+                               case "databaseRpcProofCodeHash")))
+                 (is (string= (fixture-object-field case "checkedStorageKey")
+                              (fixture-object-field
+                               case "databaseRpcProofStorageKey")))
+                 (is (string= (fixture-object-field
+                                case "checkedProofStorageValue")
+                              (fixture-object-field
+                               case "databaseRpcProofStorageValue")))
+                 (is (= 1 (fixture-object-field
+                           case "databaseRpcProofStorageCount")))
+                 (is (<= 0 (fixture-object-field
+                            case "databaseRpcProofAccountProofCount")))
+                 (is (string= (fixture-object-field
                                 case "databaseRpcReceiptBlockNumber")
                               (fixture-object-field case "blockNumber")))
                  (is (stringp
@@ -1318,7 +1356,7 @@
                  (is (string= (fixture-object-field
                                 case "databaseRpcBlockReceiptBlockNumber")
                               (fixture-object-field case "blockNumber")))
-                 (is (= 9 (fixture-object-field
+                 (is (= 10 (fixture-object-field
                            case "databaseRpcPublicConnections")))
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
@@ -1551,6 +1589,22 @@
           (is (string= (fixture-object-field case "checkedStorage")
                        (fixture-object-field
                         case "databaseRpcStorage")))
+          (is (string= (fixture-object-field case "checkedStorageAddress")
+                       (fixture-object-field
+                        case "databaseRpcProofAddress")))
+          (is (string= (fixture-object-field case "checkedProofCodeHash")
+                       (fixture-object-field
+                        case "databaseRpcProofCodeHash")))
+          (is (string= (fixture-object-field case "checkedStorageKey")
+                       (fixture-object-field
+                        case "databaseRpcProofStorageKey")))
+          (is (string= (fixture-object-field case "checkedProofStorageValue")
+                       (fixture-object-field
+                        case "databaseRpcProofStorageValue")))
+          (is (= 1 (fixture-object-field
+                    case "databaseRpcProofStorageCount")))
+          (is (<= 0 (fixture-object-field
+                     case "databaseRpcProofAccountProofCount")))
           (is (string= (fixture-object-field
                         case "databaseRpcReceiptBlockNumber")
                        (fixture-object-field case "blockNumber")))
@@ -1599,7 +1653,7 @@
           (is (string= (fixture-object-field
                         case "databaseRpcBlockReceiptBlockNumber")
                        (fixture-object-field case "blockNumber")))
-          (is (= 9 (fixture-object-field
+          (is (= 10 (fixture-object-field
                     case "databaseRpcPublicConnections"))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent

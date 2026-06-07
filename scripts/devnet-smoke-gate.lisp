@@ -407,6 +407,7 @@
         (balance-output (make-string-output-stream))
         (code-output (make-string-output-stream))
         (storage-output (make-string-output-stream))
+        (proof-output (make-string-output-stream))
         (receipt-output (make-string-output-stream))
         (block-output (make-string-output-stream))
         (block-by-number-output (make-string-output-stream))
@@ -447,13 +448,22 @@
             (json-encode
              (list (cons "jsonrpc" "2.0")
                    (cons "id" 45)
+                   (cons "method" "eth_getProof")
+                   (cons "params" (list (address-to-hex storage-address)
+                                        (list storage-key)
+                                        expected-block-number))))
+            proof-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 46)
                    (cons "method" "eth_getTransactionReceipt")
                    (cons "params" (list (hash32-to-hex transaction-hash)))))
             receipt-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 46)
+                   (cons "id" 47)
                    (cons "method" "eth_getBlockByHash")
                    (cons "params" (list (hash32-to-hex block-hash)
                                         :false))))
@@ -461,21 +471,21 @@
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 47)
+                   (cons "id" 48)
                    (cons "method" "eth_getBlockByNumber")
                    (cons "params" (list expected-block-number :false))))
             block-by-number-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 48)
+                   (cons "id" 49)
                    (cons "method" "eth_getTransactionByHash")
                    (cons "params" (list (hash32-to-hex transaction-hash)))))
             transaction-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 49)
+                   (cons "id" 50)
                    (cons "method" "eth_getBlockReceipts")
                    (cons "params" (list (hash32-to-hex block-hash)))))
             block-receipts-output)))
@@ -500,7 +510,7 @@
                      :output-stream output
                      :close-function (lambda () nil)))))
               :close-function (lambda () nil))
-             :max-connections 9)))
+             :max-connections 10)))
       (let* ((block-number-response
                (get-output-stream-string block-number-output))
              (balance-response
@@ -509,6 +519,8 @@
                (get-output-stream-string code-output))
              (storage-response
                (get-output-stream-string storage-output))
+             (proof-response
+               (get-output-stream-string proof-output))
              (receipt-response
                (get-output-stream-string receipt-output))
              (block-response
@@ -527,6 +539,8 @@
                (devnet-smoke-gate-rpc-body code-response))
              (storage-rpc
                (devnet-smoke-gate-rpc-body storage-response))
+             (proof-rpc
+               (devnet-smoke-gate-rpc-body proof-response))
              (receipt-rpc
                (devnet-smoke-gate-rpc-body receipt-response))
              (block-rpc
@@ -545,6 +559,12 @@
                (fixture-object-field code-rpc "result"))
              (actual-storage
                (fixture-object-field storage-rpc "result"))
+             (actual-proof
+               (fixture-object-field proof-rpc "result"))
+             (actual-proof-storage-proofs
+               (fixture-object-field actual-proof "storageProof"))
+             (actual-proof-storage
+               (first actual-proof-storage-proofs))
              (actual-receipt
                (fixture-object-field receipt-rpc "result"))
              (actual-receipt-transaction-hash
@@ -590,13 +610,17 @@
              (actual-block-receipt-block-hash
                (fixture-object-field actual-block-receipt "blockHash"))
              (actual-block-receipt-block-number
-               (fixture-object-field actual-block-receipt "blockNumber")))
+               (fixture-object-field actual-block-receipt "blockNumber"))
+             (expected-proof-code-hash
+               (hash32-to-hex (keccak-256-hash (hex-to-bytes expected-code))))
+             (expected-proof-storage-value
+               (quantity-to-hex (hex-to-quantity expected-storage))))
         (devnet-smoke-gate-require
          (= 0 (getf summary :engine-connections))
          "Restored database verification should not use Engine RPC")
         (devnet-smoke-gate-require
-         (= 9 (getf summary :public-connections))
-         "Restored database verification expected 9 public RPC connections, got ~S"
+         (= 10 (getf summary :public-connections))
+         "Restored database verification expected 10 public RPC connections, got ~S"
          (getf summary :public-connections))
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status block-number-response))
@@ -610,6 +634,9 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status storage-response))
          "Restored eth_getStorageAt HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status proof-response))
+         "Restored eth_getProof HTTP status mismatch")
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status receipt-response))
          "Restored eth_getTransactionReceipt HTTP status mismatch")
@@ -645,6 +672,37 @@
          "Restored eth_getStorageAt mismatch: expected ~A got ~A"
          expected-storage
          actual-storage)
+        (devnet-smoke-gate-require
+         (string= (address-to-hex storage-address)
+                  (fixture-object-field actual-proof "address"))
+         "Restored eth_getProof address mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-proof-code-hash
+                  (fixture-object-field actual-proof "codeHash"))
+         "Restored eth_getProof codeHash mismatch: expected ~A got ~A"
+         expected-proof-code-hash
+         (fixture-object-field actual-proof "codeHash"))
+        (devnet-smoke-gate-require
+         (listp (fixture-object-field actual-proof "accountProof"))
+         "Restored eth_getProof accountProof must be a list")
+        (devnet-smoke-gate-require
+         (= 1 (length actual-proof-storage-proofs))
+         "Restored eth_getProof expected 1 storage proof, got ~S"
+         (length actual-proof-storage-proofs))
+        (devnet-smoke-gate-require
+         (string= storage-key (fixture-object-field actual-proof-storage "key"))
+         "Restored eth_getProof storage key mismatch: expected ~A got ~A"
+         storage-key
+         (fixture-object-field actual-proof-storage "key"))
+        (devnet-smoke-gate-require
+         (string= expected-proof-storage-value
+                  (fixture-object-field actual-proof-storage "value"))
+         "Restored eth_getProof storage value mismatch: expected ~A got ~A"
+         expected-proof-storage-value
+         (fixture-object-field actual-proof-storage "value"))
+        (devnet-smoke-gate-require
+         (listp (fixture-object-field actual-proof-storage "proof"))
+         "Restored eth_getProof storage proof must be a list")
         (devnet-smoke-gate-require
          (string= (hash32-to-hex transaction-hash)
                   actual-receipt-transaction-hash)
@@ -704,6 +762,16 @@
               :balance actual-balance
               :code actual-code
               :storage actual-storage
+              :proof-address (fixture-object-field actual-proof "address")
+              :proof-code-hash
+              (fixture-object-field actual-proof "codeHash")
+              :proof-storage-key
+              (fixture-object-field actual-proof-storage "key")
+              :proof-storage-value
+              (fixture-object-field actual-proof-storage "value")
+              :proof-storage-count (length actual-proof-storage-proofs)
+              :proof-account-proof-count
+              (length (fixture-object-field actual-proof "accountProof"))
               :receipt-transaction-hash actual-receipt-transaction-hash
               :receipt-block-number actual-receipt-block-number
               :block-hash actual-block-hash
@@ -776,6 +844,18 @@
                   (getf public-rpc-summary :code)
                   :rpc-storage
                   (getf public-rpc-summary :storage)
+                  :rpc-proof-address
+                  (getf public-rpc-summary :proof-address)
+                  :rpc-proof-code-hash
+                  (getf public-rpc-summary :proof-code-hash)
+                  :rpc-proof-storage-key
+                  (getf public-rpc-summary :proof-storage-key)
+                  :rpc-proof-storage-value
+                  (getf public-rpc-summary :proof-storage-value)
+                  :rpc-proof-storage-count
+                  (getf public-rpc-summary :proof-storage-count)
+                  :rpc-proof-account-proof-count
+                  (getf public-rpc-summary :proof-account-proof-count)
                   :rpc-receipt-transaction-hash
                   (getf public-rpc-summary :receipt-transaction-hash)
                   :rpc-receipt-block-number
@@ -1103,6 +1183,11 @@
                         (address-to-hex storage-address))
                   (cons "checkedStorageKey" storage-key)
                   (cons "checkedStorage" expected-storage)
+                  (cons "checkedProofCodeHash"
+                        (hash32-to-hex
+                         (keccak-256-hash (hex-to-bytes expected-code))))
+                  (cons "checkedProofStorageValue"
+                        (quantity-to-hex (hex-to-quantity expected-storage)))
                   (cons "readyFile" (or ready-file :false))
                   (cons "logFile" (or log-file :false))
                   (cons "databaseFile" (or database-file :false))
@@ -1126,6 +1211,31 @@
                   (cons "databaseRpcStorage"
                         (if database-summary
                             (getf database-summary :rpc-storage)
+                            :false))
+                  (cons "databaseRpcProofAddress"
+                        (if database-summary
+                            (getf database-summary :rpc-proof-address)
+                            :false))
+                  (cons "databaseRpcProofCodeHash"
+                        (if database-summary
+                            (getf database-summary :rpc-proof-code-hash)
+                            :false))
+                  (cons "databaseRpcProofStorageKey"
+                        (if database-summary
+                            (getf database-summary :rpc-proof-storage-key)
+                            :false))
+                  (cons "databaseRpcProofStorageValue"
+                        (if database-summary
+                            (getf database-summary :rpc-proof-storage-value)
+                            :false))
+                  (cons "databaseRpcProofStorageCount"
+                        (if database-summary
+                            (getf database-summary :rpc-proof-storage-count)
+                            :false))
+                  (cons "databaseRpcProofAccountProofCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-proof-account-proof-count)
                             :false))
                   (cons "databaseRpcReceiptTransactionHash"
                         (if database-summary
@@ -1291,6 +1401,40 @@
          "Devnet smoke gate suite restored storage mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "checkedStorageAddress")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcProofAddress"))
+         "Devnet smoke gate suite restored proof address mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "checkedProofCodeHash")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcProofCodeHash"))
+         "Devnet smoke gate suite restored proof code hash mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "checkedStorageKey")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcProofStorageKey"))
+         "Devnet smoke gate suite restored proof storage key mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "checkedProofStorageValue")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcProofStorageValue"))
+         "Devnet smoke gate suite restored proof storage value mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= 1 (devnet-smoke-gate-field report
+                                       "databaseRpcProofStorageCount"))
+         "Devnet smoke gate suite restored proof storage count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (<= 0 (devnet-smoke-gate-field
+                report "databaseRpcProofAccountProofCount"))
+         "Devnet smoke gate suite restored proof account proof count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
          (string= (devnet-smoke-gate-field report "blockNumber")
                   (devnet-smoke-gate-field report
                                            "databaseRpcReceiptBlockNumber"))
@@ -1425,6 +1569,11 @@
                 (devnet-smoke-gate-field report "checkedStorageKey"))
         (format t "checkedStorage=~A~%"
                 (devnet-smoke-gate-field report "checkedStorage"))
+        (format t "checkedProofCodeHash=~A~%"
+                (devnet-smoke-gate-field report "checkedProofCodeHash"))
+        (format t "checkedProofStorageValue=~A~%"
+                (devnet-smoke-gate-field report
+                                         "checkedProofStorageValue"))
         (format t "readyFile=~A~%" (devnet-smoke-gate-field report "readyFile"))
         (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile"))
         (format t "databaseFile=~A~%"
@@ -1439,6 +1588,24 @@
                 (devnet-smoke-gate-field report "databaseRpcCode"))
         (format t "databaseRpcStorage=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcStorage"))
+        (format t "databaseRpcProofAddress=~A~%"
+                (devnet-smoke-gate-field report
+                                         "databaseRpcProofAddress"))
+        (format t "databaseRpcProofCodeHash=~A~%"
+                (devnet-smoke-gate-field report
+                                         "databaseRpcProofCodeHash"))
+        (format t "databaseRpcProofStorageKey=~A~%"
+                (devnet-smoke-gate-field report
+                                         "databaseRpcProofStorageKey"))
+        (format t "databaseRpcProofStorageValue=~A~%"
+                (devnet-smoke-gate-field report
+                                         "databaseRpcProofStorageValue"))
+        (format t "databaseRpcProofStorageCount=~A~%"
+                (devnet-smoke-gate-field report
+                                         "databaseRpcProofStorageCount"))
+        (format t "databaseRpcProofAccountProofCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcProofAccountProofCount"))
         (format t "databaseRpcReceiptTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcReceiptTransactionHash"))

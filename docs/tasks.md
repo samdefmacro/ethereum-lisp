@@ -4389,6 +4389,11 @@ splits can land after the Phase A smoke path closes.
     `eth_getCode` and `eth_getStorageAt`. Each database-backed devnet case now
     verifies fixture-declared code bytes and storage slot values survive KV
     export/import and remain readable through a fresh public RPC listener.
+  - Result: extended the restored public-RPC database check to retained-state
+    `eth_getProof`. Each database-backed devnet case now verifies the restored
+    state snapshot can generate account/storage proof output for the
+    fixture-declared code/storage account, including code hash, storage key,
+    storage value, and proof entry counts.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,
