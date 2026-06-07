@@ -171,7 +171,7 @@ fixes in those areas are allowed; expansion is not.
   case. Restored KV snapshots are also served through a fresh public RPC
   listener and checked for `eth_blockNumber` plus retained-state balance
   reads, `eth_getTransactionReceipt` canonical receipt lookup,
-  `eth_getBlockByHash` canonical block lookup, and
+  `eth_getBlockByHash` / `eth_getBlockByNumber` canonical block lookup,
   `eth_getTransactionByHash` canonical transaction lookup, and
   `eth_getBlockReceipts` block-receipt lookup. The
   top-level Phase A process gate therefore covers authenticated Engine import,
