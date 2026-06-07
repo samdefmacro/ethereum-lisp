@@ -122,6 +122,10 @@
     (is (string= "127.0.0.1:0" (getf summary :engine-endpoint)))
     (is (string= "127.0.0.1:8545" (getf summary :rpc-endpoint)))
     (is (string= (hash32-to-hex head-hash) (getf summary :head-hash)))
+    (is (null (getf summary :safe-number)))
+    (is (null (getf summary :safe-hash)))
+    (is (null (getf summary :finalized-number)))
+    (is (null (getf summary :finalized-hash)))
     (is (getf summary :state-available-p))
     (is (not (getf summary :auth-required-p)))
     (is (not (getf summary :jwt-secret-path)))
@@ -829,6 +833,10 @@
              (dolist (summary (list stdout-summary ready-summary))
                (is (= 1337 (fixture-object-field summary "chainId")))
                (is (= 0 (fixture-object-field summary "headNumber")))
+               (is (null (fixture-object-field summary "safeNumber")))
+               (is (null (fixture-object-field summary "safeHash")))
+               (is (null (fixture-object-field summary "finalizedNumber")))
+               (is (null (fixture-object-field summary "finalizedHash")))
                (is (string= "127.0.0.1:0"
                             (fixture-object-field summary "engineEndpoint")))
                (is (string= "127.0.0.1:8546"
@@ -1076,6 +1084,18 @@
                (is (string= (fixture-object-field report "blockNumber")
                             (fixture-object-field report
                                                   "databaseHeadNumber")))
+               (is (string= (fixture-object-field report "safeBlockNumber")
+                            (fixture-object-field report
+                                                  "databaseSafeNumber")))
+               (is (string= (fixture-object-field report "safeBlockHash")
+                            (fixture-object-field report "databaseSafeHash")))
+               (is (string= (fixture-object-field
+                              report "finalizedBlockNumber")
+                            (fixture-object-field
+                             report "databaseFinalizedNumber")))
+               (is (string= (fixture-object-field report "finalizedBlockHash")
+                            (fixture-object-field
+                             report "databaseFinalizedHash")))
                (is (string= (fixture-object-field report "blockNumber")
                             (fixture-object-field
                              report "databaseRpcBlockNumber")))
@@ -1206,7 +1226,20 @@
                             (fixture-object-field
                              report
                              "databaseRpcTransactionByBlockNumberAndIndexIndex")))
-               (is (= 17 (fixture-object-field
+               (is (string= (fixture-object-field report "safeBlockHash")
+                            (fixture-object-field
+                             report "databaseRpcSafeBlockHash")))
+               (is (string= (fixture-object-field report "safeBlockNumber")
+                            (fixture-object-field
+                             report "databaseRpcSafeBlockNumber")))
+               (is (string= (fixture-object-field report "finalizedBlockHash")
+                            (fixture-object-field
+                             report "databaseRpcFinalizedBlockHash")))
+               (is (string= (fixture-object-field
+                              report "finalizedBlockNumber")
+                            (fixture-object-field
+                             report "databaseRpcFinalizedBlockNumber")))
+               (is (= 19 (fixture-object-field
                          report "databaseRpcPublicConnections")))
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
@@ -1329,6 +1362,19 @@
                  (is (string= (fixture-object-field case "blockNumber")
                               (fixture-object-field
                                case "databaseHeadNumber")))
+                 (is (string= (fixture-object-field case "safeBlockNumber")
+                              (fixture-object-field
+                               case "databaseSafeNumber")))
+                 (is (string= (fixture-object-field case "safeBlockHash")
+                              (fixture-object-field
+                               case "databaseSafeHash")))
+                 (is (string= (fixture-object-field
+                                case "finalizedBlockNumber")
+                              (fixture-object-field
+                               case "databaseFinalizedNumber")))
+                 (is (string= (fixture-object-field case "finalizedBlockHash")
+                              (fixture-object-field
+                               case "databaseFinalizedHash")))
                  (is (string= (fixture-object-field case "blockNumber")
                               (fixture-object-field
                                case "databaseRpcBlockNumber")))
@@ -1461,7 +1507,20 @@
                               (fixture-object-field
                                case
                                "databaseRpcTransactionByBlockNumberAndIndexIndex")))
-                 (is (= 17 (fixture-object-field
+                 (is (string= (fixture-object-field case "safeBlockHash")
+                              (fixture-object-field
+                               case "databaseRpcSafeBlockHash")))
+                 (is (string= (fixture-object-field case "safeBlockNumber")
+                              (fixture-object-field
+                               case "databaseRpcSafeBlockNumber")))
+                 (is (string= (fixture-object-field case "finalizedBlockHash")
+                              (fixture-object-field
+                               case "databaseRpcFinalizedBlockHash")))
+                 (is (string= (fixture-object-field
+                                case "finalizedBlockNumber")
+                              (fixture-object-field
+                               case "databaseRpcFinalizedBlockNumber")))
+                 (is (= 19 (fixture-object-field
                            case "databaseRpcPublicConnections")))
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
@@ -1685,6 +1744,17 @@
           (is (string= (fixture-object-field case "blockNumber")
                        (fixture-object-field
                         case "databaseRpcBlockNumber")))
+          (is (string= (fixture-object-field case "safeBlockNumber")
+                       (fixture-object-field
+                        case "databaseSafeNumber")))
+          (is (string= (fixture-object-field case "safeBlockHash")
+                       (fixture-object-field case "databaseSafeHash")))
+          (is (string= (fixture-object-field case "finalizedBlockNumber")
+                       (fixture-object-field
+                        case "databaseFinalizedNumber")))
+          (is (string= (fixture-object-field case "finalizedBlockHash")
+                       (fixture-object-field
+                        case "databaseFinalizedHash")))
           (is (string= (fixture-object-field case "checkedBalance")
                        (fixture-object-field
                         case "databaseRpcBalance")))
@@ -1811,7 +1881,19 @@
                        (fixture-object-field
                         case
                         "databaseRpcTransactionByBlockNumberAndIndexIndex")))
-          (is (= 17 (fixture-object-field
+          (is (string= (fixture-object-field case "safeBlockHash")
+                       (fixture-object-field
+                        case "databaseRpcSafeBlockHash")))
+          (is (string= (fixture-object-field case "safeBlockNumber")
+                       (fixture-object-field
+                        case "databaseRpcSafeBlockNumber")))
+          (is (string= (fixture-object-field case "finalizedBlockHash")
+                       (fixture-object-field
+                        case "databaseRpcFinalizedBlockHash")))
+          (is (string= (fixture-object-field case "finalizedBlockNumber")
+                       (fixture-object-field
+                        case "databaseRpcFinalizedBlockNumber")))
+          (is (= 19 (fixture-object-field
                     case "databaseRpcPublicConnections"))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent

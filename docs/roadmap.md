@@ -174,7 +174,8 @@ fixes in those areas are allowed; expansion is not.
   receipt lookup, `eth_getBlockByHash` / `eth_getBlockByNumber` canonical
   block lookup, block transaction counts, raw transaction by block/index,
   `eth_getTransactionByHash` and transaction by block/index canonical
-  transaction lookup, and
+  transaction lookup, safe/finalized checkpoint number/hash persistence plus
+  `eth_getBlockByNumber("safe"|"finalized")` checkpoint-tag reads, and
   `eth_getBlockReceipts` block-receipt lookup. The
   top-level Phase A process gate therefore covers authenticated Engine import,
   forkchoice, public reads, runner readiness/shutdown signals, and readable

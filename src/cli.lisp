@@ -178,6 +178,8 @@
     (error "Devnet node must be devnet-node"))
   (let* ((store (devnet-node-store node))
          (head (chain-store-latest-block store))
+         (safe (chain-store-safe-block store))
+         (finalized (chain-store-finalized-block store))
          (engine-endpoint
            (or engine-endpoint
                (engine-rpc-http-service-endpoint
@@ -198,6 +200,10 @@
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
+          :safe-number (devnet-block-number safe)
+          :safe-hash (devnet-block-hash-hex safe)
+          :finalized-number (devnet-block-number finalized)
+          :finalized-hash (devnet-block-hash-hex finalized)
           :state-available-p
           (and head
                (chain-store-state-available-p store (block-hash head))))))
@@ -218,6 +224,10 @@
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
+      ("safeNumber" . ,(or (getf summary :safe-number) :false))
+      ("safeHash" . ,(or (getf summary :safe-hash) :false))
+      ("finalizedNumber" . ,(or (getf summary :finalized-number) :false))
+      ("finalizedHash" . ,(or (getf summary :finalized-hash) :false))
       ("stateAvailable" . ,(if (getf summary :state-available-p) t :false)))))
 
 (defun start-devnet-node-listeners
@@ -509,6 +519,15 @@
       ("chainId" . ,(quantity-to-hex (getf summary :chain-id)))
       ("headNumber" . ,(quantity-to-hex (getf summary :head-number)))
       ("headHash" . ,(getf summary :head-hash))
+      ("safeNumber" . ,(if (getf summary :safe-number)
+                            (quantity-to-hex (getf summary :safe-number))
+                            ""))
+      ("safeHash" . ,(or (getf summary :safe-hash) ""))
+      ("finalizedNumber" . ,(if (getf summary :finalized-number)
+                                 (quantity-to-hex
+                                  (getf summary :finalized-number))
+                                 ""))
+      ("finalizedHash" . ,(or (getf summary :finalized-hash) ""))
       ("authRequired" . ,(if (getf summary :auth-required-p) "true" "false"))
       ("jwtSecretPath" . ,(or (getf summary :jwt-secret-path) ""))
       ("logPath" . ,(or (getf summary :log-path) ""))

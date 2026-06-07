@@ -402,7 +402,9 @@
     (node expected-block-number balance-address expected-balance
      sender-address expected-sender-nonce
      code-address expected-code storage-address storage-key expected-storage
-     transaction-hash expected-raw-transaction block-hash)
+     transaction-hash expected-raw-transaction block-hash
+     expected-safe-block-number expected-safe-block-hash
+     expected-finalized-block-number expected-finalized-block-hash)
   #+sbcl
   (let ((block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
@@ -421,6 +423,8 @@
         (raw-transaction-by-number-output (make-string-output-stream))
         (transaction-by-hash-index-output (make-string-output-stream))
         (transaction-by-number-index-output (make-string-output-stream))
+        (safe-block-output (make-string-output-stream))
+        (finalized-block-output (make-string-output-stream))
         (public-requests nil))
     (setf public-requests
           (list
@@ -548,7 +552,21 @@
                    (cons "id" 57)
                    (cons "method" "eth_getTransactionByBlockNumberAndIndex")
                    (cons "params" (list expected-block-number "0x0"))))
-            transaction-by-number-index-output)))
+            transaction-by-number-index-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 58)
+                   (cons "method" "eth_getBlockByNumber")
+                   (cons "params" (list "safe" :false))))
+            safe-block-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 59)
+                   (cons "method" "eth_getBlockByNumber")
+                   (cons "params" (list "finalized" :false))))
+            finalized-block-output)))
     (let ((summary
             (ethereum-lisp.cli:start-devnet-node-listeners
              node
@@ -570,7 +588,7 @@
                      :output-stream output
                      :close-function (lambda () nil)))))
               :close-function (lambda () nil))
-             :max-connections 17)))
+             :max-connections 19)))
       (let* ((block-number-response
                (get-output-stream-string block-number-output))
              (balance-response
@@ -607,6 +625,10 @@
                (get-output-stream-string transaction-by-hash-index-output))
              (transaction-by-number-index-response
                (get-output-stream-string transaction-by-number-index-output))
+             (safe-block-response
+               (get-output-stream-string safe-block-output))
+             (finalized-block-response
+               (get-output-stream-string finalized-block-output))
              (block-number-rpc
                (devnet-smoke-gate-rpc-body block-number-response))
              (balance-rpc
@@ -647,6 +669,10 @@
              (transaction-by-number-index-rpc
                (devnet-smoke-gate-rpc-body
                 transaction-by-number-index-response))
+             (safe-block-rpc
+               (devnet-smoke-gate-rpc-body safe-block-response))
+             (finalized-block-rpc
+               (devnet-smoke-gate-rpc-body finalized-block-response))
              (actual-block-number
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
@@ -747,6 +773,18 @@
              (actual-transaction-by-number-index-transaction-index
                (fixture-object-field
                 actual-transaction-by-number-index "transactionIndex"))
+             (actual-safe-block
+               (fixture-object-field safe-block-rpc "result"))
+             (actual-safe-block-hash
+               (fixture-object-field actual-safe-block "hash"))
+             (actual-safe-block-number
+               (fixture-object-field actual-safe-block "number"))
+             (actual-finalized-block
+               (fixture-object-field finalized-block-rpc "result"))
+             (actual-finalized-block-hash
+               (fixture-object-field actual-finalized-block "hash"))
+             (actual-finalized-block-number
+               (fixture-object-field actual-finalized-block "number"))
              (expected-proof-code-hash
                (hash32-to-hex (keccak-256-hash (hex-to-bytes expected-code))))
              (expected-proof-storage-value
@@ -755,8 +793,8 @@
          (= 0 (getf summary :engine-connections))
          "Restored database verification should not use Engine RPC")
         (devnet-smoke-gate-require
-         (= 17 (getf summary :public-connections))
-         "Restored database verification expected 17 public RPC connections, got ~S"
+         (= 19 (getf summary :public-connections))
+         "Restored database verification expected 19 public RPC connections, got ~S"
          (getf summary :public-connections))
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status block-number-response))
@@ -811,6 +849,12 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status transaction-by-number-index-response))
          "Restored eth_getTransactionByBlockNumberAndIndex HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status safe-block-response))
+         "Restored eth_getBlockByNumber safe HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status finalized-block-response))
+         "Restored eth_getBlockByNumber finalized HTTP status mismatch")
         (devnet-smoke-gate-require
          (string= expected-block-number actual-block-number)
          "Restored eth_blockNumber mismatch: expected ~A got ~A"
@@ -966,6 +1010,21 @@
          (string= "0x0"
                   actual-transaction-by-number-index-transaction-index)
          "Restored eth_getTransactionByBlockNumberAndIndex index mismatch")
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex expected-safe-block-hash)
+                  actual-safe-block-hash)
+         "Restored eth_getBlockByNumber safe hash mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-safe-block-number actual-safe-block-number)
+         "Restored eth_getBlockByNumber safe number mismatch")
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex expected-finalized-block-hash)
+                  actual-finalized-block-hash)
+         "Restored eth_getBlockByNumber finalized hash mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-finalized-block-number
+                  actual-finalized-block-number)
+         "Restored eth_getBlockByNumber finalized number mismatch")
         (list :block-number actual-block-number
               :balance actual-balance
               :nonce actual-nonce
@@ -1020,6 +1079,10 @@
               actual-transaction-by-number-index-block-number
               :transaction-by-number-index-transaction-index
               actual-transaction-by-number-index-transaction-index
+              :safe-block-hash actual-safe-block-hash
+              :safe-block-number actual-safe-block-number
+              :finalized-block-hash actual-finalized-block-hash
+              :finalized-block-number actual-finalized-block-number
               :public-connections (getf summary :public-connections)))))
   #-sbcl
   (error "Restored devnet public RPC verification requires SBCL threads"))
@@ -1028,7 +1091,9 @@
     (path expected-block-number balance-address expected-balance
      sender-address expected-sender-nonce
      code-address expected-code storage-address storage-key expected-storage
-     transaction-hash expected-raw-transaction block-hash)
+     transaction-hash expected-raw-transaction block-hash
+     expected-safe-block-number expected-safe-block-hash
+     expected-finalized-block-number expected-finalized-block-hash)
   (let* ((database (make-file-key-value-database path))
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -1054,7 +1119,11 @@
             expected-storage
             transaction-hash
             expected-raw-transaction
-            block-hash)))
+            block-hash
+            expected-safe-block-number
+            expected-safe-block-hash
+            expected-finalized-block-number
+            expected-finalized-block-hash)))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
      "Database export did not write block records")
@@ -1158,6 +1227,14 @@
                   :rpc-transaction-by-number-index-transaction-index
                   (getf public-rpc-summary
                         :transaction-by-number-index-transaction-index)
+                  :rpc-safe-block-hash
+                  (getf public-rpc-summary :safe-block-hash)
+                  :rpc-safe-block-number
+                  (getf public-rpc-summary :safe-block-number)
+                  :rpc-finalized-block-hash
+                  (getf public-rpc-summary :finalized-block-hash)
+                  :rpc-finalized-block-number
+                  (getf public-rpc-summary :finalized-block-number)
                   :rpc-public-connections
                   (getf public-rpc-summary :public-connections)))))
 
@@ -1374,11 +1451,17 @@
                          "payloadStatus"))
                       (expected-hash
                         (hash32-to-hex (block-hash child-block)))
-                      (expected-block-number
-                        (fixture-object-field payload-case "number"))
-                      (database-summary
-                        (and database-file
-                             (devnet-smoke-gate-verify-database
+                  (expected-block-number
+                    (fixture-object-field payload-case "number"))
+                  (expected-safe-block-number
+                    (quantity-to-hex
+                     (block-header-number (block-header parent-block))))
+                  (expected-safe-block-hash (block-hash parent-block))
+                  (expected-finalized-block-number expected-safe-block-number)
+                  (expected-finalized-block-hash expected-safe-block-hash)
+                  (database-summary
+                    (and database-file
+                         (devnet-smoke-gate-verify-database
                               database-file
                               expected-block-number
                               balance-address
@@ -1390,9 +1473,13 @@
                               storage-address
                               storage-key
                               expected-storage
-                              expected-transaction-hash
-                              expected-raw-transaction
-                              (block-hash child-block))))
+                          expected-transaction-hash
+                          expected-raw-transaction
+                          (block-hash child-block)
+                          expected-safe-block-number
+                          expected-safe-block-hash
+                          expected-finalized-block-number
+                          expected-finalized-block-hash)))
                       (actual-block-number
                         (fixture-object-field block-number-rpc "result"))
                       (actual-balance
@@ -1457,6 +1544,13 @@
                   (cons "forkchoiceStatus"
                         (fixture-object-field forkchoice-status "status"))
                   (cons "blockNumber" actual-block-number)
+                  (cons "safeBlockNumber" expected-safe-block-number)
+                  (cons "safeBlockHash"
+                        (hash32-to-hex expected-safe-block-hash))
+                  (cons "finalizedBlockNumber"
+                        expected-finalized-block-number)
+                  (cons "finalizedBlockHash"
+                        (hash32-to-hex expected-finalized-block-hash))
                   (cons "checkedBalanceAddress"
                         (address-to-hex balance-address))
                   (cons "checkedBalanceField" balance-field)
@@ -1482,6 +1576,24 @@
                         (if database-summary
                             (quantity-to-hex
                              (getf database-summary :head-number))
+                            :false))
+                  (cons "databaseSafeNumber"
+                        (if database-summary
+                            (quantity-to-hex
+                             (getf database-summary :safe-number))
+                            :false))
+                  (cons "databaseSafeHash"
+                        (if database-summary
+                            (getf database-summary :safe-hash)
+                            :false))
+                  (cons "databaseFinalizedNumber"
+                        (if database-summary
+                            (quantity-to-hex
+                             (getf database-summary :finalized-number))
+                            :false))
+                  (cons "databaseFinalizedHash"
+                        (if database-summary
+                            (getf database-summary :finalized-hash)
                             :false))
                   (cons "databaseRpcBlockNumber"
                         (if database-summary
@@ -1661,6 +1773,24 @@
                             (getf database-summary
                                   :rpc-transaction-by-number-index-transaction-index)
                             :false))
+                  (cons "databaseRpcSafeBlockHash"
+                        (if database-summary
+                            (getf database-summary :rpc-safe-block-hash)
+                            :false))
+                  (cons "databaseRpcSafeBlockNumber"
+                        (if database-summary
+                            (getf database-summary :rpc-safe-block-number)
+                            :false))
+                  (cons "databaseRpcFinalizedBlockHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-finalized-block-hash)
+                            :false))
+                  (cons "databaseRpcFinalizedBlockNumber"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-finalized-block-number)
+                            :false))
                   (cons "databaseRpcPublicConnections"
                         (if database-summary
                             (getf database-summary :rpc-public-connections)
@@ -1740,6 +1870,26 @@
          (string= (devnet-smoke-gate-field report "blockNumber")
                   (devnet-smoke-gate-field report "databaseHeadNumber"))
          "Devnet smoke gate suite database head mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "safeBlockNumber")
+                  (devnet-smoke-gate-field report "databaseSafeNumber"))
+         "Devnet smoke gate suite database safe checkpoint mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "safeBlockHash")
+                  (devnet-smoke-gate-field report "databaseSafeHash"))
+         "Devnet smoke gate suite database safe hash mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "finalizedBlockNumber")
+                  (devnet-smoke-gate-field report "databaseFinalizedNumber"))
+         "Devnet smoke gate suite database finalized checkpoint mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "finalizedBlockHash")
+                  (devnet-smoke-gate-field report "databaseFinalizedHash"))
+         "Devnet smoke gate suite database finalized hash mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
          (string= (devnet-smoke-gate-field report "checkedCode")
@@ -1897,6 +2047,30 @@
                   (devnet-smoke-gate-field
                    report "databaseRpcTransactionByBlockNumberAndIndexIndex"))
          "Devnet smoke gate suite restored tx by number/index index mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "safeBlockHash")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcSafeBlockHash"))
+         "Devnet smoke gate suite restored safe block hash mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "safeBlockNumber")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcSafeBlockNumber"))
+         "Devnet smoke gate suite restored safe block number mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "finalizedBlockHash")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcFinalizedBlockHash"))
+         "Devnet smoke gate suite restored finalized block hash mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "finalizedBlockNumber")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcFinalizedBlockNumber"))
+         "Devnet smoke gate suite restored finalized block number mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))))
     (devnet-smoke-gate-add-run-metadata
      (list
@@ -1980,6 +2154,14 @@
                 (devnet-smoke-gate-field report "forkchoiceStatus"))
         (format t "blockNumber=~A~%"
                 (devnet-smoke-gate-field report "blockNumber"))
+        (format t "safeBlockNumber=~A~%"
+                (devnet-smoke-gate-field report "safeBlockNumber"))
+        (format t "safeBlockHash=~A~%"
+                (devnet-smoke-gate-field report "safeBlockHash"))
+        (format t "finalizedBlockNumber=~A~%"
+                (devnet-smoke-gate-field report "finalizedBlockNumber"))
+        (format t "finalizedBlockHash=~A~%"
+                (devnet-smoke-gate-field report "finalizedBlockHash"))
         (format t "checkedBalanceAddress=~A~%"
                 (devnet-smoke-gate-field report "checkedBalanceAddress"))
         (format t "checkedBalanceField=~A~%"
@@ -2015,6 +2197,14 @@
                 (devnet-smoke-gate-field report "databaseHeadNumber"))
         (format t "databaseRpcBlockNumber=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcBlockNumber"))
+        (format t "databaseSafeNumber=~A~%"
+                (devnet-smoke-gate-field report "databaseSafeNumber"))
+        (format t "databaseSafeHash=~A~%"
+                (devnet-smoke-gate-field report "databaseSafeHash"))
+        (format t "databaseFinalizedNumber=~A~%"
+                (devnet-smoke-gate-field report "databaseFinalizedNumber"))
+        (format t "databaseFinalizedHash=~A~%"
+                (devnet-smoke-gate-field report "databaseFinalizedHash"))
         (format t "databaseRpcBalance=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcBalance"))
         (format t "databaseRpcNonce=~A~%"
@@ -2124,7 +2314,17 @@
                  "databaseRpcTransactionByBlockNumberAndIndexBlockNumber"))
         (format t "databaseRpcTransactionByBlockNumberAndIndexIndex=~A~%"
                 (devnet-smoke-gate-field
-                 report "databaseRpcTransactionByBlockNumberAndIndexIndex")))))
+                 report "databaseRpcTransactionByBlockNumberAndIndexIndex"))
+        (format t "databaseRpcSafeBlockHash=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcSafeBlockHash"))
+        (format t "databaseRpcSafeBlockNumber=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcSafeBlockNumber"))
+        (format t "databaseRpcFinalizedBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcFinalizedBlockHash"))
+        (format t "databaseRpcFinalizedBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcFinalizedBlockNumber")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))

@@ -4403,6 +4403,11 @@ splits can land after the Phase A smoke path closes.
     transaction-by-block/index reads. Each database-backed devnet case now
     verifies restored canonical block bodies and transaction indexes are
     readable by both block hash and block number after KV export/import.
+  - Result: extended the restored devnet database check to safe/finalized
+    checkpoints. Each database-backed devnet case now verifies the exported KV
+    snapshot preserves safe/finalized number/hash records and that a fresh
+    public RPC listener resolves `eth_getBlockByNumber` with `"safe"` and
+    `"finalized"` to the expected checkpoint block after import.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,
