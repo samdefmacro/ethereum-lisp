@@ -1006,7 +1006,8 @@
                 stdout))
     (is (search "--all-fixtures" stdout))
     (is (search "--ready-file PATH" stdout))
-    (is (search "--log-file PATH" stdout))))
+    (is (search "--log-file PATH" stdout))
+    (is (search "--database PATH" stdout))))
 
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
   #-sbcl
@@ -1015,7 +1016,9 @@
   (let ((ready-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-ready" "json"))
         (log-path
-          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke" "log")))
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke" "log"))
+        (database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-chain" "sexp")))
     (unwind-protect
          (multiple-value-bind (stdout stderr status)
              (uiop:run-program
@@ -1025,7 +1028,8 @@
                     "--"
                     "--json"
                     "--ready-file" (namestring ready-path)
-                    "--log-file" (namestring log-path))
+                    "--log-file" (namestring log-path)
+                    "--database" (namestring database-path))
               :output :string
               :error-output :string
               :ignore-error-status t)
@@ -1035,6 +1039,8 @@
              (let* ((report (parse-json stdout))
                     (ready-summary
                       (parse-json (devnet-cli-file-string ready-path)))
+                    (database
+                      (make-file-key-value-database database-path))
                     (log-records (devnet-cli-file-forms log-path))
                     (reference-clients
                       (fixture-object-field report "referenceClients"))
@@ -1056,6 +1062,14 @@
                             (fixture-object-field report "readyFile")))
                (is (string= (namestring log-path)
                             (fixture-object-field report "logFile")))
+               (is (string= (namestring database-path)
+                            (fixture-object-field report "databaseFile")))
+               (is (string= (fixture-object-field report "blockNumber")
+                            (fixture-object-field report
+                                                  "databaseHeadNumber")))
+               (is (< 0 (length (kv-chain-record-entries database :block))))
+               (is (< 0 (length (kv-chain-record-entries
+                                 database :canonical-hash))))
                (is (string= "engine"
                             (fixture-object-field ready-summary
                                                   "engineEndpoint")))
@@ -1066,12 +1080,17 @@
                                                 "authRequired")))
                (is (eq t (fixture-object-field ready-summary
                                                 "stateAvailable")))
+               (is (string= (namestring database-path)
+                            (fixture-object-field ready-summary
+                                                  "databasePath")))
                (is (member "devnet.ready" log-names :test #'string=))
                (is (member "devnet.shutdown" log-names :test #'string=)))))
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)
-        (delete-file log-path)))))
+        (delete-file log-path))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
 
 (deftest devnet-smoke-gate-script-runs-all-pinned-fixtures
   #-sbcl

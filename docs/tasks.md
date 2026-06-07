@@ -4341,6 +4341,11 @@ splits can land after the Phase A smoke path closes.
     exports the current readable chain view during `--no-serve` or normal
     shutdown, making the development persistence path usable from local
     devnet runs instead of only unit helpers.
+  - Result: extended the standalone devnet smoke gate with `--database PATH`.
+    The gate now exports the chain-store snapshot produced by the authenticated
+    Engine import/forkchoice/public-read sequence, reopens the file-backed KV
+    database, and verifies a fresh devnet node can restore the same canonical
+    head from that snapshot.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,

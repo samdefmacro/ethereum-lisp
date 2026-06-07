@@ -22,6 +22,7 @@
   (format t "  --all-fixtures       Import every pinned Phase A newPayloadV2 smoke case.~%")
   (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
   (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
+  (format t "  --database PATH      Export and verify a file-backed KV chain snapshot.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%"))
@@ -44,6 +45,7 @@
 (defconstant +devnet-smoke-gate-fixture-case-option+ "--fixture-case")
 (defconstant +devnet-smoke-gate-ready-file-option+ "--ready-file")
 (defconstant +devnet-smoke-gate-log-file-option+ "--log-file")
+(defconstant +devnet-smoke-gate-database-option+ "--database")
 (defconstant +devnet-smoke-gate-all-fixtures-flag+ "--all-fixtures")
 (defconstant +devnet-smoke-gate-default-fixture-case+
   "shanghai-one-transfer-with-withdrawal")
@@ -86,6 +88,7 @@
                  (string= arg +devnet-smoke-gate-all-fixtures-flag+)))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
                  (string= arg +devnet-smoke-gate-log-file-option+)
+                 (string= arg +devnet-smoke-gate-database-option+)
                  (string= arg +devnet-smoke-gate-fixture-case-option+))
              (when (and (string= arg +devnet-smoke-gate-fixture-case-option+)
                         args)
@@ -107,7 +110,8 @@
             ((string= arg +devnet-smoke-gate-help-flag+))
             ((string= arg +devnet-smoke-gate-all-fixtures-flag+))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
-                 (string= arg +devnet-smoke-gate-log-file-option+))
+                 (string= arg +devnet-smoke-gate-log-file-option+)
+                 (string= arg +devnet-smoke-gate-database-option+))
              (unless args
                (error "~A requires a path" arg))
              (let ((value (pop args)))
@@ -152,7 +156,8 @@
              (when args
                (pop args)))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
-                 (string= arg +devnet-smoke-gate-log-file-option+))
+                 (string= arg +devnet-smoke-gate-log-file-option+)
+                 (string= arg +devnet-smoke-gate-database-option+))
              (when args
                (pop args)))))
     path))
@@ -165,6 +170,7 @@
   (format t "  --all-fixtures       Import every pinned Phase A newPayloadV2 smoke case.~%")
   (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
   (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
+  (format t "  --database PATH      Export and verify a file-backed KV chain snapshot.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
@@ -392,7 +398,36 @@
            "Log file public RPC endpoint mismatch"))))
     records))
 
-(defun devnet-smoke-gate-run (case-name &key ready-file log-file)
+(defun devnet-smoke-gate-verify-database (path expected-block-number)
+  (let* ((database (make-file-key-value-database path))
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-path
+            (namestring
+             (devnet-smoke-gate-reference-path
+              +devnet-cli-genesis-fixture+))
+            :port 0
+            :database-path path))
+         (summary (ethereum-lisp.cli:devnet-node-summary node)))
+    (devnet-smoke-gate-require
+     (< 0 (length (kv-chain-record-entries database :block)))
+     "Database export did not write block records")
+    (devnet-smoke-gate-require
+     (< 0 (length (kv-chain-record-entries database :canonical-hash)))
+     "Database export did not write canonical hash records")
+    (devnet-smoke-gate-require
+     (= (hex-to-quantity expected-block-number)
+        (getf summary :head-number))
+     "Database restored head mismatch: expected ~A got ~A"
+     expected-block-number
+     (quantity-to-hex (getf summary :head-number)))
+    (devnet-smoke-gate-require
+     (string= path (getf summary :database-path))
+     "Database path missing from restored node summary")
+    summary))
+
+(defun devnet-smoke-gate-run
+    (case-name &key ready-file log-file database-file)
   #+sbcl
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-jwt" "hex")))
     (unwind-protect
@@ -434,6 +469,7 @@
                                 :public-port 8545
                                 :jwt-secret-path (namestring jwt-path)
                                 :log-path log-file
+                                :database-path database-file
                                 :telemetry-sink telemetry-sink))
                   (balance-address nil)
                   (expected-balance nil)
@@ -521,7 +557,7 @@
                               :output-stream output
                               :close-function
                               (lambda () (incf public-served-count))))))
-                       :close-function (lambda () nil))
+                      :close-function (lambda () nil))
                       :max-connections 2
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
@@ -543,6 +579,8 @@
                              "devnet.ready"
                              :engine-endpoint engine-endpoint
                              :rpc-endpoint rpc-endpoint)))))))
+               (when database-file
+                 (ethereum-lisp.cli::devnet-node-export-database node))
                (when log-file
                  (ethereum-lisp.cli::devnet-cli-log-event
                   node
@@ -575,6 +613,10 @@
                         (hash32-to-hex (block-hash child-block)))
                       (expected-block-number
                         (fixture-object-field payload-case "number"))
+                      (database-summary
+                        (and database-file
+                             (devnet-smoke-gate-verify-database
+                              database-file expected-block-number)))
                       (actual-block-number
                         (fixture-object-field block-number-rpc "result"))
                       (actual-balance
@@ -645,7 +687,13 @@
                   (cons "checkedBalance" actual-balance)
                   (cons "recipientBalance" actual-balance)
                   (cons "readyFile" (or ready-file :false))
-                  (cons "logFile" (or log-file :false)))))))))))
+                  (cons "logFile" (or log-file :false))
+                  (cons "databaseFile" (or database-file :false))
+                  (cons "databaseHeadNumber"
+                        (if database-summary
+                            (quantity-to-hex
+                             (getf database-summary :head-number))
+                            :false)))))))))))
              (when ready-file
                (devnet-smoke-gate-verify-ready-file ready-file))
              (when log-file
@@ -750,7 +798,11 @@
         (format t "recipientBalance=~A~%"
                 (devnet-smoke-gate-field report "recipientBalance"))
         (format t "readyFile=~A~%" (devnet-smoke-gate-field report "readyFile"))
-        (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile")))))
+        (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile"))
+        (format t "databaseFile=~A~%"
+                (devnet-smoke-gate-field report "databaseFile"))
+        (format t "databaseHeadNumber=~A~%"
+                (devnet-smoke-gate-field report "databaseHeadNumber")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))
@@ -763,6 +815,9 @@
          (log-file
            (devnet-smoke-gate-path-option
             args +devnet-smoke-gate-log-file-option+))
+         (database-file
+           (devnet-smoke-gate-path-option
+            args +devnet-smoke-gate-database-option+))
          (case-name (devnet-smoke-gate-fixture-case-name args)))
     (if help-p
         (devnet-smoke-gate-print-help)
@@ -775,12 +830,16 @@
                       (when (or ready-file log-file)
                         (error "~A cannot be combined with --ready-file or --log-file"
                                +devnet-smoke-gate-all-fixtures-flag+))
+                      (when database-file
+                        (error "~A cannot be combined with --database"
+                               +devnet-smoke-gate-all-fixtures-flag+))
                       (devnet-smoke-gate-run-all
                        +engine-newpayload-v2-smoke-case-names+))
                     (devnet-smoke-gate-run
                      case-name
                      :ready-file ready-file
-                     :log-file log-file))))
+                     :log-file log-file
+                     :database-file database-file))))
           (if json-p
               (format t "~&~A~%" (json-encode report))
               (devnet-smoke-gate-print-text report))))))

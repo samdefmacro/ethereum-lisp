@@ -723,8 +723,9 @@ first pass, but interfaces must not block that path.
   has a split-listener smoke covering authenticated Engine JSON-RPC,
   `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, unauthenticated public latest-state reads, and
-  standalone smoke-gate validation of readiness JSON plus ready/shutdown
-  telemetry across every pinned Phase A `engine_newPayloadV2` smoke fixture.
+  standalone smoke-gate validation of readiness JSON, ready/shutdown
+  telemetry, and file-backed KV chain-store restore/export across the local
+  process boundary.
   Standalone devnet smoke-gate reports also carry pinned EEST source metadata
   and local reference-client commit/status metadata, and concurrent standalone
   smoke-gate processes use distinct temp files so automation can run parallel
