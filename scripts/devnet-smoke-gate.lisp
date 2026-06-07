@@ -399,10 +399,12 @@
     records))
 
 (defun devnet-smoke-gate-verify-restored-public-rpc
-    (node expected-block-number balance-address expected-balance)
+    (node expected-block-number balance-address expected-balance
+     transaction-hash block-hash)
   #+sbcl
   (let ((block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
+        (receipt-output (make-string-output-stream))
         (public-requests nil))
     (setf public-requests
           (list
@@ -416,7 +418,14 @@
            (cons
             (json-encode
              (engine-fixture-balance-request 42 balance-address))
-            balance-output)))
+            balance-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 43)
+                   (cons "method" "eth_getTransactionReceipt")
+                   (cons "params" (list (hash32-to-hex transaction-hash)))))
+            receipt-output)))
     (let ((summary
             (ethereum-lisp.cli:start-devnet-node-listeners
              node
@@ -438,25 +447,37 @@
                      :output-stream output
                      :close-function (lambda () nil)))))
               :close-function (lambda () nil))
-             :max-connections 2)))
+             :max-connections 3)))
       (let* ((block-number-response
                (get-output-stream-string block-number-output))
              (balance-response
                (get-output-stream-string balance-output))
+             (receipt-response
+               (get-output-stream-string receipt-output))
              (block-number-rpc
                (devnet-smoke-gate-rpc-body block-number-response))
              (balance-rpc
                (devnet-smoke-gate-rpc-body balance-response))
+             (receipt-rpc
+               (devnet-smoke-gate-rpc-body receipt-response))
              (actual-block-number
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
-               (fixture-object-field balance-rpc "result")))
+               (fixture-object-field balance-rpc "result"))
+             (actual-receipt
+               (fixture-object-field receipt-rpc "result"))
+             (actual-transaction-hash
+               (fixture-object-field actual-receipt "transactionHash"))
+             (actual-receipt-block-number
+               (fixture-object-field actual-receipt "blockNumber"))
+             (actual-receipt-block-hash
+               (fixture-object-field actual-receipt "blockHash")))
         (devnet-smoke-gate-require
          (= 0 (getf summary :engine-connections))
          "Restored database verification should not use Engine RPC")
         (devnet-smoke-gate-require
-         (= 2 (getf summary :public-connections))
-         "Restored database verification expected 2 public RPC connections, got ~S"
+         (= 3 (getf summary :public-connections))
+         "Restored database verification expected 3 public RPC connections, got ~S"
          (getf summary :public-connections))
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status block-number-response))
@@ -464,6 +485,9 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status balance-response))
          "Restored eth_getBalance HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status receipt-response))
+         "Restored eth_getTransactionReceipt HTTP status mismatch")
         (devnet-smoke-gate-require
          (string= expected-block-number actual-block-number)
          "Restored eth_blockNumber mismatch: expected ~A got ~A"
@@ -474,14 +498,26 @@
          "Restored eth_getBalance mismatch: expected ~A got ~A"
          expected-balance
          actual-balance)
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex transaction-hash) actual-transaction-hash)
+         "Restored eth_getTransactionReceipt hash mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-block-number actual-receipt-block-number)
+         "Restored eth_getTransactionReceipt block number mismatch")
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex block-hash) actual-receipt-block-hash)
+         "Restored eth_getTransactionReceipt block hash mismatch")
         (list :block-number actual-block-number
               :balance actual-balance
+              :receipt-transaction-hash actual-transaction-hash
+              :receipt-block-number actual-receipt-block-number
               :public-connections (getf summary :public-connections)))))
   #-sbcl
   (error "Restored devnet public RPC verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-verify-database
-    (path expected-block-number balance-address expected-balance)
+    (path expected-block-number balance-address expected-balance
+     transaction-hash block-hash)
   (let* ((database (make-file-key-value-database path))
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -494,7 +530,12 @@
          (summary (ethereum-lisp.cli:devnet-node-summary node))
          (public-rpc-summary
            (devnet-smoke-gate-verify-restored-public-rpc
-            node expected-block-number balance-address expected-balance)))
+            node
+            expected-block-number
+            balance-address
+            expected-balance
+            transaction-hash
+            block-hash)))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
      "Database export did not write block records")
@@ -515,6 +556,10 @@
                   (getf public-rpc-summary :block-number)
                   :rpc-balance
                   (getf public-rpc-summary :balance)
+                  :rpc-receipt-transaction-hash
+                  (getf public-rpc-summary :receipt-transaction-hash)
+                  :rpc-receipt-block-number
+                  (getf public-rpc-summary :receipt-block-number)
                   :rpc-public-connections
                   (getf public-rpc-summary :public-connections)))))
 
@@ -572,6 +617,8 @@
                   (forkchoice-output (make-string-output-stream))
                   (block-number-output (make-string-output-stream))
                   (balance-output (make-string-output-stream))
+                  (expected-transaction-hash
+                    (transaction-hash (first (block-transactions child-block))))
                   (engine-requests
                     (list
                      (cons
@@ -711,7 +758,9 @@
                               database-file
                               expected-block-number
                               balance-address
-                              expected-balance)))
+                              expected-balance
+                              expected-transaction-hash
+                              (block-hash child-block))))
                       (actual-block-number
                         (fixture-object-field block-number-rpc "result"))
                       (actual-balance
@@ -797,6 +846,16 @@
                         (if database-summary
                             (getf database-summary :rpc-balance)
                             :false))
+                  (cons "databaseRpcReceiptTransactionHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-receipt-transaction-hash)
+                            :false))
+                  (cons "databaseRpcReceiptBlockNumber"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-receipt-block-number)
+                            :false))
                   (cons "databaseRpcPublicConnections"
                         (if database-summary
                             (getf database-summary :rpc-public-connections)
@@ -876,6 +935,12 @@
          (string= (devnet-smoke-gate-field report "blockNumber")
                   (devnet-smoke-gate-field report "databaseHeadNumber"))
          "Devnet smoke gate suite database head mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "blockNumber")
+                  (devnet-smoke-gate-field report
+                                           "databaseRpcReceiptBlockNumber"))
+         "Devnet smoke gate suite restored receipt block mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))))
     (devnet-smoke-gate-add-run-metadata
      (list
@@ -976,7 +1041,13 @@
         (format t "databaseRpcBlockNumber=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcBlockNumber"))
         (format t "databaseRpcBalance=~A~%"
-                (devnet-smoke-gate-field report "databaseRpcBalance")))))
+                (devnet-smoke-gate-field report "databaseRpcBalance"))
+        (format t "databaseRpcReceiptTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcReceiptTransactionHash"))
+        (format t "databaseRpcReceiptBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcReceiptBlockNumber")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))

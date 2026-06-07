@@ -1082,7 +1082,13 @@
                (is (string= (fixture-object-field report "checkedBalance")
                             (fixture-object-field
                              report "databaseRpcBalance")))
-               (is (= 2 (fixture-object-field
+               (is (string= (fixture-object-field
+                              report "databaseRpcReceiptBlockNumber")
+                            (fixture-object-field report "blockNumber")))
+               (is (stringp
+                    (fixture-object-field
+                     report "databaseRpcReceiptTransactionHash")))
+               (is (= 3 (fixture-object-field
                          report "databaseRpcPublicConnections")))
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
@@ -1211,7 +1217,13 @@
                  (is (string= (fixture-object-field case "checkedBalance")
                               (fixture-object-field
                                case "databaseRpcBalance")))
-                 (is (= 2 (fixture-object-field
+                 (is (string= (fixture-object-field
+                                case "databaseRpcReceiptBlockNumber")
+                              (fixture-object-field case "blockNumber")))
+                 (is (stringp
+                      (fixture-object-field
+                       case "databaseRpcReceiptTransactionHash")))
+                 (is (= 3 (fixture-object-field
                            case "databaseRpcPublicConnections")))
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
@@ -1438,7 +1450,13 @@
           (is (string= (fixture-object-field case "checkedBalance")
                        (fixture-object-field
                         case "databaseRpcBalance")))
-          (is (= 2 (fixture-object-field
+          (is (string= (fixture-object-field
+                        case "databaseRpcReceiptBlockNumber")
+                       (fixture-object-field case "blockNumber")))
+          (is (stringp
+               (fixture-object-field
+                case "databaseRpcReceiptTransactionHash")))
+          (is (= 3 (fixture-object-field
                     case "databaseRpcPublicConnections"))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
