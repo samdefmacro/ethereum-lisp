@@ -48,6 +48,11 @@
     (ensure-directories-exist path)
     path))
 
+(defun devnet-cli-restored-public-connections (report)
+  (+ 19
+     (1- (fixture-object-field report "checkedBalanceCount"))
+     (* 6 (1- (fixture-object-field report "transactionCount")))))
+
 (defun devnet-cli-http-body (response)
   (let ((boundary (search (format nil "~C~C~C~C"
                                   #\Return #\Newline
@@ -1164,8 +1169,9 @@
                (is (string= (fixture-object-field
                               report "databaseRpcTransactionBlockNumber")
                             (fixture-object-field report "blockNumber")))
-               (is (= 1 (fixture-object-field
-                         report "databaseRpcBlockReceiptsCount")))
+               (is (= (fixture-object-field report "transactionCount")
+                      (fixture-object-field
+                       report "databaseRpcBlockReceiptsCount")))
                (is (string= (fixture-object-field
                               report "databaseRpcBlockReceiptTransactionHash")
                             (fixture-object-field
@@ -1176,11 +1182,19 @@
                (is (string= (fixture-object-field
                               report "databaseRpcBlockReceiptBlockNumber")
                             (fixture-object-field report "blockNumber")))
-               (is (string= "0x1"
+               (is (= (fixture-object-field report "transactionCount")
+                      (fixture-object-field report
+                                            "databaseRpcTransactionCount")))
+               (is (= (fixture-object-field report "checkedBalanceCount")
+                      (fixture-object-field report
+                                            "databaseRpcBalanceCount")))
+               (is (string= (quantity-to-hex
+                              (fixture-object-field report "transactionCount"))
                             (fixture-object-field
                              report
                              "databaseRpcBlockTransactionCountByHash")))
-               (is (string= "0x1"
+               (is (string= (quantity-to-hex
+                              (fixture-object-field report "transactionCount"))
                             (fixture-object-field
                              report
                              "databaseRpcBlockTransactionCountByNumber")))
@@ -1239,8 +1253,9 @@
                               report "finalizedBlockNumber")
                             (fixture-object-field
                              report "databaseRpcFinalizedBlockNumber")))
-               (is (= 19 (fixture-object-field
-                         report "databaseRpcPublicConnections")))
+               (is (= (devnet-cli-restored-public-connections report)
+                      (fixture-object-field
+                       report "databaseRpcPublicConnections")))
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :canonical-hash))))
@@ -1345,9 +1360,12 @@
                       (fixture-object-field report "databaseCaseCount")))
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
                       (length database-files)))
-               (is (= 10 (fixture-object-field report "engineConnections")))
-               (is (= 10 (fixture-object-field report "publicConnections")))
-               (is (= 20 (fixture-object-field report "totalConnections")))
+               (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
+                      (fixture-object-field report "engineConnections")))
+               (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
+                      (fixture-object-field report "publicConnections")))
+               (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
+                      (fixture-object-field report "totalConnections")))
                (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
                (dolist (case cases)
                  (is (string= "ok" (fixture-object-field case "status")))
@@ -1445,8 +1463,9 @@
                  (is (string= (fixture-object-field
                                 case "databaseRpcTransactionBlockNumber")
                               (fixture-object-field case "blockNumber")))
-                 (is (= 1 (fixture-object-field
-                           case "databaseRpcBlockReceiptsCount")))
+                 (is (= (fixture-object-field case "transactionCount")
+                        (fixture-object-field
+                         case "databaseRpcBlockReceiptsCount")))
                  (is (string= (fixture-object-field
                                 case "databaseRpcBlockReceiptTransactionHash")
                               (fixture-object-field
@@ -1457,11 +1476,18 @@
                  (is (string= (fixture-object-field
                                 case "databaseRpcBlockReceiptBlockNumber")
                               (fixture-object-field case "blockNumber")))
-                 (is (string= "0x1"
+                 (is (= (fixture-object-field case "transactionCount")
+                        (fixture-object-field case
+                                              "databaseRpcTransactionCount")))
+                 (is (= (fixture-object-field case "checkedBalanceCount")
+                        (fixture-object-field case "databaseRpcBalanceCount")))
+                 (is (string= (quantity-to-hex
+                                (fixture-object-field case "transactionCount"))
                               (fixture-object-field
                                case
                                "databaseRpcBlockTransactionCountByHash")))
-                 (is (string= "0x1"
+                 (is (string= (quantity-to-hex
+                                (fixture-object-field case "transactionCount"))
                               (fixture-object-field
                                case
                                "databaseRpcBlockTransactionCountByNumber")))
@@ -1520,8 +1546,9 @@
                                 case "finalizedBlockNumber")
                               (fixture-object-field
                                case "databaseRpcFinalizedBlockNumber")))
-                 (is (= 19 (fixture-object-field
-                           case "databaseRpcPublicConnections")))
+                 (is (= (devnet-cli-restored-public-connections case)
+                        (fixture-object-field
+                         case "databaseRpcPublicConnections")))
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
                  (is (probe-file
@@ -1737,9 +1764,12 @@
                (fixture-object-field devnet "databaseCaseCount")))
         (is (= (length +engine-newpayload-v2-smoke-case-names+)
                (length (devnet-smoke-gate-case-database-files devnet))))
-        (is (= 10 (fixture-object-field devnet "engineConnections")))
-        (is (= 10 (fixture-object-field devnet "publicConnections")))
-        (is (= 20 (fixture-object-field devnet "totalConnections")))
+        (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
+               (fixture-object-field devnet "engineConnections")))
+        (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
+               (fixture-object-field devnet "publicConnections")))
+        (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
+               (fixture-object-field devnet "totalConnections")))
         (dolist (case (fixture-object-field devnet "cases"))
           (is (string= (fixture-object-field case "blockNumber")
                        (fixture-object-field
@@ -1819,8 +1849,9 @@
           (is (string= (fixture-object-field
                         case "databaseRpcTransactionBlockNumber")
                        (fixture-object-field case "blockNumber")))
-          (is (= 1 (fixture-object-field
-                    case "databaseRpcBlockReceiptsCount")))
+          (is (= (fixture-object-field case "transactionCount")
+                 (fixture-object-field
+                  case "databaseRpcBlockReceiptsCount")))
           (is (string= (fixture-object-field
                         case "databaseRpcBlockReceiptTransactionHash")
                        (fixture-object-field
@@ -1831,11 +1862,18 @@
           (is (string= (fixture-object-field
                         case "databaseRpcBlockReceiptBlockNumber")
                        (fixture-object-field case "blockNumber")))
-          (is (string= "0x1"
+          (is (= (fixture-object-field case "transactionCount")
+                 (fixture-object-field case
+                                       "databaseRpcTransactionCount")))
+          (is (= (fixture-object-field case "checkedBalanceCount")
+                 (fixture-object-field case "databaseRpcBalanceCount")))
+          (is (string= (quantity-to-hex
+                         (fixture-object-field case "transactionCount"))
                        (fixture-object-field
                         case
                         "databaseRpcBlockTransactionCountByHash")))
-          (is (string= "0x1"
+          (is (string= (quantity-to-hex
+                         (fixture-object-field case "transactionCount"))
                        (fixture-object-field
                         case
                         "databaseRpcBlockTransactionCountByNumber")))
@@ -1893,8 +1931,9 @@
           (is (string= (fixture-object-field case "finalizedBlockNumber")
                        (fixture-object-field
                         case "databaseRpcFinalizedBlockNumber")))
-          (is (= 19 (fixture-object-field
-                    case "databaseRpcPublicConnections"))))))))
+          (is (= (devnet-cli-restored-public-connections case)
+                 (fixture-object-field
+                  case "databaseRpcPublicConnections"))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
   #-sbcl

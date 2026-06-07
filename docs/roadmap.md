@@ -168,7 +168,8 @@ fixes in those areas are allowed; expansion is not.
   standalone devnet all-fixtures listener-boundary suite with per-case
   readiness JSON, `devnet.ready` / `devnet.shutdown` telemetry logs, and
   file-backed KV database export/restore enabled for every pinned Shanghai
-  case. Restored KV snapshots are also served through a fresh public RPC
+  case, including the multi-transaction legacy-transfer payload. Restored KV
+  snapshots are also served through a fresh public RPC
   listener and checked for `eth_blockNumber` plus retained-state balance,
   nonce, code, storage, and proof reads, `eth_getTransactionReceipt` canonical
   receipt lookup, `eth_getBlockByHash` / `eth_getBlockByNumber` canonical
@@ -176,7 +177,9 @@ fixes in those areas are allowed; expansion is not.
   `eth_getTransactionByHash` and transaction by block/index canonical
   transaction lookup, safe/finalized checkpoint number/hash persistence plus
   `eth_getBlockByNumber("safe"|"finalized")` checkpoint-tag reads, and
-  `eth_getBlockReceipts` block-receipt lookup. The
+  `eth_getBlockReceipts` block-receipt lookup. Multi-transaction restored
+  blocks verify all declared recipient balances plus every transaction's
+  receipt, raw transaction, and block/index lookup. The
   top-level Phase A process gate therefore covers authenticated Engine import,
   forkchoice, public reads, runner readiness/shutdown signals, and readable
   chain-store persistence across the local process/database boundary.
@@ -747,6 +750,9 @@ first pass, but interfaces must not block that path.
   checks without JWT cleanup races. Public `safe` / `finalized` block-tag
   number resolution requires explicit forkchoice checkpoint publication instead
   of falling back to `latest`, matching the geth/Nethermind checkpoint model.
+  The all-fixtures devnet gate now also includes the pinned multi-transaction
+  Shanghai legacy-transfer payload and verifies restored RPC visibility for
+  every recipient balance and transaction in that block.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

@@ -358,6 +358,25 @@
     (t
      (error "Devnet smoke gate fixture expect must contain recipient or contractAddress"))))
 
+(defun devnet-smoke-gate-balance-targets (expect)
+  (cond
+    ((fixture-field-present-p expect "recipients")
+     (loop for recipient in (fixture-object-field expect "recipients")
+           for balance in (fixture-object-field expect "recipientBalances")
+           collect (list :address (address-from-hex recipient)
+                         :balance balance
+                         :field "recipientBalance")))
+    (t
+     (multiple-value-bind (address balance field)
+         (devnet-smoke-gate-balance-target expect)
+       (list (list :address address :balance balance :field field))))))
+
+(defun devnet-smoke-gate-transaction-checks (block)
+  (loop for transaction in (block-transactions block)
+        collect (list :hash (transaction-hash transaction)
+                      :raw (bytes-to-hex
+                            (transaction-encoding transaction)))))
+
 (defun devnet-smoke-gate-verify-ready-file (path)
   (let ((summary (parse-json (devnet-smoke-gate-file-string path))))
     (devnet-smoke-gate-require
@@ -399,14 +418,47 @@
     records))
 
 (defun devnet-smoke-gate-verify-restored-public-rpc
-    (node expected-block-number balance-address expected-balance
+    (node expected-block-number balance-targets
      sender-address expected-sender-nonce
      code-address expected-code storage-address storage-key expected-storage
-     transaction-hash expected-raw-transaction block-hash
+     transaction-checks block-hash
      expected-safe-block-number expected-safe-block-hash
      expected-finalized-block-number expected-finalized-block-hash)
   #+sbcl
-  (let ((block-number-output (make-string-output-stream))
+  (let* ((primary-balance-target (first balance-targets))
+         (balance-address (getf primary-balance-target :address))
+         (expected-balance (getf primary-balance-target :balance))
+         (primary-transaction-check (first transaction-checks))
+         (transaction-hash (getf primary-transaction-check :hash))
+         (expected-raw-transaction (getf primary-transaction-check :raw))
+         (transaction-count (length transaction-checks))
+         (expected-transaction-count (quantity-to-hex transaction-count))
+         (extra-balance-outputs
+           (loop repeat (length (rest balance-targets))
+                 collect (make-string-output-stream)))
+         (extra-receipt-outputs
+           (loop repeat (length (rest transaction-checks))
+                 collect (make-string-output-stream)))
+         (extra-transaction-outputs
+           (loop repeat (length (rest transaction-checks))
+                 collect (make-string-output-stream)))
+         (extra-raw-transaction-by-hash-outputs
+           (loop repeat (length (rest transaction-checks))
+                 collect (make-string-output-stream)))
+         (extra-raw-transaction-by-number-outputs
+           (loop repeat (length (rest transaction-checks))
+                 collect (make-string-output-stream)))
+         (extra-transaction-by-hash-index-outputs
+           (loop repeat (length (rest transaction-checks))
+                 collect (make-string-output-stream)))
+         (extra-transaction-by-number-index-outputs
+           (loop repeat (length (rest transaction-checks))
+                 collect (make-string-output-stream)))
+         (expected-public-connections
+           (+ 19
+              (length extra-balance-outputs)
+              (* 6 (length extra-receipt-outputs))))
+         (block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
         (nonce-output (make-string-output-stream))
         (code-output (make-string-output-stream))
@@ -567,6 +619,104 @@
                    (cons "method" "eth_getBlockByNumber")
                    (cons "params" (list "finalized" :false))))
             finalized-block-output)))
+    (setf public-requests
+          (nconc
+           public-requests
+           (loop for target in (rest balance-targets)
+                 for output in extra-balance-outputs
+                 for id from 60
+                 collect
+                 (cons
+                  (json-encode
+                   (engine-fixture-balance-request
+                    id (getf target :address)))
+                  output))
+           (loop for check in (rest transaction-checks)
+                 for output in extra-receipt-outputs
+                 for id from 70
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method" "eth_getTransactionReceipt")
+                         (cons "params"
+                               (list (hash32-to-hex
+                                      (getf check :hash))))))
+                  output))
+           (loop for check in (rest transaction-checks)
+                 for output in extra-transaction-outputs
+                 for id from 80
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method" "eth_getTransactionByHash")
+                         (cons "params"
+                               (list (hash32-to-hex
+                                      (getf check :hash))))))
+                  output))
+           (loop for check in (rest transaction-checks)
+                 for output in extra-raw-transaction-by-hash-outputs
+                 for index from 1
+                 for id from 90
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method"
+                               "eth_getRawTransactionByBlockHashAndIndex")
+                         (cons "params"
+                               (list (hash32-to-hex block-hash)
+                                     (quantity-to-hex index)))))
+                  output))
+           (loop for check in (rest transaction-checks)
+                 for output in extra-raw-transaction-by-number-outputs
+                 for index from 1
+                 for id from 100
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method"
+                               "eth_getRawTransactionByBlockNumberAndIndex")
+                         (cons "params"
+                               (list expected-block-number
+                                     (quantity-to-hex index)))))
+                  output))
+           (loop for check in (rest transaction-checks)
+                 for output in extra-transaction-by-hash-index-outputs
+                 for index from 1
+                 for id from 110
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method"
+                               "eth_getTransactionByBlockHashAndIndex")
+                         (cons "params"
+                               (list (hash32-to-hex block-hash)
+                                     (quantity-to-hex index)))))
+                  output))
+           (loop for check in (rest transaction-checks)
+                 for output in extra-transaction-by-number-index-outputs
+                 for index from 1
+                 for id from 120
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method"
+                               "eth_getTransactionByBlockNumberAndIndex")
+                         (cons "params"
+                               (list expected-block-number
+                                     (quantity-to-hex index)))))
+                  output))))
     (let ((summary
             (ethereum-lisp.cli:start-devnet-node-listeners
              node
@@ -588,7 +738,7 @@
                      :output-stream output
                      :close-function (lambda () nil)))))
               :close-function (lambda () nil))
-             :max-connections 19)))
+             :max-connections expected-public-connections)))
       (let* ((block-number-response
                (get-output-stream-string block-number-output))
              (balance-response
@@ -793,8 +943,9 @@
          (= 0 (getf summary :engine-connections))
          "Restored database verification should not use Engine RPC")
         (devnet-smoke-gate-require
-         (= 19 (getf summary :public-connections))
-         "Restored database verification expected 19 public RPC connections, got ~S"
+         (= expected-public-connections (getf summary :public-connections))
+         "Restored database verification expected ~S public RPC connections, got ~S"
+         expected-public-connections
          (getf summary :public-connections))
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status block-number-response))
@@ -865,6 +1016,21 @@
          "Restored eth_getBalance mismatch: expected ~A got ~A"
          expected-balance
          actual-balance)
+        (loop for target in (rest balance-targets)
+              for output in extra-balance-outputs
+              for response = (get-output-stream-string output)
+              for rpc = (devnet-smoke-gate-rpc-body response)
+              for actual-extra-balance =
+                (fixture-object-field rpc "result")
+              do
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status response))
+                  "Restored extra eth_getBalance HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (getf target :balance) actual-extra-balance)
+                  "Restored extra eth_getBalance mismatch: expected ~A got ~A"
+                  (getf target :balance)
+                  actual-extra-balance))
         (devnet-smoke-gate-require
          (string= expected-sender-nonce actual-nonce)
          "Restored eth_getTransactionCount mismatch: expected ~A got ~A"
@@ -932,6 +1098,9 @@
                   actual-block-transaction-hash)
          "Restored eth_getBlockByHash transaction list mismatch")
         (devnet-smoke-gate-require
+         (= transaction-count (length actual-block-transactions))
+         "Restored eth_getBlockByHash transaction count mismatch")
+        (devnet-smoke-gate-require
          (string= (hash32-to-hex block-hash) actual-block-by-number-hash)
          "Restored eth_getBlockByNumber hash mismatch")
         (devnet-smoke-gate-require
@@ -941,6 +1110,9 @@
          (string= (hash32-to-hex transaction-hash)
                   actual-block-by-number-transaction-hash)
          "Restored eth_getBlockByNumber transaction list mismatch")
+        (devnet-smoke-gate-require
+         (= transaction-count (length actual-block-by-number-transactions))
+         "Restored eth_getBlockByNumber transaction count mismatch")
         (devnet-smoke-gate-require
          (string= (hash32-to-hex transaction-hash) actual-transaction-hash)
          "Restored eth_getTransactionByHash hash mismatch")
@@ -952,8 +1124,9 @@
          (string= expected-block-number actual-transaction-block-number)
          "Restored eth_getTransactionByHash block number mismatch")
         (devnet-smoke-gate-require
-         (= 1 (length actual-block-receipts))
-         "Restored eth_getBlockReceipts expected 1 receipt, got ~S"
+         (= transaction-count (length actual-block-receipts))
+         "Restored eth_getBlockReceipts expected ~S receipts, got ~S"
+         transaction-count
          (length actual-block-receipts))
         (devnet-smoke-gate-require
          (string= (hash32-to-hex transaction-hash)
@@ -967,10 +1140,12 @@
          (string= expected-block-number actual-block-receipt-block-number)
          "Restored eth_getBlockReceipts block number mismatch")
         (devnet-smoke-gate-require
-         (string= "0x1" actual-block-transaction-count-by-hash)
+         (string= expected-transaction-count
+                  actual-block-transaction-count-by-hash)
          "Restored eth_getBlockTransactionCountByHash mismatch")
         (devnet-smoke-gate-require
-         (string= "0x1" actual-block-transaction-count-by-number)
+         (string= expected-transaction-count
+                  actual-block-transaction-count-by-number)
          "Restored eth_getBlockTransactionCountByNumber mismatch")
         (devnet-smoke-gate-require
          (string= expected-raw-transaction actual-raw-transaction-by-hash)
@@ -1010,6 +1185,117 @@
          (string= "0x0"
                   actual-transaction-by-number-index-transaction-index)
          "Restored eth_getTransactionByBlockNumberAndIndex index mismatch")
+        (loop for check in (rest transaction-checks)
+              for index from 1
+              for receipt-output in extra-receipt-outputs
+              for transaction-output in extra-transaction-outputs
+              for raw-by-hash-output in extra-raw-transaction-by-hash-outputs
+              for raw-by-number-output in extra-raw-transaction-by-number-outputs
+              for tx-by-hash-index-output in extra-transaction-by-hash-index-outputs
+              for tx-by-number-index-output in extra-transaction-by-number-index-outputs
+              for expected-hash = (hash32-to-hex (getf check :hash))
+              for expected-raw = (getf check :raw)
+              for expected-index = (quantity-to-hex index)
+              do
+                 (let* ((receipt-response
+                          (get-output-stream-string receipt-output))
+                        (transaction-response
+                          (get-output-stream-string transaction-output))
+                        (raw-by-hash-response
+                          (get-output-stream-string raw-by-hash-output))
+                        (raw-by-number-response
+                          (get-output-stream-string raw-by-number-output))
+                        (tx-by-hash-index-response
+                          (get-output-stream-string tx-by-hash-index-output))
+                        (tx-by-number-index-response
+                          (get-output-stream-string
+                           tx-by-number-index-output))
+                        (receipt
+                          (fixture-object-field
+                           (devnet-smoke-gate-rpc-body receipt-response)
+                           "result"))
+                        (transaction
+                          (fixture-object-field
+                           (devnet-smoke-gate-rpc-body
+                            transaction-response)
+                           "result"))
+                        (tx-by-hash-index
+                          (fixture-object-field
+                           (devnet-smoke-gate-rpc-body
+                            tx-by-hash-index-response)
+                           "result"))
+                        (tx-by-number-index
+                          (fixture-object-field
+                           (devnet-smoke-gate-rpc-body
+                            tx-by-number-index-response)
+                           "result")))
+                   (dolist (response
+                            (list receipt-response transaction-response
+                                  raw-by-hash-response raw-by-number-response
+                                  tx-by-hash-index-response
+                                  tx-by-number-index-response))
+                     (devnet-smoke-gate-require
+                      (= 200 (devnet-cli-http-status response))
+                      "Restored extra transaction RPC HTTP status mismatch"))
+                   (devnet-smoke-gate-require
+                    (string= expected-hash
+                             (fixture-object-field receipt
+                                                   "transactionHash"))
+                    "Restored extra receipt transaction hash mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-block-number
+                             (fixture-object-field receipt "blockNumber"))
+                    "Restored extra receipt block number mismatch")
+                   (devnet-smoke-gate-require
+                    (string= (hash32-to-hex block-hash)
+                             (fixture-object-field receipt "blockHash"))
+                    "Restored extra receipt block hash mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-hash
+                             (fixture-object-field transaction "hash"))
+                    "Restored extra eth_getTransactionByHash mismatch")
+                   (devnet-smoke-gate-require
+                    (string= (hash32-to-hex block-hash)
+                             (fixture-object-field transaction
+                                                   "blockHash"))
+                    "Restored extra eth_getTransactionByHash block hash mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-block-number
+                             (fixture-object-field transaction
+                                                   "blockNumber"))
+                    "Restored extra eth_getTransactionByHash block number mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-raw
+                             (fixture-object-field
+                              (devnet-smoke-gate-rpc-body
+                               raw-by-hash-response)
+                              "result"))
+                    "Restored extra raw transaction by hash/index mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-raw
+                             (fixture-object-field
+                              (devnet-smoke-gate-rpc-body
+                               raw-by-number-response)
+                              "result"))
+                    "Restored extra raw transaction by number/index mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-hash
+                             (fixture-object-field tx-by-hash-index "hash"))
+                    "Restored extra tx by hash/index hash mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-index
+                             (fixture-object-field tx-by-hash-index
+                                                   "transactionIndex"))
+                    "Restored extra tx by hash/index index mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-hash
+                             (fixture-object-field tx-by-number-index "hash"))
+                    "Restored extra tx by number/index hash mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-index
+                             (fixture-object-field tx-by-number-index
+                                                   "transactionIndex"))
+                    "Restored extra tx by number/index index mismatch")))
         (devnet-smoke-gate-require
          (string= (hash32-to-hex expected-safe-block-hash)
                   actual-safe-block-hash)
@@ -1061,6 +1347,8 @@
               actual-block-transaction-count-by-hash
               :block-transaction-count-by-number
               actual-block-transaction-count-by-number
+              :transaction-count transaction-count
+              :balance-count (length balance-targets)
               :raw-transaction-by-hash actual-raw-transaction-by-hash
               :raw-transaction-by-number actual-raw-transaction-by-number
               :transaction-by-hash-index-hash
@@ -1088,10 +1376,10 @@
   (error "Restored devnet public RPC verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-verify-database
-    (path expected-block-number balance-address expected-balance
+    (path expected-block-number balance-targets
      sender-address expected-sender-nonce
      code-address expected-code storage-address storage-key expected-storage
-     transaction-hash expected-raw-transaction block-hash
+     transaction-checks block-hash
      expected-safe-block-number expected-safe-block-hash
      expected-finalized-block-number expected-finalized-block-hash)
   (let* ((database (make-file-key-value-database path))
@@ -1108,8 +1396,7 @@
            (devnet-smoke-gate-verify-restored-public-rpc
             node
             expected-block-number
-            balance-address
-            expected-balance
+            balance-targets
             sender-address
             expected-sender-nonce
             code-address
@@ -1117,8 +1404,7 @@
             storage-address
             storage-key
             expected-storage
-            transaction-hash
-            expected-raw-transaction
+            transaction-checks
             block-hash
             expected-safe-block-number
             expected-safe-block-hash
@@ -1199,6 +1485,10 @@
                   :rpc-block-transaction-count-by-number
                   (getf public-rpc-summary
                         :block-transaction-count-by-number)
+                  :rpc-transaction-count
+                  (getf public-rpc-summary :transaction-count)
+                  :rpc-balance-count
+                  (getf public-rpc-summary :balance-count)
                   :rpc-raw-transaction-by-hash
                   (getf public-rpc-summary :raw-transaction-by-hash)
                   :rpc-raw-transaction-by-number
@@ -1299,13 +1589,10 @@
                   (forkchoice-output (make-string-output-stream))
                   (block-number-output (make-string-output-stream))
                   (balance-output (make-string-output-stream))
-                  (expected-transaction
-                    (first (block-transactions child-block)))
-                  (expected-transaction-hash
-                    (transaction-hash expected-transaction))
-                  (expected-raw-transaction
-                    (bytes-to-hex (transaction-encoding
-                                   expected-transaction)))
+                  (balance-targets
+                    (devnet-smoke-gate-balance-targets expect))
+                  (transaction-checks
+                    (devnet-smoke-gate-transaction-checks child-block))
                   (engine-requests
                     (list
                      (cons
@@ -1320,11 +1607,10 @@
                         :finalized (block-hash parent-block)))
                       forkchoice-output)))
                   (public-requests
-                    (multiple-value-bind (address balance field)
-                        (devnet-smoke-gate-balance-target expect)
-                      (setf balance-address address
-                            expected-balance balance
-                            balance-field field
+                    (let ((target (first balance-targets)))
+                      (setf balance-address (getf target :address)
+                            expected-balance (getf target :balance)
+                            balance-field (getf target :field)
                             sender-address
                             (fixture-address-field expect "sender")
                             expected-sender-nonce
@@ -1464,8 +1750,7 @@
                          (devnet-smoke-gate-verify-database
                               database-file
                               expected-block-number
-                              balance-address
-                              expected-balance
+                              balance-targets
                               sender-address
                               expected-sender-nonce
                               code-address
@@ -1473,8 +1758,7 @@
                               storage-address
                               storage-key
                               expected-storage
-                          expected-transaction-hash
-                          expected-raw-transaction
+                          transaction-checks
                           (block-hash child-block)
                           expected-safe-block-number
                           expected-safe-block-hash
@@ -1556,6 +1840,8 @@
                   (cons "checkedBalanceField" balance-field)
                   (cons "checkedBalance" actual-balance)
                   (cons "recipientBalance" actual-balance)
+                  (cons "checkedBalanceCount" (length balance-targets))
+                  (cons "transactionCount" (length transaction-checks))
                   (cons "checkedNonceAddress" (address-to-hex sender-address))
                   (cons "checkedNonce" expected-sender-nonce)
                   (cons "checkedCodeAddress" (address-to-hex code-address))
@@ -1722,6 +2008,14 @@
                         (if database-summary
                             (getf database-summary
                                   :rpc-block-transaction-count-by-number)
+                            :false))
+                  (cons "databaseRpcTransactionCount"
+                        (if database-summary
+                            (getf database-summary :rpc-transaction-count)
+                            :false))
+                  (cons "databaseRpcBalanceCount"
+                        (if database-summary
+                            (getf database-summary :rpc-balance-count)
                             :false))
                   (cons "databaseRpcRawTransactionByBlockHashAndIndex"
                         (if database-summary
@@ -1971,21 +2265,34 @@
          "Devnet smoke gate suite restored block receipt number mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
-         (= 1 (devnet-smoke-gate-field report
-                                       "databaseRpcBlockReceiptsCount"))
+         (= (devnet-smoke-gate-field report "transactionCount")
+            (devnet-smoke-gate-field report
+                                     "databaseRpcBlockReceiptsCount"))
          "Devnet smoke gate suite restored block receipts count mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
-         (string= "0x1"
+         (string= (quantity-to-hex
+                   (devnet-smoke-gate-field report "transactionCount"))
                   (devnet-smoke-gate-field
                    report "databaseRpcBlockTransactionCountByHash"))
          "Devnet smoke gate suite restored block tx count by hash mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
-         (string= "0x1"
+         (string= (quantity-to-hex
+                   (devnet-smoke-gate-field report "transactionCount"))
                   (devnet-smoke-gate-field
                    report "databaseRpcBlockTransactionCountByNumber"))
          "Devnet smoke gate suite restored block tx count by number mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= (devnet-smoke-gate-field report "transactionCount")
+            (devnet-smoke-gate-field report "databaseRpcTransactionCount"))
+         "Devnet smoke gate suite restored transaction count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= (devnet-smoke-gate-field report "checkedBalanceCount")
+            (devnet-smoke-gate-field report "databaseRpcBalanceCount"))
+         "Devnet smoke gate suite restored balance count mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
          (string= (devnet-smoke-gate-field

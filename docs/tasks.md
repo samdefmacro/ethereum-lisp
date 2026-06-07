@@ -4414,6 +4414,12 @@ splits can land after the Phase A smoke path closes.
     dynamic-fee, contract-creation, and internal Create2 paths, while checking
     Engine import, forkchoice, public block number, and the relevant recipient
     or contract balance for each case.
+  - Result: extended the devnet all-fixtures gate to include the pinned
+    multi-transaction Shanghai legacy-transfer case. Database-backed restored
+    RPC checks now verify every declared recipient balance and every imported
+    transaction's receipt, transaction-by-hash, raw transaction, and
+    block/index lookup for the block, so the six-case smoke set covers both
+    single-transaction and multi-transaction Engine payload boundaries.
   - Result: standalone devnet smoke-gate JSON/text output now includes the
     same pinned `execution-spec-tests` source metadata and local geth,
     Nethermind, and optional Reth reference-client commit/status metadata as

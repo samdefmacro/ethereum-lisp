@@ -8,6 +8,7 @@
 
 (defparameter +engine-newpayload-v2-smoke-case-names+
   '("shanghai-one-transfer-with-withdrawal"
+    "shanghai-two-legacy-transfers-with-withdrawal"
     "shanghai-access-list-transfer-with-withdrawal"
     "shanghai-dynamic-fee-transfer-with-withdrawal"
     "shanghai-contract-creation-with-withdrawal"
@@ -15,7 +16,7 @@
 
 (defparameter +engine-newpayload-v2-smoke-coverage-families+
   '(:legacy-transfer :access-list-transfer :dynamic-fee-transfer
-    :contract-creation))
+    :contract-creation :multi-legacy-transfer))
 
 (defparameter +engine-newpayload-v2-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "referenceClients" "cases"))
@@ -784,24 +785,33 @@
 (defun engine-newpayload-v2-smoke-coverage-family (case)
   (let* ((payload (fixture-required-field case "payload"))
          (raw-transactions (fixture-required-field payload "transactions")))
-    (unless (= 1 (length raw-transactions))
-      (error "Engine newPayloadV2 smoke case ~A must have exactly one transaction"
-             (fixture-required-field case "name")))
-    (let ((transaction (transaction-from-encoding
-                        (hex-to-bytes (first raw-transactions)))))
-      (cond
-        ((null (transaction-to transaction))
-         :contract-creation)
-        ((zerop (transaction-type transaction))
-         :legacy-transfer)
-        ((= 1 (transaction-type transaction))
-         :access-list-transfer)
-        ((= 2 (transaction-type transaction))
-         :dynamic-fee-transfer)
-        (t
-         (error "Engine newPayloadV2 smoke case ~A has unsupported coverage transaction type ~A"
-                (fixture-required-field case "name")
-                (transaction-type transaction)))))))
+    (if (< 1 (length raw-transactions))
+        (let ((transactions
+                (mapcar (lambda (raw)
+                          (transaction-from-encoding (hex-to-bytes raw)))
+                        raw-transactions)))
+          (unless (every (lambda (transaction)
+                           (and (transaction-to transaction)
+                                (zerop (transaction-type transaction))))
+                         transactions)
+            (error "Engine newPayloadV2 smoke case ~A has unsupported multi-transaction coverage shape"
+                   (fixture-required-field case "name")))
+          :multi-legacy-transfer)
+        (let ((transaction (transaction-from-encoding
+                            (hex-to-bytes (first raw-transactions)))))
+          (cond
+            ((null (transaction-to transaction))
+             :contract-creation)
+            ((zerop (transaction-type transaction))
+             :legacy-transfer)
+            ((= 1 (transaction-type transaction))
+             :access-list-transfer)
+            ((= 2 (transaction-type transaction))
+             :dynamic-fee-transfer)
+            (t
+             (error "Engine newPayloadV2 smoke case ~A has unsupported coverage transaction type ~A"
+                    (fixture-required-field case "name")
+                    (transaction-type transaction))))))))
 
 (defun validate-engine-newpayload-v2-smoke-coverage (cases)
   (let ((case-by-name (make-hash-table :test 'equal))
@@ -2019,7 +2029,9 @@
              (side-payload
                (execution-payload-envelope-execution-payload
                 (block-to-executable-data side-block)))
-             (transaction-hash (transaction-hash (first transactions))))
+             (transaction-count (length transactions))
+             (transaction-hashes (mapcar #'transaction-hash transactions))
+             (transaction-hash (first transaction-hashes)))
         (engine-payload-store-put-block
          store parent-block :state-available-p t)
         (commit-state-db-to-chain-store
@@ -2245,7 +2257,7 @@
                          store
                          (block-header-number
                           (block-header child-block))))))
-          (is (= 1 (length receipts)))
+          (is (= transaction-count (length receipts)))
           (if (zerop (transaction-type (first transactions)))
               (is (string= (hash32-to-hex (receipt-list-root receipts))
                            (hash32-to-hex receipts-root)))
@@ -2373,7 +2385,7 @@
           (is (string= (quantity-to-hex
                         (block-header-number (block-header child-block)))
                        (field block-by-number "number")))
-          (is (equal (list (hash32-to-hex transaction-hash))
+          (is (equal (mapcar #'hash32-to-hex transaction-hashes)
                      (field block-by-number "transactions")))
           (is (string= (field block-by-number "hash")
                        (field block-by-hash "hash")))
@@ -2398,9 +2410,9 @@
               (is (string= (address-to-hex recipient)
                            (field full-block-transaction "to")))
               (is (null (field full-block-transaction "to"))))
-          (is (string= (quantity-to-hex 1)
+          (is (string= (quantity-to-hex transaction-count)
                        (field transaction-count-by-number-response "result")))
-          (is (string= (quantity-to-hex 1)
+          (is (string= (quantity-to-hex transaction-count)
                        (field transaction-count-by-hash-response "result")))
           (is (string= (quantity-to-hex 0)
                        (field side-transaction-count-by-hash-response "result")))
