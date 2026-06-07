@@ -144,6 +144,22 @@
 (defun smoke-gate-reference-path (relative-path)
   (merge-pathnames relative-path (smoke-gate-root-directory)))
 
+(defun smoke-gate-temp-token ()
+  (format nil "~A-~A"
+          #+sbcl (sb-unix:unix-getpid)
+          #-sbcl "nopid"
+          (gensym)))
+
+(defun smoke-gate-temp-path (name type)
+  (merge-pathnames
+   (make-pathname :name (format nil "~A-~A" name (smoke-gate-temp-token))
+                  :type type)
+   #P"/private/tmp/"))
+
+(defun smoke-gate-delete-file-if-present (path)
+  (when (and path (probe-file path))
+    (delete-file path)))
+
 (defun smoke-gate-reference-client-object (name relative-path)
   (let ((path (smoke-gate-reference-path relative-path)))
     (cond
@@ -356,26 +372,45 @@
               "phase-a-eest-blockchain-replay-selector-string"
              kinds))))))
 
+(defun smoke-gate-devnet-database-files (report)
+  (loop for case-report in (or (smoke-gate-field report "cases") nil)
+        for database-file = (smoke-gate-field case-report "databaseFile")
+        when (stringp database-file)
+          collect database-file))
+
 (defun smoke-gate-devnet-summary ()
-  (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             (namestring
-              (smoke-gate-reference-path
-               "scripts/devnet-smoke-gate.lisp"))
-             "--"
-             "--json"
-             "--all-fixtures")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
-    (unless (= 0 status)
-      (error "Devnet smoke gate failed with status ~D: ~A" status stderr))
-    (let ((report (smoke-gate-json-decode stdout)))
-      (unless (string= "ok" (smoke-gate-field report "status"))
-        (error "Devnet smoke gate returned non-ok status: ~S" report))
-      report)))
+  (let ((database-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-chain"
+                                 "sexp")))
+        (report nil))
+    (unwind-protect
+         (multiple-value-bind (stdout stderr status)
+             (uiop:run-program
+              (list "sbcl"
+                    "--script"
+                    (namestring
+                     (smoke-gate-reference-path
+                      "scripts/devnet-smoke-gate.lisp"))
+                    "--"
+                    "--json"
+                    "--all-fixtures"
+                    "--database"
+                    database-file)
+              :output :string
+              :error-output :string
+              :ignore-error-status t)
+           (unless (= 0 status)
+             (error "Devnet smoke gate failed with status ~D: ~A"
+                    status stderr))
+           (setf report (smoke-gate-json-decode stdout))
+           (unless (string= "ok" (smoke-gate-field report "status"))
+             (error "Devnet smoke gate returned non-ok status: ~S" report))
+           report)
+      (when report
+        (dolist (path (smoke-gate-devnet-database-files report))
+          (smoke-gate-delete-file-if-present path)))
+      (smoke-gate-delete-file-if-present database-file))))
 
 (defun smoke-gate-numeric-field (object field)
   (or (smoke-gate-field object field) 0))
@@ -474,6 +509,8 @@
     (when devnet
       (format t "devnetStatus=~A~%" (smoke-gate-field devnet "status"))
       (format t "devnetCaseCount=~D~%" (smoke-gate-field devnet "caseCount"))
+      (format t "devnetDatabaseCaseCount=~D~%"
+              (smoke-gate-field devnet "databaseCaseCount"))
       (format t "devnetTotalConnections=~D~%"
               (smoke-gate-field devnet "totalConnections")))))
 

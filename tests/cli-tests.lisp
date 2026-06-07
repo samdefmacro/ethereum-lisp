@@ -960,6 +960,12 @@
     (is (= (+ fixture-executed-count devnet-case-count)
            (fixture-object-field report "totalExecutedCount")))))
 
+(defun devnet-smoke-gate-case-database-files (report)
+  (loop for case-report in (or (fixture-object-field report "cases") nil)
+        for database-file = (fixture-object-field case-report "databaseFile")
+        when (stringp database-file)
+          collect database-file))
+
 (defun devnet-cli-read-stream-string (stream)
   (with-output-to-string (output)
     (loop for char = (read-char stream nil nil)
@@ -1096,55 +1102,79 @@
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
   #+sbcl
-  (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/devnet-smoke-gate.lisp"
-             "--"
-             "--json"
-             "--all-fixtures")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
-    (is (= 0 status))
-    (is (string= "" stderr))
-    (when (= 0 status)
-      (let* ((report (parse-json stdout))
-             (cases (fixture-object-field report "cases"))
-             (reference-clients
-               (fixture-object-field report "referenceClients"))
-             (case-names
-               (mapcar (lambda (case)
-                         (fixture-object-field case "fixtureCase"))
-                       cases)))
-        (is (string= "ok" (fixture-object-field report "status")))
-        (is (string= "devnet-listener-boundary-suite"
-                     (fixture-object-field report "mode")))
-        (phase-a-smoke-gate-assert-execution-spec-tests-source report)
-        (is (= 3 (length reference-clients)))
-        (phase-a-smoke-gate-assert-reference-client
-         reference-clients "geth")
-        (phase-a-smoke-gate-assert-reference-client
-         reference-clients "nethermind")
-        (phase-a-smoke-gate-assert-reference-client
-         reference-clients "reth")
-        (is (= (length +engine-newpayload-v2-smoke-case-names+)
-               (fixture-object-field report "caseCount")))
-        (is (= 10 (fixture-object-field report "engineConnections")))
-        (is (= 10 (fixture-object-field report "publicConnections")))
-        (is (= 20 (fixture-object-field report "totalConnections")))
-        (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
-        (dolist (case cases)
-          (is (string= "ok" (fixture-object-field case "status")))
-          (is (string= +payload-status-valid+
-                       (fixture-object-field case "newPayloadStatus")))
-          (is (string= +payload-status-valid+
-                       (fixture-object-field case "forkchoiceStatus")))
-          (is (= 2 (fixture-object-field case "engineConnections")))
-          (is (= 2 (fixture-object-field case "publicConnections")))
-          (is (string= "0x2a"
-                       (fixture-object-field case "blockNumber"))))))))
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-suite-chain"
+                                "sexp"))
+        (database-files nil))
+    (unwind-protect
+         (multiple-value-bind (stdout stderr status)
+             (uiop:run-program
+              (list "sbcl"
+                    "--script"
+                    "scripts/devnet-smoke-gate.lisp"
+                    "--"
+                    "--json"
+                    "--all-fixtures"
+                    "--database" (namestring database-path))
+              :output :string
+              :error-output :string
+              :ignore-error-status t)
+           (is (= 0 status))
+           (is (string= "" stderr))
+           (when (= 0 status)
+             (let* ((report (parse-json stdout))
+                    (cases (fixture-object-field report "cases"))
+                    (reference-clients
+                      (fixture-object-field report "referenceClients"))
+                    (case-names
+                      (mapcar (lambda (case)
+                                (fixture-object-field case "fixtureCase"))
+                              cases)))
+               (setf database-files
+                     (devnet-smoke-gate-case-database-files report))
+               (is (string= "ok" (fixture-object-field report "status")))
+               (is (string= "devnet-listener-boundary-suite"
+                            (fixture-object-field report "mode")))
+               (phase-a-smoke-gate-assert-execution-spec-tests-source report)
+               (is (= 3 (length reference-clients)))
+               (phase-a-smoke-gate-assert-reference-client
+                reference-clients "geth")
+               (phase-a-smoke-gate-assert-reference-client
+                reference-clients "nethermind")
+               (phase-a-smoke-gate-assert-reference-client
+                reference-clients "reth")
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (fixture-object-field report "caseCount")))
+               (is (string= (namestring database-path)
+                            (fixture-object-field report "databaseFile")))
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (fixture-object-field report "databaseCaseCount")))
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (length database-files)))
+               (is (= 10 (fixture-object-field report "engineConnections")))
+               (is (= 10 (fixture-object-field report "publicConnections")))
+               (is (= 20 (fixture-object-field report "totalConnections")))
+               (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
+               (dolist (case cases)
+                 (is (string= "ok" (fixture-object-field case "status")))
+                 (is (string= +payload-status-valid+
+                              (fixture-object-field case "newPayloadStatus")))
+                 (is (string= +payload-status-valid+
+                              (fixture-object-field case "forkchoiceStatus")))
+                 (is (= 2 (fixture-object-field case "engineConnections")))
+                 (is (= 2 (fixture-object-field case "publicConnections")))
+                 (is (string= "0x2a"
+                              (fixture-object-field case "blockNumber")))
+                 (is (string= (fixture-object-field case "blockNumber")
+                              (fixture-object-field
+                               case "databaseHeadNumber")))
+                 (is (probe-file
+                      (fixture-object-field case "databaseFile")))))))
+      (dolist (path database-files)
+        (when (probe-file path)
+          (delete-file path)))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
 
 (deftest devnet-smoke-gate-script-runs-concurrently
   #-sbcl
@@ -1333,6 +1363,10 @@
                      (fixture-object-field devnet "mode")))
         (is (= (length +engine-newpayload-v2-smoke-case-names+)
                (fixture-object-field devnet "caseCount")))
+        (is (= (length +engine-newpayload-v2-smoke-case-names+)
+               (fixture-object-field devnet "databaseCaseCount")))
+        (is (= (length +engine-newpayload-v2-smoke-case-names+)
+               (length (devnet-smoke-gate-case-database-files devnet))))
         (is (= 10 (fixture-object-field devnet "engineConnections")))
         (is (= 10 (fixture-object-field devnet "publicConnections")))
         (is (= 20 (fixture-object-field devnet "totalConnections")))))))

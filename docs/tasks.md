@@ -4346,6 +4346,12 @@ splits can land after the Phase A smoke path closes.
     Engine import/forkchoice/public-read sequence, reopens the file-backed KV
     database, and verifies a fresh devnet node can restore the same canonical
     head from that snapshot.
+  - Result: extended the standalone devnet smoke gate's `--all-fixtures` mode
+    to accept `--database PATH`. The suite derives a per-fixture database file,
+    exports and restores each pinned Shanghai devnet case, and reports the
+    database head for every case. The outer Phase A `--devnet` smoke gate now
+    runs that database-backed suite by default and cleans up its temporary
+    database files after validation.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,
