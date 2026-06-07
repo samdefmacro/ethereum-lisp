@@ -4437,6 +4437,13 @@ splits can land after the Phase A smoke path closes.
     queries by both block range and block hash. The devnet report and CLI
     tests now track dynamic restored log counts and the extra public RPC
     connections for those log queries.
+  - Result: extended restored-database devnet smoke coverage to retained-state
+    simulation RPCs. After each pinned Engine payload is imported, exported to
+    KV, and restored into a fresh devnet node, the public RPC check now runs
+    `eth_call`, `eth_estimateGas`, and `eth_createAccessList` against the
+    restored state snapshot, then re-reads storage to verify the simulation did
+    not commit writes. CLI tests and suite validation track the extra restored
+    public RPC connections and simulation counts.
   - Result: `scripts/devnet-smoke-gate.lisp -- --help` now prints usage and
     exits before loading the test system. This keeps process runners and
     automation probes from depending on full fixture/test initialization merely

@@ -54,6 +54,7 @@
 (defconstant +devnet-smoke-gate-eest-release+ "v5.4.0")
 (defconstant +devnet-smoke-gate-eest-tag-target+ "88e9fb8")
 (defconstant +devnet-smoke-gate-eest-archive+ "fixtures_stable.tar.gz")
+(defconstant +devnet-smoke-gate-simulation-gas+ "0x186a0")
 
 (defun devnet-smoke-gate-arguments ()
   #+sbcl
@@ -427,6 +428,26 @@
    "~A log index mismatch" context)
   log)
 
+(defun devnet-smoke-gate-simulation-call-object
+    (sender-address target-address)
+  (list (cons "from" (address-to-hex sender-address))
+        (cons "to" (address-to-hex target-address))
+        (cons "gas" +devnet-smoke-gate-simulation-gas+)
+        (cons "gasPrice" "0x64")
+        (cons "data" "0x")))
+
+(defun devnet-smoke-gate-access-list-entry (access-list address)
+  (find (address-to-hex address)
+        access-list
+        :test #'string=
+        :key (lambda (entry)
+               (fixture-object-field entry "address"))))
+
+(defun devnet-smoke-gate-executable-code-p (code)
+  (and (stringp code)
+       (> (length code) 2)
+       (not (string= code "0x00"))))
+
 (defun devnet-smoke-gate-verify-ready-file (path)
   (let ((summary (parse-json (devnet-smoke-gate-file-string path))))
     (devnet-smoke-gate-require
@@ -514,7 +535,8 @@
            (+ 19
               (length extra-balance-outputs)
               (* 6 (length extra-receipt-outputs))
-              (* 2 (length log-targets))))
+              (* 2 (length log-targets))
+              4))
          (block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
         (nonce-output (make-string-output-stream))
@@ -534,6 +556,10 @@
         (transaction-by-number-index-output (make-string-output-stream))
         (safe-block-output (make-string-output-stream))
         (finalized-block-output (make-string-output-stream))
+        (call-output (make-string-output-stream))
+        (estimate-gas-output (make-string-output-stream))
+        (create-access-list-output (make-string-output-stream))
+        (post-call-storage-output (make-string-output-stream))
         (public-requests nil))
     (setf public-requests
           (list
@@ -675,7 +701,49 @@
                    (cons "id" 59)
                    (cons "method" "eth_getBlockByNumber")
                    (cons "params" (list "finalized" :false))))
-            finalized-block-output)))
+            finalized-block-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 150)
+                   (cons "method" "eth_call")
+                   (cons "params"
+                         (list
+                          (devnet-smoke-gate-simulation-call-object
+                           sender-address code-address)
+                          expected-block-number))))
+            call-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 151)
+                   (cons "method" "eth_estimateGas")
+                   (cons "params"
+                         (list
+                          (devnet-smoke-gate-simulation-call-object
+                           sender-address code-address)
+                          expected-block-number))))
+            estimate-gas-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 152)
+                   (cons "method" "eth_createAccessList")
+                   (cons "params"
+                         (list
+                          (devnet-smoke-gate-simulation-call-object
+                           sender-address code-address)
+                          expected-block-number))))
+            create-access-list-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 153)
+                   (cons "method" "eth_getStorageAt")
+                   (cons "params" (list (address-to-hex storage-address)
+                                        storage-key
+                                        expected-block-number))))
+            post-call-storage-output)))
     (setf public-requests
           (nconc
            public-requests
@@ -876,6 +944,14 @@
                (get-output-stream-string safe-block-output))
              (finalized-block-response
                (get-output-stream-string finalized-block-output))
+             (call-response
+               (get-output-stream-string call-output))
+             (estimate-gas-response
+               (get-output-stream-string estimate-gas-output))
+             (create-access-list-response
+               (get-output-stream-string create-access-list-output))
+             (post-call-storage-response
+               (get-output-stream-string post-call-storage-output))
              (block-number-rpc
                (devnet-smoke-gate-rpc-body block-number-response))
              (balance-rpc
@@ -920,6 +996,14 @@
                (devnet-smoke-gate-rpc-body safe-block-response))
              (finalized-block-rpc
                (devnet-smoke-gate-rpc-body finalized-block-response))
+             (call-rpc
+               (devnet-smoke-gate-rpc-body call-response))
+             (estimate-gas-rpc
+               (devnet-smoke-gate-rpc-body estimate-gas-response))
+             (create-access-list-rpc
+               (devnet-smoke-gate-rpc-body create-access-list-response))
+             (post-call-storage-rpc
+               (devnet-smoke-gate-rpc-body post-call-storage-response))
              (actual-block-number
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
@@ -1036,6 +1120,25 @@
                (fixture-object-field actual-finalized-block "hash"))
              (actual-finalized-block-number
                (fixture-object-field actual-finalized-block "number"))
+             (actual-call-result
+               (fixture-object-field call-rpc "result"))
+             (actual-estimate-gas
+               (fixture-object-field estimate-gas-rpc "result"))
+             (actual-create-access-list
+               (fixture-object-field create-access-list-rpc "result"))
+             (actual-access-list
+               (fixture-object-field actual-create-access-list "accessList"))
+             (actual-access-list-gas-used
+               (fixture-object-field actual-create-access-list "gasUsed"))
+             (actual-access-list-entry
+               (devnet-smoke-gate-access-list-entry
+                actual-access-list storage-address))
+             (actual-access-list-storage-keys
+               (and actual-access-list-entry
+                    (fixture-object-field actual-access-list-entry
+                                          "storageKeys")))
+             (actual-post-call-storage
+               (fixture-object-field post-call-storage-rpc "result"))
              (expected-proof-code-hash
                (hash32-to-hex (keccak-256-hash (hex-to-bytes expected-code))))
              (expected-proof-storage-value
@@ -1108,6 +1211,18 @@
          (= 200 (devnet-cli-http-status finalized-block-response))
          "Restored eth_getBlockByNumber finalized HTTP status mismatch")
         (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status call-response))
+         "Restored eth_call HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status estimate-gas-response))
+         "Restored eth_estimateGas HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status create-access-list-response))
+         "Restored eth_createAccessList HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status post-call-storage-response))
+         "Restored post-eth_call eth_getStorageAt HTTP status mismatch")
+        (devnet-smoke-gate-require
          (string= expected-block-number actual-block-number)
          "Restored eth_blockNumber mismatch: expected ~A got ~A"
          expected-block-number
@@ -1147,6 +1262,33 @@
          "Restored eth_getStorageAt mismatch: expected ~A got ~A"
          expected-storage
          actual-storage)
+        (devnet-smoke-gate-require
+         actual-call-result
+         "Restored eth_call returned error response: ~S"
+         call-rpc)
+        (devnet-smoke-gate-require
+         (string= "0x" actual-call-result)
+         "Restored eth_call result mismatch: expected empty return, got ~A"
+         actual-call-result)
+        (devnet-smoke-gate-require
+         (<= 21000 (hex-to-quantity actual-estimate-gas))
+         "Restored eth_estimateGas must be at least intrinsic gas")
+        (devnet-smoke-gate-require
+         (stringp actual-access-list-gas-used)
+         "Restored eth_createAccessList gasUsed must be a string")
+        (when (devnet-smoke-gate-executable-code-p expected-code)
+          (devnet-smoke-gate-require
+           actual-access-list-entry
+           "Restored eth_createAccessList missing storage account entry")
+          (devnet-smoke-gate-require
+           (member storage-key actual-access-list-storage-keys
+                   :test #'string=)
+           "Restored eth_createAccessList missing storage key"))
+        (devnet-smoke-gate-require
+         (string= expected-storage actual-post-call-storage)
+         "Restored eth_call mutated retained storage: expected ~A got ~A"
+         expected-storage
+         actual-post-call-storage)
         (devnet-smoke-gate-require
          (string= (address-to-hex storage-address)
                   (fixture-object-field actual-proof "address"))
@@ -1548,6 +1690,12 @@
               :safe-block-number actual-safe-block-number
               :finalized-block-hash actual-finalized-block-hash
               :finalized-block-number actual-finalized-block-number
+              :call-result actual-call-result
+              :estimate-gas actual-estimate-gas
+              :access-list-count (length actual-access-list)
+              :access-list-gas-used actual-access-list-gas-used
+              :post-call-storage actual-post-call-storage
+              :simulation-count 4
               :public-connections (getf summary :public-connections)))))
   #-sbcl
   (error "Restored devnet public RPC verification requires SBCL threads"))
@@ -1705,6 +1853,18 @@
                   (getf public-rpc-summary :finalized-block-hash)
                   :rpc-finalized-block-number
                   (getf public-rpc-summary :finalized-block-number)
+                  :rpc-call-result
+                  (getf public-rpc-summary :call-result)
+                  :rpc-estimate-gas
+                  (getf public-rpc-summary :estimate-gas)
+                  :rpc-access-list-count
+                  (getf public-rpc-summary :access-list-count)
+                  :rpc-access-list-gas-used
+                  (getf public-rpc-summary :access-list-gas-used)
+                  :rpc-post-call-storage
+                  (getf public-rpc-summary :post-call-storage)
+                  :rpc-simulation-count
+                  (getf public-rpc-summary :simulation-count)
                   :rpc-public-connections
                   (getf public-rpc-summary :public-connections)))))
 
@@ -2030,6 +2190,10 @@
                                 :key (lambda (target)
                                        (getf target :count))
                                 :initial-value 0))
+                  (cons "checkedSimulationCount"
+                        (if database-summary
+                            (getf database-summary :rpc-simulation-count)
+                            0))
                   (cons "checkedNonceAddress" (address-to-hex sender-address))
                   (cons "checkedNonce" expected-sender-nonce)
                   (cons "checkedCodeAddress" (address-to-hex code-address))
@@ -2277,6 +2441,34 @@
                             (getf database-summary
                                   :rpc-finalized-block-number)
                             :false))
+                  (cons "databaseRpcCallResult"
+                        (if database-summary
+                            (getf database-summary :rpc-call-result)
+                            :false))
+                  (cons "databaseRpcEstimateGas"
+                        (if database-summary
+                            (getf database-summary :rpc-estimate-gas)
+                            :false))
+                  (cons "databaseRpcAccessListCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-access-list-count)
+                            :false))
+                  (cons "databaseRpcAccessListGasUsed"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-access-list-gas-used)
+                            :false))
+                  (cons "databaseRpcPostCallStorage"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-post-call-storage)
+                            :false))
+                  (cons "databaseRpcSimulationCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-simulation-count)
+                            :false))
                   (cons "databaseRpcPublicConnections"
                         (if database-summary
                             (getf database-summary :rpc-public-connections)
@@ -2492,6 +2684,33 @@
          "Devnet smoke gate suite restored log count mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
+         (= (devnet-smoke-gate-field report "checkedSimulationCount")
+            (devnet-smoke-gate-field report "databaseRpcSimulationCount"))
+         "Devnet smoke gate suite restored simulation count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= "0x"
+                  (devnet-smoke-gate-field report "databaseRpcCallResult"))
+         "Devnet smoke gate suite restored eth_call mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (<= 21000
+             (hex-to-quantity
+              (devnet-smoke-gate-field report "databaseRpcEstimateGas")))
+         "Devnet smoke gate suite restored estimateGas mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (stringp (devnet-smoke-gate-field
+                   report "databaseRpcAccessListGasUsed"))
+         "Devnet smoke gate suite restored access list gasUsed mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "checkedStorage")
+                  (devnet-smoke-gate-field
+                   report "databaseRpcPostCallStorage"))
+         "Devnet smoke gate suite restored eth_call mutated storage for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
          (string= (devnet-smoke-gate-field
                    report "databaseRpcRawTransactionByBlockHashAndIndex")
                   (devnet-smoke-gate-field
@@ -2695,6 +2914,8 @@
                                          "checkedProofStorageValue"))
         (format t "checkedLogCount=~A~%"
                 (devnet-smoke-gate-field report "checkedLogCount"))
+        (format t "checkedSimulationCount=~A~%"
+                (devnet-smoke-gate-field report "checkedSimulationCount"))
         (format t "readyFile=~A~%" (devnet-smoke-gate-field report "readyFile"))
         (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile"))
         (format t "databaseFile=~A~%"
@@ -2832,7 +3053,23 @@
                  report "databaseRpcFinalizedBlockHash"))
         (format t "databaseRpcFinalizedBlockNumber=~A~%"
                 (devnet-smoke-gate-field
-                 report "databaseRpcFinalizedBlockNumber")))))
+                 report "databaseRpcFinalizedBlockNumber"))
+        (format t "databaseRpcCallResult=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcCallResult"))
+        (format t "databaseRpcEstimateGas=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcEstimateGas"))
+        (format t "databaseRpcAccessListCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcAccessListCount"))
+        (format t "databaseRpcAccessListGasUsed=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcAccessListGasUsed"))
+        (format t "databaseRpcPostCallStorage=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcPostCallStorage"))
+        (format t "databaseRpcSimulationCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSimulationCount")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))

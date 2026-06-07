@@ -757,7 +757,10 @@ first pass, but interfaces must not block that path.
   checked through receipt logs, block-receipt logs, and `eth_getLogs` by both
   block range and block hash, so the process/database smoke path now covers
   log visibility and bloom-backed receipt persistence instead of only empty-log
-  transfers and creations.
+  transfers and creations. The same restored snapshot smoke also exercises
+  retained-state simulation RPCs (`eth_call`, `eth_estimateGas`, and
+  `eth_createAccessList`) and then re-reads storage to prove simulation calls
+  do not commit writes through the restored chain-store view.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

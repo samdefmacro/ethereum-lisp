@@ -52,7 +52,8 @@
   (+ 19
      (1- (fixture-object-field report "checkedBalanceCount"))
      (* 6 (1- (fixture-object-field report "transactionCount")))
-     (* 2 (fixture-object-field report "checkedLogCount"))))
+     (* 2 (fixture-object-field report "checkedLogCount"))
+     (fixture-object-field report "checkedSimulationCount")))
 
 (defun devnet-cli-engine-fixture-payload-number (case-name)
   (let* ((case (select-engine-newpayload-v2-fixture-case
@@ -1264,6 +1265,22 @@
                               report "finalizedBlockNumber")
                             (fixture-object-field
                              report "databaseRpcFinalizedBlockNumber")))
+               (is (= (fixture-object-field report "checkedSimulationCount")
+                      (fixture-object-field report
+                                            "databaseRpcSimulationCount")))
+               (is (string= "0x"
+                            (fixture-object-field
+                             report "databaseRpcCallResult")))
+               (is (<= 21000
+                       (hex-to-quantity
+                        (fixture-object-field
+                         report "databaseRpcEstimateGas"))))
+               (is (stringp
+                    (fixture-object-field
+                     report "databaseRpcAccessListGasUsed")))
+               (is (string= (fixture-object-field report "checkedStorage")
+                            (fixture-object-field
+                             report "databaseRpcPostCallStorage")))
                (is (= (devnet-cli-restored-public-connections report)
                       (fixture-object-field
                        report "databaseRpcPublicConnections")))
@@ -1564,6 +1581,22 @@
                                 case "finalizedBlockNumber")
                               (fixture-object-field
                                case "databaseRpcFinalizedBlockNumber")))
+                 (is (= (fixture-object-field case "checkedSimulationCount")
+                        (fixture-object-field
+                         case "databaseRpcSimulationCount")))
+                 (is (string= "0x"
+                              (fixture-object-field
+                               case "databaseRpcCallResult")))
+                 (is (<= 21000
+                         (hex-to-quantity
+                          (fixture-object-field
+                           case "databaseRpcEstimateGas"))))
+                 (is (stringp
+                      (fixture-object-field
+                       case "databaseRpcAccessListGasUsed")))
+                 (is (string= (fixture-object-field case "checkedStorage")
+                              (fixture-object-field
+                               case "databaseRpcPostCallStorage")))
                  (is (= (devnet-cli-restored-public-connections case)
                         (fixture-object-field
                          case "databaseRpcPublicConnections")))
@@ -1951,6 +1984,21 @@
           (is (string= (fixture-object-field case "finalizedBlockNumber")
                        (fixture-object-field
                         case "databaseRpcFinalizedBlockNumber")))
+          (is (= (fixture-object-field case "checkedSimulationCount")
+                 (fixture-object-field case "databaseRpcSimulationCount")))
+          (is (string= "0x"
+                       (fixture-object-field
+                        case "databaseRpcCallResult")))
+          (is (<= 21000
+                  (hex-to-quantity
+                   (fixture-object-field
+                    case "databaseRpcEstimateGas"))))
+          (is (stringp
+               (fixture-object-field
+                case "databaseRpcAccessListGasUsed")))
+          (is (string= (fixture-object-field case "checkedStorage")
+                       (fixture-object-field
+                        case "databaseRpcPostCallStorage")))
           (is (= (devnet-cli-restored-public-connections case)
                  (fixture-object-field
                   case "databaseRpcPublicConnections"))))))))
