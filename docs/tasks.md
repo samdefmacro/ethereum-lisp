@@ -4168,7 +4168,12 @@ splits can land after the Phase A smoke path closes.
     chain-store view from KV into a fresh memory store. The importer rebuilds
     known blocks, canonical number indexes, head/safe/finalized checkpoints,
     canonical transaction lookup entries, and state-available account
-    snapshots. Receipt record decoding remains a later persistence slice.
+    snapshots.
+  - Result: KV import now decodes persisted receipt records and attaches them
+    back to restored blocks and canonical transaction-location entries. Receipt
+    import validates block existence, transaction/receipt counts, typed receipt
+    prefixes, receipt bloom, per-receipt round-trip encoding, and the restored
+    receipt root against the block header before exposing receipt RPC reads.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

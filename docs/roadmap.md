@@ -146,8 +146,8 @@ fixes in those areas are allowed; expansion is not.
   through one KV batch, so encoding failures do not leave half-persisted
   indexes in the development store. The same readable chain view can be
   restored from KV into a fresh memory store for local block, transaction, and
-  retained-state reads; receipt record decoding remains a later persistence
-  slice.
+  retained-state reads, including decoded typed receipt records for restored
+  block-receipt and transaction-receipt RPC visibility.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and

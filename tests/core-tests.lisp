@@ -3835,8 +3835,28 @@
                                     :v 27
                                     :r 4
                                     :s 5))
+         (typed-transaction
+           (make-dynamic-fee-transaction
+            :chain-id 1
+            :nonce 1
+            :max-priority-fee-per-gas 0
+            :max-fee-per-gas #x0fa0
+            :gas-limit #x84d0
+            :to recipient
+            :value 0
+            :data #()
+            :y-parity 1
+            :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+            :s #x6261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904))
          (receipt
            (make-receipt :status 1 :cumulative-gas-used 21000))
+         (typed-receipt
+           (make-receipt
+            :status 1
+            :cumulative-gas-used 42000
+            :logs (list (make-log-entry :address recipient
+                                        :topics (list slot)
+                                        :data #(4 5 6)))))
          (genesis
            (make-block
             :header
@@ -3858,8 +3878,8 @@
                                :parent-hash (block-hash branch-a-1)
                                :timestamp 2
                                :gas-limit 30000000)
-            :transactions (list transaction)
-            :receipts (list receipt)))
+            :transactions (list transaction typed-transaction)
+            :receipts (list receipt typed-receipt)))
          (branch-b-1
            (make-block
             :header
@@ -3868,7 +3888,8 @@
                                :timestamp 3
                                :extra-data #(1)
                                :gas-limit 30000000)))
-         (transaction-hash (transaction-hash transaction)))
+         (transaction-hash (transaction-hash transaction))
+         (typed-transaction-hash (transaction-hash typed-transaction)))
     (unwind-protect
          (progn
            (dolist (block (list genesis branch-a-1 branch-a-2 branch-b-1))
@@ -3921,11 +3942,36 @@
                     restored transaction-hash)))
              (is (typep location 'engine-transaction-location))
              (is (= 0 (engine-transaction-location-index location)))
-             (is (eq nil (engine-transaction-location-receipt location)))
+             (is (bytes= (transaction-receipt-encoding transaction receipt)
+                         (transaction-receipt-encoding
+                          transaction
+                          (engine-transaction-location-receipt location))))
              (is (bytes= (transaction-encoding transaction)
                          (transaction-encoding
                           (engine-transaction-location-transaction
                            location)))))
+           (let ((location
+                   (chain-store-transaction-location
+                    restored typed-transaction-hash)))
+             (is (typep location 'engine-transaction-location))
+             (is (= 1 (engine-transaction-location-index location)))
+             (is (= 0 (engine-transaction-location-log-index-start location)))
+             (is (bytes= (transaction-receipt-encoding
+                          typed-transaction typed-receipt)
+                         (transaction-receipt-encoding
+                          typed-transaction
+                          (engine-transaction-location-receipt location)))))
+           (let ((receipts
+                   (chain-store-block-receipts restored
+                                               (block-hash branch-a-2))))
+             (is (= 2 (length receipts)))
+             (is (bytes= (transaction-receipt-encoding transaction receipt)
+                         (transaction-receipt-encoding
+                          transaction (first receipts))))
+             (is (bytes= (transaction-receipt-encoding
+                          typed-transaction typed-receipt)
+                         (transaction-receipt-encoding
+                          typed-transaction (second receipts)))))
            (is (chain-store-state-available-p
                 restored
                 (block-hash branch-a-2)))
