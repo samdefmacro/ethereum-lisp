@@ -4430,6 +4430,13 @@ splits can land after the Phase A smoke path closes.
     gate invocations. This closes the process-level harness race where two
     automation jobs could choose the same JWT temp file and race during
     cleanup.
+  - Result: added a log-producing Shanghai `engine_newPayloadV2` devnet smoke
+    case. The all-fixtures suite now imports a legacy call into a deployed
+    contract that writes storage and emits a `LOG1`, then verifies the restored
+    KV snapshot through receipt logs, block-receipt logs, and `eth_getLogs`
+    queries by both block range and block hash. The devnet report and CLI
+    tests now track dynamic restored log counts and the extra public RPC
+    connections for those log queries.
   - Result: `scripts/devnet-smoke-gate.lisp -- --help` now prints usage and
     exits before loading the test system. This keeps process runners and
     automation probes from depending on full fixture/test initialization merely

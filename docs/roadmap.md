@@ -752,7 +752,12 @@ first pass, but interfaces must not block that path.
   of falling back to `latest`, matching the geth/Nethermind checkpoint model.
   The all-fixtures devnet gate now also includes the pinned multi-transaction
   Shanghai legacy-transfer payload and verifies restored RPC visibility for
-  every recipient balance and transaction in that block.
+  every recipient balance and transaction in that block. It also includes a
+  log-producing Shanghai contract call whose restored database snapshot is
+  checked through receipt logs, block-receipt logs, and `eth_getLogs` by both
+  block range and block hash, so the process/database smoke path now covers
+  log visibility and bloom-backed receipt persistence instead of only empty-log
+  transfers and creations.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

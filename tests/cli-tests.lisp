@@ -51,7 +51,15 @@
 (defun devnet-cli-restored-public-connections (report)
   (+ 19
      (1- (fixture-object-field report "checkedBalanceCount"))
-     (* 6 (1- (fixture-object-field report "transactionCount")))))
+     (* 6 (1- (fixture-object-field report "transactionCount")))
+     (* 2 (fixture-object-field report "checkedLogCount"))))
+
+(defun devnet-cli-engine-fixture-payload-number (case-name)
+  (let* ((case (select-engine-newpayload-v2-fixture-case
+                +engine-newpayload-v2-fixture-path+
+                case-name))
+         (payload (fixture-object-field case "payload")))
+    (fixture-object-field payload "number")))
 
 (defun devnet-cli-http-body (response)
   (let ((boundary (search (format nil "~C~C~C~C"
@@ -1188,6 +1196,9 @@
                (is (= (fixture-object-field report "checkedBalanceCount")
                       (fixture-object-field report
                                             "databaseRpcBalanceCount")))
+               (is (= (fixture-object-field report "checkedLogCount")
+                      (fixture-object-field report
+                                            "databaseRpcLogCount")))
                (is (string= (quantity-to-hex
                               (fixture-object-field report "transactionCount"))
                             (fixture-object-field
@@ -1368,15 +1379,20 @@
                       (fixture-object-field report "totalConnections")))
                (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
                (dolist (case cases)
-                 (is (string= "ok" (fixture-object-field case "status")))
-                 (is (string= +payload-status-valid+
-                              (fixture-object-field case "newPayloadStatus")))
-                 (is (string= +payload-status-valid+
-                              (fixture-object-field case "forkchoiceStatus")))
-                 (is (= 2 (fixture-object-field case "engineConnections")))
-                 (is (= 2 (fixture-object-field case "publicConnections")))
-                 (is (string= "0x2a"
-                              (fixture-object-field case "blockNumber")))
+                 (let ((expected-block-number
+                         (devnet-cli-engine-fixture-payload-number
+                          (fixture-object-field case "fixtureCase"))))
+                   (is (string= "ok" (fixture-object-field case "status")))
+                   (is (string= +payload-status-valid+
+                                (fixture-object-field
+                                 case "newPayloadStatus")))
+                   (is (string= +payload-status-valid+
+                                (fixture-object-field
+                                 case "forkchoiceStatus")))
+                   (is (= 2 (fixture-object-field case "engineConnections")))
+                   (is (= 2 (fixture-object-field case "publicConnections")))
+                   (is (string= expected-block-number
+                                (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")
                               (fixture-object-field
                                case "databaseHeadNumber")))
@@ -1481,6 +1497,8 @@
                                               "databaseRpcTransactionCount")))
                  (is (= (fixture-object-field case "checkedBalanceCount")
                         (fixture-object-field case "databaseRpcBalanceCount")))
+                 (is (= (fixture-object-field case "checkedLogCount")
+                        (fixture-object-field case "databaseRpcLogCount")))
                  (is (string= (quantity-to-hex
                                 (fixture-object-field case "transactionCount"))
                               (fixture-object-field
@@ -1867,6 +1885,8 @@
                                        "databaseRpcTransactionCount")))
           (is (= (fixture-object-field case "checkedBalanceCount")
                  (fixture-object-field case "databaseRpcBalanceCount")))
+          (is (= (fixture-object-field case "checkedLogCount")
+                 (fixture-object-field case "databaseRpcLogCount")))
           (is (string= (quantity-to-hex
                          (fixture-object-field case "transactionCount"))
                        (fixture-object-field

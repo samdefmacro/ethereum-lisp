@@ -171,6 +171,76 @@
       }
     },
     {
+      "name": "shanghai-log-contract-call-with-withdrawal",
+      "network": "Shanghai",
+      "chainId": "0x1",
+      "config": {
+        "berlinBlock": "0x0",
+        "londonBlock": "0x0",
+        "shanghaiTime": "0x0"
+      },
+      "parent": {
+        "number": "0x32",
+        "gasLimit": "0x186a0",
+        "gasUsed": "0xc350",
+        "timestamp": "0xc8",
+        "baseFeePerGas": "0x64",
+        "feeRecipient": "0x0000000000000000000000000000000000000001",
+        "accounts": [
+          {
+            "address": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+            "nonce": "0x0",
+            "balance": "0x3b9aca00"
+          },
+          {
+            "address": "0x00000000000000000000000000000000000000dd",
+            "nonce": "0x0",
+            "balance": "0x0",
+            "code": "0x602a6001556007600052600960206000a100",
+            "storage": {}
+          }
+        ]
+      },
+      "payload": {
+        "number": "0x33",
+        "gasLimit": "0x186a0",
+        "timestamp": "0xc9",
+        "baseFeePerGas": "0x64",
+        "transactions": [
+          "0xf85f806482c3509400000000000000000000000000000000000000dd058026a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a032ec5a0e779bd56011c6d6df66a5f5d1a25656cbf456a9dc83b9677d14581950"
+        ],
+        "withdrawals": [
+          {
+            "index": "0x0",
+            "validatorIndex": "0x1",
+            "address": "0x0000000000000000000000000000000000000002",
+            "amount": "0x1"
+          }
+        ]
+      },
+      "expect": {
+        "status": "VALID",
+        "sender": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "senderNonce": "0x1",
+        "senderBalance": "0x3b577287",
+        "recipient": "0x00000000000000000000000000000000000000dd",
+        "recipientBalance": "0x5",
+        "withdrawalRecipient": "0x0000000000000000000000000000000000000002",
+        "withdrawalBalance": "0x3b9aca00",
+        "codeAddress": "0x00000000000000000000000000000000000000dd",
+        "code": "0x602a6001556007600052600960206000a100",
+        "storageAddress": "0x00000000000000000000000000000000000000dd",
+        "storageKey": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "storageValue": "0x000000000000000000000000000000000000000000000000000000000000002a",
+        "receiptType": "0x0",
+        "receiptStatus": "0x1",
+        "logAddress": "0x00000000000000000000000000000000000000dd",
+        "logTopic": "0x0000000000000000000000000000000000000000000000000000000000000009",
+        "logData": "0x0000000000000000000000000000000000000000000000000000000000000007",
+        "logCount": "0x1"
+      }
+    },
+    {
       "name": "shanghai-access-list-transfer-with-withdrawal",
       "network": "Shanghai",
       "chainId": "0x1",

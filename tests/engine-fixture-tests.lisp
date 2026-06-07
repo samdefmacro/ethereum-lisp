@@ -9,6 +9,7 @@
 (defparameter +engine-newpayload-v2-smoke-case-names+
   '("shanghai-one-transfer-with-withdrawal"
     "shanghai-two-legacy-transfers-with-withdrawal"
+    "shanghai-log-contract-call-with-withdrawal"
     "shanghai-access-list-transfer-with-withdrawal"
     "shanghai-dynamic-fee-transfer-with-withdrawal"
     "shanghai-contract-creation-with-withdrawal"
@@ -16,7 +17,7 @@
 
 (defparameter +engine-newpayload-v2-smoke-coverage-families+
   '(:legacy-transfer :access-list-transfer :dynamic-fee-transfer
-    :contract-creation :multi-legacy-transfer))
+    :contract-creation :multi-legacy-transfer :log-producing-call))
 
 (defparameter +engine-newpayload-v2-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "referenceClients" "cases"))
@@ -75,7 +76,11 @@
     "receiptStatus"
     "receiptTypes"
     "receiptStatuses"
-    "cumulativeGasUsed"))
+    "cumulativeGasUsed"
+    "logAddress"
+    "logTopic"
+    "logData"
+    "logCount"))
 
 (defun validate-engine-fixture-non-empty-string (value label)
   (unless (stringp value)
@@ -422,18 +427,35 @@
     (dolist (field '("recipient" "contractAddress"))
       (when (fixture-field-present-p expect field)
         (validate-engine-fixture-address-field expect field label)))
+    (when (fixture-field-present-p expect "logAddress")
+      (validate-engine-fixture-address-field expect "logAddress" label))
     (dolist (field '("senderNonce"
                      "senderBalance"
                      "withdrawalBalance"
                      "receiptType"
                      "receiptStatus"))
       (validate-engine-fixture-quantity-field expect field label))
+    (when (fixture-field-present-p expect "logCount")
+      (validate-engine-fixture-quantity-field expect "logCount" label))
     (dolist (field '("recipientBalance" "contractBalance"))
       (when (fixture-field-present-p expect field)
         (validate-engine-fixture-quantity-field expect field label)))
     (validate-engine-fixture-code-field expect "code" label)
     (validate-engine-fixture-hash-field expect "storageKey" label)
     (validate-engine-fixture-hash-field expect "storageValue" label)
+    (when (fixture-field-present-p expect "logTopic")
+      (validate-engine-fixture-hash-field expect "logTopic" label))
+    (when (fixture-field-present-p expect "logData")
+      (validate-engine-fixture-hash-field expect "logData" label))
+    (when (some (lambda (field)
+                  (fixture-field-present-p expect field))
+                '("logAddress" "logTopic" "logData" "logCount"))
+      (unless (and (fixture-field-present-p expect "logAddress")
+                   (fixture-field-present-p expect "logTopic")
+                   (fixture-field-present-p expect "logData")
+                   (fixture-field-present-p expect "logCount"))
+        (error "~A log expectations must provide logAddress, logTopic, logData, and logCount"
+               label)))
     (validate-engine-fixture-address-array-field
      expect "recipients" label transaction-count)
     (validate-engine-fixture-quantity-array-field
@@ -800,6 +822,10 @@
         (let ((transaction (transaction-from-encoding
                             (hex-to-bytes (first raw-transactions)))))
           (cond
+            ((fixture-field-present-p
+              (fixture-required-field case "expect")
+              "logAddress")
+             :log-producing-call)
             ((null (transaction-to transaction))
              :contract-creation)
             ((zerop (transaction-type transaction))
@@ -2273,6 +2299,25 @@
                        (field receipt "type")))
           (is (string= (fixture-object-field expect "receiptStatus")
                        (field receipt "status")))
+          (when (fixture-field-present-p expect "logAddress")
+            (let* ((logs (field receipt "logs"))
+                   (log (first logs)))
+              (is (= (hex-to-quantity (fixture-object-field expect "logCount"))
+                     (length logs)))
+              (is (string= (fixture-object-field expect "logAddress")
+                           (field log "address")))
+              (is (string= (fixture-object-field expect "logData")
+                           (field log "data")))
+              (is (equal (list (fixture-object-field expect "logTopic"))
+                         (field log "topics")))
+              (is (string= (hash32-to-hex transaction-hash)
+                           (field log "transactionHash")))
+              (is (string= (hash32-to-hex (block-hash child-block))
+                           (field log "blockHash")))
+              (is (string= (fixture-object-field payload-case "number")
+                           (field log "blockNumber")))
+              (is (string= "0x0" (field log "transactionIndex")))
+              (is (string= "0x0" (field log "logIndex")))))
           (if recipient
               (progn
                 (is (null (field receipt "contractAddress")))
