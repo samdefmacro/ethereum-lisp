@@ -135,7 +135,9 @@ fixes in those areas are allowed; expansion is not.
   canonical-hash, checkpoint, state, and transaction-location records, giving
   the future chain-store persistence backend ordered keys for canonical-height
   iteration, typed canonical-hash/checkpoint helpers, and batch helpers for
-  atomic multi-record commits.
+  atomic multi-record commits. The in-memory chain-store can now export its
+  canonical number-to-hash indexes and head/safe/finalized checkpoints into
+  that KV substrate while deleting stale canonical heights after reorg.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and

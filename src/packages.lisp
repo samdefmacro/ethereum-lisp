@@ -172,6 +172,16 @@
         #:ethereum-lisp.rlp
         #:ethereum-lisp.crypto
         #:ethereum-lisp.trie)
+  (:import-from #:ethereum-lisp.database
+   #:key-value-database
+   #:make-kv-write-batch
+   #:kv-apply-batch
+   #:kv-chain-canonical-hashes
+   #:kv-batch-put-chain-canonical-hash
+   #:kv-batch-delete-chain-canonical-hash
+   #:kv-chain-checkpoints
+   #:kv-batch-put-chain-checkpoint
+   #:kv-batch-delete-chain-checkpoint)
   (:export
    #:+empty-ommers-hash+
    #:ommers-hash
@@ -650,6 +660,7 @@
    #:chain-store-head-block
    #:chain-store-safe-block
    #:chain-store-finalized-block
+   #:chain-store-export-indexes-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
@@ -1611,6 +1622,7 @@
    #:chain-store-head-block
    #:chain-store-safe-block
    #:chain-store-finalized-block
+   #:chain-store-export-indexes-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
@@ -2502,6 +2514,7 @@
    #:chain-store-head-block
    #:chain-store-safe-block
    #:chain-store-finalized-block
+   #:chain-store-export-indexes-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar

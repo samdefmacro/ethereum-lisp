@@ -4141,6 +4141,11 @@ splits can land after the Phase A smoke path closes.
     write and iterate canonical heights as integers and checkpoint labels as a
     constrained enum instead of duplicating raw namespace-key conventions at
     each call site.
+  - Result: chain-store canonical number-to-hash indexes and head/safe/
+    finalized checkpoints can now be exported into a KV database through one
+    batch commit. The export reconciles stale canonical heights and checkpoint
+    labels, so a shorter canonical branch after reorg does not leave old
+    number-to-hash records behind in the file-backed development store.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

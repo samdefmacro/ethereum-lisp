@@ -3197,6 +3197,97 @@
     (is (eq prepared-payload
             (chain-store-prepared-payload store payload-id)))))
 
+(deftest chain-store-export-indexes-to-kv-syncs-canonical-and-checkpoints
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-index-export-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (store (make-engine-payload-memory-store))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :timestamp 0
+                               :gas-limit 30000000)))
+         (branch-a-1
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (branch-a-2
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash branch-a-1)
+                               :timestamp 2
+                               :gas-limit 30000000)))
+         (branch-b-1
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :timestamp 3
+                               :extra-data #(1)
+                               :gas-limit 30000000))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block store genesis :state-available-p t)
+           (chain-store-put-block store branch-a-1 :state-available-p t)
+           (chain-store-put-block store branch-a-2 :state-available-p t)
+           (chain-store-update-forkchoice-checkpoints
+            store
+            (make-forkchoice-state
+             :head-block-hash (block-hash branch-a-2)
+             :safe-block-hash (block-hash genesis)
+             :finalized-block-hash (block-hash genesis)))
+           (let ((database (make-file-key-value-database path)))
+             (is (eq database
+                     (chain-store-export-indexes-to-kv store database))))
+           (chain-store-put-block store branch-b-1 :state-available-p t)
+           (chain-store-set-canonical-head store (block-hash branch-b-1))
+           (chain-store-update-forkchoice-checkpoints
+            store
+            (make-forkchoice-state
+             :head-block-hash (block-hash branch-b-1)
+             :safe-block-hash (block-hash genesis)
+             :finalized-block-hash (block-hash genesis)))
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-indexes-to-kv store database))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-canonical-hash database 0)
+               (is present-p)
+               (is (bytes= (hash32-bytes (block-hash genesis)) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-canonical-hash database 1)
+               (is present-p)
+               (is (bytes= (hash32-bytes (block-hash branch-b-1)) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-canonical-hash database 2 :missing)
+               (is (eq :missing value))
+               (is (not present-p)))
+             (is (= 2 (length (kv-chain-canonical-hashes database))))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-checkpoint database :head)
+               (is present-p)
+               (is (bytes= (hash32-bytes (block-hash branch-b-1)) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-checkpoint database :safe)
+               (is present-p)
+               (is (bytes= (hash32-bytes (block-hash genesis)) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-checkpoint database :finalized)
+               (is present-p)
+               (is (bytes= (hash32-bytes (block-hash genesis)) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-update-forkchoice-checkpoints-rejects-safe-before-finalized
   (let* ((store (make-engine-payload-memory-store))
          (genesis
