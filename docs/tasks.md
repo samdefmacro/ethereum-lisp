@@ -4150,6 +4150,10 @@ splits can land after the Phase A smoke path closes.
     known block/header/receipt records into KV. The export keeps side-chain
     blocks hash-retrievable in the development store and rejects incomplete
     receipt records where a block's transaction and receipt counts diverge.
+  - Result: added chain-store export of canonical transaction-location records
+    into KV. The export records the block hash, transaction index, and starting
+    log index for canonical transactions and deletes stale transaction-location
+    entries after reorg.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

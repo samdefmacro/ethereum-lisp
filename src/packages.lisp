@@ -178,6 +178,8 @@
    #:kv-apply-batch
    #:kv-chain-canonical-hashes
    #:kv-batch-put-chain-record
+   #:kv-batch-delete-chain-record
+   #:kv-chain-record-entries
    #:kv-batch-put-chain-canonical-hash
    #:kv-batch-delete-chain-canonical-hash
    #:kv-chain-checkpoints
@@ -664,6 +666,7 @@
    #:chain-store-finalized-block
    #:chain-store-export-indexes-to-kv
    #:chain-store-export-block-records-to-kv
+   #:chain-store-export-transaction-locations-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
@@ -1628,6 +1631,7 @@
    #:chain-store-finalized-block
    #:chain-store-export-indexes-to-kv
    #:chain-store-export-block-records-to-kv
+   #:chain-store-export-transaction-locations-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
@@ -2522,6 +2526,7 @@
    #:chain-store-finalized-block
    #:chain-store-export-indexes-to-kv
    #:chain-store-export-block-records-to-kv
+   #:chain-store-export-transaction-locations-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar

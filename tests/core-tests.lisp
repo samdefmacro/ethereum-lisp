@@ -3363,6 +3363,154 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-export-transaction-locations-to-kv-syncs-canonical
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-transaction-location-export-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (log-entry
+           (make-log-entry :address recipient :data #(9)))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :timestamp 0
+                               :gas-limit 30000000)))
+         (branch-a-1
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (old-prefix-transaction
+           (make-legacy-transaction :nonce 1
+                                    :gas-price 2
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 3
+                                    :data #(1)
+                                    :v 27
+                                    :r 4
+                                    :s 5))
+         (old-canonical-transaction
+           (make-legacy-transaction :nonce 2
+                                    :gas-price 2
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 3
+                                    :data #(2)
+                                    :v 27
+                                    :r 4
+                                    :s 5))
+         (old-canonical-receipt
+           (make-receipt :status 1 :cumulative-gas-used 42000))
+         (branch-a-2
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash branch-a-1)
+                               :timestamp 2
+                               :gas-limit 30000000)
+            :transactions
+            (list old-prefix-transaction old-canonical-transaction)
+            :receipts
+            (list (make-receipt :status 1
+                                :cumulative-gas-used 21000
+                                :logs (list log-entry))
+                  old-canonical-receipt)))
+         (branch-b-1
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :timestamp 3
+                               :extra-data #(1)
+                               :gas-limit 30000000)))
+         (new-canonical-transaction
+           (make-legacy-transaction :nonce 3
+                                    :gas-price 2
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 4
+                                    :data #(3)
+                                    :v 27
+                                    :r 4
+                                    :s 5))
+         (branch-b-2
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash branch-b-1)
+                               :timestamp 4
+                               :extra-data #(2)
+                               :gas-limit 30000000)
+            :transactions (list new-canonical-transaction)
+            :receipts (list (make-receipt :status 1
+                                          :cumulative-gas-used 21000))))
+         (old-transaction-id
+           (hash32-bytes (transaction-hash old-canonical-transaction)))
+         (new-transaction-id
+           (hash32-bytes (transaction-hash new-canonical-transaction))))
+    (labels ((location-record-values (record)
+               (let ((items (rlp-list-items (rlp-decode-one record))))
+                 (values (first items)
+                         (bytes-to-integer (second items))
+                         (bytes-to-integer (third items))))))
+      (unwind-protect
+           (progn
+             (dolist (block (list genesis branch-a-1 branch-a-2
+                                  branch-b-1 branch-b-2))
+               (chain-store-put-block store block :state-available-p t))
+             (let ((database (make-file-key-value-database path)))
+               (is (eq database
+                       (chain-store-export-transaction-locations-to-kv
+                        store database))))
+             (let ((database (make-file-key-value-database path)))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record
+                    database :transaction-location old-transaction-id)
+                 (is present-p)
+                 (multiple-value-bind (block-hash index log-index-start)
+                     (location-record-values value)
+                   (is (bytes= (hash32-bytes (block-hash branch-a-2))
+                               block-hash))
+                   (is (= 1 index))
+                   (is (= 1 log-index-start))))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record
+                    database :transaction-location new-transaction-id :missing)
+                 (is (eq :missing value))
+                 (is (not present-p))))
+             (chain-store-set-canonical-head store (block-hash branch-b-2))
+             (let ((database (make-file-key-value-database path)))
+               (chain-store-export-transaction-locations-to-kv store database))
+             (let ((database (make-file-key-value-database path)))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record
+                    database :transaction-location old-transaction-id :missing)
+                 (is (eq :missing value))
+                 (is (not present-p)))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record
+                    database :transaction-location new-transaction-id)
+                 (is present-p)
+                 (multiple-value-bind (block-hash index log-index-start)
+                     (location-record-values value)
+                   (is (bytes= (hash32-bytes (block-hash branch-b-2))
+                               block-hash))
+                   (is (= 0 index))
+                   (is (= 0 log-index-start))))))
+        (when (probe-file path)
+          (delete-file path))))))
+
 (deftest chain-store-update-forkchoice-checkpoints-rejects-safe-before-finalized
   (let* ((store (make-engine-payload-memory-store))
          (genesis
