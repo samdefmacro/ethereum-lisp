@@ -148,7 +148,11 @@ fixes in those areas are allowed; expansion is not.
   account snapshots can be exported as block-hash keyed state records. A
   combined chain-store export path now writes those readable chain records
   through one KV batch, so encoding failures do not leave half-persisted
-  indexes in the development store. The same readable chain view can be
+  indexes in the development store. The in-memory chain-store can now prune
+  retained state snapshots before a block-number boundary while preserving
+  block/header/receipt, canonical-index, and transaction-location records; the
+  next KV export deletes the corresponding state records instead of reviving
+  pruned history. The same readable chain view can be
   restored from KV into a fresh memory store for local block, transaction, and
   retained-state reads, including decoded typed receipt records for restored
   block-receipt and transaction-receipt RPC visibility. KV import now stages
@@ -715,7 +719,8 @@ first pass, but interfaces must not block that path.
   number/hash indexes, typed head/safe/finalized checkpoints, retained block,
   receipt, transaction, account, storage, pending/filter, blob sidecar, and
   invalid-payload cache indexes needed by the in-memory Phase A smoke path,
-  plus devnet CLI restore/export wiring for file-backed KV chain-store
+  plus explicit retained-state snapshot pruning before a block-number boundary
+  and devnet CLI restore/export wiring for file-backed KV chain-store
   snapshots.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, sync-stage persistence, and durable trie-node storage remain later

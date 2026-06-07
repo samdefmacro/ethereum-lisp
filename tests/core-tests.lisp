@@ -3626,6 +3626,97 @@
         (when (probe-file path)
           (delete-file path))))))
 
+(deftest chain-store-prune-state-before-drops-historical-snapshots
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-state-prune-~A" (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (store (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (block-a
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (zero-hash32)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (block-b
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash block-a)
+                               :timestamp 2
+                               :gas-limit 30000000)))
+         (block-a-id (hash32-bytes (block-hash block-a)))
+         (block-b-id (hash32-bytes (block-hash block-b))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block store block-a :state-available-p t)
+           (chain-store-put-block store block-b :state-available-p t)
+           (chain-store-put-account-balance store (block-hash block-a)
+                                            address 11)
+           (chain-store-put-account-nonce store (block-hash block-a)
+                                          address 7)
+           (chain-store-put-account-code store (block-hash block-a)
+                                         address #(1 2 3))
+           (chain-store-put-account-storage store (block-hash block-a)
+                                            address slot 33)
+           (chain-store-put-account-balance store (block-hash block-b)
+                                            address 44)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-state-records-to-kv store database)
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :state block-a-id)
+               (declare (ignore value))
+               (is present-p)))
+           (is (= 1 (chain-store-prune-state-before store 2)))
+           (is (not (chain-store-state-available-p store
+                                                   (block-hash block-a))))
+           (is (chain-store-state-available-p store (block-hash block-b)))
+           (is (eq block-a (chain-store-known-block store (block-hash block-a))))
+           (is (eq block-a (chain-store-block-by-number store 1)))
+           (is (eq block-b (chain-store-block-by-number store 2)))
+           (is (= 0 (chain-store-account-balance
+                     store (block-hash block-a) address)))
+           (is (= 0 (chain-store-account-nonce
+                     store (block-hash block-a) address)))
+           (is (bytes= #()
+                       (chain-store-account-code
+                        store (block-hash block-a) address)))
+           (is (= 0 (chain-store-account-storage
+                     store (block-hash block-a) address slot)))
+           (is (= 44 (chain-store-account-balance
+                      store (block-hash block-b) address)))
+           (let ((accounts '()))
+             (chain-store-for-each-account
+              store
+              (block-hash block-a)
+              (lambda (&rest account)
+                (push account accounts)))
+             (is (null accounts)))
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-state-records-to-kv store database))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :state block-a-id :missing)
+               (is (eq :missing value))
+               (is (not present-p)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :state block-b-id)
+               (declare (ignore value))
+               (is present-p)))
+           (is (= 0 (chain-store-prune-state-before store 2)))
+           (signals block-validation-error
+             (chain-store-prune-state-before store -1)))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-export-to-kv-syncs-readable-chain-records
   (let* ((path
            (merge-pathnames

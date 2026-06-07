@@ -4488,6 +4488,21 @@ splits can land after the Phase A smoke path closes.
     including `eth_getProof`, historical call/state reads, logs, receipts, and
     transaction lookup.
 
+- [x] `CHAIN-STORE-STATE-PRUNE-BEFORE`: Add an explicit retained-state
+  snapshot pruning boundary.
+  - Milestone: 6 / production storage
+  - Dependencies: persistence backend, pruning/history retention strategy.
+  - Acceptance: the memory chain-store can drop state snapshots before a
+    block-number boundary without deleting known blocks, canonical indexes,
+    receipts, or transaction locations, and the KV export path deletes the
+    corresponding state records after pruning.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added `chain-store-prune-state-before`, which removes account
+    balance, nonce, code, and storage entries for state-available blocks below
+    the requested height, clears their state-available markers, preserves
+    block lookup by hash/number, and lets the existing KV state export remove
+    stale historical state records.
+
 ## Recently Completed
 
 - [x] Document optional local Reth reference availability and skip/reporting

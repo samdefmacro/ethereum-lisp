@@ -647,6 +647,7 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-prune-state-before
    #:chain-store-atomic-commit
    #:chain-store-put-account-balance
    #:chain-store-account-balance
@@ -1616,6 +1617,7 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-prune-state-before
    #:chain-store-atomic-commit
    #:chain-store-put-account-balance
    #:chain-store-account-balance
@@ -2514,6 +2516,7 @@
    #:chain-store-transaction-location
    #:chain-store-block-receipts
    #:chain-store-state-available-p
+   #:chain-store-prune-state-before
    #:chain-store-atomic-commit
    #:chain-store-put-account-balance
    #:chain-store-account-balance

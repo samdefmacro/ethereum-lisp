@@ -3052,6 +3052,54 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (chain-store-require-memory-store store)
    hash))
 
+(defun engine-payload-store-remove-prefixed-keys (table prefix)
+  (let ((keys '()))
+    (maphash
+     (lambda (key value)
+       (declare (ignore value))
+       (when (engine-payload-store-string-prefix-p prefix key)
+         (push key keys)))
+     table)
+    (dolist (key keys)
+      (remhash key table))
+    (length keys)))
+
+(defun engine-payload-store-prune-state-snapshot (store block-key)
+  (let ((prefix (format nil "~A:" block-key)))
+    (remhash block-key (engine-payload-memory-store-state-blocks store))
+    (+ (engine-payload-store-remove-prefixed-keys
+        (engine-payload-memory-store-account-balances store)
+        prefix)
+       (engine-payload-store-remove-prefixed-keys
+        (engine-payload-memory-store-account-nonces store)
+        prefix)
+       (engine-payload-store-remove-prefixed-keys
+        (engine-payload-memory-store-account-codes store)
+        prefix)
+       (engine-payload-store-remove-prefixed-keys
+        (engine-payload-memory-store-account-storage store)
+        prefix))))
+
+(defun chain-store-prune-state-before (store block-number)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (and (integerp block-number) (not (minusp block-number)))
+      (block-validation-fail
+       "Chain state pruning block number must be a non-negative integer"))
+    (let ((block-keys '()))
+      (maphash
+       (lambda (block-key state-available-p)
+         (when state-available-p
+           (let ((block (gethash block-key
+                                  (engine-payload-memory-store-blocks store))))
+             (when (and block
+                        (< (block-header-number (block-header block))
+                           block-number))
+               (push block-key block-keys)))))
+       (engine-payload-memory-store-state-blocks store))
+      (dolist (block-key block-keys)
+        (engine-payload-store-prune-state-snapshot store block-key))
+      (length block-keys))))
+
 (defun chain-store-update-forkchoice-checkpoints (store state)
   (engine-payload-store-update-forkchoice-checkpoints
    (chain-store-require-memory-store store)
