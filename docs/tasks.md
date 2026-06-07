@@ -450,6 +450,12 @@ ones.
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent
     pinned root fails with a configuration error instead of falling back to the
     in-repo seed root and reporting a misleading selector mismatch.
+  - Result: tightened EEST-style state-test expected-exception replay. The
+    current Phase A state fixture now maps
+    `TransactionException.INTRINSIC_GAS_TOO_LOW` to local transaction
+    validation errors and verifies the exact expected-exception token during
+    smoke-gate execution, so selector-gated state replay cannot pass just
+    because any execution error occurred.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

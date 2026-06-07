@@ -580,6 +580,37 @@
 (defun eest-state-test-expected-exception (post-entry)
   (fixture-object-field post-entry "expectException"))
 
+(defun eest-state-test-expected-exception-tokens (expected-exception)
+  (unless (stringp expected-exception)
+    (error "EEST state test expectException must be a string"))
+  (let ((tokens
+          (mapcar #'eest-fixture-trim-string
+                  (eest-fixture-split-string expected-exception #\|))))
+    (when (or (null tokens) (some #'blank-string-p tokens))
+      (error "EEST state test expectException ~S is malformed"
+             expected-exception))
+    tokens))
+
+(defun eest-state-test-condition-message (condition)
+  (princ-to-string condition))
+
+(defun eest-state-test-condition-matches-exception-token-p (condition token)
+  (let ((message (eest-state-test-condition-message condition)))
+    (cond
+      ((string= token "TransactionException.INTRINSIC_GAS_TOO_LOW")
+       (and (typep condition 'transaction-validation-error)
+            (search "gas limit" message :test #'char-equal)
+            (search "intrinsic gas" message :test #'char-equal)))
+      (t
+       (error "Unsupported EEST state test expectException token ~A"
+              token)))))
+
+(defun eest-state-test-condition-matches-expected-exception-p
+    (condition expected-exception)
+  (some (lambda (token)
+          (eest-state-test-condition-matches-exception-token-p condition token))
+        (eest-state-test-expected-exception-tokens expected-exception)))
+
 (defun eest-state-test-chain-rules (fork)
   (unless (member fork '("London" "Shanghai") :test #'string=)
     (error "Unsupported EEST state test fork ~A" fork))
@@ -645,6 +676,9 @@
       (if expected-exception
           (progn
             (is condition)
+            (is (eest-state-test-condition-matches-expected-exception-p
+                 condition
+                 expected-exception))
             (is (string= (fixture-required-field post-entry "hash")
                          (state-db-root-hex state))))
           (progn
@@ -860,6 +894,25 @@
           (assert-evm-state-fixture-receipt
            receipt
            (fixture-object-field expect "receipt")))))))
+
+(deftest eest-state-test-expected-exception-mapping
+  (let ((condition
+          (make-condition
+           'transaction-validation-error
+           :message "Gas limit below intrinsic gas")))
+    (is (equal '("TransactionException.INTRINSIC_GAS_TOO_LOW")
+               (eest-state-test-expected-exception-tokens
+                "TransactionException.INTRINSIC_GAS_TOO_LOW")))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         condition
+         "TransactionException.INTRINSIC_GAS_TOO_LOW"))
+    (signals error
+      (eest-state-test-condition-matches-expected-exception-p
+       condition
+       "TransactionException.UNKNOWN"))
+    (signals error
+      (eest-state-test-expected-exception-tokens
+       "TransactionException.INTRINSIC_GAS_TOO_LOW|"))))
 
 (deftest phase-a-eest-state-test-root-vectors-execute
   (let ((root (execution-spec-tests-state-test-root
