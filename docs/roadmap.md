@@ -165,11 +165,12 @@ fixes in those areas are allowed; expansion is not.
   and blockchain replay imports rather than only reporting selector counts,
   and its text/JSON output records per-suite execution counts plus aggregate
   fixture/total case and executed counts. Its `--devnet` mode now runs the
-  standalone devnet all-fixtures listener-boundary suite with file-backed KV
-  database export/restore enabled for every pinned Shanghai case, so the
-  top-level Phase A process gate covers authenticated Engine import,
-  forkchoice, public reads, and readable chain-store persistence across the
-  local process boundary.
+  standalone devnet all-fixtures listener-boundary suite with per-case
+  readiness JSON, `devnet.ready` / `devnet.shutdown` telemetry logs, and
+  file-backed KV database export/restore enabled for every pinned Shanghai
+  case. The top-level Phase A process gate therefore covers authenticated
+  Engine import, forkchoice, public reads, runner readiness/shutdown signals,
+  and readable chain-store persistence across the local process boundary.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

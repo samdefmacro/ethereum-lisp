@@ -4352,6 +4352,12 @@ splits can land after the Phase A smoke path closes.
     database head for every case. The outer Phase A `--devnet` smoke gate now
     runs that database-backed suite by default and cleans up its temporary
     database files after validation.
+  - Result: extended the same `--all-fixtures` suite to accept `--ready-file`
+    and `--log-file` by deriving per-fixture files. Each pinned Shanghai
+    devnet case now verifies readiness JSON plus `devnet.ready` /
+    `devnet.shutdown` telemetry alongside the database export/restore check,
+    and the outer Phase A `--devnet` gate runs and cleans up that full
+    process-contract suite.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,

@@ -372,14 +372,22 @@
               "phase-a-eest-blockchain-replay-selector-string"
              kinds))))))
 
-(defun smoke-gate-devnet-database-files (report)
+(defun smoke-gate-devnet-case-files (report field)
   (loop for case-report in (or (smoke-gate-field report "cases") nil)
-        for database-file = (smoke-gate-field case-report "databaseFile")
-        when (stringp database-file)
-          collect database-file))
+        for path = (smoke-gate-field case-report field)
+        when (stringp path)
+          collect path))
 
 (defun smoke-gate-devnet-summary ()
-  (let ((database-file
+  (let ((ready-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-ready"
+                                 "json")))
+        (log-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet"
+                                 "log")))
+        (database-file
           (namestring
            (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-chain"
                                  "sexp")))
@@ -395,6 +403,10 @@
                     "--"
                     "--json"
                     "--all-fixtures"
+                    "--ready-file"
+                    ready-file
+                    "--log-file"
+                    log-file
                     "--database"
                     database-file)
               :output :string
@@ -408,8 +420,11 @@
              (error "Devnet smoke gate returned non-ok status: ~S" report))
            report)
       (when report
-        (dolist (path (smoke-gate-devnet-database-files report))
-          (smoke-gate-delete-file-if-present path)))
+        (dolist (field '("readyFile" "logFile" "databaseFile"))
+          (dolist (path (smoke-gate-devnet-case-files report field))
+            (smoke-gate-delete-file-if-present path))))
+      (smoke-gate-delete-file-if-present ready-file)
+      (smoke-gate-delete-file-if-present log-file)
       (smoke-gate-delete-file-if-present database-file))))
 
 (defun smoke-gate-numeric-field (object field)
@@ -509,6 +524,10 @@
     (when devnet
       (format t "devnetStatus=~A~%" (smoke-gate-field devnet "status"))
       (format t "devnetCaseCount=~D~%" (smoke-gate-field devnet "caseCount"))
+      (format t "devnetReadyCaseCount=~D~%"
+              (smoke-gate-field devnet "readyCaseCount"))
+      (format t "devnetLogCaseCount=~D~%"
+              (smoke-gate-field devnet "logCaseCount"))
       (format t "devnetDatabaseCaseCount=~D~%"
               (smoke-gate-field devnet "databaseCaseCount"))
       (format t "devnetTotalConnections=~D~%"

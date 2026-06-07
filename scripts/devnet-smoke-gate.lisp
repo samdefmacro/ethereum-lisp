@@ -715,28 +715,38 @@
         value)
    'string))
 
-(defun devnet-smoke-gate-case-database-file (database-file case-name)
-  (when database-file
-    (let* ((pathname (pathname database-file))
+(defun devnet-smoke-gate-case-path (path case-name &key default-name)
+  (when path
+    (let* ((pathname (pathname path))
            (name (or (pathname-name pathname) "devnet-chain"))
            (type (pathname-type pathname))
            (case-component
              (devnet-smoke-gate-sanitize-path-component case-name)))
       (namestring
        (make-pathname
-        :name (format nil "~A-~A" name case-component)
+        :name (format nil "~A-~A"
+                      (or name default-name "devnet-artifact")
+                      case-component)
         :type type
         :defaults pathname)))))
 
-(defun devnet-smoke-gate-run-all (case-names &key database-file)
+(defun devnet-smoke-gate-run-all
+    (case-names &key ready-file log-file database-file)
   (let* ((reports
            (mapcar (lambda (case-name)
                      (devnet-smoke-gate-strip-run-metadata
                       (devnet-smoke-gate-run
                        case-name
+                       :ready-file
+                       (devnet-smoke-gate-case-path
+                        ready-file case-name :default-name "ready")
+                       :log-file
+                       (devnet-smoke-gate-case-path
+                        log-file case-name :default-name "devnet")
                        :database-file
-                       (devnet-smoke-gate-case-database-file
-                        database-file case-name))))
+                       (devnet-smoke-gate-case-path
+                        database-file case-name
+                        :default-name "devnet-chain"))))
                    case-names))
          (engine-connections
            (reduce #'+ reports
@@ -766,6 +776,10 @@
      (cons "mode" "devnet-listener-boundary-suite")
      (cons "caseCount" (length reports))
      (cons "fixtureCases" case-names)
+     (cons "readyFile" (or ready-file :false))
+     (cons "readyCaseCount" (if ready-file (length reports) 0))
+     (cons "logFile" (or log-file :false))
+     (cons "logCaseCount" (if log-file (length reports) 0))
      (cons "databaseFile" (or database-file :false))
      (cons "databaseCaseCount" (if database-file (length reports) 0))
      (cons "engineConnections" engine-connections)
@@ -801,6 +815,14 @@
       (format t "~%")))
   (when (devnet-smoke-gate-suite-report-p report)
     (format t "caseCount=~D~%" (devnet-smoke-gate-field report "caseCount"))
+    (format t "readyFile=~A~%"
+            (devnet-smoke-gate-field report "readyFile"))
+    (format t "readyCaseCount=~D~%"
+            (devnet-smoke-gate-field report "readyCaseCount"))
+    (format t "logFile=~A~%"
+            (devnet-smoke-gate-field report "logFile"))
+    (format t "logCaseCount=~D~%"
+            (devnet-smoke-gate-field report "logCaseCount"))
     (format t "databaseFile=~A~%"
             (devnet-smoke-gate-field report "databaseFile"))
     (format t "databaseCaseCount=~D~%"
@@ -868,11 +890,10 @@
                       (when (devnet-smoke-gate-fixture-case-specified-p args)
                         (error "~A cannot be combined with a fixture case"
                                +devnet-smoke-gate-all-fixtures-flag+))
-                      (when (or ready-file log-file)
-                        (error "~A cannot be combined with --ready-file or --log-file"
-                               +devnet-smoke-gate-all-fixtures-flag+))
                       (devnet-smoke-gate-run-all
                        +engine-newpayload-v2-smoke-case-names+
+                       :ready-file ready-file
+                       :log-file log-file
                        :database-file database-file))
                     (devnet-smoke-gate-run
                      case-name

@@ -960,11 +960,14 @@
     (is (= (+ fixture-executed-count devnet-case-count)
            (fixture-object-field report "totalExecutedCount")))))
 
-(defun devnet-smoke-gate-case-database-files (report)
+(defun devnet-smoke-gate-case-files (report field)
   (loop for case-report in (or (fixture-object-field report "cases") nil)
-        for database-file = (fixture-object-field case-report "databaseFile")
-        when (stringp database-file)
-          collect database-file))
+        for path = (fixture-object-field case-report field)
+        when (stringp path)
+          collect path))
+
+(defun devnet-smoke-gate-case-database-files (report)
+  (devnet-smoke-gate-case-files report "databaseFile"))
 
 (defun devnet-cli-read-stream-string (stream)
   (with-output-to-string (output)
@@ -1102,9 +1105,17 @@
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
   #+sbcl
-  (let ((database-path
+  (let ((ready-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-suite-ready"
+                                "json"))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-suite"
+                                "log"))
+        (database-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-suite-chain"
                                 "sexp"))
+        (ready-files nil)
+        (log-files nil)
         (database-files nil))
     (unwind-protect
          (multiple-value-bind (stdout stderr status)
@@ -1115,6 +1126,8 @@
                     "--"
                     "--json"
                     "--all-fixtures"
+                    "--ready-file" (namestring ready-path)
+                    "--log-file" (namestring log-path)
                     "--database" (namestring database-path))
               :output :string
               :error-output :string
@@ -1131,7 +1144,11 @@
                                 (fixture-object-field case "fixtureCase"))
                               cases)))
                (setf database-files
-                     (devnet-smoke-gate-case-database-files report))
+                     (devnet-smoke-gate-case-database-files report)
+                     ready-files
+                     (devnet-smoke-gate-case-files report "readyFile")
+                     log-files
+                     (devnet-smoke-gate-case-files report "logFile"))
                (is (string= "ok" (fixture-object-field report "status")))
                (is (string= "devnet-listener-boundary-suite"
                             (fixture-object-field report "mode")))
@@ -1145,6 +1162,18 @@
                 reference-clients "reth")
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
                       (fixture-object-field report "caseCount")))
+               (is (string= (namestring ready-path)
+                            (fixture-object-field report "readyFile")))
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (fixture-object-field report "readyCaseCount")))
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (length ready-files)))
+               (is (string= (namestring log-path)
+                            (fixture-object-field report "logFile")))
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (fixture-object-field report "logCaseCount")))
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (length log-files)))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
@@ -1169,10 +1198,18 @@
                               (fixture-object-field
                                case "databaseHeadNumber")))
                  (is (probe-file
+                      (fixture-object-field case "readyFile")))
+                 (is (probe-file
+                      (fixture-object-field case "logFile")))
+                 (is (probe-file
                       (fixture-object-field case "databaseFile")))))))
-      (dolist (path database-files)
+      (dolist (path (append ready-files log-files database-files))
         (when (probe-file path)
           (delete-file path)))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
       (when (probe-file database-path)
         (delete-file database-path)))))
 
@@ -1363,6 +1400,14 @@
                      (fixture-object-field devnet "mode")))
         (is (= (length +engine-newpayload-v2-smoke-case-names+)
                (fixture-object-field devnet "caseCount")))
+        (is (= (length +engine-newpayload-v2-smoke-case-names+)
+               (fixture-object-field devnet "readyCaseCount")))
+        (is (= (length +engine-newpayload-v2-smoke-case-names+)
+               (length (devnet-smoke-gate-case-files devnet "readyFile"))))
+        (is (= (length +engine-newpayload-v2-smoke-case-names+)
+               (fixture-object-field devnet "logCaseCount")))
+        (is (= (length +engine-newpayload-v2-smoke-case-names+)
+               (length (devnet-smoke-gate-case-files devnet "logFile"))))
         (is (= (length +engine-newpayload-v2-smoke-case-names+)
                (fixture-object-field devnet "databaseCaseCount")))
         (is (= (length +engine-newpayload-v2-smoke-case-names+)
