@@ -4179,6 +4179,12 @@ splits can land after the Phase A smoke path closes.
     checkpoint, receipt, state, and transaction-location record validates. A
     malformed KV record no longer clears or partially overwrites an existing
     readable chain-store view.
+  - Result: the devnet CLI now accepts `--database PATH`, imports an existing
+    file-backed KV chain-store snapshot after genesis setup, and exports the
+    current readable chain-store view on `--no-serve` or normal serve-mode
+    shutdown. Startup summaries, readiness JSON, and telemetry include the
+    database path, and CLI tests cover restoring a non-genesis head plus
+    re-exporting chain records.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6
@@ -4330,6 +4336,11 @@ splits can land after the Phase A smoke path closes.
     readiness JSON plus `devnet.ready`/`devnet.shutdown` telemetry around the
     same authenticated Engine import and public latest-state read sequence, so
     the process-runner contract is covered by an executable smoke script.
+  - Result: added `--database PATH` to the devnet CLI process shell. The shell
+    restores existing file-backed KV chain-store snapshots before serving and
+    exports the current readable chain view during `--no-serve` or normal
+    shutdown, making the development persistence path usable from local
+    devnet runs instead of only unit helpers.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,

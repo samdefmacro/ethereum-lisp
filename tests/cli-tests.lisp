@@ -724,6 +724,82 @@
       (is (string= "127.0.0.1:8545" (getf summary :rpc-endpoint)))
       (is (getf summary :state-available-p)))))
 
+(deftest devnet-cli-main-database-restores-and-exports-chain-store
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-chain" "sexp"))
+        (output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (let* ((seed-node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path +devnet-cli-genesis-fixture+
+                     :port 0))
+                  (seed-store
+                    (ethereum-lisp.cli:devnet-node-store seed-node))
+                  (genesis
+                    (ethereum-lisp.cli:devnet-node-genesis-block seed-node))
+                  (funded
+                    (address-from-hex
+                     "0x0000000000000000000000000000000000001001"))
+                  (child
+                    (make-block
+                     :header
+                     (make-block-header
+                      :number 1
+                      :parent-hash (block-hash genesis)
+                      :timestamp 1
+                      :gas-limit 30000000))))
+             (chain-store-put-block seed-store child :state-available-p t)
+             (chain-store-put-account-balance
+              seed-store (block-hash child) funded 42)
+             (chain-store-set-canonical-head seed-store (block-hash child))
+             (chain-store-export-to-kv
+              seed-store
+              (make-file-key-value-database database-path)))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--port" "0"
+                         "--database" (namestring database-path)
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let* ((summary
+                    (parse-json (get-output-stream-string output)))
+                  (database
+                    (make-file-key-value-database database-path))
+                  (restored-node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path +devnet-cli-genesis-fixture+
+                     :port 0
+                     :database-path (namestring database-path)))
+                  (restored-store
+                    (ethereum-lisp.cli:devnet-node-store restored-node))
+                  (head
+                    (chain-store-latest-block restored-store))
+                  (funded
+                    (address-from-hex
+                     "0x0000000000000000000000000000000000001001")))
+             (is (= 1337 (fixture-object-field summary "chainId")))
+             (is (= 1 (fixture-object-field summary "headNumber")))
+             (is (string= (namestring database-path)
+                          (fixture-object-field summary "databasePath")))
+             (is (< 0 (length (kv-chain-record-entries database :block))))
+             (is (< 0 (length (kv-chain-record-entries
+                               database :canonical-hash))))
+             (is (= 1 (block-header-number (block-header head))))
+             (is (chain-store-state-available-p restored-store
+                                                (block-hash head)))
+             (is (= 42
+                    (chain-store-account-balance
+                     restored-store (block-hash head) funded)))))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
 (deftest devnet-cli-main-json-summary-and-ready-file
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex"))
         (ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
@@ -1434,6 +1510,8 @@
                 (run-error (list "devnet" "--port" "--no-serve"))))
     (is (search "--public-port requires a value"
                 (run-error (list "devnet" "--public-port" "--no-serve"))))
+    (is (search "--database requires a value"
+                (run-error (list "devnet" "--database"))))
     (is (search "--log-file requires a value"
                 (run-error (list "devnet" "--log-file"))))
     (is (search "Unknown option --wat"

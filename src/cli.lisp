@@ -3,7 +3,8 @@
 (defstruct (devnet-node
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
-                      public-service telemetry-sink jwt-secret-path log-path)))
+                      public-service telemetry-sink jwt-secret-path log-path
+                      database-path)))
   genesis-path
   store
   config
@@ -12,7 +13,8 @@
   public-service
   telemetry-sink
   jwt-secret-path
-  log-path)
+  log-path
+  database-path)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -109,6 +111,7 @@
        (public-port +devnet-default-public-rpc-port+)
        jwt-secret-path
        log-path
+       database-path
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
     (error "Devnet node requires a genesis JSON path"))
@@ -139,6 +142,10 @@
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
+    (when (and database-path (probe-file database-path))
+      (chain-store-import-from-kv
+       store
+       (ethereum-lisp.database:make-file-key-value-database database-path)))
     (%make-devnet-node
      :genesis-path genesis-path
      :store store
@@ -148,7 +155,17 @@
      :public-service public-service
      :telemetry-sink telemetry-sink
      :jwt-secret-path jwt-secret-path
-     :log-path log-path)))
+     :log-path log-path
+     :database-path database-path)))
+
+(defun devnet-node-export-database (node)
+  (unless (typep node 'devnet-node)
+    (error "Devnet node must be devnet-node"))
+  (let ((database-path (devnet-node-database-path node)))
+    (when database-path
+      (chain-store-export-to-kv
+       (devnet-node-store node)
+       (ethereum-lisp.database:make-file-key-value-database database-path)))))
 
 (defun devnet-block-number (block)
   (and block (block-header-number (block-header block))))
@@ -177,6 +194,7 @@
                       (devnet-node-service node))))
           :jwt-secret-path (devnet-node-jwt-secret-path node)
           :log-path (devnet-node-log-path node)
+          :database-path (devnet-node-database-path node)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -196,6 +214,7 @@
       ("authRequired" . ,(if (getf summary :auth-required-p) t :false))
       ("jwtSecretPath" . ,(getf summary :jwt-secret-path))
       ("logPath" . ,(getf summary :log-path))
+      ("databasePath" . ,(getf summary :database-path))
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
@@ -353,6 +372,7 @@
         (public-host nil)
         (public-port +devnet-default-public-rpc-port+)
         (jwt-secret-path nil)
+        (database-path nil)
         (max-connections nil)
         (serve-p t)
         (summary-format :sexp)
@@ -386,6 +406,9 @@
                ((string= option "--jwt-secret")
                 (multiple-value-setq (jwt-secret-path args)
                   (devnet-cli-next-value args option)))
+               ((string= option "--database")
+                (multiple-value-setq (database-path args)
+                  (devnet-cli-next-value args option)))
                ((string= option "--max-connections")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -410,6 +433,7 @@
           :public-host (or public-host host)
           :public-port public-port
           :jwt-secret-path jwt-secret-path
+          :database-path database-path
           :max-connections max-connections
           :serve-p serve-p
           :summary-format summary-format
@@ -419,7 +443,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--database PATH] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -487,7 +511,8 @@
       ("headHash" . ,(getf summary :head-hash))
       ("authRequired" . ,(if (getf summary :auth-required-p) "true" "false"))
       ("jwtSecretPath" . ,(or (getf summary :jwt-secret-path) ""))
-      ("logPath" . ,(or (getf summary :log-path) "")))))
+      ("logPath" . ,(or (getf summary :log-path) ""))
+      ("databasePath" . ,(or (getf summary :database-path) "")))))
 
 (defun devnet-cli-log-event (node name &key engine-endpoint rpc-endpoint)
   (ethereum-lisp.telemetry:telemetry-log
@@ -539,6 +564,7 @@
                           :public-port (getf options :public-port)
                           :jwt-secret-path (getf options :jwt-secret-path)
                           :log-path (getf options :log-file)
+                          :database-path (getf options :database-path)
                           :telemetry-sink telemetry-sink)))
                    (if (getf options :serve-p)
                        (let ((bound-engine-endpoint nil)
@@ -575,6 +601,7 @@
                                   :format (getf options :summary-format)
                                   :engine-endpoint bound-engine-endpoint
                                   :rpc-endpoint bound-rpc-endpoint)))
+                           (devnet-node-export-database node)
                            (when (getf options :log-file)
                              (devnet-cli-log-event
                               node
@@ -582,6 +609,7 @@
                               :engine-endpoint bound-engine-endpoint
                               :rpc-endpoint bound-rpc-endpoint))))
                        (progn
+                         (devnet-node-export-database node)
                          (when (getf options :ready-file)
                            (devnet-cli-write-ready-file
                             node

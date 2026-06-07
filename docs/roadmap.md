@@ -150,7 +150,10 @@ fixes in those areas are allowed; expansion is not.
   block-receipt and transaction-receipt RPC visibility. KV import now stages
   and validates the restored readable tables before publishing them, so a
   malformed record does not clear or partially replace an existing in-memory
-  chain-store view.
+  chain-store view. The devnet CLI can now wire that development persistence
+  path through `--database PATH`, restoring existing KV chain-store snapshots
+  at startup and exporting the current readable chain view on `--no-serve` or
+  normal shutdown.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and
@@ -685,7 +688,9 @@ first pass, but interfaces must not block that path.
 - *Done:* memory key-value store, file-backed development store, canonical
   number/hash indexes, typed head/safe/finalized checkpoints, retained block,
   receipt, transaction, account, storage, pending/filter, blob sidecar, and
-  invalid-payload cache indexes needed by the in-memory Phase A smoke path.
+  invalid-payload cache indexes needed by the in-memory Phase A smoke path,
+  plus devnet CLI restore/export wiring for file-backed KV chain-store
+  snapshots.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, sync-stage persistence, and durable trie-node storage remain later
   work.
@@ -713,7 +718,8 @@ first pass, but interfaces must not block that path.
   genesis, serves both split listeners, atomically emits JSON readiness/head
   summaries and lifecycle telemetry for process runners using actual bound
   listener endpoints in serve mode, maps SIGINT/SIGTERM into coordinated
-  split-listener shutdown, and
+  split-listener shutdown, can restore/export file-backed KV chain-store
+  snapshots through `--database PATH`, and
   has a split-listener smoke covering authenticated Engine JSON-RPC,
   `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, unauthenticated public latest-state reads, and
