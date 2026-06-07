@@ -4369,6 +4369,12 @@ splits can land after the Phase A smoke path closes.
     the restored receipt's transaction hash, block number, and block hash,
     covering canonical transaction-location and receipt records across the KV
     export/import boundary.
+  - Result: extended the restored public-RPC database check to
+    `eth_getBlockByHash` and `eth_getTransactionByHash`. Each database-backed
+    devnet case now verifies canonical block hash/number, block
+    transaction-list hash, and transaction hash/blockHash/blockNumber fields
+    after KV restore, covering readable block and transaction-location records
+    through the public RPC boundary.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,
