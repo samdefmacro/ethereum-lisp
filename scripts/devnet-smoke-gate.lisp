@@ -400,10 +400,13 @@
 
 (defun devnet-smoke-gate-verify-restored-public-rpc
     (node expected-block-number balance-address expected-balance
+     code-address expected-code storage-address storage-key expected-storage
      transaction-hash block-hash)
   #+sbcl
   (let ((block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
+        (code-output (make-string-output-stream))
+        (storage-output (make-string-output-stream))
         (receipt-output (make-string-output-stream))
         (block-output (make-string-output-stream))
         (block-by-number-output (make-string-output-stream))
@@ -427,13 +430,30 @@
             (json-encode
              (list (cons "jsonrpc" "2.0")
                    (cons "id" 43)
+                   (cons "method" "eth_getCode")
+                   (cons "params" (list (address-to-hex code-address)
+                                        expected-block-number))))
+            code-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 44)
+                   (cons "method" "eth_getStorageAt")
+                   (cons "params" (list (address-to-hex storage-address)
+                                        storage-key
+                                        expected-block-number))))
+            storage-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 45)
                    (cons "method" "eth_getTransactionReceipt")
                    (cons "params" (list (hash32-to-hex transaction-hash)))))
             receipt-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 44)
+                   (cons "id" 46)
                    (cons "method" "eth_getBlockByHash")
                    (cons "params" (list (hash32-to-hex block-hash)
                                         :false))))
@@ -441,21 +461,21 @@
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 45)
+                   (cons "id" 47)
                    (cons "method" "eth_getBlockByNumber")
                    (cons "params" (list expected-block-number :false))))
             block-by-number-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 46)
+                   (cons "id" 48)
                    (cons "method" "eth_getTransactionByHash")
                    (cons "params" (list (hash32-to-hex transaction-hash)))))
             transaction-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
-                   (cons "id" 47)
+                   (cons "id" 49)
                    (cons "method" "eth_getBlockReceipts")
                    (cons "params" (list (hash32-to-hex block-hash)))))
             block-receipts-output)))
@@ -480,11 +500,15 @@
                      :output-stream output
                      :close-function (lambda () nil)))))
               :close-function (lambda () nil))
-             :max-connections 7)))
+             :max-connections 9)))
       (let* ((block-number-response
                (get-output-stream-string block-number-output))
              (balance-response
                (get-output-stream-string balance-output))
+             (code-response
+               (get-output-stream-string code-output))
+             (storage-response
+               (get-output-stream-string storage-output))
              (receipt-response
                (get-output-stream-string receipt-output))
              (block-response
@@ -499,6 +523,10 @@
                (devnet-smoke-gate-rpc-body block-number-response))
              (balance-rpc
                (devnet-smoke-gate-rpc-body balance-response))
+             (code-rpc
+               (devnet-smoke-gate-rpc-body code-response))
+             (storage-rpc
+               (devnet-smoke-gate-rpc-body storage-response))
              (receipt-rpc
                (devnet-smoke-gate-rpc-body receipt-response))
              (block-rpc
@@ -513,6 +541,10 @@
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
                (fixture-object-field balance-rpc "result"))
+             (actual-code
+               (fixture-object-field code-rpc "result"))
+             (actual-storage
+               (fixture-object-field storage-rpc "result"))
              (actual-receipt
                (fixture-object-field receipt-rpc "result"))
              (actual-receipt-transaction-hash
@@ -563,8 +595,8 @@
          (= 0 (getf summary :engine-connections))
          "Restored database verification should not use Engine RPC")
         (devnet-smoke-gate-require
-         (= 7 (getf summary :public-connections))
-         "Restored database verification expected 7 public RPC connections, got ~S"
+         (= 9 (getf summary :public-connections))
+         "Restored database verification expected 9 public RPC connections, got ~S"
          (getf summary :public-connections))
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status block-number-response))
@@ -572,6 +604,12 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status balance-response))
          "Restored eth_getBalance HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status code-response))
+         "Restored eth_getCode HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status storage-response))
+         "Restored eth_getStorageAt HTTP status mismatch")
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status receipt-response))
          "Restored eth_getTransactionReceipt HTTP status mismatch")
@@ -597,6 +635,16 @@
          "Restored eth_getBalance mismatch: expected ~A got ~A"
          expected-balance
          actual-balance)
+        (devnet-smoke-gate-require
+         (string= expected-code actual-code)
+         "Restored eth_getCode mismatch: expected ~A got ~A"
+         expected-code
+         actual-code)
+        (devnet-smoke-gate-require
+         (string= expected-storage actual-storage)
+         "Restored eth_getStorageAt mismatch: expected ~A got ~A"
+         expected-storage
+         actual-storage)
         (devnet-smoke-gate-require
          (string= (hash32-to-hex transaction-hash)
                   actual-receipt-transaction-hash)
@@ -654,6 +702,8 @@
          "Restored eth_getBlockReceipts block number mismatch")
         (list :block-number actual-block-number
               :balance actual-balance
+              :code actual-code
+              :storage actual-storage
               :receipt-transaction-hash actual-receipt-transaction-hash
               :receipt-block-number actual-receipt-block-number
               :block-hash actual-block-hash
@@ -677,6 +727,7 @@
 
 (defun devnet-smoke-gate-verify-database
     (path expected-block-number balance-address expected-balance
+     code-address expected-code storage-address storage-key expected-storage
      transaction-hash block-hash)
   (let* ((database (make-file-key-value-database path))
          (node
@@ -694,6 +745,11 @@
             expected-block-number
             balance-address
             expected-balance
+            code-address
+            expected-code
+            storage-address
+            storage-key
+            expected-storage
             transaction-hash
             block-hash)))
     (devnet-smoke-gate-require
@@ -716,6 +772,10 @@
                   (getf public-rpc-summary :block-number)
                   :rpc-balance
                   (getf public-rpc-summary :balance)
+                  :rpc-code
+                  (getf public-rpc-summary :code)
+                  :rpc-storage
+                  (getf public-rpc-summary :storage)
                   :rpc-receipt-transaction-hash
                   (getf public-rpc-summary :receipt-transaction-hash)
                   :rpc-receipt-block-number
@@ -798,6 +858,11 @@
                   (balance-address nil)
                   (expected-balance nil)
                   (balance-field nil)
+                  (code-address nil)
+                  (expected-code nil)
+                  (storage-address nil)
+                  (storage-key nil)
+                  (expected-storage nil)
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token secret 0))
                   (new-payload-output (make-string-output-stream))
@@ -824,7 +889,17 @@
                         (devnet-smoke-gate-balance-target expect)
                       (setf balance-address address
                             expected-balance balance
-                            balance-field field)
+                            balance-field field
+                            code-address
+                            (fixture-address-field expect "codeAddress")
+                            expected-code
+                            (fixture-object-field expect "code")
+                            storage-address
+                            (fixture-address-field expect "storageAddress")
+                            storage-key
+                            (fixture-object-field expect "storageKey")
+                            expected-storage
+                            (fixture-object-field expect "storageValue"))
                       (list
                        (cons
                         (json-encode
@@ -946,6 +1021,11 @@
                               expected-block-number
                               balance-address
                               expected-balance
+                              code-address
+                              expected-code
+                              storage-address
+                              storage-key
+                              expected-storage
                               expected-transaction-hash
                               (block-hash child-block))))
                       (actual-block-number
@@ -1017,6 +1097,12 @@
                   (cons "checkedBalanceField" balance-field)
                   (cons "checkedBalance" actual-balance)
                   (cons "recipientBalance" actual-balance)
+                  (cons "checkedCodeAddress" (address-to-hex code-address))
+                  (cons "checkedCode" expected-code)
+                  (cons "checkedStorageAddress"
+                        (address-to-hex storage-address))
+                  (cons "checkedStorageKey" storage-key)
+                  (cons "checkedStorage" expected-storage)
                   (cons "readyFile" (or ready-file :false))
                   (cons "logFile" (or log-file :false))
                   (cons "databaseFile" (or database-file :false))
@@ -1032,6 +1118,14 @@
                   (cons "databaseRpcBalance"
                         (if database-summary
                             (getf database-summary :rpc-balance)
+                            :false))
+                  (cons "databaseRpcCode"
+                        (if database-summary
+                            (getf database-summary :rpc-code)
+                            :false))
+                  (cons "databaseRpcStorage"
+                        (if database-summary
+                            (getf database-summary :rpc-storage)
                             :false))
                   (cons "databaseRpcReceiptTransactionHash"
                         (if database-summary
@@ -1187,6 +1281,16 @@
          "Devnet smoke gate suite database head mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "checkedCode")
+                  (devnet-smoke-gate-field report "databaseRpcCode"))
+         "Devnet smoke gate suite restored code mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "checkedStorage")
+                  (devnet-smoke-gate-field report "databaseRpcStorage"))
+         "Devnet smoke gate suite restored storage mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
          (string= (devnet-smoke-gate-field report "blockNumber")
                   (devnet-smoke-gate-field report
                                            "databaseRpcReceiptBlockNumber"))
@@ -1311,6 +1415,16 @@
                 (devnet-smoke-gate-field report "checkedBalance"))
         (format t "recipientBalance=~A~%"
                 (devnet-smoke-gate-field report "recipientBalance"))
+        (format t "checkedCodeAddress=~A~%"
+                (devnet-smoke-gate-field report "checkedCodeAddress"))
+        (format t "checkedCode=~A~%"
+                (devnet-smoke-gate-field report "checkedCode"))
+        (format t "checkedStorageAddress=~A~%"
+                (devnet-smoke-gate-field report "checkedStorageAddress"))
+        (format t "checkedStorageKey=~A~%"
+                (devnet-smoke-gate-field report "checkedStorageKey"))
+        (format t "checkedStorage=~A~%"
+                (devnet-smoke-gate-field report "checkedStorage"))
         (format t "readyFile=~A~%" (devnet-smoke-gate-field report "readyFile"))
         (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile"))
         (format t "databaseFile=~A~%"
@@ -1321,6 +1435,10 @@
                 (devnet-smoke-gate-field report "databaseRpcBlockNumber"))
         (format t "databaseRpcBalance=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcBalance"))
+        (format t "databaseRpcCode=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcCode"))
+        (format t "databaseRpcStorage=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcStorage"))
         (format t "databaseRpcReceiptTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcReceiptTransactionHash"))

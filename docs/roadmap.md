@@ -169,8 +169,8 @@ fixes in those areas are allowed; expansion is not.
   readiness JSON, `devnet.ready` / `devnet.shutdown` telemetry logs, and
   file-backed KV database export/restore enabled for every pinned Shanghai
   case. Restored KV snapshots are also served through a fresh public RPC
-  listener and checked for `eth_blockNumber` plus retained-state balance
-  reads, `eth_getTransactionReceipt` canonical receipt lookup,
+  listener and checked for `eth_blockNumber` plus retained-state balance,
+  code, and storage reads, `eth_getTransactionReceipt` canonical receipt lookup,
   `eth_getBlockByHash` / `eth_getBlockByNumber` canonical block lookup,
   `eth_getTransactionByHash` canonical transaction lookup, and
   `eth_getBlockReceipts` block-receipt lookup. The

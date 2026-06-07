@@ -4385,6 +4385,10 @@ splits can land after the Phase A smoke path closes.
     restored canonical number-to-hash index resolves to the same block hash,
     block number, and transaction-list hash as the hash lookup after KV
     export/import.
+  - Result: extended the restored public-RPC database check to retained-state
+    `eth_getCode` and `eth_getStorageAt`. Each database-backed devnet case now
+    verifies fixture-declared code bytes and storage slot values survive KV
+    export/import and remain readable through a fresh public RPC listener.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,
