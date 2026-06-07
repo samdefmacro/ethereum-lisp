@@ -407,6 +407,7 @@
         (receipt-output (make-string-output-stream))
         (block-output (make-string-output-stream))
         (transaction-output (make-string-output-stream))
+        (block-receipts-output (make-string-output-stream))
         (public-requests nil))
     (setf public-requests
           (list
@@ -442,7 +443,14 @@
                    (cons "id" 45)
                    (cons "method" "eth_getTransactionByHash")
                    (cons "params" (list (hash32-to-hex transaction-hash)))))
-            transaction-output)))
+            transaction-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 46)
+                   (cons "method" "eth_getBlockReceipts")
+                   (cons "params" (list (hash32-to-hex block-hash)))))
+            block-receipts-output)))
     (let ((summary
             (ethereum-lisp.cli:start-devnet-node-listeners
              node
@@ -464,7 +472,7 @@
                      :output-stream output
                      :close-function (lambda () nil)))))
               :close-function (lambda () nil))
-             :max-connections 5)))
+             :max-connections 6)))
       (let* ((block-number-response
                (get-output-stream-string block-number-output))
              (balance-response
@@ -475,6 +483,8 @@
                (get-output-stream-string block-output))
              (transaction-response
                (get-output-stream-string transaction-output))
+             (block-receipts-response
+               (get-output-stream-string block-receipts-output))
              (block-number-rpc
                (devnet-smoke-gate-rpc-body block-number-response))
              (balance-rpc
@@ -485,6 +495,8 @@
                (devnet-smoke-gate-rpc-body block-response))
              (transaction-rpc
                (devnet-smoke-gate-rpc-body transaction-response))
+             (block-receipts-rpc
+               (devnet-smoke-gate-rpc-body block-receipts-response))
              (actual-block-number
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
@@ -514,13 +526,23 @@
              (actual-transaction-block-hash
                (fixture-object-field actual-transaction "blockHash"))
              (actual-transaction-block-number
-               (fixture-object-field actual-transaction "blockNumber")))
+               (fixture-object-field actual-transaction "blockNumber"))
+             (actual-block-receipts
+               (fixture-object-field block-receipts-rpc "result"))
+             (actual-block-receipt
+               (first actual-block-receipts))
+             (actual-block-receipt-transaction-hash
+               (fixture-object-field actual-block-receipt "transactionHash"))
+             (actual-block-receipt-block-hash
+               (fixture-object-field actual-block-receipt "blockHash"))
+             (actual-block-receipt-block-number
+               (fixture-object-field actual-block-receipt "blockNumber")))
         (devnet-smoke-gate-require
          (= 0 (getf summary :engine-connections))
          "Restored database verification should not use Engine RPC")
         (devnet-smoke-gate-require
-         (= 5 (getf summary :public-connections))
-         "Restored database verification expected 5 public RPC connections, got ~S"
+         (= 6 (getf summary :public-connections))
+         "Restored database verification expected 6 public RPC connections, got ~S"
          (getf summary :public-connections))
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status block-number-response))
@@ -537,6 +559,9 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status transaction-response))
          "Restored eth_getTransactionByHash HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status block-receipts-response))
+         "Restored eth_getBlockReceipts HTTP status mismatch")
         (devnet-smoke-gate-require
          (string= expected-block-number actual-block-number)
          "Restored eth_blockNumber mismatch: expected ~A got ~A"
@@ -577,6 +602,21 @@
         (devnet-smoke-gate-require
          (string= expected-block-number actual-transaction-block-number)
          "Restored eth_getTransactionByHash block number mismatch")
+        (devnet-smoke-gate-require
+         (= 1 (length actual-block-receipts))
+         "Restored eth_getBlockReceipts expected 1 receipt, got ~S"
+         (length actual-block-receipts))
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex transaction-hash)
+                  actual-block-receipt-transaction-hash)
+         "Restored eth_getBlockReceipts transaction hash mismatch")
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex block-hash)
+                  actual-block-receipt-block-hash)
+         "Restored eth_getBlockReceipts block hash mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-block-number actual-block-receipt-block-number)
+         "Restored eth_getBlockReceipts block number mismatch")
         (list :block-number actual-block-number
               :balance actual-balance
               :receipt-transaction-hash actual-receipt-transaction-hash
@@ -587,6 +627,11 @@
               :transaction-hash actual-transaction-hash
               :transaction-block-hash actual-transaction-block-hash
               :transaction-block-number actual-transaction-block-number
+              :block-receipts-count (length actual-block-receipts)
+              :block-receipt-transaction-hash
+              actual-block-receipt-transaction-hash
+              :block-receipt-block-hash actual-block-receipt-block-hash
+              :block-receipt-block-number actual-block-receipt-block-number
               :public-connections (getf summary :public-connections)))))
   #-sbcl
   (error "Restored devnet public RPC verification requires SBCL threads"))
@@ -648,6 +693,14 @@
                   (getf public-rpc-summary :transaction-block-hash)
                   :rpc-transaction-block-number
                   (getf public-rpc-summary :transaction-block-number)
+                  :rpc-block-receipts-count
+                  (getf public-rpc-summary :block-receipts-count)
+                  :rpc-block-receipt-transaction-hash
+                  (getf public-rpc-summary :block-receipt-transaction-hash)
+                  :rpc-block-receipt-block-hash
+                  (getf public-rpc-summary :block-receipt-block-hash)
+                  :rpc-block-receipt-block-number
+                  (getf public-rpc-summary :block-receipt-block-number)
                   :rpc-public-connections
                   (getf public-rpc-summary :public-connections)))))
 
@@ -972,6 +1025,26 @@
                             (getf database-summary
                                   :rpc-transaction-block-number)
                             :false))
+                  (cons "databaseRpcBlockReceiptsCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-receipts-count)
+                            :false))
+                  (cons "databaseRpcBlockReceiptTransactionHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-receipt-transaction-hash)
+                            :false))
+                  (cons "databaseRpcBlockReceiptBlockHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-receipt-block-hash)
+                            :false))
+                  (cons "databaseRpcBlockReceiptBlockNumber"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-receipt-block-number)
+                            :false))
                   (cons "databaseRpcPublicConnections"
                         (if database-summary
                             (getf database-summary :rpc-public-connections)
@@ -1069,6 +1142,17 @@
                   (devnet-smoke-gate-field
                    report "databaseRpcTransactionBlockNumber"))
          "Devnet smoke gate suite restored transaction block mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field report "blockNumber")
+                  (devnet-smoke-gate-field
+                   report "databaseRpcBlockReceiptBlockNumber"))
+         "Devnet smoke gate suite restored block receipt number mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= 1 (devnet-smoke-gate-field report
+                                       "databaseRpcBlockReceiptsCount"))
+         "Devnet smoke gate suite restored block receipts count mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))))
     (devnet-smoke-gate-add-run-metadata
      (list
@@ -1173,26 +1257,38 @@
         (format t "databaseRpcReceiptTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcReceiptTransactionHash"))
-	        (format t "databaseRpcReceiptBlockNumber=~A~%"
-	                (devnet-smoke-gate-field
-	                 report "databaseRpcReceiptBlockNumber"))
-	        (format t "databaseRpcBlockHash=~A~%"
-	                (devnet-smoke-gate-field report "databaseRpcBlockHash"))
-	        (format t "databaseRpcBlockByHashNumber=~A~%"
-	                (devnet-smoke-gate-field
-	                 report "databaseRpcBlockByHashNumber"))
-	        (format t "databaseRpcBlockTransactionHash=~A~%"
-	                (devnet-smoke-gate-field
-	                 report "databaseRpcBlockTransactionHash"))
-	        (format t "databaseRpcTransactionHash=~A~%"
-	                (devnet-smoke-gate-field
-	                 report "databaseRpcTransactionHash"))
-	        (format t "databaseRpcTransactionBlockHash=~A~%"
-	                (devnet-smoke-gate-field
-	                 report "databaseRpcTransactionBlockHash"))
-	        (format t "databaseRpcTransactionBlockNumber=~A~%"
-	                (devnet-smoke-gate-field
-	                 report "databaseRpcTransactionBlockNumber")))))
+        (format t "databaseRpcReceiptBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcReceiptBlockNumber"))
+        (format t "databaseRpcBlockHash=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcBlockHash"))
+        (format t "databaseRpcBlockByHashNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcBlockByHashNumber"))
+        (format t "databaseRpcBlockTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcBlockTransactionHash"))
+        (format t "databaseRpcTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTransactionHash"))
+        (format t "databaseRpcTransactionBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTransactionBlockHash"))
+        (format t "databaseRpcTransactionBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTransactionBlockNumber"))
+        (format t "databaseRpcBlockReceiptsCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcBlockReceiptsCount"))
+        (format t "databaseRpcBlockReceiptTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcBlockReceiptTransactionHash"))
+        (format t "databaseRpcBlockReceiptBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcBlockReceiptBlockHash"))
+        (format t "databaseRpcBlockReceiptBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcBlockReceiptBlockNumber")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))

@@ -172,7 +172,8 @@ fixes in those areas are allowed; expansion is not.
   listener and checked for `eth_blockNumber` plus retained-state balance
   reads, `eth_getTransactionReceipt` canonical receipt lookup,
   `eth_getBlockByHash` canonical block lookup, and
-  `eth_getTransactionByHash` canonical transaction lookup. The
+  `eth_getTransactionByHash` canonical transaction lookup, and
+  `eth_getBlockReceipts` block-receipt lookup. The
   top-level Phase A process gate therefore covers authenticated Engine import,
   forkchoice, public reads, runner readiness/shutdown signals, and readable
   chain-store persistence across the local process/database boundary.
