@@ -1395,8 +1395,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   "Header slot number")))))
     fields))
 
+(defun block-header-rlp-object (header)
+  (apply #'make-rlp-list (header-fields header)))
+
 (defun block-header-rlp (header)
-  (rlp-encode (apply #'make-rlp-list (header-fields header))))
+  (rlp-encode (block-header-rlp-object header)))
 
 (defun block-header-hash (header)
   (keccak-256-hash (block-header-rlp header)))
@@ -1404,9 +1407,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun ommers-hash (ommers)
   (keccak-256-hash
    (rlp-encode
-    (mapcar (lambda (header)
-              (apply #'make-rlp-list (header-fields header)))
-            ommers))))
+    (mapcar #'block-header-rlp-object ommers))))
 
 (defun receipts-logs-bloom (receipts)
   (receipt-bloom
@@ -1625,6 +1626,55 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        :block-access-list-present-p block-access-list-present-p
        :encoded-block-access-list (when block-access-list-present-p
                                     (rlp-encode (nth 5 items)))))))
+
+(defun block-transaction-rlp-object (transaction)
+  (let ((encoded (transaction-encoding transaction)))
+    (if (> (aref encoded 0) #x7f)
+        (rlp-decode-one encoded)
+        encoded)))
+
+(defun block-transactions-rlp-object (transactions)
+  (apply #'make-rlp-list
+         (mapcar #'block-transaction-rlp-object transactions)))
+
+(defun block-ommers-rlp-object (ommers)
+  (apply #'make-rlp-list
+         (mapcar #'block-header-rlp-object ommers)))
+
+(defun block-withdrawals-rlp-object (withdrawals)
+  (apply #'make-rlp-list
+         (mapcar #'withdrawal-rlp-object withdrawals)))
+
+(defun block-requests-rlp-object (requests)
+  (apply #'make-rlp-list
+         (mapcar #'rlp-decode-one requests)))
+
+(defun block-access-list-rlp-object-for-block (block)
+  (rlp-decode-one
+   (or (block-encoded-block-access-list block)
+       (block-access-list-rlp (block-block-access-list block)))))
+
+(defun block-rlp (block)
+  (let ((fields
+          (list (block-header-rlp-object (block-header block))
+                (block-transactions-rlp-object
+                 (block-transactions block))
+                (block-ommers-rlp-object (block-ommers block)))))
+    (when (block-withdrawals-present-p block)
+      (setf fields
+            (append fields
+                    (list (block-withdrawals-rlp-object
+                           (block-withdrawals block))))))
+    (when (block-requests-present-p block)
+      (setf fields
+            (append fields
+                    (list (block-requests-rlp-object
+                           (block-requests block))))))
+    (when (block-block-access-list-present-p block)
+      (setf fields
+            (append fields
+                    (list (block-access-list-rlp-object-for-block block)))))
+    (rlp-encode (apply #'make-rlp-list fields))))
 
 (defstruct (executable-data (:constructor make-executable-data
                               (&key parent-hash
@@ -3090,6 +3140,40 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-export-checkpoint-to-kv
        batch
        (engine-payload-memory-store-finalized-checkpoint store))
+      (kv-apply-batch database batch))))
+
+(defun block-receipts-record-rlp (block)
+  (let ((transactions (block-transactions block))
+        (receipts (block-receipts block)))
+    (unless (= (length transactions) (length receipts))
+      (block-validation-fail
+       "Block receipt record requires one receipt per transaction"))
+    (rlp-encode
+     (apply #'make-rlp-list
+            (loop for transaction in transactions
+                  for receipt in receipts
+                  collect (transaction-receipt-encoding
+                           transaction receipt))))))
+
+(defun chain-store-export-block-record-to-kv (batch block)
+  (let ((identifier (hash32-bytes (block-hash block))))
+    (kv-batch-put-chain-record batch :block identifier (block-rlp block))
+    (kv-batch-put-chain-record
+     batch :header identifier (block-header-rlp (block-header block)))
+    (kv-batch-put-chain-record
+     batch :receipt identifier (block-receipts-record-rlp block))))
+
+(defun chain-store-export-block-records-to-kv (store database)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Chain block record export target must be a key-value database"))
+    (let ((batch (make-kv-write-batch)))
+      (maphash
+       (lambda (key block)
+         (declare (ignore key))
+         (chain-store-export-block-record-to-kv batch block))
+       (engine-payload-memory-store-blocks store))
       (kv-apply-batch database batch))))
 
 (defun chain-store-put-prepared-payload (store prepared-payload)

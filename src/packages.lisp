@@ -177,6 +177,7 @@
    #:make-kv-write-batch
    #:kv-apply-batch
    #:kv-chain-canonical-hashes
+   #:kv-batch-put-chain-record
    #:kv-batch-put-chain-canonical-hash
    #:kv-batch-delete-chain-canonical-hash
    #:kv-chain-checkpoints
@@ -543,6 +544,7 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:block-rlp
    #:block-from-rlp
    #:executable-data
    #:make-executable-data
@@ -661,6 +663,7 @@
    #:chain-store-safe-block
    #:chain-store-finalized-block
    #:chain-store-export-indexes-to-kv
+   #:chain-store-export-block-records-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
@@ -1505,6 +1508,7 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:block-rlp
    #:block-from-rlp
    #:executable-data
    #:make-executable-data
@@ -1623,6 +1627,7 @@
    #:chain-store-safe-block
    #:chain-store-finalized-block
    #:chain-store-export-indexes-to-kv
+   #:chain-store-export-block-records-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
@@ -2397,6 +2402,7 @@
    #:block-block-access-list-present-p
    #:block-encoded-block-access-list
    #:block-hash
+   #:block-rlp
    #:block-from-rlp
    #:executable-data
    #:make-executable-data
@@ -2515,6 +2521,7 @@
    #:chain-store-safe-block
    #:chain-store-finalized-block
    #:chain-store-export-indexes-to-kv
+   #:chain-store-export-block-records-to-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar

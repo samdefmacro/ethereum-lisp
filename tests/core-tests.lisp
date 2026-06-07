@@ -2114,7 +2114,8 @@
     (is (block-withdrawals-present-p block))
     (is (= 0 (length (block-withdrawals block))))
     (is (= 0 (length (block-transactions block))))
-    (is (= 0 (length (block-ommers block))))))
+    (is (= 0 (length (block-ommers block))))
+    (is (bytes= encoded (block-rlp block)))))
 
 (deftest executable-data-to-block-no-hash-builds-local-block
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -3285,6 +3286,80 @@
                  (kv-get-chain-checkpoint database :finalized)
                (is present-p)
                (is (bytes= (hash32-bytes (block-hash genesis)) value)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest chain-store-export-block-records-to-kv-persists-known-blocks
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-block-record-export-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (transaction
+           (make-legacy-transaction :nonce 1
+                                    :gas-price 2
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 3
+                                    :v 27
+                                    :r 4
+                                    :s 5))
+         (receipt
+           (make-receipt :status 1 :cumulative-gas-used 21000))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 7
+                               :parent-hash (zero-hash32)
+                               :timestamp 7
+                               :gas-limit 30000000)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (side-block
+           (make-block
+            :header
+            (make-block-header :number 7
+                               :parent-hash (zero-hash32)
+                               :timestamp 8
+                               :extra-data #(1)
+                               :gas-limit 30000000)))
+         (block-id (hash32-bytes (block-hash block)))
+         (side-block-id (hash32-bytes (block-hash side-block)))
+         (receipt-record
+           (rlp-encode
+            (make-rlp-list
+             (transaction-receipt-encoding transaction receipt)))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block store block :state-available-p t)
+           (chain-store-put-block store side-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (is (eq database
+                     (chain-store-export-block-records-to-kv
+                      store database))))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :block block-id)
+               (is present-p)
+               (is (bytes= (block-rlp block) value))
+               (is (bytes= (block-rlp (block-from-rlp value)) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :header block-id)
+               (is present-p)
+               (is (bytes= (block-header-rlp (block-header block)) value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :receipt block-id)
+               (is present-p)
+               (is (bytes= receipt-record value)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :block side-block-id)
+               (is present-p)
+               (is (bytes= (block-rlp side-block) value)))))
       (when (probe-file path)
         (delete-file path)))))
 

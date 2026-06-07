@@ -4146,6 +4146,10 @@ splits can land after the Phase A smoke path closes.
     batch commit. The export reconciles stale canonical heights and checkpoint
     labels, so a shorter canonical branch after reorg does not leave old
     number-to-hash records behind in the file-backed development store.
+  - Result: added canonical block RLP encoding plus chain-store export of
+    known block/header/receipt records into KV. The export keeps side-chain
+    blocks hash-retrievable in the development store and rejects incomplete
+    receipt records where a block's transaction and receipt counts diverge.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6
