@@ -147,7 +147,10 @@ fixes in those areas are allowed; expansion is not.
   indexes in the development store. The same readable chain view can be
   restored from KV into a fresh memory store for local block, transaction, and
   retained-state reads, including decoded typed receipt records for restored
-  block-receipt and transaction-receipt RPC visibility.
+  block-receipt and transaction-receipt RPC visibility. KV import now stages
+  and validates the restored readable tables before publishing them, so a
+  malformed record does not clear or partially replace an existing in-memory
+  chain-store view.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and

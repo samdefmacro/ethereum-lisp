@@ -3987,6 +3987,78 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-failure-keeps-existing-readable-data
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-failure-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (transaction
+           (make-legacy-transaction :nonce 1
+                                    :gas-price 2
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 3
+                                    :v 27
+                                    :r 4
+                                    :s 5))
+         (receipt
+           (make-receipt :status 1 :cumulative-gas-used 21000))
+         (source-block
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (zero-hash32)
+                               :timestamp 1
+                               :gas-limit 30000000)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :parent-hash (zero-hash32)
+                               :timestamp 9
+                               :gas-limit 30000000)))
+         (target-hash (block-hash target-block))
+         (source-id (hash32-bytes (block-hash source-block))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block source source-block :state-available-p t)
+           (chain-store-put-block target target-block :state-available-p t)
+           (chain-store-put-account-balance target target-hash recipient 55)
+           (chain-store-put-account-storage target target-hash recipient slot 66)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record database :receipt source-id #(1 2 3)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 9 (chain-store-head-number target)))
+           (is (bytes= (block-rlp target-block)
+                       (block-rlp
+                        (chain-store-block-by-number target 9))))
+           (is (not (chain-store-known-block
+                     target
+                     (block-hash source-block))))
+           (is (chain-store-state-available-p target target-hash))
+           (is (= 55 (chain-store-account-balance
+                      target target-hash recipient)))
+           (is (= 66 (chain-store-account-storage
+                      target target-hash recipient slot))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-update-forkchoice-checkpoints-rejects-safe-before-finalized
   (let* ((store (make-engine-payload-memory-store))
          (genesis

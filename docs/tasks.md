@@ -4174,6 +4174,11 @@ splits can land after the Phase A smoke path closes.
     import validates block existence, transaction/receipt counts, typed receipt
     prefixes, receipt bloom, per-receipt round-trip encoding, and the restored
     receipt root against the block header before exposing receipt RPC reads.
+  - Result: `chain-store-import-from-kv` now imports into a staging memory store
+    and publishes the restored readable tables only after every block, index,
+    checkpoint, receipt, state, and transaction-location record validates. A
+    malformed KV record no longer clears or partially overwrites an existing
+    readable chain-store view.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

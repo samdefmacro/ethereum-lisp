@@ -3327,6 +3327,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (make-chain-store-checkpoint :label :finalized))
   store)
 
+(defun chain-store-publish-readable-tables (store source)
+  (setf (engine-payload-memory-store-blocks store)
+        (engine-payload-memory-store-blocks source)
+        (engine-payload-memory-store-number-blocks store)
+        (engine-payload-memory-store-number-blocks source)
+        (engine-payload-memory-store-canonical-hashes store)
+        (engine-payload-memory-store-canonical-hashes source)
+        (engine-payload-memory-store-transaction-locations store)
+        (engine-payload-memory-store-transaction-locations source)
+        (engine-payload-memory-store-account-balances store)
+        (engine-payload-memory-store-account-balances source)
+        (engine-payload-memory-store-account-nonces store)
+        (engine-payload-memory-store-account-nonces source)
+        (engine-payload-memory-store-account-codes store)
+        (engine-payload-memory-store-account-codes source)
+        (engine-payload-memory-store-account-storage store)
+        (engine-payload-memory-store-account-storage source)
+        (engine-payload-memory-store-state-blocks store)
+        (engine-payload-memory-store-state-blocks source)
+        (engine-payload-memory-store-head-number store)
+        (engine-payload-memory-store-head-number source)
+        (engine-payload-memory-store-head-checkpoint store)
+        (engine-payload-memory-store-head-checkpoint source)
+        (engine-payload-memory-store-safe-checkpoint store)
+        (engine-payload-memory-store-safe-checkpoint source)
+        (engine-payload-memory-store-finalized-checkpoint store)
+        (engine-payload-memory-store-finalized-checkpoint source))
+  store)
+
 (defun chain-store-import-block-records-from-kv (store database)
   (dolist (entry (kv-chain-record-entries database :block))
     (let* ((identifier (car entry))
@@ -3443,28 +3472,33 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (receipt-from-rlp-object (rlp-decode-one (subseq encoded 1)))))))
 
 (defun block-receipts-from-record (block record)
-  (let* ((transactions (block-transactions block))
-         (encoded-receipts
-           (rlp-list-field (rlp-decode-one record) "Block receipt record")))
-    (unless (= (length transactions) (length encoded-receipts))
-      (block-validation-fail
-       "KV receipt record count does not match block transactions"))
-    (let ((receipts
-            (loop for transaction in transactions
-                  for encoded in encoded-receipts
-                  for receipt = (receipt-from-transaction-encoding
-                                 transaction encoded)
-                  do (unless (bytes= encoded
-                                      (transaction-receipt-encoding
-                                       transaction receipt))
-                       (block-validation-fail
-                        "KV receipt record does not round-trip"))
-                  collect receipt)))
-      (unless (hash32= (block-header-receipts-root (block-header block))
-                       (transaction-receipt-list-root transactions receipts))
-        (block-validation-fail
-         "KV receipt record root does not match block header"))
-      receipts)))
+  (handler-case
+      (let* ((transactions (block-transactions block))
+             (encoded-receipts
+               (rlp-list-field (rlp-decode-one record)
+                               "Block receipt record")))
+        (unless (= (length transactions) (length encoded-receipts))
+          (block-validation-fail
+           "KV receipt record count does not match block transactions"))
+        (let ((receipts
+                (loop for transaction in transactions
+                      for encoded in encoded-receipts
+                      for receipt = (receipt-from-transaction-encoding
+                                     transaction encoded)
+                      do (unless (bytes= encoded
+                                          (transaction-receipt-encoding
+                                           transaction receipt))
+                           (block-validation-fail
+                            "KV receipt record does not round-trip"))
+                      collect receipt)))
+          (unless (hash32= (block-header-receipts-root (block-header block))
+                           (transaction-receipt-list-root transactions
+                                                          receipts))
+            (block-validation-fail
+             "KV receipt record root does not match block header"))
+          receipts))
+    (rlp-error (condition)
+      (block-validation-fail "Invalid KV receipt record RLP: ~A" condition))))
 
 (defun chain-store-import-receipt-record-from-kv
     (store block-identifier receipt-record)
@@ -3574,13 +3608,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
       (block-validation-fail "Chain import source must be a key-value database"))
-    (chain-store-clear-readable-tables store)
-    (chain-store-import-block-records-from-kv store database)
-    (chain-store-import-canonical-indexes-from-kv store database)
-    (chain-store-import-checkpoints-from-kv store database)
-    (chain-store-import-receipt-records-from-kv store database)
-    (chain-store-import-state-records-from-kv store database)
-    (chain-store-import-transaction-locations-from-kv store database)
+    (let ((staging (make-engine-payload-memory-store)))
+      (chain-store-import-block-records-from-kv staging database)
+      (chain-store-import-canonical-indexes-from-kv staging database)
+      (chain-store-import-checkpoints-from-kv staging database)
+      (chain-store-import-receipt-records-from-kv staging database)
+      (chain-store-import-state-records-from-kv staging database)
+      (chain-store-import-transaction-locations-from-kv staging database)
+      (chain-store-publish-readable-tables store staging))
     store))
 
 (defun chain-store-put-prepared-payload (store prepared-payload)
