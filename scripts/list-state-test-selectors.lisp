@@ -82,6 +82,14 @@
       (error "JSON encoder is unavailable"))
     (funcall (symbol-function symbol) object)))
 
+(defun selector-script-reject-empty-selected-root (root label)
+  (when (and root
+             (not (selector-script-call "execution-spec-tests-json-paths"
+                                        root)))
+    (error "Configured EEST ~A fixture root contains no JSON files: ~A"
+           label
+           root)))
+
 (defun selector-script-main ()
   (load (merge-pathnames "tests/load-tests.lisp"
                          *ethereum-lisp-selector-script-root*))
@@ -97,6 +105,7 @@
     (selector-script-reject-missing-configured-root root-argument)
     (unless state-root
       (error "No EEST state_tests fixture root found. Pass a root path or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
+    (selector-script-reject-empty-selected-root state-root "state_tests")
     (let ((selectors
             (selector-script-call
              "discover-phase-a-eest-state-test-selectors"

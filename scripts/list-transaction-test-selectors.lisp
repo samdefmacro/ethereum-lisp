@@ -88,6 +88,14 @@
       (error "Fixture variable ~A is unavailable" name))
     (symbol-value symbol)))
 
+(defun selector-script-reject-empty-selected-root (root label)
+  (when (and root
+             (not (selector-script-call "execution-spec-tests-json-paths"
+                                        root)))
+    (error "Configured EEST ~A fixture root contains no JSON files: ~A"
+           label
+           root)))
+
 (defun selector-script-main ()
   (load (merge-pathnames "tests/load-tests.lisp"
                          *ethereum-lisp-selector-script-root*))
@@ -104,6 +112,9 @@
     (selector-script-reject-missing-configured-root root-argument)
     (unless transaction-root
       (error "No EEST transaction_tests fixture root found. Pass a root path or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
+    (selector-script-reject-empty-selected-root
+     transaction-root
+     "transaction_tests")
     (let* ((vectors
              (selector-script-call
               "load-phase-a-eest-transaction-test-root-vectors"

@@ -456,6 +456,13 @@ ones.
     validation errors and verifies the exact expected-exception token during
     smoke-gate execution, so selector-gated state replay cannot pass just
     because any execution error occurred.
+  - Result: hardened empty-suite fixture synchronization diagnostics. The
+    state, transaction, and blockchain selector-list scripts, the Phase A
+    fixture report, and the smoke gate now detect a selected EEST suite root
+    that exists but contains no JSON files before selector discovery or replay.
+    Empty partial extractions are reported as configured fixture-root errors,
+    so automation does not misclassify a broken pinned extraction as selector
+    drift or materializer failure.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.

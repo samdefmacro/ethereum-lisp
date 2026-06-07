@@ -1765,6 +1765,49 @@
         (run-script-with-missing-env-root script)
         (run-script-with-missing-explicit-root script)))))
 
+(deftest phase-a-fixture-sync-scripts-reject-empty-suite-root
+  #-sbcl
+  (skip-test "Phase A fixture sync scripts require SBCL")
+  #+sbcl
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-empty-fixture-sync-root-~A/"
+                    (devnet-cli-temp-token))
+            #P"/private/tmp/"))
+         (root-string (namestring root)))
+    (dolist (subdir '("state_tests/"
+                      "transaction_tests/"
+                      "blockchain_tests_engine/"))
+      (ensure-directories-exist (merge-pathnames subdir root)))
+    (labels ((run-script-with-empty-root (script)
+               (multiple-value-bind (stdout stderr status)
+                   (uiop:run-program
+                    (list "env"
+                          "-u"
+                          "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
+                          "sbcl"
+                          "--script"
+                          script
+                          "--"
+                          "--json"
+                          "--root"
+                          root-string)
+                    :output :string
+                    :error-output :string
+                    :ignore-error-status t)
+                 (is (not (= 0 status)))
+                 (is (string= "" stdout))
+                 (is (search root-string stderr))
+                 (is (search "contains no JSON files" stderr))
+                 (is (search "Configured EEST" stderr)))))
+      (dolist (script
+               '("scripts/phase-a-fixture-report.lisp"
+                 "scripts/phase-a-smoke-gate.lisp"
+                 "scripts/list-state-test-selectors.lisp"
+                 "scripts/list-transaction-test-selectors.lisp"
+                 "scripts/list-blockchain-replay-selectors.lisp"))
+        (run-script-with-empty-root script)))))
+
 (deftest phase-a-smoke-gate-script-can-include-devnet-suite
   #-sbcl
   (skip-test "Phase A smoke gate devnet mode requires SBCL")

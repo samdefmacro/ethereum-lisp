@@ -808,7 +808,10 @@ Detailed historical implementation notes for this section now live in
   mode the smoke gate requires an explicit suite root or
   `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, matching the optional fixture
   runner contract while keeping missing pinned fixture configuration
-  distinguishable from selector drift.
+  distinguishable from selector drift. The fixture synchronization scripts,
+  fixture report, and smoke gate now also classify selected-but-empty EEST
+  suite roots as configuration errors before selector discovery or replay, so
+  partial pinned extractions are not mistaken for selector drift.
   The individual state, transaction, and blockchain selector-listing scripts
   now also emit JSON so selector drift checks can consume structured output
   directly. `scripts/phase-a-smoke-gate.lisp` wraps those selector contracts in

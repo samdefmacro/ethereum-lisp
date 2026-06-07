@@ -99,6 +99,13 @@
       (error "Fixture variable ~A is unavailable" name))
     (symbol-value symbol)))
 
+(defun smoke-gate-reject-empty-selected-root (root label)
+  (when (and root
+             (not (smoke-gate-call "execution-spec-tests-json-paths" root)))
+    (error "Configured EEST ~A fixture root contains no JSON files: ~A"
+           label
+           root)))
+
 (defun smoke-gate-pinned-default-root ()
   (let ((root (uiop:getenv +smoke-gate-eest-root-env+)))
     (when (or (null root)
@@ -239,6 +246,7 @@
                                suite-root)))
     (cond
       (root
+       (smoke-gate-reject-empty-selected-root root "state_tests")
        (let* ((selectors
                 (smoke-gate-call
                  "discover-phase-a-eest-state-test-selectors"
@@ -289,6 +297,7 @@
                suite-root)))
     (cond
       (root
+       (smoke-gate-reject-empty-selected-root root "transaction_tests")
        (let* ((vectors
                 (smoke-gate-call
                  "load-phase-a-eest-transaction-test-root-vectors"
@@ -333,6 +342,7 @@
     (unless root
       (error "Phase A smoke gate requires an EEST blockchain root under ~A"
              suite-root))
+    (smoke-gate-reject-empty-selected-root root "blockchain")
     (let* ((kinds
              (if pinned-p
                  (smoke-gate-call
