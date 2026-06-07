@@ -44,7 +44,19 @@
    #:kv-batch-put-chain-record
    #:kv-batch-delete-chain-record
    #:kv-chain-records
-   #:kv-chain-record-entries))
+   #:kv-chain-record-entries
+   #:kv-put-chain-canonical-hash
+   #:kv-get-chain-canonical-hash
+   #:kv-delete-chain-canonical-hash
+   #:kv-batch-put-chain-canonical-hash
+   #:kv-batch-delete-chain-canonical-hash
+   #:kv-chain-canonical-hashes
+   #:kv-put-chain-checkpoint
+   #:kv-get-chain-checkpoint
+   #:kv-delete-chain-checkpoint
+   #:kv-batch-put-chain-checkpoint
+   #:kv-batch-delete-chain-checkpoint
+   #:kv-chain-checkpoints))
 
 (defpackage #:ethereum-lisp.telemetry
   (:use #:cl)
@@ -1043,7 +1055,19 @@
    #:kv-batch-put-chain-record
    #:kv-batch-delete-chain-record
    #:kv-chain-records
-   #:kv-chain-record-entries)
+   #:kv-chain-record-entries
+   #:kv-put-chain-canonical-hash
+   #:kv-get-chain-canonical-hash
+   #:kv-delete-chain-canonical-hash
+   #:kv-batch-put-chain-canonical-hash
+   #:kv-batch-delete-chain-canonical-hash
+   #:kv-chain-canonical-hashes
+   #:kv-put-chain-checkpoint
+   #:kv-get-chain-checkpoint
+   #:kv-delete-chain-checkpoint
+   #:kv-batch-put-chain-checkpoint
+   #:kv-batch-delete-chain-checkpoint
+   #:kv-chain-checkpoints)
   (:import-from #:ethereum-lisp.rlp
    #:rlp-error
    #:rlp-list
@@ -1929,6 +1953,18 @@
    #:kv-batch-delete-chain-record
    #:kv-chain-records
    #:kv-chain-record-entries
+   #:kv-put-chain-canonical-hash
+   #:kv-get-chain-canonical-hash
+   #:kv-delete-chain-canonical-hash
+   #:kv-batch-put-chain-canonical-hash
+   #:kv-batch-delete-chain-canonical-hash
+   #:kv-chain-canonical-hashes
+   #:kv-put-chain-checkpoint
+   #:kv-get-chain-checkpoint
+   #:kv-delete-chain-checkpoint
+   #:kv-batch-put-chain-checkpoint
+   #:kv-batch-delete-chain-checkpoint
+   #:kv-chain-checkpoints
    #:rlp-error
    #:rlp-list
    #:rlp-list-p

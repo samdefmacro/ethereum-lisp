@@ -4136,6 +4136,11 @@ splits can land after the Phase A smoke path closes.
     keeps successful put/delete/batch writes from exposing a directly half-
     written target file while the development backend remains intentionally
     simple.
+  - Result: added typed KV helpers for canonical number-to-hash records and
+    head/safe/finalized checkpoint records. Future chain-store persistence can
+    write and iterate canonical heights as integers and checkpoint labels as a
+    constrained enum instead of duplicating raw namespace-key conventions at
+    each call site.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

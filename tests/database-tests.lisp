@@ -196,6 +196,53 @@
       (is (eq :missing value))
       (is (not present-p)))))
 
+(deftest chain-record-typed-index-helpers-round-trip
+  (let ((database (make-memory-key-value-database))
+        (block-hash-a (make-byte-vector 32 :initial-element #x0a))
+        (block-hash-b (make-byte-vector 32 :initial-element #x0b))
+        (block-hash-c (make-byte-vector 32 :initial-element #x0c)))
+    (kv-put-chain-canonical-hash database 10 block-hash-b)
+    (kv-put-chain-canonical-hash database 2 block-hash-a)
+    (kv-put-chain-checkpoint database :head block-hash-b)
+    (kv-put-chain-checkpoint database "safe" block-hash-a)
+    (multiple-value-bind (value present-p)
+        (kv-get-chain-canonical-hash database 10)
+      (is present-p)
+      (is (bytes= block-hash-b value)))
+    (multiple-value-bind (value present-p)
+        (kv-get-chain-checkpoint database :head)
+      (is present-p)
+      (is (bytes= block-hash-b value)))
+    (let ((canonical-hashes (kv-chain-canonical-hashes database)))
+      (is (= 2 (length canonical-hashes)))
+      (is (= 2 (caar canonical-hashes)))
+      (is (bytes= block-hash-a (cdar canonical-hashes)))
+      (is (= 10 (caadr canonical-hashes)))
+      (is (bytes= block-hash-b (cdadr canonical-hashes))))
+    (let ((batch (make-kv-write-batch)))
+      (kv-batch-put-chain-canonical-hash batch 12 block-hash-c)
+      (kv-batch-put-chain-checkpoint batch :finalized block-hash-a)
+      (kv-batch-delete-chain-checkpoint batch :safe)
+      (kv-apply-batch database batch))
+    (let ((canonical-hashes (kv-chain-canonical-hashes database))
+          (checkpoints (kv-chain-checkpoints database)))
+      (is (= 3 (length canonical-hashes)))
+      (is (= 12 (caaddr canonical-hashes)))
+      (is (bytes= block-hash-c (cdaddr canonical-hashes)))
+      (is (= 2 (length checkpoints)))
+      (is (bytes= block-hash-b
+                  (cdr (assoc :head checkpoints))))
+      (is (bytes= block-hash-a
+                  (cdr (assoc :finalized checkpoints))))
+      (is (not (assoc :safe checkpoints))))
+    (is (kv-delete-chain-canonical-hash database 2))
+    (multiple-value-bind (value present-p)
+        (kv-get-chain-canonical-hash database 2 :missing)
+      (is (eq :missing value))
+      (is (not present-p)))
+    (signals error
+      (kv-put-chain-checkpoint database :unsafe block-hash-a))))
+
 (deftest file-key-value-database-persists-chain-record-namespace
   (let* ((path
            (merge-pathnames
@@ -219,6 +266,50 @@
                (is (= 2 (length records)))
                (is (bytes= #(4 4) (cdar records)))
                (is (bytes= #(6 6) (cdadr records))))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest file-key-value-database-persists-typed-chain-indexes
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-indexes-~A" (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (head-hash (make-byte-vector 32 :initial-element #x31))
+         (safe-hash (make-byte-vector 32 :initial-element #x32))
+         (side-hash (make-byte-vector 32 :initial-element #x33)))
+    (unwind-protect
+         (progn
+           (let ((database (make-file-key-value-database path))
+                 (batch (make-kv-write-batch)))
+             (kv-batch-put-chain-canonical-hash batch 1 safe-hash)
+             (kv-batch-put-chain-canonical-hash batch 2 head-hash)
+             (kv-batch-put-chain-checkpoint batch :head head-hash)
+             (kv-batch-put-chain-checkpoint batch :safe safe-hash)
+             (kv-batch-put-chain-checkpoint batch :finalized safe-hash)
+             (kv-apply-batch database batch)
+             (kv-put-chain-canonical-hash database 99 side-hash)
+             (kv-delete-chain-canonical-hash database 99))
+           (let ((database (make-file-key-value-database path)))
+             (let ((canonical-hashes (kv-chain-canonical-hashes database))
+                   (checkpoints (kv-chain-checkpoints database)))
+               (is (= 2 (length canonical-hashes)))
+               (is (= 1 (caar canonical-hashes)))
+               (is (bytes= safe-hash (cdar canonical-hashes)))
+               (is (= 2 (caadr canonical-hashes)))
+               (is (bytes= head-hash (cdadr canonical-hashes)))
+               (is (= 3 (length checkpoints)))
+               (is (bytes= head-hash
+                           (cdr (assoc :head checkpoints))))
+               (is (bytes= safe-hash
+                           (cdr (assoc :safe checkpoints))))
+               (is (bytes= safe-hash
+                           (cdr (assoc :finalized checkpoints)))))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-canonical-hash database 99 :missing)
+               (is (eq :missing value))
+               (is (not present-p)))))
       (when (probe-file path)
         (delete-file path)))))
 
