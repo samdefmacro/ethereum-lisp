@@ -4358,6 +4358,12 @@ splits can land after the Phase A smoke path closes.
     `devnet.shutdown` telemetry alongside the database export/restore check,
     and the outer Phase A `--devnet` gate runs and cleans up that full
     process-contract suite.
+  - Result: tightened the devnet database smoke gate from a head-summary
+    restore check to a public-RPC restore check. After each exported KV
+    snapshot is loaded into a fresh devnet node, the standalone gate now serves
+    the restored public listener and verifies `eth_blockNumber` plus the
+    fixture's checked balance through RPC, proving retained-state reads survive
+    the process/database boundary.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,

@@ -168,9 +168,12 @@ fixes in those areas are allowed; expansion is not.
   standalone devnet all-fixtures listener-boundary suite with per-case
   readiness JSON, `devnet.ready` / `devnet.shutdown` telemetry logs, and
   file-backed KV database export/restore enabled for every pinned Shanghai
-  case. The top-level Phase A process gate therefore covers authenticated
+  case. Restored KV snapshots are also served through a fresh public RPC
+  listener and checked for `eth_blockNumber` plus retained-state balance
+  reads. The top-level Phase A process gate therefore covers authenticated
   Engine import, forkchoice, public reads, runner readiness/shutdown signals,
-  and readable chain-store persistence across the local process boundary.
+  and readable chain-store persistence across the local process/database
+  boundary.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

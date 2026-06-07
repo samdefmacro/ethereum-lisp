@@ -1076,6 +1076,14 @@
                (is (string= (fixture-object-field report "blockNumber")
                             (fixture-object-field report
                                                   "databaseHeadNumber")))
+               (is (string= (fixture-object-field report "blockNumber")
+                            (fixture-object-field
+                             report "databaseRpcBlockNumber")))
+               (is (string= (fixture-object-field report "checkedBalance")
+                            (fixture-object-field
+                             report "databaseRpcBalance")))
+               (is (= 2 (fixture-object-field
+                         report "databaseRpcPublicConnections")))
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :canonical-hash))))
@@ -1197,6 +1205,14 @@
                  (is (string= (fixture-object-field case "blockNumber")
                               (fixture-object-field
                                case "databaseHeadNumber")))
+                 (is (string= (fixture-object-field case "blockNumber")
+                              (fixture-object-field
+                               case "databaseRpcBlockNumber")))
+                 (is (string= (fixture-object-field case "checkedBalance")
+                              (fixture-object-field
+                               case "databaseRpcBalance")))
+                 (is (= 2 (fixture-object-field
+                           case "databaseRpcPublicConnections")))
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
                  (is (probe-file
@@ -1414,7 +1430,16 @@
                (length (devnet-smoke-gate-case-database-files devnet))))
         (is (= 10 (fixture-object-field devnet "engineConnections")))
         (is (= 10 (fixture-object-field devnet "publicConnections")))
-        (is (= 20 (fixture-object-field devnet "totalConnections")))))))
+        (is (= 20 (fixture-object-field devnet "totalConnections")))
+        (dolist (case (fixture-object-field devnet "cases"))
+          (is (string= (fixture-object-field case "blockNumber")
+                       (fixture-object-field
+                        case "databaseRpcBlockNumber")))
+          (is (string= (fixture-object-field case "checkedBalance")
+                       (fixture-object-field
+                        case "databaseRpcBalance")))
+          (is (= 2 (fixture-object-field
+                    case "databaseRpcPublicConnections"))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
   #-sbcl

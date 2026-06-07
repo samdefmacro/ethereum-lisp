@@ -398,7 +398,90 @@
            "Log file public RPC endpoint mismatch"))))
     records))
 
-(defun devnet-smoke-gate-verify-database (path expected-block-number)
+(defun devnet-smoke-gate-verify-restored-public-rpc
+    (node expected-block-number balance-address expected-balance)
+  #+sbcl
+  (let ((block-number-output (make-string-output-stream))
+        (balance-output (make-string-output-stream))
+        (public-requests nil))
+    (setf public-requests
+          (list
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 41)
+                   (cons "method" "eth_blockNumber")
+                   (cons "params" '())))
+            block-number-output)
+           (cons
+            (json-encode
+             (engine-fixture-balance-request 42 balance-address))
+            balance-output)))
+    (let ((summary
+            (ethereum-lisp.cli:start-devnet-node-listeners
+             node
+             (make-engine-rpc-http-listener
+              :endpoint "restored-engine"
+              :accept-function (lambda () nil)
+              :close-function (lambda () nil))
+             (make-engine-rpc-http-listener
+              :endpoint "restored-public"
+              :accept-function
+              (lambda ()
+                (when public-requests
+                  (destructuring-bind (body . output)
+                      (pop public-requests)
+                    (make-engine-rpc-http-connection
+                     :input-stream
+                     (make-string-input-stream
+                      (devnet-cli-json-rpc-http-request body))
+                     :output-stream output
+                     :close-function (lambda () nil)))))
+              :close-function (lambda () nil))
+             :max-connections 2)))
+      (let* ((block-number-response
+               (get-output-stream-string block-number-output))
+             (balance-response
+               (get-output-stream-string balance-output))
+             (block-number-rpc
+               (devnet-smoke-gate-rpc-body block-number-response))
+             (balance-rpc
+               (devnet-smoke-gate-rpc-body balance-response))
+             (actual-block-number
+               (fixture-object-field block-number-rpc "result"))
+             (actual-balance
+               (fixture-object-field balance-rpc "result")))
+        (devnet-smoke-gate-require
+         (= 0 (getf summary :engine-connections))
+         "Restored database verification should not use Engine RPC")
+        (devnet-smoke-gate-require
+         (= 2 (getf summary :public-connections))
+         "Restored database verification expected 2 public RPC connections, got ~S"
+         (getf summary :public-connections))
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status block-number-response))
+         "Restored eth_blockNumber HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status balance-response))
+         "Restored eth_getBalance HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-block-number actual-block-number)
+         "Restored eth_blockNumber mismatch: expected ~A got ~A"
+         expected-block-number
+         actual-block-number)
+        (devnet-smoke-gate-require
+         (string= expected-balance actual-balance)
+         "Restored eth_getBalance mismatch: expected ~A got ~A"
+         expected-balance
+         actual-balance)
+        (list :block-number actual-block-number
+              :balance actual-balance
+              :public-connections (getf summary :public-connections)))))
+  #-sbcl
+  (error "Restored devnet public RPC verification requires SBCL threads"))
+
+(defun devnet-smoke-gate-verify-database
+    (path expected-block-number balance-address expected-balance)
   (let* ((database (make-file-key-value-database path))
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -408,7 +491,10 @@
               +devnet-cli-genesis-fixture+))
             :port 0
             :database-path path))
-         (summary (ethereum-lisp.cli:devnet-node-summary node)))
+         (summary (ethereum-lisp.cli:devnet-node-summary node))
+         (public-rpc-summary
+           (devnet-smoke-gate-verify-restored-public-rpc
+            node expected-block-number balance-address expected-balance)))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
      "Database export did not write block records")
@@ -424,7 +510,13 @@
     (devnet-smoke-gate-require
      (string= path (getf summary :database-path))
      "Database path missing from restored node summary")
-    summary))
+    (append summary
+            (list :rpc-block-number
+                  (getf public-rpc-summary :block-number)
+                  :rpc-balance
+                  (getf public-rpc-summary :balance)
+                  :rpc-public-connections
+                  (getf public-rpc-summary :public-connections)))))
 
 (defun devnet-smoke-gate-run
     (case-name &key ready-file log-file database-file)
@@ -616,7 +708,10 @@
                       (database-summary
                         (and database-file
                              (devnet-smoke-gate-verify-database
-                              database-file expected-block-number)))
+                              database-file
+                              expected-block-number
+                              balance-address
+                              expected-balance)))
                       (actual-block-number
                         (fixture-object-field block-number-rpc "result"))
                       (actual-balance
@@ -693,6 +788,18 @@
                         (if database-summary
                             (quantity-to-hex
                              (getf database-summary :head-number))
+                            :false))
+                  (cons "databaseRpcBlockNumber"
+                        (if database-summary
+                            (getf database-summary :rpc-block-number)
+                            :false))
+                  (cons "databaseRpcBalance"
+                        (if database-summary
+                            (getf database-summary :rpc-balance)
+                            :false))
+                  (cons "databaseRpcPublicConnections"
+                        (if database-summary
+                            (getf database-summary :rpc-public-connections)
                             :false)))))))))))
              (when ready-file
                (devnet-smoke-gate-verify-ready-file ready-file))
@@ -865,7 +972,11 @@
         (format t "databaseFile=~A~%"
                 (devnet-smoke-gate-field report "databaseFile"))
         (format t "databaseHeadNumber=~A~%"
-                (devnet-smoke-gate-field report "databaseHeadNumber")))))
+                (devnet-smoke-gate-field report "databaseHeadNumber"))
+        (format t "databaseRpcBlockNumber=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcBlockNumber"))
+        (format t "databaseRpcBalance=~A~%"
+                (devnet-smoke-gate-field report "databaseRpcBalance")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))
