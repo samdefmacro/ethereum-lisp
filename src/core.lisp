@@ -3298,6 +3298,192 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-populate-state-record-export-batch store database batch)
       (kv-apply-batch database batch))))
 
+(defun chain-store-clear-readable-tables (store)
+  (setf (engine-payload-memory-store-blocks store)
+        (make-hash-table :test 'equal)
+        (engine-payload-memory-store-number-blocks store)
+        (make-hash-table :test 'eql)
+        (engine-payload-memory-store-canonical-hashes store)
+        (make-hash-table :test 'eql)
+        (engine-payload-memory-store-transaction-locations store)
+        (make-hash-table :test 'equal)
+        (engine-payload-memory-store-account-balances store)
+        (make-hash-table :test 'equal)
+        (engine-payload-memory-store-account-nonces store)
+        (make-hash-table :test 'equal)
+        (engine-payload-memory-store-account-codes store)
+        (make-hash-table :test 'equal)
+        (engine-payload-memory-store-account-storage store)
+        (make-hash-table :test 'equal)
+        (engine-payload-memory-store-state-blocks store)
+        (make-hash-table :test 'equal)
+        (engine-payload-memory-store-head-number store)
+        0
+        (engine-payload-memory-store-head-checkpoint store)
+        (make-chain-store-checkpoint :label :head)
+        (engine-payload-memory-store-safe-checkpoint store)
+        (make-chain-store-checkpoint :label :safe)
+        (engine-payload-memory-store-finalized-checkpoint store)
+        (make-chain-store-checkpoint :label :finalized))
+  store)
+
+(defun chain-store-import-block-records-from-kv (store database)
+  (dolist (entry (kv-chain-record-entries database :block))
+    (let* ((identifier (car entry))
+           (block (block-from-rlp (cdr entry)))
+           (actual (hash32-bytes (block-hash block))))
+      (unless (bytes= identifier actual)
+        (block-validation-fail
+         "KV block record key does not match encoded block hash"))
+      (chain-store-put-block store block)))
+  (setf (engine-payload-memory-store-canonical-hashes store)
+        (make-hash-table :test 'eql)
+        (engine-payload-memory-store-number-blocks store)
+        (make-hash-table :test 'eql)
+        (engine-payload-memory-store-transaction-locations store)
+        (make-hash-table :test 'equal)))
+
+(defun chain-store-import-canonical-indexes-from-kv (store database)
+  (let ((head-number 0))
+    (dolist (entry (kv-chain-canonical-hashes database))
+      (let* ((number (car entry))
+             (hash (make-hash32 (cdr entry)))
+             (key (engine-payload-store-key hash))
+             (block (chain-store-known-block store hash)))
+        (unless block
+          (block-validation-fail
+           "KV canonical hash references an unknown block"))
+        (setf (gethash number
+                       (engine-payload-memory-store-canonical-hashes store))
+              key
+              (gethash number
+                       (engine-payload-memory-store-number-blocks store))
+              block)
+        (setf head-number (max head-number number))))
+    (setf (engine-payload-memory-store-head-number store) head-number)))
+
+(defun chain-store-import-checkpoints-from-kv (store database)
+  (dolist (entry (kv-chain-checkpoints database))
+    (let* ((label (car entry))
+           (hash (make-hash32 (cdr entry)))
+           (checkpoint
+             (make-chain-store-checkpoint :label label :block-hash hash)))
+      (unless (chain-store-known-block store hash)
+        (block-validation-fail
+         "KV checkpoint references an unknown block"))
+      (ecase label
+        (:head
+         (setf (engine-payload-memory-store-head-checkpoint store)
+               checkpoint))
+        (:safe
+         (setf (engine-payload-memory-store-safe-checkpoint store)
+               checkpoint))
+        (:finalized
+         (setf (engine-payload-memory-store-finalized-checkpoint store)
+               checkpoint))))))
+
+(defun state-storage-entry-from-rlp-object (value)
+  (let ((fields (rlp-list-field value "State storage snapshot entry")))
+    (unless (= (length fields) 2)
+      (block-validation-fail
+       "State storage snapshot entry must contain 2 fields"))
+    (cons (rlp-hash32-field (first fields) "State storage snapshot slot")
+          (rlp-uint-field (second fields)
+                          "State storage snapshot value"))))
+
+(defun state-account-snapshot-from-rlp-object (value)
+  (let ((fields (rlp-list-field value "State account snapshot")))
+    (unless (= (length fields) 5)
+      (block-validation-fail
+       "State account snapshot must contain 5 fields"))
+    (values
+     (rlp-address-field (first fields) "State account snapshot address")
+     (rlp-uint-field (second fields) "State account snapshot balance")
+     (rlp-uint-field (third fields) "State account snapshot nonce")
+     (rlp-bytes-field (fourth fields) "State account snapshot code")
+     (mapcar #'state-storage-entry-from-rlp-object
+             (rlp-list-field (fifth fields)
+                             "State account snapshot storage")))))
+
+(defun chain-store-import-state-record-from-kv
+    (store block-identifier state-record)
+  (let ((block-hash (make-hash32 block-identifier)))
+    (unless (chain-store-known-block store block-hash)
+      (block-validation-fail "KV state record references an unknown block"))
+    (setf (gethash (engine-payload-store-key block-hash)
+                   (engine-payload-memory-store-state-blocks store))
+          t)
+    (dolist (account (rlp-list-field (rlp-decode-one state-record)
+                                     "State snapshot"))
+      (multiple-value-bind (address balance nonce code storage-entries)
+          (state-account-snapshot-from-rlp-object account)
+        (chain-store-put-account-balance store block-hash address balance)
+        (chain-store-put-account-nonce store block-hash address nonce)
+        (chain-store-put-account-code store block-hash address code)
+        (dolist (entry storage-entries)
+          (chain-store-put-account-storage
+           store block-hash address (car entry) (cdr entry)))))))
+
+(defun chain-store-import-state-records-from-kv (store database)
+  (dolist (entry (kv-chain-record-entries database :state))
+    (chain-store-import-state-record-from-kv store (car entry) (cdr entry))))
+
+(defun transaction-location-record-values (record)
+  (let ((fields (rlp-list-field (rlp-decode-one record)
+                                "Transaction location record")))
+    (unless (= (length fields) 3)
+      (block-validation-fail
+       "Transaction location record must contain 3 fields"))
+    (values
+     (rlp-hash32-field (first fields) "Transaction location block hash")
+     (rlp-uint-field (second fields) "Transaction location index")
+     (rlp-uint-field (third fields) "Transaction location log index start"))))
+
+(defun chain-store-import-transaction-location-from-kv
+    (store transaction-identifier location-record)
+  (let ((transaction-hash (make-hash32 transaction-identifier)))
+    (multiple-value-bind (block-hash index log-index-start)
+        (transaction-location-record-values location-record)
+      (let* ((block (chain-store-known-block store block-hash))
+             (transactions (and block (block-transactions block))))
+        (unless block
+          (block-validation-fail
+           "KV transaction location references an unknown block"))
+        (unless (< index (length transactions))
+          (block-validation-fail
+           "KV transaction location index is outside the block body"))
+        (let ((transaction (nth index transactions))
+              (receipt (nth index (block-receipts block))))
+          (unless (hash32= transaction-hash (transaction-hash transaction))
+            (block-validation-fail
+             "KV transaction location key does not match block transaction"))
+          (setf (gethash (hash32-to-hex transaction-hash)
+                         (engine-payload-memory-store-transaction-locations
+                          store))
+                (make-engine-transaction-location
+                 :block block
+                 :index index
+                 :transaction transaction
+                 :receipt receipt
+                 :log-index-start log-index-start)))))))
+
+(defun chain-store-import-transaction-locations-from-kv (store database)
+  (dolist (entry (kv-chain-record-entries database :transaction-location))
+    (chain-store-import-transaction-location-from-kv
+     store (car entry) (cdr entry))))
+
+(defun chain-store-import-from-kv (store database)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail "Chain import source must be a key-value database"))
+    (chain-store-clear-readable-tables store)
+    (chain-store-import-block-records-from-kv store database)
+    (chain-store-import-canonical-indexes-from-kv store database)
+    (chain-store-import-checkpoints-from-kv store database)
+    (chain-store-import-state-records-from-kv store database)
+    (chain-store-import-transaction-locations-from-kv store database)
+    store))
+
 (defun chain-store-put-prepared-payload (store prepared-payload)
   (engine-payload-store-put-prepared-payload
    (chain-store-require-memory-store store)

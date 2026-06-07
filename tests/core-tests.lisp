@@ -3812,6 +3812,135 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-restores-readable-chain-data
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-~A" (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (store (make-engine-payload-memory-store))
+         (restored (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (transaction
+           (make-legacy-transaction :nonce 1
+                                    :gas-price 2
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 3
+                                    :v 27
+                                    :r 4
+                                    :s 5))
+         (receipt
+           (make-receipt :status 1 :cumulative-gas-used 21000))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :timestamp 0
+                               :gas-limit 30000000)))
+         (branch-a-1
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (branch-a-2
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash branch-a-1)
+                               :timestamp 2
+                               :gas-limit 30000000)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (branch-b-1
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :timestamp 3
+                               :extra-data #(1)
+                               :gas-limit 30000000)))
+         (transaction-hash (transaction-hash transaction)))
+    (unwind-protect
+         (progn
+           (dolist (block (list genesis branch-a-1 branch-a-2 branch-b-1))
+             (chain-store-put-block store block :state-available-p t))
+           (chain-store-put-account-balance
+            store (block-hash branch-a-2) recipient 11)
+           (chain-store-put-account-nonce
+            store (block-hash branch-a-2) recipient 7)
+           (chain-store-put-account-code
+            store (block-hash branch-a-2) recipient #(1 2 3))
+           (chain-store-put-account-storage
+            store (block-hash branch-a-2) recipient slot 22)
+           (chain-store-update-forkchoice-checkpoints
+            store
+            (make-forkchoice-state
+             :head-block-hash (block-hash branch-a-2)
+             :safe-block-hash (block-hash branch-a-1)
+             :finalized-block-hash (block-hash genesis)))
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv store database))
+           (let ((database (make-file-key-value-database path)))
+             (is (eq restored
+                     (chain-store-import-from-kv restored database))))
+           (is (= 2 (chain-store-head-number restored)))
+           (is (bytes= (hash32-bytes (block-hash branch-a-2))
+                       (hash32-bytes
+                        (chain-store-canonical-hash restored 2))))
+           (is (bytes= (block-rlp branch-a-2)
+                       (block-rlp
+                        (chain-store-block-by-number restored 2))))
+           (is (bytes= (block-rlp branch-b-1)
+                       (block-rlp
+                        (chain-store-known-block
+                         restored
+                         (block-hash branch-b-1)))))
+           (is (bytes= (hash32-bytes (block-hash branch-a-2))
+                       (hash32-bytes
+                        (chain-store-checkpoint-block-hash
+                         (chain-store-head-checkpoint restored)))))
+           (is (bytes= (hash32-bytes (block-hash branch-a-1))
+                       (hash32-bytes
+                        (chain-store-checkpoint-block-hash
+                         (chain-store-safe-checkpoint restored)))))
+           (is (bytes= (hash32-bytes (block-hash genesis))
+                       (hash32-bytes
+                        (chain-store-checkpoint-block-hash
+                         (chain-store-finalized-checkpoint restored)))))
+           (let ((location
+                   (chain-store-transaction-location
+                    restored transaction-hash)))
+             (is (typep location 'engine-transaction-location))
+             (is (= 0 (engine-transaction-location-index location)))
+             (is (eq nil (engine-transaction-location-receipt location)))
+             (is (bytes= (transaction-encoding transaction)
+                         (transaction-encoding
+                          (engine-transaction-location-transaction
+                           location)))))
+           (is (chain-store-state-available-p
+                restored
+                (block-hash branch-a-2)))
+           (is (= 11 (chain-store-account-balance
+                      restored (block-hash branch-a-2) recipient)))
+           (is (= 7 (chain-store-account-nonce
+                     restored (block-hash branch-a-2) recipient)))
+           (is (bytes= #(1 2 3)
+                       (chain-store-account-code
+                        restored (block-hash branch-a-2) recipient)))
+           (is (= 22 (chain-store-account-storage
+                      restored (block-hash branch-a-2) recipient slot))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-update-forkchoice-checkpoints-rejects-safe-before-finalized
   (let* ((store (make-engine-payload-memory-store))
          (genesis

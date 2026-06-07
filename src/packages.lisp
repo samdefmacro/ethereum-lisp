@@ -669,6 +669,7 @@
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
    #:chain-store-export-to-kv
+   #:chain-store-import-from-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
@@ -1636,6 +1637,7 @@
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
    #:chain-store-export-to-kv
+   #:chain-store-import-from-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar
@@ -2533,6 +2535,7 @@
    #:chain-store-export-transaction-locations-to-kv
    #:chain-store-export-state-records-to-kv
    #:chain-store-export-to-kv
+   #:chain-store-import-from-kv
    #:chain-store-put-prepared-payload
    #:chain-store-prepared-payload
    #:engine-payload-store-put-blob-sidecar

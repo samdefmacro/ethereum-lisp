@@ -144,7 +144,10 @@ fixes in those areas are allowed; expansion is not.
   account snapshots can be exported as block-hash keyed state records. A
   combined chain-store export path now writes those readable chain records
   through one KV batch, so encoding failures do not leave half-persisted
-  indexes in the development store.
+  indexes in the development store. The same readable chain view can be
+  restored from KV into a fresh memory store for local block, transaction, and
+  retained-state reads; receipt record decoding remains a later persistence
+  slice.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and

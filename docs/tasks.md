@@ -4164,6 +4164,11 @@ splits can land after the Phase A smoke path closes.
     records, canonical transaction locations, and state-available snapshots in
     one write batch. If any export record cannot be encoded, the batch is not
     applied, preventing half-persisted chain indexes in the development store.
+  - Result: added `chain-store-import-from-kv` to restore the readable
+    chain-store view from KV into a fresh memory store. The importer rebuilds
+    known blocks, canonical number indexes, head/safe/finalized checkpoints,
+    canonical transaction lookup entries, and state-available account
+    snapshots. Receipt record decoding remains a later persistence slice.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6
