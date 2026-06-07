@@ -384,14 +384,65 @@
     (block-validation-fail "~A params must contain exactly one block id"
                            method))
   (let ((value (first params)))
-    (if (and (stringp value)
-             (= 66 (length value)))
-        (chain-store-known-block
-         store
-         (eth-rpc-hash-param params method "block hash"))
-        (chain-store-block-by-number
-         store
-         (eth-rpc-block-number-param params store method)))))
+    (cond
+      ((json-object-p value)
+       (eth-rpc-block-object-param value store method))
+      ((and (stringp value)
+            (= 66 (length value)))
+       (chain-store-known-block
+        store
+        (eth-rpc-hash-param params method "block hash")))
+      (t
+       (chain-store-block-by-number
+        store
+        (eth-rpc-block-number-param params store method))))))
+
+(defun eth-rpc-block-object-require-canonical-p (object method)
+  (if (genesis-object-field-present-p object "requireCanonical")
+      (let ((value (genesis-object-field object "requireCanonical")))
+        (unless (or (eq value t) (eq value :true)
+                    (eq value nil) (eq value :false))
+          (block-validation-fail
+           "~A requireCanonical must be a boolean"
+           method))
+        (or (eq value t) (eq value :true)))
+      nil))
+
+(defun eth-rpc-block-object-param (object store method)
+  (let ((hash-present-p (genesis-object-field-present-p object "blockHash"))
+        (number-present-p (genesis-object-field-present-p object "blockNumber")))
+    (when (or (and hash-present-p number-present-p)
+              (and (not hash-present-p) (not number-present-p)))
+      (block-validation-fail
+       "~A block id object must contain exactly one of blockHash or blockNumber"
+       method))
+    (if hash-present-p
+        (let* ((hash (eth-rpc-hash-param
+                      (list (genesis-object-field object "blockHash"))
+                      method
+                      "block hash"))
+               (block (chain-store-known-block store hash))
+               (require-canonical-p
+                 (eth-rpc-block-object-require-canonical-p object method)))
+          (when (and block require-canonical-p
+                     (not (engine-payload-store-canonical-block-p
+                           (chain-store-require-memory-store store)
+                           block)))
+            (block-validation-fail
+             "~A block hash is not canonical"
+             method))
+          block)
+        (progn
+          (when (genesis-object-field-present-p object "requireCanonical")
+            (block-validation-fail
+             "~A requireCanonical requires blockHash"
+             method))
+          (chain-store-block-by-number
+           store
+           (eth-rpc-block-number-param
+            (list (genesis-object-field object "blockNumber"))
+            store
+            method))))))
 
 (defun eth-rpc-state-block-param (params store method)
   (let ((block (eth-rpc-block-param params store method)))

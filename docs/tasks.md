@@ -4070,6 +4070,11 @@ splits can land after the Phase A smoke path closes.
   - Completed: `eth_call` now parses a first legacy-style call object, rebuilds
     retained block state, executes recipient code against a copied state DB,
     and returns EVM output without committing state writes.
+  - Progress: retained-state block parameters now accept EIP-1898-style
+    `blockHash` / `blockNumber` objects across shared state reads and
+    simulation methods. Hash-pinned side-chain state can be queried through
+    `eth_getBalance` and executed through `eth_call`, while
+    `requireCanonical: true` rejects non-canonical block hashes.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7

@@ -12106,6 +12106,108 @@
                (chain-store-account-storage
                 store (block-hash block) contract slot)))))))
 
+(deftest eth-rpc-state-methods-support-block-identifier-objects
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (word-hex (value)
+             (let ((bytes (make-byte-vector 32)))
+               (setf (aref bytes 31) value)
+               (bytes-to-hex bytes)))
+           (state-with-contract (contract balance return-value)
+             (let ((state (make-state-db)))
+               (state-db-set-account
+                state
+                contract
+                (make-state-account :balance balance))
+               (state-db-set-code
+                state
+                contract
+                (vector #x60 return-value #x60 #x00 #x52
+                        #x60 #x20 #x60 #x00 #xf3))
+               state))
+           (state-block (parent number timestamp state)
+             (make-block
+              :header (make-block-header
+                       :parent-hash (and parent (block-hash parent))
+                       :number number
+                       :timestamp timestamp
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state)))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (contract
+             (address-from-hex "0x0000000000000000000000000000000000000e19"))
+           (genesis-state (make-state-db))
+           (genesis (state-block nil 0 0 genesis-state))
+           (canonical-state (state-with-contract contract 11 1))
+           (side-state (state-with-contract contract 22 2))
+           (canonical-block (state-block genesis 1 12 canonical-state))
+           (side-block (state-block genesis 1 24 side-state))
+           (side-selector
+             (list (cons "blockHash" (hash32-to-hex (block-hash side-block)))))
+           (side-canonical-selector
+             (list (cons "blockHash" (hash32-to-hex (block-hash side-block)))
+                   (cons "requireCanonical" t)))
+           (call-object
+             (list (cons "to" (address-to-hex contract))
+                   (cons "gas" (quantity-to-hex 100000)))))
+      (dolist (block (list genesis canonical-block side-block))
+        (chain-store-put-block store block :state-available-p t))
+      (commit-state-db-to-chain-store store (block-hash genesis) genesis-state)
+      (commit-state-db-to-chain-store
+       store
+       (block-hash canonical-block)
+       canonical-state)
+      (commit-state-db-to-chain-store store (block-hash side-block) side-state)
+      (chain-store-set-canonical-head store (block-hash canonical-block))
+      (let* ((latest-balance-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 131)
+                      (cons "method" "eth_getBalance")
+                      (cons "params" (list (address-to-hex contract) "latest")))
+                store
+                config))
+             (side-balance-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 132)
+                      (cons "method" "eth_getBalance")
+                      (cons "params"
+                            (list (address-to-hex contract) side-selector)))
+                store
+                config))
+             (side-call-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 133)
+                      (cons "method" "eth_call")
+                      (cons "params" (list call-object side-selector)))
+                store
+                config))
+             (side-require-canonical-response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 134)
+                      (cons "method" "eth_getBalance")
+                      (cons "params"
+                            (list (address-to-hex contract)
+                                  side-canonical-selector)))
+                store
+                config))
+             (side-require-canonical-error
+               (field side-require-canonical-response "error")))
+        (is (string= (quantity-to-hex 11)
+                     (field latest-balance-response "result")))
+        (is (string= (quantity-to-hex 22)
+                     (field side-balance-response "result")))
+        (is (string= (word-hex 2)
+                     (field side-call-response "result")))
+        (is (= -32602 (field side-require-canonical-error "code")))
+        (is (string= "eth_getBalance block hash is not canonical"
+                     (field side-require-canonical-error "message")))))))
+
 (deftest eth-rpc-estimate-gas-binary-searches-retained-state-call
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

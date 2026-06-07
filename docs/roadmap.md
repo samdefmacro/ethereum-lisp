@@ -80,7 +80,11 @@ fixes in those areas are allowed; expansion is not.
   committing writes, and `eth_estimateGas` can binary-search retained-state
   call simulations for simple transfers and contract calls while detecting
   reverts. `eth_createAccessList` can turn retained-state call access tracking
-  into geth-shaped access-list and gas-used results. Signed block import,
+  into geth-shaped access-list and gas-used results. Retained-state RPC block
+  selectors now also accept EIP-1898-style `blockHash` / `blockNumber`
+  objects, including `requireCanonical` rejection for side-chain hashes, so
+  hash-pinned side-chain state can be read and simulated without changing
+  canonical indexes. Signed block import,
   Engine payload import, transaction admission, and mined transaction RPC
   objects require real sender recovery rather than zero-address fallbacks. The
   in-memory Engine import path is atomic for state DB plus block, receipt,
