@@ -4159,6 +4159,11 @@ splits can land after the Phase A smoke path closes.
     account balance, nonce, code, and storage entries for local RPC reads, and
     stale state records are deleted when a block is no longer marked
     state-available.
+  - Result: added a combined `chain-store-export-to-kv` entry point that
+    synchronizes canonical indexes/checkpoints, known block/header/receipt
+    records, canonical transaction locations, and state-available snapshots in
+    one write batch. If any export record cannot be encoded, the batch is not
+    applied, preventing half-persisted chain indexes in the development store.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

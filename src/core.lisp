@@ -3110,36 +3110,39 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         when (and label hash)
           collect label))
 
+(defun chain-store-populate-index-export-batch (store database batch)
+  (dolist (entry (kv-chain-canonical-hashes database))
+    (unless (gethash (car entry)
+                     (engine-payload-memory-store-canonical-hashes store))
+      (kv-batch-delete-chain-canonical-hash batch (car entry))))
+  (let ((checkpoint-labels
+          (chain-store-checkpoint-labels-with-hashes store)))
+    (dolist (entry (kv-chain-checkpoints database))
+      (unless (member (car entry) checkpoint-labels)
+        (kv-batch-delete-chain-checkpoint batch (car entry)))))
+  (maphash
+   (lambda (number key)
+     (kv-batch-put-chain-canonical-hash
+      batch
+      number
+      (hash32-bytes (hash32-from-hex key))))
+   (engine-payload-memory-store-canonical-hashes store))
+  (chain-store-export-checkpoint-to-kv
+   batch
+   (engine-payload-memory-store-head-checkpoint store))
+  (chain-store-export-checkpoint-to-kv
+   batch
+   (engine-payload-memory-store-safe-checkpoint store))
+  (chain-store-export-checkpoint-to-kv
+   batch
+   (engine-payload-memory-store-finalized-checkpoint store)))
+
 (defun chain-store-export-indexes-to-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
       (block-validation-fail "Chain index export target must be a key-value database"))
     (let ((batch (make-kv-write-batch)))
-      (dolist (entry (kv-chain-canonical-hashes database))
-        (unless (gethash (car entry)
-                         (engine-payload-memory-store-canonical-hashes store))
-          (kv-batch-delete-chain-canonical-hash batch (car entry))))
-      (let ((checkpoint-labels
-              (chain-store-checkpoint-labels-with-hashes store)))
-        (dolist (entry (kv-chain-checkpoints database))
-          (unless (member (car entry) checkpoint-labels)
-            (kv-batch-delete-chain-checkpoint batch (car entry)))))
-      (maphash
-       (lambda (number key)
-         (kv-batch-put-chain-canonical-hash
-          batch
-          number
-          (hash32-bytes (hash32-from-hex key))))
-       (engine-payload-memory-store-canonical-hashes store))
-      (chain-store-export-checkpoint-to-kv
-       batch
-       (engine-payload-memory-store-head-checkpoint store))
-      (chain-store-export-checkpoint-to-kv
-       batch
-       (engine-payload-memory-store-safe-checkpoint store))
-      (chain-store-export-checkpoint-to-kv
-       batch
-       (engine-payload-memory-store-finalized-checkpoint store))
+      (chain-store-populate-index-export-batch store database batch)
       (kv-apply-batch database batch))))
 
 (defun block-receipts-record-rlp (block)
@@ -3163,17 +3166,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (kv-batch-put-chain-record
      batch :receipt identifier (block-receipts-record-rlp block))))
 
+(defun chain-store-populate-block-record-export-batch (store batch)
+  (maphash
+   (lambda (key block)
+     (declare (ignore key))
+     (chain-store-export-block-record-to-kv batch block))
+   (engine-payload-memory-store-blocks store)))
+
 (defun chain-store-export-block-records-to-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
       (block-validation-fail
        "Chain block record export target must be a key-value database"))
     (let ((batch (make-kv-write-batch)))
-      (maphash
-       (lambda (key block)
-         (declare (ignore key))
-         (chain-store-export-block-record-to-kv batch block))
-       (engine-payload-memory-store-blocks store))
+      (chain-store-populate-block-record-export-batch store batch)
       (kv-apply-batch database batch))))
 
 (defun transaction-location-record-rlp (location)
@@ -3192,30 +3198,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (hash32-bytes (hash32-from-hex transaction-key))
    (transaction-location-record-rlp location)))
 
+(defun chain-store-populate-transaction-location-export-batch
+    (store database batch)
+  (let ((canonical-transaction-keys (make-hash-table :test 'equal)))
+    (maphash
+     (lambda (transaction-key location)
+       (when (engine-payload-store-canonical-block-p
+              store
+              (engine-transaction-location-block location))
+         (setf (gethash transaction-key canonical-transaction-keys) t)
+         (chain-store-export-transaction-location-to-kv
+          batch
+          transaction-key
+          location)))
+     (engine-payload-memory-store-transaction-locations store))
+    (dolist (entry (kv-chain-record-entries database :transaction-location))
+      (unless (gethash (bytes-to-hex (car entry)) canonical-transaction-keys)
+        (kv-batch-delete-chain-record
+         batch
+         :transaction-location
+         (car entry))))))
+
 (defun chain-store-export-transaction-locations-to-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
       (block-validation-fail
        "Chain transaction location export target must be a key-value database"))
-    (let ((batch (make-kv-write-batch))
-          (canonical-transaction-keys (make-hash-table :test 'equal)))
-      (maphash
-       (lambda (transaction-key location)
-         (when (engine-payload-store-canonical-block-p
-                store
-                (engine-transaction-location-block location))
-           (setf (gethash transaction-key canonical-transaction-keys) t)
-           (chain-store-export-transaction-location-to-kv
-            batch
-            transaction-key
-            location)))
-       (engine-payload-memory-store-transaction-locations store))
-      (dolist (entry (kv-chain-record-entries database :transaction-location))
-        (unless (gethash (bytes-to-hex (car entry)) canonical-transaction-keys)
-          (kv-batch-delete-chain-record
-           batch
-           :transaction-location
-           (car entry))))
+    (let ((batch (make-kv-write-batch)))
+      (chain-store-populate-transaction-location-export-batch
+       store database batch)
       (kv-apply-batch database batch))))
 
 (defun state-storage-entry-rlp-object (entry)
@@ -3254,21 +3265,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (hash32-bytes block-hash)
      (chain-store-state-record-rlp store block-hash))))
 
+(defun chain-store-populate-state-record-export-batch
+    (store database batch)
+  (dolist (entry (kv-chain-record-entries database :state))
+    (unless (gethash (bytes-to-hex (car entry))
+                     (engine-payload-memory-store-state-blocks store))
+      (kv-batch-delete-chain-record batch :state (car entry))))
+  (maphash
+   (lambda (block-key state-available-p)
+     (when state-available-p
+       (chain-store-export-state-record-to-kv store batch block-key)))
+   (engine-payload-memory-store-state-blocks store)))
+
 (defun chain-store-export-state-records-to-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
       (block-validation-fail
        "Chain state record export target must be a key-value database"))
     (let ((batch (make-kv-write-batch)))
-      (dolist (entry (kv-chain-record-entries database :state))
-        (unless (gethash (bytes-to-hex (car entry))
-                         (engine-payload-memory-store-state-blocks store))
-          (kv-batch-delete-chain-record batch :state (car entry))))
-      (maphash
-       (lambda (block-key state-available-p)
-         (when state-available-p
-           (chain-store-export-state-record-to-kv store batch block-key)))
-       (engine-payload-memory-store-state-blocks store))
+      (chain-store-populate-state-record-export-batch store database batch)
+      (kv-apply-batch database batch))))
+
+(defun chain-store-export-to-kv (store database)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail "Chain export target must be a key-value database"))
+    (let ((batch (make-kv-write-batch)))
+      (chain-store-populate-index-export-batch store database batch)
+      (chain-store-populate-block-record-export-batch store batch)
+      (chain-store-populate-transaction-location-export-batch
+       store database batch)
+      (chain-store-populate-state-record-export-batch store database batch)
       (kv-apply-batch database batch))))
 
 (defun chain-store-put-prepared-payload (store prepared-payload)
