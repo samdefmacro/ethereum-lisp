@@ -3511,6 +3511,121 @@
         (when (probe-file path)
           (delete-file path))))))
 
+(deftest chain-store-export-state-records-to-kv-persists-snapshots
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-state-record-export-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (store (make-engine-payload-memory-store))
+         (address-a
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (address-b
+           (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (slot-a
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000003"))
+         (slot-b
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000004"))
+         (block-a
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (zero-hash32)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (block-b
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash block-a)
+                               :timestamp 2
+                               :gas-limit 30000000)))
+         (block-a-id (hash32-bytes (block-hash block-a)))
+         (block-b-id (hash32-bytes (block-hash block-b))))
+    (labels ((state-record-accounts (record)
+               (rlp-list-items (rlp-decode-one record)))
+             (account-fields (account-record)
+               (let ((items (rlp-list-items account-record)))
+                 (values (first items)
+                         (bytes-to-integer (second items))
+                         (bytes-to-integer (third items))
+                         (fourth items)
+                         (rlp-list-items (fifth items)))))
+             (storage-entry-fields (entry)
+               (let ((items (rlp-list-items entry)))
+                 (values (first items)
+                         (bytes-to-integer (second items))))))
+      (unwind-protect
+           (progn
+             (chain-store-put-block store block-a :state-available-p t)
+             (chain-store-put-block store block-b :state-available-p t)
+             (chain-store-put-account-storage store (block-hash block-a)
+                                              address-b slot-b 22)
+             (chain-store-put-account-balance store (block-hash block-a)
+                                              address-a 11)
+             (chain-store-put-account-nonce store (block-hash block-a)
+                                            address-a 7)
+             (chain-store-put-account-code store (block-hash block-a)
+                                           address-a #(1 2))
+             (chain-store-put-account-storage store (block-hash block-a)
+                                              address-a slot-a 33)
+             (chain-store-put-account-balance store (block-hash block-b)
+                                              address-a 44)
+             (let ((database (make-file-key-value-database path)))
+               (is (eq database
+                       (chain-store-export-state-records-to-kv
+                        store database))))
+             (let ((database (make-file-key-value-database path)))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record database :state block-a-id)
+                 (is present-p)
+                 (let ((accounts (state-record-accounts value)))
+                   (is (= 2 (length accounts)))
+                   (multiple-value-bind (address balance nonce code storage)
+                       (account-fields (first accounts))
+                     (is (bytes= (address-bytes address-a) address))
+                     (is (= 11 balance))
+                     (is (= 7 nonce))
+                     (is (bytes= #(1 2) code))
+                     (is (= 1 (length storage)))
+                     (multiple-value-bind (slot value)
+                         (storage-entry-fields (first storage))
+                       (is (bytes= (hash32-bytes slot-a) slot))
+                       (is (= 33 value))))
+                   (multiple-value-bind (address balance nonce code storage)
+                       (account-fields (second accounts))
+                     (is (bytes= (address-bytes address-b) address))
+                     (is (= 0 balance))
+                     (is (= 0 nonce))
+                     (is (bytes= #() code))
+                     (is (= 1 (length storage)))
+                     (multiple-value-bind (slot value)
+                         (storage-entry-fields (first storage))
+                       (is (bytes= (hash32-bytes slot-b) slot))
+                       (is (= 22 value))))))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record database :state block-b-id)
+                 (is present-p)
+                 (is (= 1 (length (state-record-accounts value))))))
+             (chain-store-put-block store block-a)
+             (let ((database (make-file-key-value-database path)))
+               (chain-store-export-state-records-to-kv store database))
+             (let ((database (make-file-key-value-database path)))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record database :state block-a-id :missing)
+                 (is (eq :missing value))
+                 (is (not present-p)))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record database :state block-b-id)
+                 (is present-p)
+                 (is (= 1 (length (state-record-accounts value)))))))
+        (when (probe-file path)
+          (delete-file path))))))
+
 (deftest chain-store-update-forkchoice-checkpoints-rejects-safe-before-finalized
   (let* ((store (make-engine-payload-memory-store))
          (genesis

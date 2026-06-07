@@ -140,7 +140,8 @@ fixes in those areas are allowed; expansion is not.
   that KV substrate while deleting stale canonical heights after reorg, and it
   can export known block/header/receipt records while preserving side-chain
   block records by hash. Canonical transaction-location indexes can also be
-  exported to KV with stale entries deleted after reorg.
+  exported to KV with stale entries deleted after reorg, and state-available
+  account snapshots can be exported as block-hash keyed state records.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and

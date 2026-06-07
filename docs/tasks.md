@@ -4154,6 +4154,11 @@ splits can land after the Phase A smoke path closes.
     into KV. The export records the block hash, transaction index, and starting
     log index for canonical transactions and deletes stale transaction-location
     entries after reorg.
+  - Result: added chain-store export of state-available account snapshots into
+    KV state records. Each block-hash keyed snapshot records deterministic
+    account balance, nonce, code, and storage entries for local RPC reads, and
+    stale state records are deleted when a block is no longer marked
+    state-available.
 
 - [x] Add freezer/static-history planning notes.
   - Milestone: 6

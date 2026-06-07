@@ -3218,6 +3218,59 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            (car entry))))
       (kv-apply-batch database batch))))
 
+(defun state-storage-entry-rlp-object (entry)
+  (make-rlp-list
+   (hash32-bytes (car entry))
+   (cdr entry)))
+
+(defun state-account-snapshot-rlp-object
+    (address balance nonce code storage-entries)
+  (make-rlp-list
+   (address-bytes address)
+   balance
+   nonce
+   code
+   (apply #'make-rlp-list
+          (mapcar #'state-storage-entry-rlp-object storage-entries))))
+
+(defun chain-store-state-record-rlp (store block-hash)
+  (let ((accounts '()))
+    (chain-store-for-each-account
+     store
+     block-hash
+     (lambda (address balance nonce code storage-entries)
+       (push
+        (state-account-snapshot-rlp-object
+         address balance nonce code storage-entries)
+        accounts)))
+    (rlp-encode (apply #'make-rlp-list (nreverse accounts)))))
+
+(defun chain-store-export-state-record-to-kv
+    (store batch block-key)
+  (let ((block-hash (hash32-from-hex block-key)))
+    (kv-batch-put-chain-record
+     batch
+     :state
+     (hash32-bytes block-hash)
+     (chain-store-state-record-rlp store block-hash))))
+
+(defun chain-store-export-state-records-to-kv (store database)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Chain state record export target must be a key-value database"))
+    (let ((batch (make-kv-write-batch)))
+      (dolist (entry (kv-chain-record-entries database :state))
+        (unless (gethash (bytes-to-hex (car entry))
+                         (engine-payload-memory-store-state-blocks store))
+          (kv-batch-delete-chain-record batch :state (car entry))))
+      (maphash
+       (lambda (block-key state-available-p)
+         (when state-available-p
+           (chain-store-export-state-record-to-kv store batch block-key)))
+       (engine-payload-memory-store-state-blocks store))
+      (kv-apply-batch database batch))))
+
 (defun chain-store-put-prepared-payload (store prepared-payload)
   (engine-payload-store-put-prepared-payload
    (chain-store-require-memory-store store)
