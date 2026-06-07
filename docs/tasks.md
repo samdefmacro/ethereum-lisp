@@ -4398,6 +4398,11 @@ splits can land after the Phase A smoke path closes.
     `eth_getTransactionCount`. Each database-backed devnet case now verifies
     the fixture-declared post-execution sender nonce survives KV export/import
     and remains readable through a fresh public RPC listener.
+  - Result: extended the restored public-RPC database check to block
+    transaction-count, raw-transaction-by-block/index, and
+    transaction-by-block/index reads. Each database-backed devnet case now
+    verifies restored canonical block bodies and transaction indexes are
+    readable by both block hash and block number after KV export/import.
   - Result: extended the standalone devnet smoke gate with `--all-fixtures`.
     The gate now replays every pinned Phase A `engine_newPayloadV2` smoke case
     declared in the fixture metadata, including legacy, access-list,
