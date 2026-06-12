@@ -17,6 +17,7 @@
 (defconstant +smoke-gate-eest-release+ "v5.4.0")
 (defconstant +smoke-gate-eest-tag-target+ "88e9fb8")
 (defconstant +smoke-gate-eest-archive+ "fixtures_stable.tar.gz")
+(defconstant +smoke-gate-devnet-prune-state-before+ 42)
 
 (defun smoke-gate-arguments ()
   #+sbcl
@@ -418,7 +419,10 @@
                     "--log-file"
                     log-file
                     "--database"
-                    database-file)
+                    database-file
+                    "--prune-state-before"
+                    (write-to-string
+                     +smoke-gate-devnet-prune-state-before+))
               :output :string
               :error-output :string
               :ignore-error-status t)
@@ -540,6 +544,13 @@
               (smoke-gate-field devnet "logCaseCount"))
       (format t "devnetDatabaseCaseCount=~D~%"
               (smoke-gate-field devnet "databaseCaseCount"))
+      (format t "devnetDatabasePruneStateBefore=~A~%"
+              (smoke-gate-field devnet "databasePruneStateBefore"))
+      (format t "devnetDatabasePrunedStateCaseCount=~D~%"
+              (smoke-gate-field devnet "databasePrunedStateCaseCount"))
+      (format t "devnetDatabaseRpcPrunedStateErrorCaseCount=~D~%"
+              (smoke-gate-field
+               devnet "databaseRpcPrunedStateErrorCaseCount"))
       (format t "devnetTotalConnections=~D~%"
               (smoke-gate-field devnet "totalConnections")))))
 

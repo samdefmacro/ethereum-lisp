@@ -74,6 +74,50 @@
   (< (hex-to-quantity (fixture-object-field report "safeBlockNumber"))
      prune-boundary))
 
+(defun devnet-cli-assert-pruned-state-case
+    (case prune-boundary)
+  (if (devnet-cli-pruned-state-covered-p case prune-boundary)
+      (progn
+        (is (eq nil
+                (fixture-object-field
+                 case "databasePrunedStateAvailable")))
+        (is (string= "eth_getBalance state is not available"
+                     (fixture-object-field
+                      case "databaseRpcPrunedStateError")))
+        (is (equal (devnet-cli-pruned-state-error-messages)
+                   (fixture-object-field
+                    case "databaseRpcPrunedStateErrors"))))
+      (progn
+        (is (eq t
+                (fixture-object-field
+                 case "databasePrunedStateAvailable")))
+        (is (eq nil
+                (fixture-object-field
+                 case "databaseRpcPrunedStateError")))
+        (is (eq nil
+                (fixture-object-field
+                 case "databaseRpcPrunedStateErrors"))))))
+
+(defun devnet-cli-assert-pruned-state-suite
+    (report cases prune-boundary)
+  (let ((pruned-case-count
+          (count-if
+           (lambda (case)
+             (devnet-cli-pruned-state-covered-p case prune-boundary))
+           cases)))
+    (is (< 0 pruned-case-count))
+    (is (< pruned-case-count (length cases)))
+    (is (= prune-boundary
+           (fixture-object-field report "databasePruneStateBefore")))
+    (is (= pruned-case-count
+           (fixture-object-field
+            report "databasePrunedStateCaseCount")))
+    (is (= pruned-case-count
+           (fixture-object-field
+            report "databaseRpcPrunedStateErrorCaseCount")))
+    (dolist (case cases)
+      (devnet-cli-assert-pruned-state-case case prune-boundary))))
+
 (defun devnet-cli-engine-fixture-payload-number (case-name)
   (let* ((case (select-engine-newpayload-v2-fixture-case
                 +engine-newpayload-v2-fixture-path+
@@ -1513,27 +1557,12 @@
                       (length log-files)))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
-               (is (= prune-boundary
-                      (fixture-object-field
-                       report "databasePruneStateBefore")))
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
                       (fixture-object-field report "databaseCaseCount")))
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
                       (length database-files)))
-               (let ((pruned-case-count
-                       (count-if
-                        (lambda (case)
-                          (devnet-cli-pruned-state-covered-p
-                           case prune-boundary))
-                        cases)))
-                 (is (< 0 pruned-case-count))
-                 (is (< pruned-case-count (length cases)))
-                 (is (= pruned-case-count
-                        (fixture-object-field
-                         report "databasePrunedStateCaseCount")))
-                 (is (= pruned-case-count
-                        (fixture-object-field
-                         report "databaseRpcPrunedStateErrorCaseCount"))))
+               (devnet-cli-assert-pruned-state-suite
+                report cases prune-boundary)
                (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
                (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
@@ -1572,31 +1601,6 @@
                  (is (string= (fixture-object-field case "finalizedBlockHash")
                               (fixture-object-field
                                case "databaseFinalizedHash")))
-                 (if (devnet-cli-pruned-state-covered-p
-                      case prune-boundary)
-                     (progn
-                       (is (eq nil
-                               (fixture-object-field
-                                case "databasePrunedStateAvailable")))
-                       (is (string= "eth_getBalance state is not available"
-                                    (fixture-object-field
-                                     case "databaseRpcPrunedStateError")))
-                       (let ((errors
-                               (fixture-object-field
-                                case "databaseRpcPrunedStateErrors")))
-                         (is (equal
-                              (devnet-cli-pruned-state-error-messages)
-                              errors))))
-                     (progn
-                       (is (eq t
-                               (fixture-object-field
-                                case "databasePrunedStateAvailable")))
-                       (is (eq nil
-                               (fixture-object-field
-                                case "databaseRpcPrunedStateError")))
-                       (is (eq nil
-                               (fixture-object-field
-                                case "databaseRpcPrunedStateErrors")))))
                  (is (string= (fixture-object-field case "blockNumber")
                               (fixture-object-field
                                case "databaseRpcBlockNumber")))
@@ -1983,24 +1987,26 @@
   #-sbcl
   (skip-test "Phase A smoke gate devnet mode requires SBCL")
   #+sbcl
-  (multiple-value-bind (stdout stderr status)
-      (uiop:run-program
-       (list "sbcl"
-             "--script"
-             "scripts/phase-a-smoke-gate.lisp"
-             "--"
-             "--json"
-             "--devnet")
-       :output :string
-       :error-output :string
-       :ignore-error-status t)
-    (is (= 0 status))
-    (is (string= "" stderr))
-    (when (= 0 status)
-      (let* ((report (parse-json stdout))
-             (reference-clients
-               (fixture-object-field report "referenceClients"))
-             (devnet (fixture-object-field report "devnet")))
+  (let ((prune-boundary 42))
+    (multiple-value-bind (stdout stderr status)
+        (uiop:run-program
+         (list "sbcl"
+               "--script"
+               "scripts/phase-a-smoke-gate.lisp"
+               "--"
+               "--json"
+               "--devnet")
+         :output :string
+         :error-output :string
+         :ignore-error-status t)
+      (is (= 0 status))
+      (is (string= "" stderr))
+      (when (= 0 status)
+        (let* ((report (parse-json stdout))
+               (reference-clients
+                 (fixture-object-field report "referenceClients"))
+               (devnet (fixture-object-field report "devnet"))
+               (cases (fixture-object-field devnet "cases")))
         (is (string= "ok" (fixture-object-field report "status")))
         (is (string= "in-repo" (fixture-object-field report "mode")))
         (phase-a-smoke-gate-assert-execution-spec-tests-source report)
@@ -2029,13 +2035,15 @@
                (fixture-object-field devnet "databaseCaseCount")))
         (is (= (length +engine-newpayload-v2-smoke-case-names+)
                (length (devnet-smoke-gate-case-database-files devnet))))
+        (devnet-cli-assert-pruned-state-suite
+         devnet cases prune-boundary)
         (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
         (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
-        (dolist (case (fixture-object-field devnet "cases"))
+        (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")
                        (fixture-object-field
                         case "databaseRpcBlockNumber")))
@@ -2215,7 +2223,7 @@
                         case "databaseRpcPostCallStorage")))
           (is (= (devnet-cli-restored-public-connections case)
                  (fixture-object-field
-                  case "databaseRpcPublicConnections"))))))))
+                  case "databaseRpcPublicConnections")))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
   #-sbcl

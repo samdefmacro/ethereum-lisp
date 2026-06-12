@@ -445,6 +445,11 @@ ones.
     child script through the repository-root path, and the devnet gate resolves
     its genesis plus Engine fixture inputs from the script root, so external
     runners can invoke the gate from temporary working directories.
+  - Result: Phase A smoke-gate `--devnet` mode now passes a retained-state
+    pruning boundary into the child all-fixtures devnet gate. The top-level
+    Phase A JSON/text report includes the child pruning boundary, covered
+    pruned-case count, and pruned-state RPC error count, and CLI tests assert
+    the same retained-state unavailable contract through the parent gate.
   - Result: hardened pinned smoke-gate root handling. `--pinned-v5.4.0` now
     requires an explicit `--root PATH` or
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent
@@ -4575,6 +4580,8 @@ splits can land after the Phase A smoke path closes.
     whose checkpoint is above the pruning boundary do not emit pruned-state
     errors. The CLI all-fixtures process test now runs with
     `--prune-state-before 42` and validates both covered and uncovered cases.
+    The outer Phase A `--devnet` gate now invokes that pruned all-fixtures
+    suite and validates the propagated pruning counts in its own report.
 
 ## Recently Completed
 

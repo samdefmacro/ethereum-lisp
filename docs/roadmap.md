@@ -202,10 +202,11 @@ fixes in those areas are allowed; expansion is not.
   that covered safe/finalized state has been removed without losing the
   checkpoint block or head-state RPC readability, while retained-state reads
   and simulations against the pruned checkpoint fail with the explicit
-  retained-state unavailable errors. Suite mode now runs that pruning contract
-  across the pinned Shanghai all-fixtures set, reports covered pruned cases and
-  pruned-error cases, and distinguishes fixtures whose checkpoint state is not
-  covered by the selected pruning boundary.
+  retained-state unavailable errors. The outer Phase A `--devnet` gate now
+  runs that pruning contract across the pinned Shanghai all-fixtures set,
+  reports covered pruned cases and pruned-error cases, and distinguishes
+  fixtures whose checkpoint state is not covered by the selected pruning
+  boundary.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected
