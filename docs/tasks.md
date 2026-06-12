@@ -4330,6 +4330,12 @@ splits can land after the Phase A smoke path closes.
     prune stale KV entries on export, validate key/id consistency on import,
     and reject malformed records during staging without replacing existing
     prepared payloads.
+  - Result: the standalone devnet smoke gate now exercises that prepared
+    payload persistence across the process boundary. Each database-backed
+    pinned Shanghai devnet run prepares a V2 payload through authenticated
+    `engine_forkchoiceUpdatedV2`, exports the KV snapshot, restores it into a
+    fresh node, and verifies `engine_getPayloadV2` can read the prepared
+    payload by id.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject

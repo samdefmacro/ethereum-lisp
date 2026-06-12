@@ -1585,7 +1585,20 @@
                (is (= (devnet-cli-restored-public-connections report)
                       (fixture-object-field
                        report "databaseRpcPublicConnections")))
+               (is (string= (fixture-object-field report "preparedPayloadId")
+                            (fixture-object-field
+                             report "databaseRpcPreparedPayloadId")))
+               (is (string= (fixture-object-field
+                              report "preparedPayloadParentHash")
+                            (fixture-object-field
+                             report "databaseRpcPreparedPayloadParentHash")))
+               (is (string= (fixture-object-field
+                              report "preparedPayloadBlockNumber")
+                            (fixture-object-field
+                             report "databaseRpcPreparedPayloadBlockNumber")))
                (is (< 0 (length (kv-chain-record-entries database :block))))
+               (is (< 0 (length (kv-chain-record-entries
+                                 database :prepared-payload))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :canonical-hash))))
                (is (string= "engine"
@@ -1729,11 +1742,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 3 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 3 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 6 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
                (dolist (case cases)
@@ -1747,8 +1760,8 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 2 (fixture-object-field case "engineConnections")))
-                   (is (= 2 (fixture-object-field case "publicConnections")))
+                   (is (= 3 (fixture-object-field case "engineConnections")))
+                   (is (= 3 (fixture-object-field case "publicConnections")))
                    (is (string= expected-block-number
                                 (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")
@@ -1941,6 +1954,17 @@
                  (is (= (devnet-cli-restored-public-connections case)
                         (fixture-object-field
                          case "databaseRpcPublicConnections")))
+                 (is (string= (fixture-object-field case "preparedPayloadId")
+                              (fixture-object-field
+                               case "databaseRpcPreparedPayloadId")))
+                 (is (string= (fixture-object-field
+                                case "preparedPayloadParentHash")
+                              (fixture-object-field
+                               case "databaseRpcPreparedPayloadParentHash")))
+                 (is (string= (fixture-object-field
+                                case "preparedPayloadBlockNumber")
+                              (fixture-object-field
+                               case "databaseRpcPreparedPayloadBlockNumber")))
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
                  (is (probe-file
@@ -2203,11 +2227,11 @@
                (length (devnet-smoke-gate-case-database-files devnet))))
         (devnet-cli-assert-pruned-state-suite
          devnet cases prune-boundary)
-        (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 3 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 3 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 6 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")
@@ -2389,7 +2413,18 @@
                         case "databaseRpcPostCallStorage")))
           (is (= (devnet-cli-restored-public-connections case)
                  (fixture-object-field
-                  case "databaseRpcPublicConnections")))))))))
+                  case "databaseRpcPublicConnections")))
+          (is (string= (fixture-object-field case "preparedPayloadId")
+                       (fixture-object-field
+                        case "databaseRpcPreparedPayloadId")))
+          (is (string= (fixture-object-field
+                         case "preparedPayloadParentHash")
+                       (fixture-object-field
+                        case "databaseRpcPreparedPayloadParentHash")))
+          (is (string= (fixture-object-field
+                         case "preparedPayloadBlockNumber")
+                       (fixture-object-field
+                        case "databaseRpcPreparedPayloadBlockNumber")))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
   #-sbcl

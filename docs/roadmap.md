@@ -245,9 +245,13 @@ fixes in those areas are allowed; expansion is not.
   `eth_getTransactionByHash` and transaction by block/index canonical
   transaction lookup, safe/finalized checkpoint number/hash persistence plus
   `eth_getBlockByNumber("safe"|"finalized")` checkpoint-tag reads, and
-  `eth_getBlockReceipts` block-receipt lookup. Restored executable-code cases
-  also probe an under-gassed `eth_call` and assert the public RPC reports the
-  retained non-revert execution failure as a JSON-RPC error.
+  `eth_getBlockReceipts` block-receipt lookup. The same database-backed gate
+  now also prepares an Engine payload through authenticated
+  `engine_forkchoiceUpdatedV2`, exports it, restores the database into a fresh
+  node, and verifies `engine_getPayloadV2` can read the prepared payload by id.
+  Restored executable-code cases also probe an under-gassed `eth_call` and
+  assert the public RPC reports the retained non-revert execution failure as a
+  JSON-RPC error.
   Multi-transaction restored blocks verify all declared recipient balances plus
   every transaction's receipt, raw transaction, and block/index lookup. The
   top-level Phase A process gate therefore covers authenticated Engine import,

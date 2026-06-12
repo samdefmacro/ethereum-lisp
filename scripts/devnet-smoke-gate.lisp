@@ -495,6 +495,27 @@
         (cons "gasPrice" "0x64")
         (cons "data" "0x")))
 
+(defun devnet-smoke-gate-payload-attributes-v2
+    (parent-block suggested-fee-recipient)
+  (let ((parent-header (block-header parent-block)))
+    (list (cons "timestamp"
+                (quantity-to-hex
+                 (1+ (block-header-timestamp parent-header))))
+          (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+          (cons "suggestedFeeRecipient"
+                (address-to-hex suggested-fee-recipient))
+          (cons "withdrawals" '()))))
+
+(defun devnet-smoke-gate-forkchoice-v2-payload-attributes-request
+    (id head payload-attributes
+     &key (safe (zero-hash32)) (finalized (zero-hash32)))
+  (let ((request (devnet-cli-engine-forkchoice-v2-request
+                  id head :safe safe :finalized finalized)))
+    (setf (cdr (assoc "params" request :test #'string=))
+          (list (first (fixture-object-field request "params"))
+                payload-attributes))
+    request))
+
 (defun devnet-smoke-gate-access-list-entry (access-list address)
   (find (address-to-hex address)
         access-list
@@ -1980,6 +2001,110 @@
   #-sbcl
   (error "Restored devnet public RPC verification requires SBCL threads"))
 
+(defun devnet-smoke-gate-verify-restored-engine-rpc
+    (node payload-id expected-parent-hash expected-block-number
+     expected-head-block-number)
+  #+sbcl
+  (let* ((engine-output (make-string-output-stream))
+         (public-output (make-string-output-stream))
+         (engine-served-count 0)
+         (public-served-count 0)
+         (engine-done-p nil)
+         (engine-request
+           (json-encode
+            (list (cons "jsonrpc" "2.0")
+                  (cons "id" 170)
+                  (cons "method" "engine_getPayloadV2")
+                  (cons "params" (list payload-id)))))
+         (public-request
+           (json-encode
+            (list (cons "jsonrpc" "2.0")
+                  (cons "id" 171)
+                  (cons "method" "eth_blockNumber")
+                  (cons "params" '()))))
+         (summary
+           (ethereum-lisp.cli:start-devnet-node-listeners
+            node
+            (make-engine-rpc-http-listener
+             :endpoint "restored-engine-prepared-payload"
+             :accept-function
+             (lambda ()
+               (unless engine-done-p
+                 (make-engine-rpc-http-connection
+                  :input-stream
+                  (make-string-input-stream
+                   (devnet-cli-json-rpc-http-request engine-request))
+                  :output-stream engine-output
+                  :close-function
+                  (lambda ()
+                    (incf engine-served-count)
+                    (setf engine-done-p t)))))
+             :close-function (lambda () nil))
+            (make-engine-rpc-http-listener
+             :endpoint "restored-public-prepared-payload"
+             :accept-function
+             (lambda ()
+               (loop until engine-done-p
+                     do (sleep 0.001))
+               (make-engine-rpc-http-connection
+                :input-stream
+                (make-string-input-stream
+                 (devnet-cli-json-rpc-http-request public-request))
+                :output-stream public-output
+                :close-function
+                (lambda () (incf public-served-count))))
+             :close-function (lambda () nil))
+            :max-connections 1))
+         (engine-response (get-output-stream-string engine-output))
+         (public-response (get-output-stream-string public-output))
+         (engine-rpc (devnet-smoke-gate-rpc-body engine-response))
+         (public-rpc (devnet-smoke-gate-rpc-body public-response))
+         (payload
+           (fixture-object-field
+            (fixture-object-field engine-rpc "result")
+            "executionPayload")))
+    (devnet-smoke-gate-require
+     (= 1 (getf summary :engine-connections))
+     "Restored Engine prepared-payload probe expected 1 Engine connection, got ~S"
+     (getf summary :engine-connections))
+    (devnet-smoke-gate-require
+     (= 1 (getf summary :public-connections))
+     "Restored Engine prepared-payload probe expected 1 public connection, got ~S"
+     (getf summary :public-connections))
+    (devnet-smoke-gate-require
+     (= 200 (devnet-cli-http-status engine-response))
+     "Restored engine_getPayloadV2 HTTP status mismatch")
+    (devnet-smoke-gate-require
+     (= 200 (devnet-cli-http-status public-response))
+     "Restored prepared-payload eth_blockNumber HTTP status mismatch")
+    (devnet-smoke-gate-require
+     (not (fixture-object-field engine-rpc "error"))
+     "Restored engine_getPayloadV2 returned an error")
+    (devnet-smoke-gate-require
+     (string= (hash32-to-hex expected-parent-hash)
+              (fixture-object-field payload "parentHash"))
+     "Restored prepared payload parent hash mismatch")
+    (devnet-smoke-gate-require
+     (string= expected-block-number
+              (fixture-object-field payload "blockNumber"))
+     "Restored prepared payload block number mismatch")
+    (devnet-smoke-gate-require
+     (string= expected-head-block-number
+              (fixture-object-field public-rpc "result"))
+     "Restored prepared-payload public block number mismatch")
+    (list :prepared-payload-id payload-id
+          :prepared-payload-parent-hash
+          (fixture-object-field payload "parentHash")
+          :prepared-payload-block-number
+          (fixture-object-field payload "blockNumber")
+          :engine-connections engine-served-count
+          :public-connections public-served-count))
+  #-sbcl
+  (declare (ignore node payload-id expected-parent-hash expected-block-number
+                   expected-head-block-number))
+  #-sbcl
+  (error "Restored devnet Engine RPC verification requires SBCL threads"))
+
 (defun devnet-smoke-gate-verify-database
     (path expected-block-number balance-targets
      sender-address expected-sender-nonce
@@ -1987,7 +2112,9 @@
      transaction-checks log-targets block-hash
      expected-safe-block-number expected-safe-block-hash
      expected-finalized-block-number expected-finalized-block-hash
-     &key state-prune-before pruned-state-hash)
+     &key state-prune-before pruned-state-hash
+          prepared-payload-id prepared-payload-parent-hash
+          prepared-payload-block-number)
   (let* ((database (make-file-key-value-database path))
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -2024,13 +2151,25 @@
             expected-finalized-block-number
             expected-finalized-block-hash
             :pruned-state-rpc-tag
-            (when pruned-state-expected-p "safe"))))
+            (when pruned-state-expected-p "safe")))
+         (engine-rpc-summary
+           (and prepared-payload-id
+                (devnet-smoke-gate-verify-restored-engine-rpc
+                 node
+                 prepared-payload-id
+                 prepared-payload-parent-hash
+                 prepared-payload-block-number
+                 expected-block-number))))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
      "Database export did not write block records")
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :canonical-hash)))
      "Database export did not write canonical hash records")
+    (when prepared-payload-id
+      (devnet-smoke-gate-require
+       (< 0 (length (kv-chain-record-entries database :prepared-payload)))
+       "Database export did not write prepared payload records"))
     (devnet-smoke-gate-require
      (= (hex-to-quantity expected-block-number)
         (getf summary :head-number))
@@ -2173,7 +2312,21 @@
                   :rpc-pruned-state-error-messages
                   (getf public-rpc-summary :pruned-state-error-messages)
                   :rpc-public-connections
-                  (getf public-rpc-summary :public-connections)))))
+                  (getf public-rpc-summary :public-connections)
+                  :rpc-prepared-payload-id
+                  (and engine-rpc-summary
+                       (getf engine-rpc-summary :prepared-payload-id))
+                  :rpc-prepared-payload-parent-hash
+                  (and engine-rpc-summary
+                       (getf engine-rpc-summary
+                             :prepared-payload-parent-hash))
+                  :rpc-prepared-payload-block-number
+                  (and engine-rpc-summary
+                       (getf engine-rpc-summary
+                             :prepared-payload-block-number))
+                  :rpc-engine-connections
+                  (and engine-rpc-summary
+                       (getf engine-rpc-summary :engine-connections))))))
 
 (defun devnet-smoke-gate-run
     (case-name &key ready-file log-file database-file state-prune-before)
@@ -2234,14 +2387,20 @@
                   (token (engine-rpc-make-jwt-token secret 0))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
+                  (prepare-payload-output (make-string-output-stream))
                   (block-number-output (make-string-output-stream))
                   (balance-output (make-string-output-stream))
+                  (prepared-public-output (make-string-output-stream))
                   (balance-targets
                     (devnet-smoke-gate-balance-targets expect))
                   (transaction-checks
                     (devnet-smoke-gate-transaction-checks child-block))
                   (log-targets
                     (devnet-smoke-gate-log-targets expect))
+                  (prepare-payload-attributes
+                    (devnet-smoke-gate-payload-attributes-v2
+                     child-block
+                     (getf (first balance-targets) :address)))
                   (engine-requests
                     (list
                      (cons
@@ -2254,7 +2413,16 @@
                         22 (block-hash child-block)
                         :safe (block-hash parent-block)
                         :finalized (block-hash parent-block)))
-                      forkchoice-output)))
+                      forkchoice-output)
+                     (cons
+                      (json-encode
+                       (devnet-smoke-gate-forkchoice-v2-payload-attributes-request
+                        23
+                        (block-hash child-block)
+                        prepare-payload-attributes
+                        :safe (block-hash parent-block)
+                        :finalized (block-hash parent-block)))
+                      prepare-payload-output)))
                   (public-requests
                     (let ((target (first balance-targets)))
                       (setf balance-address (getf target :address)
@@ -2285,7 +2453,14 @@
                        (cons
                         (json-encode
                          (engine-fixture-balance-request 32 balance-address))
-                        balance-output))))
+                        balance-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 33)
+                               (cons "method" "eth_blockNumber")
+                               (cons "params" '())))
+                        prepared-public-output))))
                   (engine-served-count 0)
                   (engine-done-p nil)
                   (public-served-count 0))
@@ -2313,7 +2488,7 @@
                               :close-function
                               (lambda ()
                                 (incf engine-served-count)
-                                (when (= engine-served-count 2)
+                                (when (= engine-served-count 3)
                                   (setf engine-done-p t)))))))
                        :close-function (lambda () nil))
                       (make-engine-rpc-http-listener
@@ -2333,7 +2508,7 @@
                               :close-function
                               (lambda () (incf public-served-count))))))
                       :close-function (lambda () nil))
-                      :max-connections 2
+                      :max-connections 3
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
                         (let ((engine-endpoint
@@ -2354,10 +2529,6 @@
                              "devnet.ready"
                              :engine-endpoint engine-endpoint
                              :rpc-endpoint rpc-endpoint)))))))
-               (when database-file
-                 (ethereum-lisp.cli::devnet-node-export-database
-                  node
-                  :state-prune-before state-prune-before))
                (when log-file
                  (ethereum-lisp.cli::devnet-cli-log-event
                   node
@@ -2368,67 +2539,66 @@
                         (get-output-stream-string new-payload-output))
                       (forkchoice-response
                         (get-output-stream-string forkchoice-output))
+                      (prepare-payload-response
+                        (get-output-stream-string prepare-payload-output))
                       (block-number-response
                         (get-output-stream-string block-number-output))
                       (balance-response
                         (get-output-stream-string balance-output))
+                      (prepared-public-response
+                        (get-output-stream-string prepared-public-output))
                       (new-payload-rpc
                         (devnet-smoke-gate-rpc-body new-payload-response))
                       (forkchoice-rpc
                         (devnet-smoke-gate-rpc-body forkchoice-response))
+                      (prepare-payload-rpc
+                        (devnet-smoke-gate-rpc-body prepare-payload-response))
                       (block-number-rpc
                         (devnet-smoke-gate-rpc-body block-number-response))
                       (balance-rpc
                         (devnet-smoke-gate-rpc-body balance-response))
+                      (prepared-public-rpc
+                        (devnet-smoke-gate-rpc-body prepared-public-response))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
                         (fixture-object-field
                          (fixture-object-field forkchoice-rpc "result")
                          "payloadStatus"))
+                      (prepare-payload-result
+                        (fixture-object-field prepare-payload-rpc "result"))
+                      (prepare-payload-status
+                        (fixture-object-field
+                         prepare-payload-result
+                         "payloadStatus"))
+                      (prepared-payload-id
+                        (fixture-object-field
+                         prepare-payload-result
+                         "payloadId"))
                       (expected-hash
                         (hash32-to-hex (block-hash child-block)))
                   (expected-block-number
                     (fixture-object-field payload-case "number"))
+                  (expected-prepared-block-number
+                    (quantity-to-hex
+                     (1+ (block-header-number (block-header child-block)))))
                   (expected-safe-block-number
                     (quantity-to-hex
                      (block-header-number (block-header parent-block))))
                   (expected-safe-block-hash (block-hash parent-block))
                   (expected-finalized-block-number expected-safe-block-number)
                   (expected-finalized-block-hash expected-safe-block-hash)
-                  (database-summary
-                    (and database-file
-                         (devnet-smoke-gate-verify-database
-                              database-file
-                              expected-block-number
-                              balance-targets
-                              sender-address
-                              expected-sender-nonce
-                              code-address
-                              expected-code
-                              storage-address
-                              storage-key
-                              expected-storage
-                          transaction-checks
-                          log-targets
-                          (block-hash child-block)
-                          expected-safe-block-number
-                          expected-safe-block-hash
-                          expected-finalized-block-number
-                          expected-finalized-block-hash
-                          :state-prune-before state-prune-before
-                          :pruned-state-hash expected-safe-block-hash)))
                       (actual-block-number
                         (fixture-object-field block-number-rpc "result"))
                       (actual-balance
                         (fixture-object-field balance-rpc "result")))
                  (devnet-smoke-gate-require
-                  (= 2 (getf summary :engine-connections))
-                  "Expected 2 Engine connections, got ~S"
+                  (= 3 (getf summary :engine-connections))
+                  "Expected 3 Engine connections, got ~S"
                   (getf summary :engine-connections))
                  (devnet-smoke-gate-require
-                  (= 2 (getf summary :public-connections))
-                  "Expected 2 public RPC connections, got ~S"
+                  (= 3 (getf summary :public-connections))
+                  "Expected 3 public RPC connections, got ~S"
                   (getf summary :public-connections))
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
@@ -2437,11 +2607,17 @@
                   (= 200 (devnet-cli-http-status forkchoice-response))
                   "engine_forkchoiceUpdatedV2 HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status prepare-payload-response))
+                  "engine_forkchoiceUpdatedV2 payloadAttributes HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status block-number-response))
                   "eth_blockNumber HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status balance-response))
                   "eth_getBalance HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status prepared-public-response))
+                  "prepared-payload eth_blockNumber HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
@@ -2456,15 +2632,59 @@
                            (fixture-object-field forkchoice-status "status"))
                   "engine_forkchoiceUpdatedV2 status mismatch")
                  (devnet-smoke-gate-require
+                  (string= +payload-status-valid+
+                           (fixture-object-field prepare-payload-status
+                                                 "status"))
+                  "engine_forkchoiceUpdatedV2 payloadAttributes status mismatch")
+                 (devnet-smoke-gate-require
+                  (and (stringp prepared-payload-id)
+                       (= 18 (length prepared-payload-id)))
+                  "engine_forkchoiceUpdatedV2 did not return an 8-byte payloadId")
+                 (devnet-smoke-gate-require
                   (string= expected-block-number actual-block-number)
                   "eth_blockNumber mismatch: expected ~A got ~A"
                   expected-block-number
                   actual-block-number)
                  (devnet-smoke-gate-require
+                  (string= expected-block-number
+                           (fixture-object-field prepared-public-rpc "result"))
+                  "prepared-payload eth_blockNumber mismatch")
+                 (devnet-smoke-gate-require
                  (string= expected-balance actual-balance)
                  "eth_getBalance mismatch: expected ~A got ~A"
                  expected-balance
                  actual-balance)
+                 (when database-file
+                   (ethereum-lisp.cli::devnet-node-export-database
+                    node
+                    :state-prune-before state-prune-before))
+                 (let ((database-summary
+                         (and database-file
+                              (devnet-smoke-gate-verify-database
+                               database-file
+                               expected-block-number
+                               balance-targets
+                               sender-address
+                               expected-sender-nonce
+                               code-address
+                               expected-code
+                               storage-address
+                               storage-key
+                               expected-storage
+                               transaction-checks
+                               log-targets
+                               (block-hash child-block)
+                               expected-safe-block-number
+                               expected-safe-block-hash
+                               expected-finalized-block-number
+                               expected-finalized-block-hash
+                               :state-prune-before state-prune-before
+                               :pruned-state-hash expected-safe-block-hash
+                               :prepared-payload-id prepared-payload-id
+                               :prepared-payload-parent-hash
+                               (block-hash child-block)
+                               :prepared-payload-block-number
+                               expected-prepared-block-number))))
                  (devnet-smoke-gate-add-run-metadata
                   (list
                   (cons "status" "ok")
@@ -2481,6 +2701,11 @@
                   (cons "latestValidHash" expected-hash)
                   (cons "forkchoiceStatus"
                         (fixture-object-field forkchoice-status "status"))
+                  (cons "preparedPayloadId" prepared-payload-id)
+                  (cons "preparedPayloadParentHash"
+                        (hash32-to-hex (block-hash child-block)))
+                  (cons "preparedPayloadBlockNumber"
+                        expected-prepared-block-number)
                   (cons "blockNumber" actual-block-number)
                   (cons "safeBlockNumber" expected-safe-block-number)
                   (cons "safeBlockHash"
@@ -2572,6 +2797,21 @@
                   (cons "databaseRpcStorage"
                         (if database-summary
                             (getf database-summary :rpc-storage)
+                            :false))
+                  (cons "databaseRpcPreparedPayloadId"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-prepared-payload-id)
+                            :false))
+                  (cons "databaseRpcPreparedPayloadParentHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-prepared-payload-parent-hash)
+                            :false))
+                  (cons "databaseRpcPreparedPayloadBlockNumber"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-prepared-payload-block-number)
                             :false))
                   (cons "databaseRpcProofAddress"
                         (if database-summary
@@ -2809,7 +3049,7 @@
                   (cons "databaseRpcPublicConnections"
                         (if database-summary
                             (getf database-summary :rpc-public-connections)
-                            :false)))))))))))
+                            :false))))))))))))
              (when ready-file
                (devnet-smoke-gate-verify-ready-file
                 ready-file
@@ -3291,6 +3531,14 @@
                 (devnet-smoke-gate-field report "latestValidHash"))
         (format t "forkchoiceStatus=~A~%"
                 (devnet-smoke-gate-field report "forkchoiceStatus"))
+        (format t "preparedPayloadId=~A~%"
+                (devnet-smoke-gate-field report "preparedPayloadId"))
+        (format t "preparedPayloadParentHash=~A~%"
+                (devnet-smoke-gate-field report
+                                         "preparedPayloadParentHash"))
+        (format t "preparedPayloadBlockNumber=~A~%"
+                (devnet-smoke-gate-field report
+                                         "preparedPayloadBlockNumber"))
         (format t "blockNumber=~A~%"
                 (devnet-smoke-gate-field report "blockNumber"))
         (format t "safeBlockNumber=~A~%"
@@ -3362,6 +3610,15 @@
                 (devnet-smoke-gate-field report "databaseRpcCode"))
         (format t "databaseRpcStorage=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcStorage"))
+        (format t "databaseRpcPreparedPayloadId=~A~%"
+                (devnet-smoke-gate-field report
+                                         "databaseRpcPreparedPayloadId"))
+        (format t "databaseRpcPreparedPayloadParentHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcPreparedPayloadParentHash"))
+        (format t "databaseRpcPreparedPayloadBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcPreparedPayloadBlockNumber"))
         (format t "databaseRpcProofAddress=~A~%"
                 (devnet-smoke-gate-field report
                                          "databaseRpcProofAddress"))
