@@ -699,10 +699,6 @@
               (max-priority
                 (eth-rpc-call-object-quantity-field
                  object "maxPriorityFeePerGas" method :default 0)))
-          (when (< max-fee max-priority)
-            (block-validation-fail
-             "~A maxFeePerGas must be greater than or equal to maxPriorityFeePerGas"
-             method))
           (values :dynamic max-fee max-priority))
         (values :legacy
                 (eth-rpc-call-object-quantity-field

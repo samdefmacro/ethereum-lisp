@@ -104,6 +104,9 @@ fixes in those areas are allowed; expansion is not.
   contract-creation address derivation without committing created code. When
   both calldata compatibility fields are present, `input` now takes precedence
   over `data` for retained-state simulations.
+  Retained-state simulations also use call-style fee handling rather than
+  live-transaction EIP-1559 fee-cap checks, so below-base-fee `gasPrice` and
+  partial dynamic-fee call objects can still execute for local simulation.
   `eth_createAccessList` can turn retained-state call access tracking into
   geth-shaped access-list and gas-used results. Retained-state RPC block
   selectors now also accept EIP-1898-style `blockHash` /

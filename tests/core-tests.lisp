@@ -13117,6 +13117,14 @@
                    (cons "gas" (quantity-to-hex 100000))
                    (cons "maxFeePerGas" (quantity-to-hex 11))
                    (cons "maxPriorityFeePerGas" (quantity-to-hex 5))))
+           (low-gas-price-call
+             (list (cons "to" (address-to-hex contract))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "gasPrice" (quantity-to-hex 7))))
+           (priority-only-call
+             (list (cons "to" (address-to-hex contract))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "maxPriorityFeePerGas" (quantity-to-hex 5))))
            (mixed-call
              (list (cons "to" (address-to-hex contract))
                    (cons "gas" (quantity-to-hex 100000))
@@ -13132,11 +13140,15 @@
       (chain-store-put-block store block :state-available-p t)
       (commit-state-db-to-chain-store store (block-hash block) state)
       (let* ((dynamic-response (call 154 dynamic-call store config))
-             (mixed-response (call 155 mixed-call store config))
-             (wrong-chain-response (call 156 wrong-chain-call store config))
+             (low-gas-price-response (call 155 low-gas-price-call store config))
+             (priority-only-response (call 156 priority-only-call store config))
+             (mixed-response (call 157 mixed-call store config))
+             (wrong-chain-response (call 158 wrong-chain-call store config))
              (mixed-error (field mixed-response "error"))
              (wrong-chain-error (field wrong-chain-response "error")))
         (is (string= (word-hex 11) (field dynamic-response "result")))
+        (is (string= (word-hex 7) (field low-gas-price-response "result")))
+        (is (string= (word-hex 0) (field priority-only-response "result")))
         (is (= -32602 (field mixed-error "code")))
         (is (string=
              "eth_call cannot specify gasPrice with maxFeePerGas or maxPriorityFeePerGas"

@@ -4114,6 +4114,10 @@ splits can land after the Phase A smoke path closes.
   - Progress: retained-state call objects now follow geth `8a0223e`
     call-style calldata precedence when both compatibility fields are supplied:
     `input` is used ahead of `data` instead of rejecting mismatched values.
+  - Progress: retained-state simulations now use geth `8a0223e` call-style fee
+    handling instead of live-transaction EIP-1559 fee-cap checks. Calls with a
+    `gasPrice` below the block base fee execute with that gas price, and
+    partial dynamic-fee call objects default missing fee caps to zero.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7

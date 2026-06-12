@@ -110,6 +110,46 @@
              :message "Max fee per blob gas exceeds uint256")))
   t)
 
+(defun validate-call-transaction-scalar-fields (tx)
+  (let ((nonce (transaction-nonce tx))
+        (gas-limit (transaction-gas-limit tx))
+        (value (transaction-value tx)))
+    (unless (transaction-nonce-uint64-p nonce)
+      (error 'transaction-validation-error
+             :message "Transaction nonce exceeds uint64"))
+    (unless (transaction-gas-limit-uint64-p gas-limit)
+      (error 'transaction-validation-error
+             :message "Transaction gas limit exceeds uint64"))
+    (unless (uint256-p value)
+      (error 'transaction-validation-error
+             :message "Transaction value exceeds uint256")))
+  (let ((max-priority-fee (transaction-max-priority-fee-per-gas tx))
+        (max-fee (transaction-max-fee-per-gas tx)))
+    (unless (uint256-p max-priority-fee)
+      (error 'transaction-validation-error
+             :message "Max priority fee exceeds uint256"))
+    (unless (uint256-p max-fee)
+      (error 'transaction-validation-error
+             :message "Max fee per gas exceeds uint256")))
+  (when (typep tx 'blob-transaction)
+    (unless (uint256-p (blob-transaction-max-fee-per-blob-gas tx))
+      (error 'transaction-validation-error
+             :message "Max fee per blob gas exceeds uint256")))
+  t)
+
+(defun call-transaction-effective-gas-price
+    (transaction &key (base-fee 0) (eip1559-enabled-p t))
+  (cond
+    ((not eip1559-enabled-p)
+     (transaction-max-priority-fee-per-gas transaction))
+    ((or (typep transaction 'legacy-transaction)
+         (typep transaction 'access-list-transaction))
+     (transaction-max-fee-per-gas transaction))
+    (t
+     (min (transaction-max-fee-per-gas transaction)
+          (+ base-fee
+             (transaction-max-priority-fee-per-gas transaction))))))
+
 (defun charge-sender-upfront (state sender tx
                               &key (base-fee 0) (blob-base-fee 0)
                                    chain-rules)
@@ -503,6 +543,23 @@
     (validate-contract-initcode-size tx rules))
   t)
 
+(defun validate-call-transaction-fields (tx rules)
+  (validate-execution-transaction-type tx rules)
+  (validate-call-transaction-scalar-fields tx)
+  (validate-transaction-recipient-field tx)
+  (validate-transaction-data-field tx)
+  (validate-access-list-fields tx)
+  (when (typep tx 'blob-transaction)
+    (validate-blob-transaction-fields tx))
+  (validate-set-code-transaction-fields tx)
+  (when (< (transaction-gas-limit tx)
+           (execution-transaction-intrinsic-gas tx rules))
+    (error 'transaction-validation-error
+           :message "Gas limit below intrinsic gas"))
+  (unless (transaction-to tx)
+    (validate-contract-initcode-size tx rules))
+  t)
+
 (defun validate-execution-transaction-list-fields
     (transactions rules blob-base-fee)
   (unless (listp transactions)
@@ -588,7 +645,8 @@
                     sender
                     (transaction-nonce tx)))
          (gas-limit (transaction-gas-limit tx))
-         (gas-price (transaction-effective-gas-price tx :base-fee base-fee))
+         (gas-price (call-transaction-effective-gas-price
+                     tx :base-fee base-fee))
          (intrinsic-gas (execution-transaction-intrinsic-gas
                          tx effective-chain-rules)))
     (if (execution-contract-address-collision-p call-state contract)
@@ -691,7 +749,7 @@ mutated."
   (let* ((effective-chain-rules
            (execution-chain-rules chain-rules chain-config block-number timestamp))
          (recipient (transaction-to tx)))
-    (validate-execution-transaction-fields tx effective-chain-rules blob-base-fee)
+    (validate-call-transaction-fields tx effective-chain-rules)
     (unless recipient
       (return-from execute-message-call
         (execute-contract-creation-call
@@ -709,7 +767,8 @@ mutated."
          :context-gas-limit context-gas-limit)))
     (let* ((call-state (state-db-copy state))
            (gas-limit (transaction-gas-limit tx))
-           (gas-price (transaction-effective-gas-price tx :base-fee base-fee))
+           (gas-price (call-transaction-effective-gas-price
+                       tx :base-fee base-fee))
            (intrinsic-gas (execution-transaction-intrinsic-gas
                            tx effective-chain-rules))
            (code (execution-resolved-code call-state recipient)))
