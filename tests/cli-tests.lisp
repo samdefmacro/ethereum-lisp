@@ -60,6 +60,57 @@
            (length errors)
            0))))
 
+(defun devnet-cli-assert-txpool-subpool-persistence (report)
+  (is (string= "0x1"
+               (fixture-object-field report "txpoolStatusPending")))
+  (is (string= "0x2"
+               (fixture-object-field report "txpoolStatusQueued")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field report "databaseRpcTxpoolPendingHash")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionRaw")
+               (fixture-object-field report "databaseRpcTxpoolRawTransaction")))
+  (is (string= (fixture-object-field report "txpoolPendingSender")
+               (fixture-object-field report "databaseRpcTxpoolSender")))
+  (is (string= (fixture-object-field report "txpoolPendingNonce")
+               (fixture-object-field report "databaseRpcTxpoolNonce")))
+  (is (string= (fixture-object-field report "txpoolBasefeeTransactionHash")
+               (fixture-object-field report "databaseRpcTxpoolBasefeeHash")))
+  (is (string= (fixture-object-field report "txpoolBasefeeTransactionRaw")
+               (fixture-object-field
+                report "databaseRpcTxpoolBasefeeRawTransaction")))
+  (is (string= (fixture-object-field report "txpoolBasefeeNonce")
+               (fixture-object-field report "databaseRpcTxpoolBasefeeNonce")))
+  (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
+               (fixture-object-field report "databaseRpcTxpoolQueuedHash")))
+  (is (string= (fixture-object-field report "txpoolQueuedTransactionRaw")
+               (fixture-object-field
+                report "databaseRpcTxpoolQueuedRawTransaction")))
+  (is (string= (fixture-object-field report "txpoolQueuedNonce")
+               (fixture-object-field report "databaseRpcTxpoolQueuedNonce")))
+  (is (string= "0x1"
+               (fixture-object-field report "databaseRpcTxpoolStatusPending")))
+  (is (string= "0x2"
+               (fixture-object-field report "databaseRpcTxpoolStatusQueued")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field report "databaseRpcTxpoolContentHash")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field
+                report "databaseRpcTxpoolContentFromHash")))
+  (is (string= (fixture-object-field report "txpoolBasefeeTransactionHash")
+               (fixture-object-field
+                report "databaseRpcTxpoolBasefeeContentHash")))
+  (is (string= (fixture-object-field report "txpoolBasefeeTransactionHash")
+               (fixture-object-field
+                report "databaseRpcTxpoolBasefeeContentFromHash")))
+  (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
+               (fixture-object-field
+                report "databaseRpcTxpoolQueuedContentHash")))
+  (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
+               (fixture-object-field
+                report "databaseRpcTxpoolQueuedContentFromHash")))
+  (is (= 7
+         (fixture-object-field report "databaseRpcTxpoolPublicConnections"))))
+
 (defun devnet-cli-pruned-state-error-messages ()
   '("eth_getBalance state is not available"
     "eth_getTransactionCount state is not available"
@@ -1621,42 +1672,7 @@
                             (fixture-object-field
                              report
                              "databaseRpcInvalidTipsetValidationError")))
-               (is (string= "0x1"
-                            (fixture-object-field
-                             report "txpoolStatusPending")))
-               (is (string= "0x0"
-                            (fixture-object-field
-                             report "txpoolStatusQueued")))
-               (is (string= (fixture-object-field
-                              report "txpoolPendingTransactionHash")
-                            (fixture-object-field
-                             report "databaseRpcTxpoolPendingHash")))
-               (is (string= (fixture-object-field
-                              report "txpoolPendingTransactionRaw")
-                            (fixture-object-field
-                             report "databaseRpcTxpoolRawTransaction")))
-               (is (string= (fixture-object-field
-                              report "txpoolPendingSender")
-                            (fixture-object-field
-                             report "databaseRpcTxpoolSender")))
-               (is (string= (fixture-object-field
-                              report "txpoolPendingNonce")
-                            (fixture-object-field
-                             report "databaseRpcTxpoolNonce")))
-               (is (string= "0x1"
-                            (fixture-object-field
-                             report "databaseRpcTxpoolStatusPending")))
-               (is (string= "0x0"
-                            (fixture-object-field
-                             report "databaseRpcTxpoolStatusQueued")))
-               (is (string= (fixture-object-field
-                              report "txpoolPendingTransactionHash")
-                            (fixture-object-field
-                             report "databaseRpcTxpoolContentHash")))
-               (is (string= (fixture-object-field
-                              report "txpoolPendingTransactionHash")
-                            (fixture-object-field
-                             report "databaseRpcTxpoolContentFromHash")))
+               (devnet-cli-assert-txpool-subpool-persistence report)
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :prepared-payload))))
@@ -1811,9 +1827,9 @@
                 report cases prune-boundary)
                (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 9 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 18 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
                (dolist (case cases)
@@ -1828,7 +1844,7 @@
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
                    (is (= 5 (fixture-object-field case "engineConnections")))
-                   (is (= 9 (fixture-object-field case "publicConnections")))
+                   (is (= 13 (fixture-object-field case "publicConnections")))
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")
@@ -2057,42 +2073,7 @@
                               (fixture-object-field
                                case
                                "databaseRpcInvalidTipsetValidationError")))
-                 (is (string= "0x1"
-                              (fixture-object-field
-                               case "txpoolStatusPending")))
-                 (is (string= "0x0"
-                              (fixture-object-field
-                               case "txpoolStatusQueued")))
-                 (is (string= (fixture-object-field
-                                case "txpoolPendingTransactionHash")
-                              (fixture-object-field
-                               case "databaseRpcTxpoolPendingHash")))
-                 (is (string= (fixture-object-field
-                                case "txpoolPendingTransactionRaw")
-                              (fixture-object-field
-                               case "databaseRpcTxpoolRawTransaction")))
-                 (is (string= (fixture-object-field
-                                case "txpoolPendingSender")
-                              (fixture-object-field
-                               case "databaseRpcTxpoolSender")))
-                 (is (string= (fixture-object-field
-                                case "txpoolPendingNonce")
-                              (fixture-object-field
-                               case "databaseRpcTxpoolNonce")))
-                 (is (string= "0x1"
-                              (fixture-object-field
-                               case "databaseRpcTxpoolStatusPending")))
-                 (is (string= "0x0"
-                              (fixture-object-field
-                               case "databaseRpcTxpoolStatusQueued")))
-                 (is (string= (fixture-object-field
-                                case "txpoolPendingTransactionHash")
-                              (fixture-object-field
-                               case "databaseRpcTxpoolContentHash")))
-                 (is (string= (fixture-object-field
-                                case "txpoolPendingTransactionHash")
-                              (fixture-object-field
-                               case "databaseRpcTxpoolContentFromHash")))
+                 (devnet-cli-assert-txpool-subpool-persistence case)
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
                  (is (probe-file
@@ -2357,9 +2338,9 @@
          devnet cases prune-boundary)
         (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 9 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 18 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")
@@ -2576,42 +2557,7 @@
                        (fixture-object-field
                         case
                         "databaseRpcInvalidTipsetValidationError")))
-          (is (string= "0x1"
-                       (fixture-object-field
-                        case "txpoolStatusPending")))
-          (is (string= "0x0"
-                       (fixture-object-field
-                        case "txpoolStatusQueued")))
-          (is (string= (fixture-object-field
-                         case "txpoolPendingTransactionHash")
-                       (fixture-object-field
-                        case "databaseRpcTxpoolPendingHash")))
-          (is (string= (fixture-object-field
-                         case "txpoolPendingTransactionRaw")
-                       (fixture-object-field
-                        case "databaseRpcTxpoolRawTransaction")))
-          (is (string= (fixture-object-field
-                         case "txpoolPendingSender")
-                       (fixture-object-field
-                        case "databaseRpcTxpoolSender")))
-          (is (string= (fixture-object-field
-                         case "txpoolPendingNonce")
-                       (fixture-object-field
-                        case "databaseRpcTxpoolNonce")))
-          (is (string= "0x1"
-                       (fixture-object-field
-                        case "databaseRpcTxpoolStatusPending")))
-          (is (string= "0x0"
-                       (fixture-object-field
-                        case "databaseRpcTxpoolStatusQueued")))
-          (is (string= (fixture-object-field
-                         case "txpoolPendingTransactionHash")
-                       (fixture-object-field
-                        case "databaseRpcTxpoolContentHash")))
-          (is (string= (fixture-object-field
-                         case "txpoolPendingTransactionHash")
-                       (fixture-object-field
-                        case "databaseRpcTxpoolContentFromHash")))))))))
+          (devnet-cli-assert-txpool-subpool-persistence case)))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
   #-sbcl

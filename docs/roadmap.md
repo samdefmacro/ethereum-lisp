@@ -254,11 +254,12 @@ fixes in those areas are allowed; expansion is not.
   survives KV export/import into a fresh node. Known-parent invalid payloads
   now also populate the invalid-tipset cache through the same Engine boundary,
   and restored nodes reject descendants as linking to the previously rejected
-  block. The database-backed gate also submits a signed pending transaction
-  through public `eth_sendRawTransaction`, exports it with the KV snapshot, and
-  verifies restored public txpool views (`eth_pendingTransactions`,
-  `txpool_status`, `txpool_content`, `txpool_contentFrom`, and
-  `eth_getRawTransactionByHash`) still expose the same transaction.
+  block. The database-backed gate also submits signed pending,
+  basefee-ineligible, and nonce-gap queued transactions through public
+  `eth_sendRawTransaction`, exports them with the KV snapshot, and verifies
+  restored public txpool views (`eth_pendingTransactions`, `txpool_status`,
+  `txpool_content`, `txpool_contentFrom`, and `eth_getRawTransactionByHash`)
+  still expose the same pending and queued-view subpool contents.
   Restored executable-code cases also probe an under-gassed `eth_call` and
   assert the public RPC reports the retained non-revert execution failure as a
   JSON-RPC error.
