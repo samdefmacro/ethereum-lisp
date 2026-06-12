@@ -239,9 +239,11 @@ fixes in those areas are allowed; expansion is not.
   case, including the multi-transaction legacy-transfer payload. Restored KV
   snapshots are also served through a fresh public RPC
   listener and checked for `eth_blockNumber` plus retained-state balance,
-  nonce, code, storage, and proof reads, `eth_getTransactionReceipt` canonical
-  receipt lookup, `eth_getBlockByHash` / `eth_getBlockByNumber` canonical
-  block lookup, block transaction counts, raw transaction by block/index,
+  nonce, code, storage, and proof reads, EIP-1898 canonical `blockHash`
+  balance reads with and without `requireCanonical`,
+  `eth_getTransactionReceipt` canonical receipt lookup,
+  `eth_getBlockByHash` / `eth_getBlockByNumber` canonical block lookup,
+  block transaction counts, raw transaction by block/index,
   `eth_getTransactionByHash` and transaction by block/index canonical
   transaction lookup, safe/finalized checkpoint number/hash persistence plus
   `eth_getBlockByNumber("safe"|"finalized")` checkpoint-tag reads, and

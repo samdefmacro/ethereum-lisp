@@ -771,6 +771,8 @@
         (block-receipts-output (make-string-output-stream))
         (block-transaction-count-by-hash-output (make-string-output-stream))
         (block-transaction-count-by-number-output (make-string-output-stream))
+        (canonical-hash-balance-output (make-string-output-stream))
+        (canonical-hash-require-balance-output (make-string-output-stream))
         (raw-transaction-by-hash-output (make-string-output-stream))
         (raw-transaction-by-number-output (make-string-output-stream))
         (transaction-by-hash-index-output (make-string-output-stream))
@@ -888,6 +890,7 @@
               (length extra-balance-outputs)
               (* 6 (length extra-receipt-outputs))
               (* 2 (length log-targets))
+              2
               4
               (if executable-code-p 1 0)
               (length pruned-state-probes)))
@@ -991,6 +994,29 @@
                    (cons "method" "eth_getBlockTransactionCountByNumber")
                    (cons "params" (list expected-block-number))))
             block-transaction-count-by-number-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 163)
+                   (cons "method" "eth_getBalance")
+                   (cons "params"
+                         (list
+                          (address-to-hex balance-address)
+                          (list (cons "blockHash"
+                                      (hash32-to-hex block-hash)))))))
+            canonical-hash-balance-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 164)
+                   (cons "method" "eth_getBalance")
+                   (cons "params"
+                         (list
+                          (address-to-hex balance-address)
+                          (list (cons "blockHash"
+                                      (hash32-to-hex block-hash))
+                                (cons "requireCanonical" t))))))
+            canonical-hash-require-balance-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
@@ -1290,6 +1316,11 @@
              (block-transaction-count-by-number-response
                (get-output-stream-string
                 block-transaction-count-by-number-output))
+             (canonical-hash-balance-response
+               (get-output-stream-string canonical-hash-balance-output))
+             (canonical-hash-require-balance-response
+               (get-output-stream-string
+                canonical-hash-require-balance-output))
              (raw-transaction-by-hash-response
                (get-output-stream-string raw-transaction-by-hash-output))
              (raw-transaction-by-number-response
@@ -1341,6 +1372,12 @@
              (block-transaction-count-by-number-rpc
                (devnet-smoke-gate-rpc-body
                 block-transaction-count-by-number-response))
+             (canonical-hash-balance-rpc
+               (devnet-smoke-gate-rpc-body
+                canonical-hash-balance-response))
+             (canonical-hash-require-balance-rpc
+               (devnet-smoke-gate-rpc-body
+                canonical-hash-require-balance-response))
              (raw-transaction-by-hash-rpc
                (devnet-smoke-gate-rpc-body
                 raw-transaction-by-hash-response))
@@ -1466,6 +1503,11 @@
              (actual-block-transaction-count-by-number
                (fixture-object-field
                 block-transaction-count-by-number-rpc "result"))
+             (actual-canonical-hash-balance
+               (fixture-object-field canonical-hash-balance-rpc "result"))
+             (actual-canonical-hash-require-balance
+               (fixture-object-field
+                canonical-hash-require-balance-rpc "result"))
              (actual-raw-transaction-by-hash
                (fixture-object-field raw-transaction-by-hash-rpc "result"))
              (actual-raw-transaction-by-number
@@ -1589,6 +1631,13 @@
          (= 200 (devnet-cli-http-status
                  block-transaction-count-by-number-response))
          "Restored eth_getBlockTransactionCountByNumber HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status canonical-hash-balance-response))
+         "Restored EIP-1898 eth_getBalance blockHash HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status
+                 canonical-hash-require-balance-response))
+         "Restored EIP-1898 eth_getBalance requireCanonical HTTP status mismatch")
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status raw-transaction-by-hash-response))
          "Restored eth_getRawTransactionByBlockHashAndIndex HTTP status mismatch")
@@ -1827,6 +1876,16 @@
          (string= expected-transaction-count
                   actual-block-transaction-count-by-number)
          "Restored eth_getBlockTransactionCountByNumber mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-balance actual-canonical-hash-balance)
+         "Restored EIP-1898 eth_getBalance blockHash mismatch: expected ~A got ~A"
+         expected-balance
+         actual-canonical-hash-balance)
+        (devnet-smoke-gate-require
+         (string= expected-balance actual-canonical-hash-require-balance)
+         "Restored EIP-1898 eth_getBalance requireCanonical mismatch: expected ~A got ~A"
+         expected-balance
+         actual-canonical-hash-require-balance)
         (devnet-smoke-gate-require
          (string= expected-raw-transaction actual-raw-transaction-by-hash)
          "Restored eth_getRawTransactionByBlockHashAndIndex mismatch")
@@ -2073,6 +2132,9 @@
               actual-block-transaction-count-by-hash
               :block-transaction-count-by-number
               actual-block-transaction-count-by-number
+              :canonical-hash-balance actual-canonical-hash-balance
+              :canonical-hash-require-balance
+              actual-canonical-hash-require-balance
               :transaction-count transaction-count
               :balance-count (length balance-targets)
               :log-count (reduce #'+ log-targets
@@ -2889,6 +2951,11 @@
                   :rpc-block-transaction-count-by-number
                   (getf public-rpc-summary
                         :block-transaction-count-by-number)
+                  :rpc-canonical-hash-balance
+                  (getf public-rpc-summary :canonical-hash-balance)
+                  :rpc-canonical-hash-require-balance
+                  (getf public-rpc-summary
+                        :canonical-hash-require-balance)
                   :rpc-transaction-count
                   (getf public-rpc-summary :transaction-count)
                   :rpc-balance-count
@@ -4176,6 +4243,16 @@
                             (getf database-summary
                                   :rpc-block-transaction-count-by-number)
                             :false))
+                  (cons "databaseRpcCanonicalHashBalance"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-canonical-hash-balance)
+                            :false))
+                  (cons "databaseRpcCanonicalHashRequireBalance"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-canonical-hash-require-balance)
+                            :false))
                   (cons "databaseRpcTransactionCount"
                         (if database-summary
                             (getf database-summary :rpc-transaction-count)
@@ -5038,6 +5115,12 @@
         (format t "databaseRpcBlockTransactionCountByNumber=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcBlockTransactionCountByNumber"))
+        (format t "databaseRpcCanonicalHashBalance=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcCanonicalHashBalance"))
+        (format t "databaseRpcCanonicalHashRequireBalance=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcCanonicalHashRequireBalance"))
         (format t "databaseRpcRawTransactionByBlockHashAndIndex=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcRawTransactionByBlockHashAndIndex"))

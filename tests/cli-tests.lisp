@@ -49,7 +49,7 @@
     path))
 
 (defun devnet-cli-restored-public-connections (report)
-  (+ 19
+  (+ 21
      (1- (fixture-object-field report "checkedBalanceCount"))
      (* 6 (1- (fixture-object-field report "transactionCount")))
      (* 2 (fixture-object-field report "checkedLogCount"))
@@ -1562,6 +1562,13 @@
                             (fixture-object-field
                              report
                              "databaseRpcBlockTransactionCountByNumber")))
+               (is (string= (fixture-object-field report "databaseRpcBalance")
+                            (fixture-object-field
+                             report "databaseRpcCanonicalHashBalance")))
+               (is (string= (fixture-object-field report "databaseRpcBalance")
+                            (fixture-object-field
+                             report
+                             "databaseRpcCanonicalHashRequireBalance")))
                (is (string= (fixture-object-field
                               report
                               "databaseRpcRawTransactionByBlockHashAndIndex")
@@ -1963,6 +1970,13 @@
                               (fixture-object-field
                                case
                                "databaseRpcBlockTransactionCountByNumber")))
+                 (is (string= (fixture-object-field case "databaseRpcBalance")
+                              (fixture-object-field
+                               case "databaseRpcCanonicalHashBalance")))
+                 (is (string= (fixture-object-field case "databaseRpcBalance")
+                              (fixture-object-field
+                               case
+                               "databaseRpcCanonicalHashRequireBalance")))
                  (is (string= (fixture-object-field
                                 case
                                 "databaseRpcRawTransactionByBlockHashAndIndex")
@@ -2451,6 +2465,13 @@
                        (fixture-object-field
                         case
                         "databaseRpcBlockTransactionCountByNumber")))
+          (is (string= (fixture-object-field case "databaseRpcBalance")
+                       (fixture-object-field
+                        case "databaseRpcCanonicalHashBalance")))
+          (is (string= (fixture-object-field case "databaseRpcBalance")
+                       (fixture-object-field
+                        case
+                        "databaseRpcCanonicalHashRequireBalance")))
           (is (string= (fixture-object-field
                          case
                          "databaseRpcRawTransactionByBlockHashAndIndex")
