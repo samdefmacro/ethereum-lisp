@@ -516,6 +516,24 @@
                 payload-attributes))
     request))
 
+(defun devnet-smoke-gate-remote-block (parent-block)
+  (let ((parent-header (block-header parent-block)))
+    (make-block
+     :header
+     (make-block-header
+      :parent-hash
+      (hash32-from-hex
+       "0x9999999999999999999999999999999999999999999999999999999999999999")
+      :beneficiary (block-header-beneficiary parent-header)
+      :state-root +empty-trie-hash+
+      :mix-hash (zero-hash32)
+      :number (1+ (block-header-number parent-header))
+      :gas-limit (block-header-gas-limit parent-header)
+      :gas-used 0
+      :timestamp (1+ (block-header-timestamp parent-header))
+      :base-fee-per-gas (block-header-base-fee-per-gas parent-header))
+     :withdrawals '())))
+
 (defun devnet-smoke-gate-access-list-entry (access-list address)
   (find (address-to-hex address)
         access-list
@@ -2105,6 +2123,99 @@
   #-sbcl
   (error "Restored devnet Engine RPC verification requires SBCL threads"))
 
+(defun devnet-smoke-gate-verify-restored-remote-block-rpc
+    (node remote-payload expected-block-hash expected-head-block-number)
+  #+sbcl
+  (let* ((engine-output (make-string-output-stream))
+         (public-output (make-string-output-stream))
+         (engine-served-count 0)
+         (public-served-count 0)
+         (engine-done-p nil)
+         (engine-request
+           (json-encode
+            (engine-fixture-payload-request 172 remote-payload)))
+         (public-request
+           (json-encode
+            (list (cons "jsonrpc" "2.0")
+                  (cons "id" 173)
+                  (cons "method" "eth_blockNumber")
+                  (cons "params" '()))))
+         (summary
+           (ethereum-lisp.cli:start-devnet-node-listeners
+            node
+            (make-engine-rpc-http-listener
+             :endpoint "restored-engine-remote-block"
+             :accept-function
+             (lambda ()
+               (unless engine-done-p
+                 (make-engine-rpc-http-connection
+                  :input-stream
+                  (make-string-input-stream
+                   (devnet-cli-json-rpc-http-request engine-request))
+                  :output-stream engine-output
+                  :close-function
+                  (lambda ()
+                    (incf engine-served-count)
+                    (setf engine-done-p t)))))
+             :close-function (lambda () nil))
+            (make-engine-rpc-http-listener
+             :endpoint "restored-public-remote-block"
+             :accept-function
+             (lambda ()
+               (loop until engine-done-p
+                     do (sleep 0.001))
+               (make-engine-rpc-http-connection
+                :input-stream
+                (make-string-input-stream
+                 (devnet-cli-json-rpc-http-request public-request))
+                :output-stream public-output
+                :close-function
+                (lambda () (incf public-served-count))))
+             :close-function (lambda () nil))
+            :max-connections 1))
+         (engine-response (get-output-stream-string engine-output))
+         (public-response (get-output-stream-string public-output))
+         (engine-rpc (devnet-smoke-gate-rpc-body engine-response))
+         (public-rpc (devnet-smoke-gate-rpc-body public-response))
+         (payload-status (fixture-object-field engine-rpc "result")))
+    (devnet-smoke-gate-require
+     (= 1 (getf summary :engine-connections))
+     "Restored remote-block probe expected 1 Engine connection, got ~S"
+     (getf summary :engine-connections))
+    (devnet-smoke-gate-require
+     (= 1 (getf summary :public-connections))
+     "Restored remote-block probe expected 1 public connection, got ~S"
+     (getf summary :public-connections))
+    (devnet-smoke-gate-require
+     (= 200 (devnet-cli-http-status engine-response))
+     "Restored remote-block engine_newPayloadV2 HTTP status mismatch")
+    (devnet-smoke-gate-require
+     (= 200 (devnet-cli-http-status public-response))
+     "Restored remote-block eth_blockNumber HTTP status mismatch")
+    (devnet-smoke-gate-require
+     (not (fixture-object-field engine-rpc "error"))
+     "Restored remote-block engine_newPayloadV2 returned an error")
+    (devnet-smoke-gate-require
+     (string= +payload-status-syncing+
+              (fixture-object-field payload-status "status"))
+     "Restored remote-block engine_newPayloadV2 status mismatch")
+    (devnet-smoke-gate-require
+     (null (fixture-object-field payload-status "latestValidHash"))
+     "Restored remote-block SYNCING status should not report latestValidHash")
+    (devnet-smoke-gate-require
+     (string= expected-head-block-number
+              (fixture-object-field public-rpc "result"))
+     "Restored remote-block public block number mismatch")
+    (list :remote-block-hash (hash32-to-hex expected-block-hash)
+          :remote-block-status (fixture-object-field payload-status "status")
+          :engine-connections engine-served-count
+          :public-connections public-served-count))
+  #-sbcl
+  (declare (ignore node remote-payload expected-block-hash
+                   expected-head-block-number))
+  #-sbcl
+  (error "Restored devnet remote-block Engine RPC verification requires SBCL threads"))
+
 (defun devnet-smoke-gate-verify-database
     (path expected-block-number balance-targets
      sender-address expected-sender-nonce
@@ -2114,7 +2225,8 @@
      expected-finalized-block-number expected-finalized-block-hash
      &key state-prune-before pruned-state-hash
           prepared-payload-id prepared-payload-parent-hash
-          prepared-payload-block-number)
+          prepared-payload-block-number
+          remote-payload remote-block)
   (let* ((database (make-file-key-value-database path))
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -2159,6 +2271,19 @@
                  prepared-payload-id
                  prepared-payload-parent-hash
                  prepared-payload-block-number
+                 expected-block-number)))
+         (remote-block-hash (and remote-block (block-hash remote-block)))
+         (restored-remote-block
+           (and remote-block-hash
+                (ethereum-lisp.core::engine-payload-store-remote-block
+                 restored-store remote-block-hash)))
+         (remote-block-rpc-summary
+           (and remote-payload
+                remote-block
+                (devnet-smoke-gate-verify-restored-remote-block-rpc
+                 node
+                 remote-payload
+                 remote-block-hash
                  expected-block-number))))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
@@ -2170,6 +2295,17 @@
       (devnet-smoke-gate-require
        (< 0 (length (kv-chain-record-entries database :prepared-payload)))
        "Database export did not write prepared payload records"))
+    (when remote-block
+      (devnet-smoke-gate-require
+       (< 0 (length (kv-chain-record-entries database :remote-block)))
+       "Database export did not write remote block records")
+      (devnet-smoke-gate-require
+       restored-remote-block
+       "Database restore did not publish the remote block cache")
+      (devnet-smoke-gate-require
+       (bytes= (block-rlp remote-block)
+               (block-rlp restored-remote-block))
+       "Database restore changed the remote block RLP"))
     (devnet-smoke-gate-require
      (= (hex-to-quantity expected-block-number)
         (getf summary :head-number))
@@ -2326,7 +2462,17 @@
                              :prepared-payload-block-number))
                   :rpc-engine-connections
                   (and engine-rpc-summary
-                       (getf engine-rpc-summary :engine-connections))))))
+                       (getf engine-rpc-summary :engine-connections))
+                  :remote-block-hash
+                  (and remote-block-rpc-summary
+                       (getf remote-block-rpc-summary :remote-block-hash))
+                  :rpc-remote-block-status
+                  (and remote-block-rpc-summary
+                       (getf remote-block-rpc-summary :remote-block-status))
+                  :rpc-remote-block-engine-connections
+                  (and remote-block-rpc-summary
+                       (getf remote-block-rpc-summary
+                             :engine-connections))))))
 
 (defun devnet-smoke-gate-run
     (case-name &key ready-file log-file database-file state-prune-before)
@@ -2388,9 +2534,11 @@
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
                   (prepare-payload-output (make-string-output-stream))
+                  (remote-payload-output (make-string-output-stream))
                   (block-number-output (make-string-output-stream))
                   (balance-output (make-string-output-stream))
                   (prepared-public-output (make-string-output-stream))
+                  (remote-public-output (make-string-output-stream))
                   (balance-targets
                     (devnet-smoke-gate-balance-targets expect))
                   (transaction-checks
@@ -2401,6 +2549,11 @@
                     (devnet-smoke-gate-payload-attributes-v2
                      child-block
                      (getf (first balance-targets) :address)))
+                  (remote-block
+                    (devnet-smoke-gate-remote-block child-block))
+                  (remote-payload
+                    (execution-payload-envelope-execution-payload
+                     (block-to-executable-data remote-block)))
                   (engine-requests
                     (list
                      (cons
@@ -2422,7 +2575,11 @@
                         prepare-payload-attributes
                         :safe (block-hash parent-block)
                         :finalized (block-hash parent-block)))
-                      prepare-payload-output)))
+                      prepare-payload-output)
+                     (cons
+                      (json-encode
+                       (engine-fixture-payload-request 24 remote-payload))
+                      remote-payload-output)))
                   (public-requests
                     (let ((target (first balance-targets)))
                       (setf balance-address (getf target :address)
@@ -2460,7 +2617,14 @@
                                (cons "id" 33)
                                (cons "method" "eth_blockNumber")
                                (cons "params" '())))
-                        prepared-public-output))))
+                        prepared-public-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 34)
+                               (cons "method" "eth_blockNumber")
+                               (cons "params" '())))
+                        remote-public-output))))
                   (engine-served-count 0)
                   (engine-done-p nil)
                   (public-served-count 0))
@@ -2488,7 +2652,7 @@
                               :close-function
                               (lambda ()
                                 (incf engine-served-count)
-                                (when (= engine-served-count 3)
+                                (when (= engine-served-count 4)
                                   (setf engine-done-p t)))))))
                        :close-function (lambda () nil))
                       (make-engine-rpc-http-listener
@@ -2508,7 +2672,7 @@
                               :close-function
                               (lambda () (incf public-served-count))))))
                       :close-function (lambda () nil))
-                      :max-connections 3
+                      :max-connections 4
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
                         (let ((engine-endpoint
@@ -2541,24 +2705,32 @@
                         (get-output-stream-string forkchoice-output))
                       (prepare-payload-response
                         (get-output-stream-string prepare-payload-output))
+                      (remote-payload-response
+                        (get-output-stream-string remote-payload-output))
                       (block-number-response
                         (get-output-stream-string block-number-output))
                       (balance-response
                         (get-output-stream-string balance-output))
                       (prepared-public-response
                         (get-output-stream-string prepared-public-output))
+                      (remote-public-response
+                        (get-output-stream-string remote-public-output))
                       (new-payload-rpc
                         (devnet-smoke-gate-rpc-body new-payload-response))
                       (forkchoice-rpc
                         (devnet-smoke-gate-rpc-body forkchoice-response))
                       (prepare-payload-rpc
                         (devnet-smoke-gate-rpc-body prepare-payload-response))
+                      (remote-payload-rpc
+                        (devnet-smoke-gate-rpc-body remote-payload-response))
                       (block-number-rpc
                         (devnet-smoke-gate-rpc-body block-number-response))
                       (balance-rpc
                         (devnet-smoke-gate-rpc-body balance-response))
                       (prepared-public-rpc
                         (devnet-smoke-gate-rpc-body prepared-public-response))
+                      (remote-public-rpc
+                        (devnet-smoke-gate-rpc-body remote-public-response))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -2575,8 +2747,12 @@
                         (fixture-object-field
                          prepare-payload-result
                          "payloadId"))
+                      (remote-payload-result
+                        (fixture-object-field remote-payload-rpc "result"))
                       (expected-hash
                         (hash32-to-hex (block-hash child-block)))
+                      (expected-remote-block-hash
+                        (hash32-to-hex (block-hash remote-block)))
                   (expected-block-number
                     (fixture-object-field payload-case "number"))
                   (expected-prepared-block-number
@@ -2593,12 +2769,12 @@
                       (actual-balance
                         (fixture-object-field balance-rpc "result")))
                  (devnet-smoke-gate-require
-                  (= 3 (getf summary :engine-connections))
-                  "Expected 3 Engine connections, got ~S"
+                  (= 4 (getf summary :engine-connections))
+                  "Expected 4 Engine connections, got ~S"
                   (getf summary :engine-connections))
                  (devnet-smoke-gate-require
-                  (= 3 (getf summary :public-connections))
-                  "Expected 3 public RPC connections, got ~S"
+                  (= 4 (getf summary :public-connections))
+                  "Expected 4 public RPC connections, got ~S"
                   (getf summary :public-connections))
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
@@ -2610,6 +2786,9 @@
                   (= 200 (devnet-cli-http-status prepare-payload-response))
                   "engine_forkchoiceUpdatedV2 payloadAttributes HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status remote-payload-response))
+                  "orphan engine_newPayloadV2 HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status block-number-response))
                   "eth_blockNumber HTTP status mismatch")
                  (devnet-smoke-gate-require
@@ -2618,6 +2797,9 @@
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status prepared-public-response))
                   "prepared-payload eth_blockNumber HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status remote-public-response))
+                  "remote-block eth_blockNumber HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
@@ -2641,6 +2823,19 @@
                        (= 18 (length prepared-payload-id)))
                   "engine_forkchoiceUpdatedV2 did not return an 8-byte payloadId")
                  (devnet-smoke-gate-require
+                  (string= +payload-status-syncing+
+                           (fixture-object-field remote-payload-result
+                                                 "status"))
+                  "orphan engine_newPayloadV2 status mismatch")
+                 (devnet-smoke-gate-require
+                  (null (fixture-object-field remote-payload-result
+                                              "latestValidHash"))
+                  "orphan engine_newPayloadV2 should not report latestValidHash")
+                 (devnet-smoke-gate-require
+                  (ethereum-lisp.core::engine-payload-store-remote-block
+                   store (block-hash remote-block))
+                  "orphan engine_newPayloadV2 did not populate remote-block cache")
+                 (devnet-smoke-gate-require
                   (string= expected-block-number actual-block-number)
                   "eth_blockNumber mismatch: expected ~A got ~A"
                   expected-block-number
@@ -2649,6 +2844,10 @@
                   (string= expected-block-number
                            (fixture-object-field prepared-public-rpc "result"))
                   "prepared-payload eth_blockNumber mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-block-number
+                           (fixture-object-field remote-public-rpc "result"))
+                  "remote-block eth_blockNumber mismatch")
                  (devnet-smoke-gate-require
                  (string= expected-balance actual-balance)
                  "eth_getBalance mismatch: expected ~A got ~A"
@@ -2684,7 +2883,9 @@
                                :prepared-payload-parent-hash
                                (block-hash child-block)
                                :prepared-payload-block-number
-                               expected-prepared-block-number))))
+                               expected-prepared-block-number
+                               :remote-payload remote-payload
+                               :remote-block remote-block))))
                  (devnet-smoke-gate-add-run-metadata
                   (list
                   (cons "status" "ok")
@@ -2706,6 +2907,9 @@
                         (hash32-to-hex (block-hash child-block)))
                   (cons "preparedPayloadBlockNumber"
                         expected-prepared-block-number)
+                  (cons "remoteBlockHash" expected-remote-block-hash)
+                  (cons "remoteBlockStatus"
+                        (fixture-object-field remote-payload-result "status"))
                   (cons "blockNumber" actual-block-number)
                   (cons "safeBlockNumber" expected-safe-block-number)
                   (cons "safeBlockHash"
@@ -2812,6 +3016,15 @@
                         (if database-summary
                             (getf database-summary
                                   :rpc-prepared-payload-block-number)
+                            :false))
+                  (cons "databaseRemoteBlockHash"
+                        (if database-summary
+                            (getf database-summary :remote-block-hash)
+                            :false))
+                  (cons "databaseRpcRemoteBlockStatus"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-remote-block-status)
                             :false))
                   (cons "databaseRpcProofAddress"
                         (if database-summary
@@ -3539,6 +3752,10 @@
         (format t "preparedPayloadBlockNumber=~A~%"
                 (devnet-smoke-gate-field report
                                          "preparedPayloadBlockNumber"))
+        (format t "remoteBlockHash=~A~%"
+                (devnet-smoke-gate-field report "remoteBlockHash"))
+        (format t "remoteBlockStatus=~A~%"
+                (devnet-smoke-gate-field report "remoteBlockStatus"))
         (format t "blockNumber=~A~%"
                 (devnet-smoke-gate-field report "blockNumber"))
         (format t "safeBlockNumber=~A~%"
@@ -3619,6 +3836,11 @@
         (format t "databaseRpcPreparedPayloadBlockNumber=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcPreparedPayloadBlockNumber"))
+        (format t "databaseRemoteBlockHash=~A~%"
+                (devnet-smoke-gate-field report "databaseRemoteBlockHash"))
+        (format t "databaseRpcRemoteBlockStatus=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcRemoteBlockStatus"))
         (format t "databaseRpcProofAddress=~A~%"
                 (devnet-smoke-gate-field report
                                          "databaseRpcProofAddress"))

@@ -4336,6 +4336,12 @@ splits can land after the Phase A smoke path closes.
     `engine_forkchoiceUpdatedV2`, exports the KV snapshot, restores it into a
     fresh node, and verifies `engine_getPayloadV2` can read the prepared
     payload by id.
+  - Result: the same database-backed devnet smoke gate now exercises
+    persisted remote Engine blocks. Each pinned Shanghai run submits an
+    orphan `engine_newPayloadV2` through authenticated Engine RPC, verifies the
+    `SYNCING` response and remote-block cache population, exports the KV
+    snapshot, restores a fresh node, and verifies the restored Engine RPC path
+    still returns `SYNCING` for that cached orphan payload.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject
