@@ -4471,6 +4471,10 @@ splits can land after the Phase A smoke path closes.
     devnet runs instead of only unit helpers. Existing empty database files
     are now treated as new databases instead of clearing the freshly loaded
     genesis chain, and the first export writes a restorable genesis snapshot.
+    When an imported database still contains a canonical genesis block, devnet
+    startup now rejects it if that block does not match the supplied
+    `--genesis` file, while pruned retained-window snapshots that no longer
+    carry block 0 remain restorable.
   - Result: extended the standalone devnet smoke gate with `--database PATH`.
     The gate now exports the chain-store snapshot produced by the authenticated
     Engine import/forkchoice/public-read sequence, reopens the file-backed KV

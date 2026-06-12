@@ -209,7 +209,10 @@ fixes in those areas are allowed; expansion is not.
   block number on export, and exporting the current readable chain view on
   `--no-serve` or normal shutdown. Empty existing database files are treated as
   new stores, so first-run devnet startup preserves and exports the loaded
-  genesis state instead of publishing an empty readable chain. The standalone
+  genesis state instead of publishing an empty readable chain. Database startup
+  also rejects snapshots whose persisted canonical genesis block conflicts
+  with the supplied genesis file, while pruned retained-window snapshots
+  without block 0 remain restorable. The standalone
   devnet smoke gate can now
   pass the same pruning boundary through its database export/restore check and
   verify a covered safe/finalized state snapshot is absent while the block and

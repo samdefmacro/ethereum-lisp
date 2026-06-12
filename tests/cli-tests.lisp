@@ -944,6 +944,55 @@
           (when (probe-file database-path)
             (delete-file database-path)))))))
 
+(deftest devnet-cli-main-rejects-database-genesis-mismatch
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-mismatched-chain"
+                                "sexp"))
+        (output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (let* ((seed-node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path +devnet-cli-genesis-fixture+
+                     :port 0))
+                  (seed-store
+                    (ethereum-lisp.cli:devnet-node-store seed-node))
+                  (state (make-state-db))
+                  (mismatched-genesis
+                    (make-block
+                     :header
+                     (make-block-header
+                      :number 0
+                      :timestamp 99
+                      :gas-limit 30000000
+                      :state-root (state-db-root state)))))
+             (chain-store-put-block seed-store
+                                    mismatched-genesis
+                                    :state-available-p t)
+             (commit-state-db-to-chain-store
+              seed-store (block-hash mismatched-genesis) state)
+             (chain-store-set-canonical-head seed-store
+                                             (block-hash mismatched-genesis))
+             (chain-store-export-to-kv
+              seed-store
+              (make-file-key-value-database database-path)))
+           (is (= 1
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--port" "0"
+                         "--database" (namestring database-path)
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string output)))
+           (is (search "Devnet database genesis does not match genesis file"
+                       (get-output-stream-string errors))))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
 (deftest devnet-cli-main-prunes-state-before-database-export
   (let ((database-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-pruned-chain" "sexp"))

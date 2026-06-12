@@ -120,6 +120,17 @@
       (delete-file existing-path)))
   (ethereum-lisp.database:make-file-key-value-database path))
 
+(defun devnet-cli-validate-imported-genesis (store genesis-block database-path)
+  (let ((restored-genesis (chain-store-block-by-number store 0)))
+    (when (and restored-genesis
+               (not (equalp (hash32-bytes (block-hash restored-genesis))
+                            (hash32-bytes (block-hash genesis-block)))))
+      (error
+       "Devnet database genesis does not match genesis file (~A): expected ~A, got ~A"
+       database-path
+       (hash32-to-hex (block-hash genesis-block))
+       (hash32-to-hex (block-hash restored-genesis))))))
+
 (defun make-devnet-node
     (&key
        genesis-path
@@ -168,7 +179,9 @@
                   (ethereum-lisp.database:make-file-key-value-database
                    existing-database-path)))
             (when (devnet-cli-kv-chain-records-present-p database)
-              (chain-store-import-from-kv store database))))))
+              (chain-store-import-from-kv store database)
+              (devnet-cli-validate-imported-genesis
+               store genesis-block existing-database-path))))))
     (%make-devnet-node
      :genesis-path genesis-path
      :store store
