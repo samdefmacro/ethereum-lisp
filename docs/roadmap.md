@@ -858,7 +858,9 @@ first pass, but interfaces must not block that path.
   Readiness files and lifecycle telemetry are now checked for head-state
   consistency: `devnet.ready` reports the pre-import parent head and
   `devnet.shutdown` reports the post-forkchoice imported child head, both with
-  explicit process-id and state-availability fields for process runners.
+  explicit process-id and state-availability fields for process runners; the
+  standalone devnet smoke gate rejects readiness/log output whose lifecycle
+  `processId` fields are missing or inconsistent.
   Standalone devnet smoke-gate reports also carry pinned EEST source metadata
   and local reference-client commit/status metadata, and concurrent standalone
   smoke-gate processes use distinct temp files so automation can run parallel

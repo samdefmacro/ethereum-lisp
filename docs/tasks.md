@@ -4682,6 +4682,11 @@ splits can land after the Phase A smoke path closes.
     now include `processId`, giving Hive-style runners a stable OS-process
     correlation key across stdout, ready-file, `devnet.ready`, and
     `devnet.shutdown` records.
+  - Result: the standalone devnet smoke gate now verifies that readiness JSON
+    reports a positive `processId` and that `devnet.ready` /
+    `devnet.shutdown` telemetry records carry the same process id. This turns
+    the Hive-style PID correlation field into a self-checked process-runner
+    contract rather than a best-effort summary field.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

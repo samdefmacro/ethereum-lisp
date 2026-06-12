@@ -692,6 +692,12 @@
      (eq t (fixture-object-field summary "stateAvailable"))
      "Ready file must report available head state")
     (devnet-smoke-gate-require
+     (integerp (fixture-object-field summary "processId"))
+     "Ready file processId must be an integer")
+    (devnet-smoke-gate-require
+     (< 0 (fixture-object-field summary "processId"))
+     "Ready file processId must be positive")
+    (devnet-smoke-gate-require
      (string= expected-head-number
               (quantity-to-hex
                (fixture-object-field summary "headNumber")))
@@ -704,7 +710,7 @@
 
 (defun devnet-smoke-gate-verify-log-file
     (path ready-head-number ready-head-hash shutdown-head-number
-     shutdown-head-hash)
+     shutdown-head-hash &key expected-process-id)
   (let* ((records (devnet-smoke-gate-file-forms path))
          (names (mapcar (lambda (record) (getf record :name)) records)))
     (devnet-smoke-gate-require
@@ -731,6 +737,11 @@
            (string= "public"
                     (cdr (assoc "rpcEndpoint" fields :test #'string=)))
            "Log file public RPC endpoint mismatch")
+          (when expected-process-id
+            (devnet-smoke-gate-require
+             (string= (write-to-string expected-process-id)
+                      (cdr (assoc "processId" fields :test #'string=)))
+             "Log file processId mismatch"))
           (devnet-smoke-gate-require
            (string= expected-head-number
                     (cdr (assoc "headNumber" fields :test #'string=)))
@@ -4925,19 +4936,23 @@
                                       :rpc-side-public-connections)
                                 :false)
                             :false))))))))))))
-             (when ready-file
-               (devnet-smoke-gate-verify-ready-file
-                ready-file
-                (devnet-smoke-gate-field report "safeBlockNumber")
-                (devnet-smoke-gate-field report "safeBlockHash")))
-             (when log-file
-               (devnet-smoke-gate-verify-log-file
-                log-file
-                (devnet-smoke-gate-field report "safeBlockNumber")
-                (devnet-smoke-gate-field report "safeBlockHash")
-                (devnet-smoke-gate-field report "blockNumber")
-                (devnet-smoke-gate-field report "latestValidHash")))
-             report))
+             (let ((ready-summary
+                     (when ready-file
+                       (devnet-smoke-gate-verify-ready-file
+                        ready-file
+                        (devnet-smoke-gate-field report "safeBlockNumber")
+                        (devnet-smoke-gate-field report "safeBlockHash")))))
+               (when log-file
+                 (devnet-smoke-gate-verify-log-file
+                  log-file
+                  (devnet-smoke-gate-field report "safeBlockNumber")
+                  (devnet-smoke-gate-field report "safeBlockHash")
+                  (devnet-smoke-gate-field report "blockNumber")
+                  (devnet-smoke-gate-field report "latestValidHash")
+                  :expected-process-id
+                  (and ready-summary
+                       (fixture-object-field ready-summary "processId"))))
+               report)))
       (when (probe-file jwt-path)
         (delete-file jwt-path))))
   #-sbcl
