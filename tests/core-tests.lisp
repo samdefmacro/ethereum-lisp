@@ -12859,6 +12859,102 @@
                      (field access-list-result "gasUsed")))
         (is (string= "0x" (field code-response "result")))))))
 
+(deftest eth-rpc-simulates-call-value-transfer-without-commit
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (word-hex (value)
+             (bytes-to-hex
+              (ethereum-lisp.crypto::integer-to-fixed-bytes value 32)))
+           (request (id method params store config)
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" method)
+                    (cons "params" params))
+              store
+              config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :london-block 0
+                                      :shanghai-time 0))
+           (sender
+             (address-from-hex "0x0000000000000000000000000000000000000001"))
+           (recipient
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           (contract
+             (make-address
+              (subseq
+               (keccak-256
+                (rlp-encode
+                 (make-rlp-list (address-bytes sender) 0)))
+               12 32)))
+           ;; CALLER BALANCE; MSTORE 0; RETURN mem[0:32].
+           (balance-code #(51 49 96 0 82 96 32 96 0 243))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 31
+                       :timestamp 310
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state))))
+           (call-object
+             (list (cons "from" (address-to-hex sender))
+                   (cons "to" (address-to-hex recipient))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "value" (quantity-to-hex 42))))
+           (create-object
+             (list (cons "from" (address-to-hex sender))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "value" (quantity-to-hex 42))
+                   (cons "data" (bytes-to-hex balance-code))))
+           (overdraft-object
+             (list (cons "from" (address-to-hex sender))
+                   (cons "to" (address-to-hex recipient))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "value" (quantity-to-hex 1001)))))
+      (state-db-set-account state sender
+                            (make-state-account :nonce 0
+                                                :balance 1000))
+      (state-db-set-code state recipient balance-code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((call-response
+               (request 144 "eth_call" (list call-object "latest")
+                        store config))
+             (create-response
+               (request 145 "eth_call" (list create-object "latest")
+                        store config))
+             (sender-balance-response
+               (request 146 "eth_getBalance"
+                        (list (address-to-hex sender) "latest")
+                        store config))
+             (recipient-balance-response
+               (request 147 "eth_getBalance"
+                        (list (address-to-hex recipient) "latest")
+                        store config))
+             (contract-balance-response
+               (request 148 "eth_getBalance"
+                        (list (address-to-hex contract) "latest")
+                        store config))
+             (overdraft-response
+               (request 149 "eth_estimateGas"
+                        (list overdraft-object "latest")
+                        store config)))
+        (is (string= (word-hex 958) (field call-response "result")))
+        (is (string= (word-hex 958) (field create-response "result")))
+        (is (string= (quantity-to-hex 1000)
+                     (field sender-balance-response "result")))
+        (is (string= (quantity-to-hex 0)
+                     (field recipient-balance-response "result")))
+        (is (string= (quantity-to-hex 0)
+                     (field contract-balance-response "result")))
+        (is (= -32602
+               (field (field overdraft-response "error") "code")))))))
+
 (deftest eth-rpc-state-methods-support-block-identifier-objects
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

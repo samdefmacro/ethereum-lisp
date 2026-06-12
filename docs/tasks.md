@@ -4084,6 +4084,12 @@ splits can land after the Phase A smoke path closes.
     objects with no `to` address. The RPC path executes initcode against a
     copied state DB, returns the creation output for `eth_call`, and leaves the
     retained chain-store state unchanged.
+  - Progress: retained-state call simulation now applies call-object `value`
+    transfers inside the copied state before EVM execution for both recipient
+    calls and contract creation. Callee/initcode balance reads observe the
+    simulated transfer, insufficient sender balance is rejected as an invalid
+    simulation transaction, and the retained sender/recipient/created-contract
+    balances remain unchanged after the call.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7
@@ -4098,6 +4104,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: `eth_estimateGas` now reuses the same retained-state
     contract-creation simulation and accounts for runtime code-deposit gas
     when searching the minimum successful gas limit.
+  - Progress: `eth_estimateGas` now shares the retained-state value-transfer
+    simulation boundary, so overdrafting call objects fail during gas search
+    instead of executing against impossible copied balances.
 
 - [x] Add `eth_createAccessList` first-pass support.
   - Milestone: 7

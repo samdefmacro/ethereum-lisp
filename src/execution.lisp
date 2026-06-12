@@ -159,6 +159,13 @@
          (+ (state-account-balance recipient-account) value)
          (state-account-code-hash recipient-account))))))
 
+(defun transfer-call-value-for-simulation (state sender recipient value)
+  (let ((sender-account (execution-account-or-empty state sender)))
+    (when (< (state-account-balance sender-account) value)
+      (error 'transaction-validation-error
+             :message "Insufficient sender balance"))
+    (transfer-value state sender recipient value)))
+
 (defun pay-priority-fee (state coinbase tx receipt base-fee)
   (let ((fee (* (receipt-cumulative-gas-used receipt)
                 (transaction-priority-fee-per-gas tx :base-fee base-fee))))
@@ -593,14 +600,15 @@
                 (make-hash-table :test 'equalp))
         (handler-case
             (let ((context nil))
+              (transfer-call-value-for-simulation
+               call-state sender contract (transaction-value tx))
               (let ((contract-account
                       (execution-account-or-empty call-state contract)))
                 (put-execution-account-values
                  call-state
                  contract
                  1
-                 (+ (state-account-balance contract-account)
-                    (transaction-value tx))
+                 (state-account-balance contract-account)
                  (state-account-code-hash contract-account)))
               (setf context
                     (make-message-evm-context
@@ -706,6 +714,8 @@ mutated."
            (intrinsic-gas (execution-transaction-intrinsic-gas
                            tx effective-chain-rules))
            (code (execution-resolved-code call-state recipient)))
+      (transfer-call-value-for-simulation
+       call-state sender recipient (transaction-value tx))
       (if (zerop (length code))
           (values :successful
                   (make-byte-vector 0)

@@ -83,9 +83,12 @@ fixes in those areas are allowed; expansion is not.
   contract-creation call objects, executing initcode against copied state,
   returning creation output for `eth_call`, accounting for code-deposit gas in
   `eth_estimateGas` / `eth_createAccessList`, and leaving retained chain-store
-  state unchanged. `eth_createAccessList` can turn retained-state call access
-  tracking into geth-shaped access-list and gas-used results. Retained-state
-  RPC block selectors now also accept EIP-1898-style `blockHash` /
+  state unchanged. Call-object `value` is now applied inside the copied
+  retained-state simulation for both recipient calls and contract creation, so
+  balance reads observe the simulated transfer while overdrafts are rejected.
+  `eth_createAccessList` can turn retained-state call access tracking into
+  geth-shaped access-list and gas-used results. Retained-state RPC block
+  selectors now also accept EIP-1898-style `blockHash` /
   `blockNumber` objects, including `requireCanonical` rejection for side-chain
   hashes, so hash-pinned side-chain state can be read and simulated without
   changing canonical indexes. Signed block import,
@@ -799,7 +802,8 @@ first pass, but interfaces must not block that path.
   `eth_createAccessList`) and then re-reads storage to prove simulation calls
   do not commit writes through the restored chain-store view. The direct RPC
   regression suite now also covers retained-state contract-creation
-  simulations without committing created code.
+  simulations plus value-bearing retained-state calls without committing
+  sender, recipient, or created-contract balance changes.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
