@@ -378,9 +378,16 @@
             :header child-header
             :chain-config config
             :withdrawals withdrawals))
+         (side-block
+           (devnet-smoke-gate-side-sibling-block
+            parent-block parent-state config payload-case withdrawals
+            fee-recipient))
          (payload
            (execution-payload-envelope-execution-payload
             (block-to-executable-data child-block)))
+         (side-payload
+           (execution-payload-envelope-execution-payload
+            (block-to-executable-data side-block)))
          (txpool-transactions
            (devnet-smoke-gate-txpool-transactions
             child-state
@@ -394,6 +401,8 @@
      (cons "parentBlock" parent-block)
      (cons "childBlock" child-block)
      (cons "payload" payload)
+     (cons "sideBlock" side-block)
+     (cons "sidePayload" side-payload)
      (cons "txpoolTransactions" txpool-transactions)
      (cons "pendingTransaction"
            (cdr (assoc "pending" txpool-transactions :test #'string=)))
@@ -630,6 +639,30 @@
       :timestamp (1+ (block-header-timestamp invalid-header))
       :base-fee-per-gas (block-header-base-fee-per-gas invalid-header))
      :withdrawals '())))
+
+(defun devnet-smoke-gate-side-sibling-block
+    (parent-block parent-state config payload-case withdrawals fee-recipient)
+  (let* ((side-state (state-db-copy parent-state))
+         (side-header
+           (make-block-header
+            :parent-hash (block-hash parent-block)
+            :beneficiary fee-recipient
+            :mix-hash
+            (hash32-from-hex
+             "0x0300000000000000000000000000000000000000000000000000000000000000")
+            :number (fixture-quantity-field payload-case "number")
+            :gas-limit (fixture-quantity-field payload-case "gasLimit")
+            :gas-used 0
+            :timestamp (1+ (fixture-quantity-field payload-case "timestamp"))
+            :base-fee-per-gas
+            (fixture-quantity-field payload-case "baseFeePerGas"))))
+    (execute-signed-block
+     side-state
+     '()
+     :expected-chain-id (chain-config-chain-id config)
+     :header side-header
+     :chain-config config
+     :withdrawals withdrawals)))
 
 (defun devnet-smoke-gate-access-list-entry (access-list address)
   (find (address-to-hex address)
@@ -2746,6 +2779,280 @@
   #-sbcl
   (error "Restored devnet txpool RPC verification requires SBCL threads"))
 
+(defun devnet-smoke-gate-verify-restored-side-reorg-rpc
+    (path side-payload side-block child-block transaction-checks
+     expected-safe-block-hash)
+  #+sbcl
+  (let ((jwt-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-smoke-side-reorg-jwt"
+           "hex")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path
+                     (namestring
+                      (devnet-smoke-gate-reference-path
+                       +devnet-cli-genesis-fixture+))
+                     :port 0
+                     :public-port 0
+                     :jwt-secret-path (namestring jwt-path)
+                     :database-path path))
+                  (secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                  (token (engine-rpc-make-jwt-token secret 0))
+                  (transaction-hash
+                    (getf (first transaction-checks) :hash))
+                  (side-block-hash (block-hash side-block))
+                  (child-block-hash (block-hash child-block))
+                  (expected-side-block-number
+                    (quantity-to-hex
+                     (block-header-number (block-header side-block))))
+                  (side-payload-output (make-string-output-stream))
+                  (side-forkchoice-output (make-string-output-stream))
+                  (side-block-number-output (make-string-output-stream))
+                  (side-latest-block-output (make-string-output-stream))
+                  (side-transaction-output (make-string-output-stream))
+                  (side-receipt-output (make-string-output-stream))
+                  (child-block-output (make-string-output-stream))
+                  (engine-requests
+                    (list
+                     (cons
+                      (json-encode
+                       (engine-fixture-payload-request 201 side-payload))
+                      side-payload-output)
+                     (cons
+                      (json-encode
+                       (devnet-cli-engine-forkchoice-v2-request
+                        202 side-block-hash
+                        :safe expected-safe-block-hash
+                        :finalized expected-safe-block-hash))
+                      side-forkchoice-output)))
+                  (public-requests
+                    (list
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 203)
+                             (cons "method" "eth_blockNumber")
+                             (cons "params" '())))
+                      side-block-number-output)
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 204)
+                             (cons "method" "eth_getBlockByNumber")
+                             (cons "params" (list "latest" :false))))
+                      side-latest-block-output)
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 205)
+                             (cons "method" "eth_getTransactionByHash")
+                             (cons "params"
+                                   (list (hash32-to-hex
+                                          transaction-hash)))))
+                      side-transaction-output)
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 206)
+                             (cons "method" "eth_getTransactionReceipt")
+                             (cons "params"
+                                   (list (hash32-to-hex
+                                          transaction-hash)))))
+                      side-receipt-output)
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 207)
+                             (cons "method" "eth_getBlockByHash")
+                             (cons "params"
+                                   (list (hash32-to-hex child-block-hash)
+                                         :false))))
+                      child-block-output)))
+                  (engine-done-p nil)
+                  (engine-served-count 0)
+                  (summary
+                    (ethereum-lisp.cli:start-devnet-node-listeners
+                     node
+                     (make-engine-rpc-http-listener
+                      :endpoint "engine-side-reorg"
+                      :accept-function
+                      (lambda ()
+                        (when engine-requests
+                          (destructuring-bind (body . output)
+                              (pop engine-requests)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream
+                              (devnet-cli-json-rpc-http-request
+                               body :token token))
+                             :output-stream output
+                             :close-function
+                             (lambda ()
+                               (incf engine-served-count)
+                               (when (= engine-served-count 2)
+                                 (setf engine-done-p t)))))))
+                      :close-function (lambda () nil))
+                     (make-engine-rpc-http-listener
+                      :endpoint "public-side-reorg"
+                      :accept-function
+                      (lambda ()
+                        (loop until engine-done-p
+                              do (sleep 0.001))
+                        (when public-requests
+                          (destructuring-bind (body . output)
+                              (pop public-requests)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream
+                              (devnet-cli-json-rpc-http-request body))
+                             :output-stream output
+                             :close-function (lambda () nil)))))
+                      :close-function (lambda () nil))
+                     :max-connections 5))
+                  (side-payload-response
+                    (get-output-stream-string side-payload-output))
+                  (side-forkchoice-response
+                    (get-output-stream-string side-forkchoice-output))
+                  (side-block-number-response
+                    (get-output-stream-string side-block-number-output))
+                  (side-latest-block-response
+                    (get-output-stream-string side-latest-block-output))
+                  (side-transaction-response
+                    (get-output-stream-string side-transaction-output))
+                  (side-receipt-response
+                    (get-output-stream-string side-receipt-output))
+                  (child-block-response
+                    (get-output-stream-string child-block-output))
+                  (side-payload-rpc
+                    (devnet-smoke-gate-rpc-body side-payload-response))
+                  (side-forkchoice-rpc
+                    (devnet-smoke-gate-rpc-body side-forkchoice-response))
+                  (side-block-number-rpc
+                    (devnet-smoke-gate-rpc-body side-block-number-response))
+                  (side-latest-block-rpc
+                    (devnet-smoke-gate-rpc-body side-latest-block-response))
+                  (side-transaction-rpc
+                    (devnet-smoke-gate-rpc-body side-transaction-response))
+                  (side-receipt-rpc
+                    (devnet-smoke-gate-rpc-body side-receipt-response))
+                  (child-block-rpc
+                    (devnet-smoke-gate-rpc-body child-block-response))
+                  (side-payload-result
+                    (fixture-object-field side-payload-rpc "result"))
+                  (side-forkchoice-status
+                    (fixture-object-field
+                     (fixture-object-field side-forkchoice-rpc "result")
+                     "payloadStatus"))
+                  (side-latest-block
+                    (fixture-object-field side-latest-block-rpc "result"))
+                  (child-block-by-hash
+                    (fixture-object-field child-block-rpc "result")))
+             (devnet-smoke-gate-require
+              (= 2 (getf summary :engine-connections))
+              "Expected 2 side-reorg Engine connections, got ~S"
+              (getf summary :engine-connections))
+             (devnet-smoke-gate-require
+              (= 5 (getf summary :public-connections))
+              "Expected 5 side-reorg public connections, got ~S"
+              (getf summary :public-connections))
+             (dolist (response
+                      (list side-payload-response side-forkchoice-response
+                            side-block-number-response
+                            side-latest-block-response
+                            side-transaction-response
+                            side-receipt-response child-block-response))
+               (devnet-smoke-gate-require
+                (= 200 (devnet-cli-http-status response))
+                "Restored side-reorg RPC HTTP status mismatch"))
+             (devnet-smoke-gate-require
+              (string= +payload-status-valid+
+                       (fixture-object-field side-payload-result "status"))
+              "Restored side sibling engine_newPayloadV2 status mismatch")
+             (devnet-smoke-gate-require
+              (string= (hash32-to-hex side-block-hash)
+                       (fixture-object-field side-payload-result
+                                             "latestValidHash"))
+              "Restored side sibling latestValidHash mismatch")
+             (devnet-smoke-gate-require
+              (string= +payload-status-valid+
+                       (fixture-object-field side-forkchoice-status "status"))
+              "Restored side sibling forkchoice status mismatch")
+             (devnet-smoke-gate-require
+              (string= expected-side-block-number
+                       (fixture-object-field side-block-number-rpc "result"))
+              "Restored side sibling eth_blockNumber mismatch")
+             (devnet-smoke-gate-require
+              (string= (hash32-to-hex side-block-hash)
+                       (fixture-object-field side-latest-block "hash"))
+              "Restored side sibling latest block hash mismatch")
+             (devnet-smoke-gate-require
+              (null (fixture-object-field side-transaction-rpc "result"))
+              "Restored side sibling should hide old canonical transaction")
+             (devnet-smoke-gate-require
+              (null (fixture-object-field side-receipt-rpc "result"))
+              "Restored side sibling should hide old canonical receipt")
+             (devnet-smoke-gate-require
+              (string= (hash32-to-hex child-block-hash)
+                       (fixture-object-field child-block-by-hash "hash"))
+              "Restored side sibling lost child block hash lookup")
+             (ethereum-lisp.cli::devnet-node-export-database node)
+             (let* ((fresh-node
+                      (ethereum-lisp.cli:make-devnet-node
+                       :genesis-path
+                       (namestring
+                        (devnet-smoke-gate-reference-path
+                         +devnet-cli-genesis-fixture+))
+                       :port 0
+                       :database-path path))
+                    (fresh-summary
+                      (ethereum-lisp.cli:devnet-node-summary fresh-node)))
+               (devnet-smoke-gate-require
+                (= (block-header-number (block-header side-block))
+                   (getf fresh-summary :head-number))
+                "Side-reorg database restore head number mismatch")
+               (devnet-smoke-gate-require
+                (string= (hash32-to-hex side-block-hash)
+                         (getf fresh-summary :head-hash))
+                "Side-reorg database restore head hash mismatch")
+               (devnet-smoke-gate-require
+                (chain-store-known-block
+                 (ethereum-lisp.cli:devnet-node-store fresh-node)
+                 child-block-hash)
+                "Side-reorg database restore lost old child block")
+               (list :side-block-hash (hash32-to-hex side-block-hash)
+                     :side-forkchoice-status
+                     (fixture-object-field side-forkchoice-status "status")
+                     :side-block-number
+                     (fixture-object-field side-block-number-rpc "result")
+                     :side-latest-block-hash
+                     (fixture-object-field side-latest-block "hash")
+                     :side-transaction-by-hash
+                     (or (fixture-object-field side-transaction-rpc "result")
+                         :false)
+                     :side-receipt
+                     (or (fixture-object-field side-receipt-rpc "result")
+                         :false)
+                     :side-child-block-hash
+                     (fixture-object-field child-block-by-hash "hash")
+                     :side-restored-head-number
+                     (quantity-to-hex (getf fresh-summary :head-number))
+                     :side-restored-head-hash
+                     (getf fresh-summary :head-hash)
+                     :engine-connections (getf summary :engine-connections)
+                     :public-connections
+                     (getf summary :public-connections)))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))))
+  #-sbcl
+  (declare (ignore path side-payload side-block child-block transaction-checks
+                   expected-safe-block-hash))
+  #-sbcl
+  (error "Restored devnet side reorg RPC verification requires SBCL threads"))
+
 (defun devnet-smoke-gate-verify-database
     (path expected-block-number balance-targets
      sender-address expected-sender-nonce
@@ -2758,7 +3065,8 @@
           prepared-payload-block-number
           remote-payload remote-block
           invalid-block invalid-descendant-payload
-          txpool-transactions)
+          txpool-transactions
+          side-payload side-block child-block)
   (let* ((database (make-file-key-value-database path))
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -2833,7 +3141,19 @@
          (txpool-rpc-summary
            (and txpool-transactions
                 (devnet-smoke-gate-verify-restored-txpool-rpc
-                 node txpool-transactions))))
+                 node txpool-transactions)))
+         (side-reorg-rpc-summary
+           (and (not state-prune-before)
+                side-payload
+                side-block
+                child-block
+                (devnet-smoke-gate-verify-restored-side-reorg-rpc
+                 path
+                 side-payload
+                 side-block
+                 child-block
+                 transaction-checks
+                 expected-safe-block-hash))))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
      "Database export did not write block records")
@@ -3130,6 +3450,46 @@
                   :rpc-txpool-public-connections
                   (and txpool-rpc-summary
                        (getf txpool-rpc-summary
+                             :public-connections))
+                  :rpc-side-block-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary :side-block-hash))
+                  :rpc-side-forkchoice-status
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-forkchoice-status))
+                  :rpc-side-block-number
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary :side-block-number))
+                  :rpc-side-latest-block-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-latest-block-hash))
+                  :rpc-side-transaction-by-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-transaction-by-hash))
+                  :rpc-side-receipt
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary :side-receipt))
+                  :rpc-side-child-block-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-child-block-hash))
+                  :rpc-side-restored-head-number
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-head-number))
+                  :rpc-side-restored-head-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-head-hash))
+                  :rpc-side-engine-connections
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary :engine-connections))
+                  :rpc-side-public-connections
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
                              :public-connections))))))
 
 (defun devnet-smoke-gate-run
@@ -3160,6 +3520,12 @@
                                                         "childBlock"))
                              (payload
                                (devnet-smoke-gate-field fixture "payload"))
+                             (side-block
+                               (devnet-smoke-gate-field fixture
+                                                        "sideBlock"))
+                             (side-payload
+                               (devnet-smoke-gate-field fixture
+                                                        "sidePayload"))
                              (txpool-transactions
                                (devnet-smoke-gate-field
                                 fixture "txpoolTransactions"))
@@ -3855,7 +4221,10 @@
                                :invalid-block invalid-block
                                :invalid-descendant-payload
                                invalid-descendant-payload
-                               :txpool-transactions txpool-transactions))))
+                               :txpool-transactions txpool-transactions
+                               :side-payload side-payload
+                               :side-block side-block
+                               :child-block child-block))))
                  (devnet-smoke-gate-add-run-metadata
                   (list
                   (cons "status" "ok")
@@ -4381,6 +4750,71 @@
                   (cons "databaseRpcPublicConnections"
                         (if database-summary
                             (getf database-summary :rpc-public-connections)
+                            :false))
+                  (cons "databaseRpcSideBlockHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-block-hash)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideForkchoiceStatus"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-forkchoice-status)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideBlockNumber"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-block-number)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideLatestBlockHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-latest-block-hash)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideTransactionByHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-transaction-by-hash)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideReceipt"
+                        (if database-summary
+                            (or (getf database-summary :rpc-side-receipt)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideChildBlockHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-child-block-hash)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredHeadNumber"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-head-number)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredHeadHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-head-hash)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideEngineConnections"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-engine-connections)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSidePublicConnections"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-public-connections)
+                                :false)
                             :false))))))))))))
              (when ready-file
                (devnet-smoke-gate-verify-ready-file
@@ -4770,7 +5204,81 @@
                   (devnet-smoke-gate-field report
                                            "databaseRpcFinalizedBlockNumber"))
          "Devnet smoke gate suite restored finalized block number mismatch for ~A"
-         (devnet-smoke-gate-field report "fixtureCase"))))
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (if state-prune-before
+            (devnet-smoke-gate-require
+             (devnet-smoke-gate-false-p
+              (devnet-smoke-gate-field report "databaseRpcSideBlockHash"))
+             "Devnet smoke gate suite unexpectedly ran side reorg for pruned database ~A"
+             (devnet-smoke-gate-field report "fixtureCase"))
+            (progn
+              (devnet-smoke-gate-require
+               (string= +payload-status-valid+
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideForkchoiceStatus"))
+               "Devnet smoke gate suite side forkchoice status mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "blockNumber")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideBlockNumber"))
+               "Devnet smoke gate suite side block number mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field
+                         report "databaseRpcSideBlockHash")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideLatestBlockHash"))
+               "Devnet smoke gate suite side latest hash mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field
+                         report "databaseRpcSideBlockHash")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredHeadHash"))
+               "Devnet smoke gate suite side restored head hash mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "blockNumber")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredHeadNumber"))
+               "Devnet smoke gate suite side restored head number mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (not (string= (devnet-smoke-gate-field
+                              report "databaseRpcBlockHash")
+                             (devnet-smoke-gate-field
+                              report "databaseRpcSideBlockHash")))
+               "Devnet smoke gate suite side block reused child hash for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field
+                         report "databaseRpcBlockHash")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideChildBlockHash"))
+               "Devnet smoke gate suite side reorg lost child block for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (devnet-smoke-gate-false-p
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideTransactionByHash"))
+               "Devnet smoke gate suite side reorg kept old transaction canonical for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (devnet-smoke-gate-false-p
+                (devnet-smoke-gate-field report "databaseRpcSideReceipt"))
+               "Devnet smoke gate suite side reorg kept old receipt canonical for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (= 2 (devnet-smoke-gate-field
+                     report "databaseRpcSideEngineConnections"))
+               "Devnet smoke gate suite side Engine connection count mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (= 5 (devnet-smoke-gate-field
+                     report "databaseRpcSidePublicConnections"))
+               "Devnet smoke gate suite side public connection count mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))))))
     (devnet-smoke-gate-add-run-metadata
      (list
      (cons "status" "ok")
@@ -5184,6 +5692,39 @@
         (format t "databaseRpcSimulationCount=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSimulationCount"))
+        (format t "databaseRpcSideBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideBlockHash"))
+        (format t "databaseRpcSideForkchoiceStatus=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideForkchoiceStatus"))
+        (format t "databaseRpcSideBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideBlockNumber"))
+        (format t "databaseRpcSideLatestBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideLatestBlockHash"))
+        (format t "databaseRpcSideTransactionByHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideTransactionByHash"))
+        (format t "databaseRpcSideReceipt=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideReceipt"))
+        (format t "databaseRpcSideChildBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideChildBlockHash"))
+        (format t "databaseRpcSideRestoredHeadNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredHeadNumber"))
+        (format t "databaseRpcSideRestoredHeadHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredHeadHash"))
+        (format t "databaseRpcSideEngineConnections=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideEngineConnections"))
+        (format t "databaseRpcSidePublicConnections=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSidePublicConnections"))
         (format t "databaseRpcPrunedStateError=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcPrunedStateError"))

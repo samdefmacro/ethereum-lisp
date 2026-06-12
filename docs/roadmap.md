@@ -261,7 +261,12 @@ fixes in those areas are allowed; expansion is not.
   `eth_sendRawTransaction`, exports them with the KV snapshot, and verifies
   restored public txpool views (`eth_pendingTransactions`, `txpool_status`,
   `txpool_content`, `txpool_contentFrom`, and `eth_getRawTransactionByHash`)
-  still expose the same pending and queued-view subpool contents.
+  still expose the same pending and queued-view subpool contents. The same
+  restored database gate now imports an executed empty sibling through
+  authenticated Engine RPC, switches forkchoice to that sibling, verifies
+  public canonical transaction/receipt lookups follow the side head while the
+  old child block remains hash-readable, re-exports the database, and checks a
+  fresh node restores the sibling as canonical head.
   Restored executable-code cases also probe an under-gassed `eth_call` and
   assert the public RPC reports the retained non-revert execution failure as a
   JSON-RPC error.

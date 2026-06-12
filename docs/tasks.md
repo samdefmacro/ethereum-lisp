@@ -4325,6 +4325,14 @@ splits can land after the Phase A smoke path closes.
     `blockHash` and by canonical `blockHash` plus `requireCanonical=true`,
     proving retained-state reads from KV snapshots do not depend only on
     numeric block tags.
+  - Result: the database-backed devnet smoke now also exercises a restored
+    process/database side reorg. After the first KV restore verifies the
+    transaction-bearing child as canonical, the smoke imports an executed
+    empty sibling through authenticated Engine RPC, switches forkchoice to that
+    sibling, verifies public `latest` / transaction / receipt visibility
+    follows the new canonical head while the old child remains hash-readable,
+    re-exports the database, and verifies a fresh node restores the sibling as
+    head.
   - Result: KV export/import now persists invalid-tipset cache entries. Records
     are keyed by the cached tip/head hash and store the invalid ancestor block
     RLP, so restored stores can keep rejecting descendants of previously

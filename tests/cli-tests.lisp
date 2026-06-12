@@ -111,6 +111,56 @@
   (is (= 7
          (fixture-object-field report "databaseRpcTxpoolPublicConnections"))))
 
+(defun devnet-cli-assert-side-reorg-persistence (report)
+  (when (fixture-object-field report "databaseFile")
+    (if (fixture-object-field report "databasePruneStateBefore")
+        (dolist (field '("databaseRpcSideBlockHash"
+                         "databaseRpcSideForkchoiceStatus"
+                         "databaseRpcSideBlockNumber"
+                         "databaseRpcSideLatestBlockHash"
+                         "databaseRpcSideTransactionByHash"
+                         "databaseRpcSideReceipt"
+                         "databaseRpcSideChildBlockHash"
+                         "databaseRpcSideRestoredHeadNumber"
+                         "databaseRpcSideRestoredHeadHash"
+                         "databaseRpcSideEngineConnections"
+                         "databaseRpcSidePublicConnections"))
+          (is (eq nil (fixture-object-field report field))))
+        (progn
+          (is (string= "VALID"
+                       (fixture-object-field
+                        report "databaseRpcSideForkchoiceStatus")))
+          (is (string= (fixture-object-field report "blockNumber")
+                       (fixture-object-field
+                        report "databaseRpcSideBlockNumber")))
+          (is (string= (fixture-object-field report "databaseRpcSideBlockHash")
+                       (fixture-object-field
+                        report "databaseRpcSideLatestBlockHash")))
+          (is (string= (fixture-object-field report "databaseRpcSideBlockHash")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredHeadHash")))
+          (is (string= (fixture-object-field report "blockNumber")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredHeadNumber")))
+          (is (not (string= (fixture-object-field
+                             report "databaseRpcBlockHash")
+                            (fixture-object-field
+                             report "databaseRpcSideBlockHash"))))
+          (is (string= (fixture-object-field report "databaseRpcBlockHash")
+                       (fixture-object-field
+                        report "databaseRpcSideChildBlockHash")))
+          (is (eq nil
+                  (fixture-object-field
+                   report "databaseRpcSideTransactionByHash")))
+          (is (eq nil
+                  (fixture-object-field report "databaseRpcSideReceipt")))
+          (is (= 2
+                 (fixture-object-field
+                  report "databaseRpcSideEngineConnections")))
+          (is (= 5
+                 (fixture-object-field
+                  report "databaseRpcSidePublicConnections")))))))
+
 (defun devnet-cli-pruned-state-error-messages ()
   '("eth_getBalance state is not available"
     "eth_getTransactionCount state is not available"
@@ -1680,6 +1730,7 @@
                              report
                              "databaseRpcInvalidTipsetValidationError")))
                (devnet-cli-assert-txpool-subpool-persistence report)
+               (devnet-cli-assert-side-reorg-persistence report)
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :prepared-payload))))
@@ -2088,6 +2139,7 @@
                                case
                                "databaseRpcInvalidTipsetValidationError")))
                  (devnet-cli-assert-txpool-subpool-persistence case)
+                 (devnet-cli-assert-side-reorg-persistence case)
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
                  (is (probe-file
@@ -2578,7 +2630,8 @@
                        (fixture-object-field
                         case
                         "databaseRpcInvalidTipsetValidationError")))
-          (devnet-cli-assert-txpool-subpool-persistence case)))))))
+          (devnet-cli-assert-txpool-subpool-persistence case)
+          (devnet-cli-assert-side-reorg-persistence case)))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
   #-sbcl
