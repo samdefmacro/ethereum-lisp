@@ -4591,6 +4591,12 @@ splits can land after the Phase A smoke path closes.
     exits before loading the test system. This keeps process runners and
     automation probes from depending on full fixture/test initialization merely
     to discover the standalone devnet gate contract.
+  - Result: devnet readiness telemetry now carries `stateAvailable`, and the
+    standalone smoke gate verifies lifecycle head consistency: `devnet.ready`
+    and the ready file must report the pre-import parent head, while
+    `devnet.shutdown` must report the post-forkchoice imported child head.
+    This locks the process-runner contract for consuming startup versus
+    shutdown chain state.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

@@ -507,7 +507,8 @@
        (> (length code) 2)
        (not (string= code "0x00"))))
 
-(defun devnet-smoke-gate-verify-ready-file (path)
+(defun devnet-smoke-gate-verify-ready-file
+    (path expected-head-number expected-head-hash)
   (let ((summary (parse-json (devnet-smoke-gate-file-string path))))
     (devnet-smoke-gate-require
      (string= "engine" (fixture-object-field summary "engineEndpoint"))
@@ -521,9 +522,20 @@
     (devnet-smoke-gate-require
      (eq t (fixture-object-field summary "stateAvailable"))
      "Ready file must report available head state")
+    (devnet-smoke-gate-require
+     (string= expected-head-number
+              (quantity-to-hex
+               (fixture-object-field summary "headNumber")))
+     "Ready file head number mismatch")
+    (devnet-smoke-gate-require
+     (string= expected-head-hash
+              (fixture-object-field summary "headHash"))
+     "Ready file head hash mismatch")
     summary))
 
-(defun devnet-smoke-gate-verify-log-file (path)
+(defun devnet-smoke-gate-verify-log-file
+    (path ready-head-number ready-head-hash shutdown-head-number
+     shutdown-head-hash)
   (let* ((records (devnet-smoke-gate-file-forms path))
          (names (mapcar (lambda (record) (getf record :name)) records)))
     (devnet-smoke-gate-require
@@ -536,7 +548,12 @@
       (when (member (getf record :name)
                     '("devnet.ready" "devnet.shutdown")
                     :test #'string=)
-        (let ((fields (getf record :fields)))
+        (let* ((fields (getf record :fields))
+               (ready-p (string= "devnet.ready" (getf record :name)))
+               (expected-head-number
+                 (if ready-p ready-head-number shutdown-head-number))
+               (expected-head-hash
+                 (if ready-p ready-head-hash shutdown-head-hash)))
           (devnet-smoke-gate-require
            (string= "engine"
                     (cdr (assoc "engineEndpoint" fields :test #'string=)))
@@ -544,7 +561,19 @@
           (devnet-smoke-gate-require
            (string= "public"
                     (cdr (assoc "rpcEndpoint" fields :test #'string=)))
-           "Log file public RPC endpoint mismatch"))))
+           "Log file public RPC endpoint mismatch")
+          (devnet-smoke-gate-require
+           (string= expected-head-number
+                    (cdr (assoc "headNumber" fields :test #'string=)))
+           "Log file head number mismatch")
+          (devnet-smoke-gate-require
+           (string= expected-head-hash
+                    (cdr (assoc "headHash" fields :test #'string=)))
+           "Log file head hash mismatch")
+          (devnet-smoke-gate-require
+           (string= "true"
+                    (cdr (assoc "stateAvailable" fields :test #'string=)))
+           "Log file state availability mismatch"))))
     records))
 
 (defun devnet-smoke-gate-verify-restored-public-rpc
@@ -2782,9 +2811,17 @@
                             (getf database-summary :rpc-public-connections)
                             :false)))))))))))
              (when ready-file
-               (devnet-smoke-gate-verify-ready-file ready-file))
+               (devnet-smoke-gate-verify-ready-file
+                ready-file
+                (devnet-smoke-gate-field report "safeBlockNumber")
+                (devnet-smoke-gate-field report "safeBlockHash")))
              (when log-file
-               (devnet-smoke-gate-verify-log-file log-file))
+               (devnet-smoke-gate-verify-log-file
+                log-file
+                (devnet-smoke-gate-field report "safeBlockNumber")
+                (devnet-smoke-gate-field report "safeBlockHash")
+                (devnet-smoke-gate-field report "blockNumber")
+                (devnet-smoke-gate-field report "latestValidHash")))
              report))
       (when (probe-file jwt-path)
         (delete-file jwt-path))))

@@ -1172,6 +1172,14 @@
                                           :test #'string=))))
                  (is (string= "0x539"
                               (cdr (assoc "chainId" fields :test #'string=))))
+                 (is (string= "0x0"
+                              (cdr (assoc "headNumber" fields
+                                          :test #'string=))))
+                 (is (stringp
+                      (cdr (assoc "headHash" fields :test #'string=))))
+                 (is (string= "true"
+                              (cdr (assoc "stateAvailable" fields
+                                          :test #'string=))))
                  (is (string= log-path-string
                               (cdr (assoc "logPath" fields
                                           :test #'string=)))))))))
@@ -1590,11 +1598,46 @@
                                                 "authRequired")))
                (is (eq t (fixture-object-field ready-summary
                                                 "stateAvailable")))
+               (is (string= (fixture-object-field report "safeBlockNumber")
+                            (quantity-to-hex
+                             (fixture-object-field ready-summary
+                                                   "headNumber"))))
+               (is (string= (fixture-object-field report "safeBlockHash")
+                            (fixture-object-field ready-summary
+                                                  "headHash")))
                (is (string= (namestring database-path)
                             (fixture-object-field ready-summary
                                                   "databasePath")))
                (is (member "devnet.ready" log-names :test #'string=))
-               (is (member "devnet.shutdown" log-names :test #'string=)))))
+               (is (member "devnet.shutdown" log-names :test #'string=))
+               (dolist (log-record log-records)
+                 (when (member (getf log-record :name)
+                               '("devnet.ready" "devnet.shutdown")
+                               :test #'string=)
+                   (let* ((fields (getf log-record :fields))
+                          (ready-p (string= "devnet.ready"
+                                            (getf log-record :name)))
+                          (expected-head-number
+                            (fixture-object-field
+                             report
+                             (if ready-p
+                                 "safeBlockNumber"
+                                 "blockNumber")))
+                          (expected-head-hash
+                            (fixture-object-field
+                             report
+                             (if ready-p
+                                 "safeBlockHash"
+                                 "latestValidHash"))))
+                     (is (string= expected-head-number
+                                  (cdr (assoc "headNumber" fields
+                                              :test #'string=))))
+                     (is (string= expected-head-hash
+                                  (cdr (assoc "headHash" fields
+                                              :test #'string=))))
+                     (is (string= "true"
+                                  (cdr (assoc "stateAvailable" fields
+                                              :test #'string=))))))))))
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)

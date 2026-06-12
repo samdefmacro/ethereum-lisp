@@ -828,6 +828,10 @@ first pass, but interfaces must not block that path.
   standalone smoke-gate validation of readiness JSON, ready/shutdown
   telemetry, and file-backed KV chain-store restore/export across the local
   process boundary.
+  Readiness files and lifecycle telemetry are now checked for head-state
+  consistency: `devnet.ready` reports the pre-import parent head and
+  `devnet.shutdown` reports the post-forkchoice imported child head, both with
+  explicit state-availability fields for process runners.
   Standalone devnet smoke-gate reports also carry pinned EEST source metadata
   and local reference-client commit/status metadata, and concurrent standalone
   smoke-gate processes use distinct temp files so automation can run parallel

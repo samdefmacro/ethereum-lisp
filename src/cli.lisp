@@ -579,6 +579,9 @@
                                   (getf summary :finalized-number))
                                  ""))
       ("finalizedHash" . ,(or (getf summary :finalized-hash) ""))
+      ("stateAvailable" . ,(if (getf summary :state-available-p)
+                                "true"
+                                "false"))
       ("authRequired" . ,(if (getf summary :auth-required-p) "true" "false"))
       ("jwtSecretPath" . ,(or (getf summary :jwt-secret-path) ""))
       ("logPath" . ,(or (getf summary :log-path) ""))
