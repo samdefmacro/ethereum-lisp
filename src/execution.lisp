@@ -584,10 +584,9 @@
           (random-p t)
           (context-gas-limit 0))
   (let* ((call-state (state-db-copy state))
-         (sender-account (execution-account-or-empty call-state sender))
          (contract (execution-create-address
                     sender
-                    (state-account-nonce sender-account)))
+                    (transaction-nonce tx)))
          (gas-limit (transaction-gas-limit tx))
          (gas-price (transaction-effective-gas-price tx :base-fee base-fee))
          (intrinsic-gas (execution-transaction-intrinsic-gas

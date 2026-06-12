@@ -4106,6 +4106,11 @@ splits can land after the Phase A smoke path closes.
     `chainId` against the configured chain ID before simulation, matching the
     geth `8a0223e` `CallDefaults` boundary instead of silently ignoring
     mismatched chain IDs.
+  - Progress: retained-state call objects now parse explicit `nonce` values
+    for `eth_call`, `eth_estimateGas`, and `eth_createAccessList`. Contract
+    creation simulations use that nonce for address derivation while still
+    leaving retained state unchanged, matching geth `8a0223e` call-style
+    transaction defaults where nonce checks are skipped for simulation.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7

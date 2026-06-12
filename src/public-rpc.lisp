@@ -740,6 +740,9 @@
          (value
            (eth-rpc-call-object-quantity-field
             object "value" method :default 0))
+         (nonce
+           (eth-rpc-call-object-quantity-field
+            object "nonce" method :default 0))
          (data (eth-rpc-call-object-data object method))
          (chain-id (eth-rpc-call-object-chain-id object method config)))
     (multiple-value-bind (access-list access-list-present-p)
@@ -752,6 +755,7 @@
            (:dynamic
             (make-dynamic-fee-transaction
              :chain-id chain-id
+             :nonce nonce
              :max-fee-per-gas max-fee
              :max-priority-fee-per-gas max-priority-fee
              :gas-limit gas-limit
@@ -763,13 +767,15 @@
             (if access-list-present-p
                 (make-access-list-transaction
                  :chain-id chain-id
+                 :nonce nonce
                  :gas-price max-fee
                  :gas-limit gas-limit
                  :to recipient
                  :value value
                  :data data
                  :access-list access-list)
-                (make-legacy-transaction :gas-price max-fee
+                (make-legacy-transaction :nonce nonce
+                                         :gas-price max-fee
                                          :gas-limit gas-limit
                                          :to recipient
                                          :value value

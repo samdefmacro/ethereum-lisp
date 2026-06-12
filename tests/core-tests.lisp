@@ -12790,6 +12790,17 @@
 (deftest eth-rpc-simulates-contract-creation-without-commit
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
+           (created-address (sender nonce)
+             (make-address
+              (subseq
+               (keccak-256
+                (rlp-encode
+                 (make-rlp-list (address-bytes sender) nonce)))
+               12 32)))
+           (address-word-hex (address)
+             (let ((bytes (make-byte-vector 32)))
+               (replace bytes (address-bytes address) :start1 12)
+               (bytes-to-hex bytes)))
            (request (id method params store config)
              (engine-rpc-handle-request
               (list (cons "jsonrpc" "2.0")
@@ -12806,13 +12817,10 @@
              (address-from-hex "0x0000000000000000000000000000000000000001"))
            ;; MSTORE8 0 := 0; RETURN mem[0:1].
            (initcode #(96 0 96 0 83 96 1 96 0 243))
-           (contract
-             (make-address
-              (subseq
-               (keccak-256
-                (rlp-encode
-                 (make-rlp-list (address-bytes sender) 0)))
-               12 32)))
+           ;; ADDRESS; MSTORE 0; RETURN mem[0:32].
+           (address-initcode #(#x30 #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
+           (contract (created-address sender 0))
+           (nonce-contract (created-address sender 7))
            (state (make-state-db))
            (block
              (make-block
@@ -12830,7 +12838,12 @@
            (call-object
              (list (cons "from" (address-to-hex sender))
                    (cons "gas" (quantity-to-hex 100000))
-                   (cons "data" (bytes-to-hex initcode)))))
+                   (cons "data" (bytes-to-hex initcode))))
+           (nonce-call-object
+             (list (cons "from" (address-to-hex sender))
+                   (cons "nonce" (quantity-to-hex 7))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "data" (bytes-to-hex address-initcode)))))
       (state-db-set-account state sender
                             (make-state-account :nonce 0
                                                 :balance 1000000))
@@ -12851,13 +12864,23 @@
                (request 143 "eth_getCode"
                         (list (address-to-hex contract) "latest")
                         store config))
+             (nonce-call-response
+               (request 144 "eth_call" (list nonce-call-object "latest")
+                        store config))
+             (nonce-code-response
+               (request 145 "eth_getCode"
+                        (list (address-to-hex nonce-contract) "latest")
+                        store config))
              (access-list-result (field access-list-response "result")))
         (is (string= "0x00" (field call-response "result")))
+        (is (string= (address-word-hex nonce-contract)
+                     (field nonce-call-response "result")))
         (is (string= (quantity-to-hex expected-gas)
                      (field estimate-response "result")))
         (is (string= (quantity-to-hex expected-gas)
                      (field access-list-result "gasUsed")))
-        (is (string= "0x" (field code-response "result")))))))
+        (is (string= "0x" (field code-response "result")))
+        (is (string= "0x" (field nonce-code-response "result")))))))
 
 (deftest eth-rpc-simulates-call-value-transfer-without-commit
   (labels ((field (object name)
