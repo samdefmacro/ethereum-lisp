@@ -4207,6 +4207,11 @@ splits can land after the Phase A smoke path closes.
     match the referenced block header. The staging import boundary preserves
     the existing readable chain view when a persisted state snapshot is
     corrupted.
+  - Result: KV checkpoint import now validates persisted head/safe/finalized
+    checkpoints after state restoration. Head checkpoints require retained
+    state, safe/finalized checkpoints must be known ancestors of head and keep
+    safe at or after finalized height, while pruned safe/finalized state
+    remains allowed for retained-state snapshots.
   - Result: the devnet CLI now accepts `--database PATH`, imports an existing
     file-backed KV chain-store snapshot after genesis setup, and exports the
     current readable chain-store view on `--no-serve` or normal serve-mode

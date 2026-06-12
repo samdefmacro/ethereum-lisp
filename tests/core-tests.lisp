@@ -4161,6 +4161,82 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-rejects-invalid-checkpoints
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-checkpoints-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         (canonical-1
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :state-root +empty-trie-hash+
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (head
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash canonical-1)
+                               :state-root +empty-trie-hash+
+                               :timestamp 2
+                               :gas-limit 30000000)))
+         (side
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :state-root +empty-trie-hash+
+                               :timestamp 3
+                               :extra-data (hex-to-bytes "01")
+                               :gas-limit 30000000)))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000))))
+    (unwind-protect
+         (progn
+           (dolist (block (list genesis canonical-1 head side))
+             (chain-store-put-block source block :state-available-p t))
+           (chain-store-set-canonical-head source (block-hash head))
+           (chain-store-update-forkchoice-checkpoints
+            source
+            (make-forkchoice-state
+             :head-block-hash (block-hash head)
+             :safe-block-hash (block-hash canonical-1)
+             :finalized-block-hash (block-hash genesis)))
+           (chain-store-put-block target target-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-checkpoint
+              database :safe (hash32-bytes (block-hash side))))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 9 (chain-store-head-number target)))
+           (is (bytes= (block-rlp target-block)
+                       (block-rlp
+                        (chain-store-block-by-number target 9))))
+           (is (not (chain-store-known-block target (block-hash head)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-failure-keeps-existing-readable-data
   (let* ((path
            (merge-pathnames

@@ -3440,24 +3440,52 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (setf (engine-payload-memory-store-head-number store) head-number)))
 
 (defun chain-store-import-checkpoints-from-kv (store database)
-  (dolist (entry (kv-chain-checkpoints database))
-    (let* ((label (car entry))
-           (hash (make-hash32 (cdr entry)))
-           (checkpoint
-             (make-chain-store-checkpoint :label label :block-hash hash)))
-      (unless (chain-store-known-block store hash)
+  (let (head-hash safe-hash finalized-hash)
+    (dolist (entry (kv-chain-checkpoints database))
+      (let ((label (car entry))
+            (hash (make-hash32 (cdr entry))))
+        (unless (chain-store-known-block store hash)
+          (block-validation-fail
+           "KV checkpoint references an unknown block"))
+        (ecase label
+          (:head (setf head-hash hash))
+          (:safe (setf safe-hash hash))
+          (:finalized (setf finalized-hash hash)))))
+    (when (and (or safe-hash finalized-hash) (not head-hash))
+      (block-validation-fail
+       "KV safe/finalized checkpoint requires a head checkpoint"))
+    (when (and head-hash
+               (not (engine-payload-store-state-available-p
+                     store head-hash)))
+      (block-validation-fail "KV head checkpoint state is not available"))
+    (when (and head-hash safe-hash
+               (not (engine-payload-store-ancestor-p
+                     store safe-hash head-hash)))
+      (block-validation-fail
+       "KV safe checkpoint is not an ancestor of head"))
+    (when (and head-hash finalized-hash
+               (not (engine-payload-store-ancestor-p
+                     store finalized-hash head-hash)))
+      (block-validation-fail
+       "KV finalized checkpoint is not an ancestor of head"))
+    (let ((safe-block
+            (and safe-hash
+                 (engine-payload-store-known-block store safe-hash)))
+          (finalized-block
+            (and finalized-hash
+                 (engine-payload-store-known-block store finalized-hash))))
+      (when (and safe-block finalized-block
+                 (< (block-header-number (block-header safe-block))
+                    (block-header-number (block-header finalized-block))))
         (block-validation-fail
-         "KV checkpoint references an unknown block"))
-      (ecase label
-        (:head
-         (setf (engine-payload-memory-store-head-checkpoint store)
-               checkpoint))
-        (:safe
-         (setf (engine-payload-memory-store-safe-checkpoint store)
-               checkpoint))
-        (:finalized
-         (setf (engine-payload-memory-store-finalized-checkpoint store)
-               checkpoint))))))
+         "KV safe checkpoint is older than finalized checkpoint")))
+    (setf (engine-payload-memory-store-head-checkpoint store)
+          (make-chain-store-checkpoint :label :head :block-hash head-hash)
+          (engine-payload-memory-store-safe-checkpoint store)
+          (make-chain-store-checkpoint :label :safe :block-hash safe-hash)
+          (engine-payload-memory-store-finalized-checkpoint store)
+          (make-chain-store-checkpoint
+           :label :finalized :block-hash finalized-hash))))
 
 (defun log-entry-from-rlp-object (value)
   (let ((fields (rlp-list-field value "Receipt log entry")))
@@ -3709,9 +3737,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (let ((staging (make-engine-payload-memory-store)))
       (chain-store-import-block-records-from-kv staging database)
       (chain-store-import-canonical-indexes-from-kv staging database)
-      (chain-store-import-checkpoints-from-kv staging database)
       (chain-store-import-receipt-records-from-kv staging database)
       (chain-store-import-state-records-from-kv staging database)
+      (chain-store-import-checkpoints-from-kv staging database)
       (chain-store-import-transaction-locations-from-kv staging database)
       (chain-store-publish-readable-tables store staging))
     store))
