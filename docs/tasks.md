@@ -4503,6 +4503,21 @@ splits can land after the Phase A smoke path closes.
     block lookup by hash/number, and lets the existing KV state export remove
     stale historical state records.
 
+- [x] `DEVNET-PRUNED-STATE-EXPORT`: Wire retained-state pruning into devnet
+  persistence export.
+  - Milestone: 6 / production storage
+  - Dependencies: `CHAIN-STORE-STATE-PRUNE-BEFORE`, devnet database export.
+  - Acceptance: the devnet CLI can accept a non-negative state-prune boundary
+    and apply it before writing the file-backed KV chain-store snapshot, so
+    local process runs can produce pruned readable-chain databases without
+    deleting block, canonical, receipt, or transaction-location records.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added `--prune-state-before NUMBER` to the devnet command. The
+    export path calls `chain-store-prune-state-before` before writing
+    `--database`, rejects malformed pruning values during option parsing, and
+    tests that pruned genesis state records disappear from KV while the child
+    head state and block lookups remain available after restore.
+
 ## Recently Completed
 
 - [x] Document optional local Reth reference availability and skip/reporting

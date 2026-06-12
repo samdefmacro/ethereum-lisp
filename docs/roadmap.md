@@ -160,8 +160,9 @@ fixes in those areas are allowed; expansion is not.
   malformed record does not clear or partially replace an existing in-memory
   chain-store view. The devnet CLI can now wire that development persistence
   path through `--database PATH`, restoring existing KV chain-store snapshots
-  at startup and exporting the current readable chain view on `--no-serve` or
-  normal shutdown.
+  at startup, optionally pruning retained state before a configured block
+  number on export, and exporting the current readable chain view on
+  `--no-serve` or normal shutdown.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and
@@ -720,8 +721,8 @@ first pass, but interfaces must not block that path.
   receipt, transaction, account, storage, pending/filter, blob sidecar, and
   invalid-payload cache indexes needed by the in-memory Phase A smoke path,
   plus explicit retained-state snapshot pruning before a block-number boundary
-  and devnet CLI restore/export wiring for file-backed KV chain-store
-  snapshots.
+  and devnet CLI restore/export/pruned-export wiring for file-backed KV
+  chain-store snapshots.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, sync-stage persistence, and durable trie-node storage remain later
   work.

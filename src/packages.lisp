@@ -1027,6 +1027,7 @@
    #:devnet-node-jwt-secret-path
    #:devnet-node-log-path
    #:devnet-node-database-path
+   #:devnet-node-prune-state-before
    #:devnet-shutdown-controller
    #:make-devnet-shutdown-controller
    #:devnet-shutdown-controller-requested-p

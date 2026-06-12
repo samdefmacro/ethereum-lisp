@@ -818,6 +818,87 @@
       (when (probe-file database-path)
         (delete-file database-path)))))
 
+(deftest devnet-cli-main-prunes-state-before-database-export
+  (let ((database-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-pruned-chain" "sexp"))
+        (output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (unwind-protect
+         (let* ((seed-node
+                  (ethereum-lisp.cli:make-devnet-node
+                   :genesis-path +devnet-cli-genesis-fixture+
+                   :port 0))
+                (seed-store
+                  (ethereum-lisp.cli:devnet-node-store seed-node))
+                (genesis
+                  (ethereum-lisp.cli:devnet-node-genesis-block seed-node))
+                (funded
+                  (address-from-hex
+                   "0x0000000000000000000000000000000000001001"))
+                (child
+                  (make-block
+                   :header
+                   (make-block-header
+                    :number 1
+                    :parent-hash (block-hash genesis)
+                    :timestamp 1
+                    :gas-limit 30000000)))
+                (genesis-id (hash32-bytes (block-hash genesis)))
+                (child-id (hash32-bytes (block-hash child))))
+           (chain-store-put-block seed-store child :state-available-p t)
+           (chain-store-put-account-balance
+            seed-store (block-hash child) funded 42)
+           (chain-store-set-canonical-head seed-store (block-hash child))
+           (chain-store-export-to-kv
+            seed-store
+            (make-file-key-value-database database-path))
+           (let ((database (make-file-key-value-database database-path)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :state genesis-id)
+               (declare (ignore value))
+               (is present-p)))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--port" "0"
+                         "--database" (namestring database-path)
+                         "--prune-state-before" "1"
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let* ((summary (parse-json (get-output-stream-string output)))
+                  (database (make-file-key-value-database database-path))
+                  (restored-node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path +devnet-cli-genesis-fixture+
+                     :port 0
+                     :database-path (namestring database-path)))
+                  (restored-store
+                    (ethereum-lisp.cli:devnet-node-store restored-node)))
+             (is (= 1 (fixture-object-field summary "headNumber")))
+             (is (eq t (fixture-object-field summary "stateAvailable")))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :state genesis-id :missing)
+               (is (eq :missing value))
+               (is (not present-p)))
+             (multiple-value-bind (value present-p)
+                 (kv-get-chain-record database :state child-id)
+               (declare (ignore value))
+               (is present-p))
+             (is (chain-store-known-block restored-store (block-hash genesis)))
+             (is (not (chain-store-state-available-p
+                       restored-store (block-hash genesis))))
+             (is (chain-store-state-available-p
+                  restored-store (block-hash child)))
+             (is (= 42
+                    (chain-store-account-balance
+                     restored-store (block-hash child) funded)))))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
+
 (deftest devnet-cli-main-json-summary-and-ready-file
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex"))
         (ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
@@ -2226,6 +2307,16 @@
                                  "--max-connections"
                                  "-1"
                                  "--no-serve"))))
+    (is (search "--prune-state-before requires an integer value"
+                (run-error (list "devnet"
+                                 "--prune-state-before"
+                                 "abc"
+                                 "--no-serve"))))
+    (is (search "--prune-state-before must be non-negative"
+                (run-error (list "devnet"
+                                 "--prune-state-before"
+                                 "-1"
+                                 "--no-serve"))))
     (is (search "--genesis requires a value"
                 (run-error (list "devnet" "--genesis"))))
     (is (search "--genesis requires a value"
@@ -2240,6 +2331,8 @@
                 (run-error (list "devnet" "--public-port" "--no-serve"))))
     (is (search "--database requires a value"
                 (run-error (list "devnet" "--database"))))
+    (is (search "--prune-state-before requires a value"
+                (run-error (list "devnet" "--prune-state-before"))))
     (is (search "--log-file requires a value"
                 (run-error (list "devnet" "--log-file"))))
     (is (search "Unknown option --wat"

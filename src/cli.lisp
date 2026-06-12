@@ -158,9 +158,16 @@
      :log-path log-path
      :database-path database-path)))
 
-(defun devnet-node-export-database (node)
+(defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
+  (when block-number
+    (chain-store-prune-state-before (devnet-node-store node) block-number)))
+
+(defun devnet-node-export-database (node &key state-prune-before)
+  (unless (typep node 'devnet-node)
+    (error "Devnet node must be devnet-node"))
+  (devnet-node-prune-state-before node state-prune-before)
   (let ((database-path (devnet-node-database-path node)))
     (when database-path
       (chain-store-export-to-kv
@@ -383,6 +390,7 @@
         (public-port +devnet-default-public-rpc-port+)
         (jwt-secret-path nil)
         (database-path nil)
+        (state-prune-before nil)
         (max-connections nil)
         (serve-p t)
         (summary-format :sexp)
@@ -419,6 +427,12 @@
                ((string= option "--database")
                 (multiple-value-setq (database-path args)
                   (devnet-cli-next-value args option)))
+               ((string= option "--prune-state-before")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf state-prune-before
+                        (devnet-cli-parse-non-negative-integer value option)
+                        args rest)))
                ((string= option "--max-connections")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -444,6 +458,7 @@
           :public-port public-port
           :jwt-secret-path jwt-secret-path
           :database-path database-path
+          :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
           :summary-format summary-format
@@ -453,7 +468,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--database PATH] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -620,7 +635,10 @@
                                   :format (getf options :summary-format)
                                   :engine-endpoint bound-engine-endpoint
                                   :rpc-endpoint bound-rpc-endpoint)))
-                           (devnet-node-export-database node)
+                           (devnet-node-export-database
+                            node
+                            :state-prune-before
+                            (getf options :state-prune-before))
                            (when (getf options :log-file)
                              (devnet-cli-log-event
                               node
@@ -628,7 +646,10 @@
                               :engine-endpoint bound-engine-endpoint
                               :rpc-endpoint bound-rpc-endpoint))))
                        (progn
-                         (devnet-node-export-database node)
+                         (devnet-node-export-database
+                          node
+                          :state-prune-before
+                          (getf options :state-prune-before))
                          (when (getf options :ready-file)
                            (devnet-cli-write-ready-file
                             node
