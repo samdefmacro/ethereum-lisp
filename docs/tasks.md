@@ -4309,6 +4309,14 @@ splits can land after the Phase A smoke path closes.
     stages the txpool, validates hash round-trips, sender recovery, and
     sender/nonce uniqueness before publishing, preserving the existing store on
     corrupted txpool records.
+  - Result: the standalone devnet smoke gate now exercises pending txpool
+    persistence across the public RPC and process/database boundary. Each
+    database-backed pinned Shanghai run submits a signed raw transaction
+    through `eth_sendRawTransaction`, verifies the live `txpool_status`,
+    `txpool_contentFrom`, and raw-transaction lookup, exports the KV snapshot,
+    restores a fresh node, and verifies `eth_pendingTransactions`,
+    `txpool_status`, `txpool_content`, `txpool_contentFrom`, and
+    `eth_getRawTransactionByHash` still expose the same pending transaction.
   - Result: KV export/import now persists invalid-tipset cache entries. Records
     are keyed by the cached tip/head hash and store the invalid ancestor block
     RLP, so restored stores can keep rejecting descendants of previously

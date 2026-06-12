@@ -59,6 +59,13 @@
 (defconstant +devnet-smoke-gate-eest-tag-target+ "88e9fb8")
 (defconstant +devnet-smoke-gate-eest-archive+ "fixtures_stable.tar.gz")
 (defconstant +devnet-smoke-gate-simulation-gas+ "0x186a0")
+(defconstant +devnet-smoke-gate-txpool-private-key+ 1)
+(defconstant +devnet-smoke-gate-txpool-balance+ 1000000000000000000)
+(defconstant +devnet-smoke-gate-txpool-gas-price+ 200)
+(defconstant +devnet-smoke-gate-txpool-gas-limit+ 21000)
+(defconstant +devnet-smoke-gate-txpool-value+ 1)
+(defconstant +devnet-smoke-gate-txpool-recipient+
+  "0x0000000000000000000000000000000000003001")
 
 (defun devnet-smoke-gate-arguments ()
   #+sbcl
@@ -267,6 +274,36 @@
           until (eq form :eof)
           collect form)))
 
+(defun devnet-smoke-gate-txpool-sender-address ()
+  (fixture-private-key-address +devnet-smoke-gate-txpool-private-key+))
+
+(defun devnet-smoke-gate-ensure-txpool-account (state)
+  (let ((address (devnet-smoke-gate-txpool-sender-address)))
+    (unless (state-db-get-account state address)
+      (state-db-set-account
+       state
+       address
+       (make-state-account
+        :nonce 0
+        :balance +devnet-smoke-gate-txpool-balance+)))
+    address))
+
+(defun devnet-smoke-gate-pending-transaction
+    (state config sender-address)
+  (let* ((account (state-db-get-account state sender-address))
+         (nonce (state-account-nonce account))
+         (transaction
+           (make-legacy-transaction
+            :nonce nonce
+            :gas-price +devnet-smoke-gate-txpool-gas-price+
+            :gas-limit +devnet-smoke-gate-txpool-gas-limit+
+            :to (address-from-hex +devnet-smoke-gate-txpool-recipient+)
+            :value +devnet-smoke-gate-txpool-value+)))
+    (fixture-sign-legacy-transaction
+     transaction
+     +devnet-smoke-gate-txpool-private-key+
+     (chain-config-chain-id config))))
+
 (defun devnet-smoke-gate-engine-fixture (case-name)
   (let* ((case
            (select-engine-newpayload-v2-fixture-case
@@ -281,6 +318,8 @@
          (expect (fixture-object-field case "expect"))
          (parent-state (engine-fixture-parent-state parent))
          (fee-recipient (fixture-address-field parent "feeRecipient"))
+         (txpool-sender
+           (devnet-smoke-gate-ensure-txpool-account parent-state))
          (transactions
            (mapcar (lambda (raw)
                      (transaction-from-encoding (hex-to-bytes raw)))
@@ -323,7 +362,12 @@
             :withdrawals withdrawals))
          (payload
            (execution-payload-envelope-execution-payload
-            (block-to-executable-data child-block))))
+            (block-to-executable-data child-block)))
+         (pending-transaction
+           (devnet-smoke-gate-pending-transaction
+            child-state
+            config
+            txpool-sender)))
     (list
      (cons "case" case)
      (cons "store" store)
@@ -332,6 +376,7 @@
      (cons "parentBlock" parent-block)
      (cons "childBlock" child-block)
      (cons "payload" payload)
+     (cons "pendingTransaction" pending-transaction)
      (cons "payloadCase" payload-case)
      (cons "expect" expect))))
 
@@ -2350,6 +2395,163 @@
   #-sbcl
   (error "Restored devnet invalid-tipset Engine RPC verification requires SBCL threads"))
 
+(defun devnet-smoke-gate-verify-restored-txpool-rpc
+    (node pending-transaction)
+  #+sbcl
+  (let* ((transaction-hash (transaction-hash pending-transaction))
+         (transaction-hash-hex (hash32-to-hex transaction-hash))
+         (raw-transaction (bytes-to-hex
+                           (transaction-encoding pending-transaction)))
+         (sender (transaction-sender pending-transaction))
+         (sender-hex (address-to-hex sender))
+         (nonce-key (format nil "~D"
+                            (transaction-nonce pending-transaction)))
+         (raw-output (make-string-output-stream))
+         (pending-output (make-string-output-stream))
+         (status-output (make-string-output-stream))
+         (content-output (make-string-output-stream))
+         (content-from-output (make-string-output-stream))
+         (public-requests
+           (list
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 176)
+                    (cons "method" "eth_getRawTransactionByHash")
+                    (cons "params" (list transaction-hash-hex))))
+             raw-output)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 177)
+                    (cons "method" "eth_pendingTransactions")
+                    (cons "params" '())))
+             pending-output)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 178)
+                    (cons "method" "txpool_status")
+                    (cons "params" '())))
+             status-output)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 179)
+                    (cons "method" "txpool_content")
+                    (cons "params" '())))
+             content-output)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 180)
+                    (cons "method" "txpool_contentFrom")
+                    (cons "params" (list sender-hex))))
+             content-from-output)))
+         (summary
+           (ethereum-lisp.cli:start-devnet-node-listeners
+            node
+            (make-engine-rpc-http-listener
+             :endpoint "restored-engine-txpool"
+             :accept-function (lambda () nil)
+             :close-function (lambda () nil))
+            (make-engine-rpc-http-listener
+             :endpoint "restored-public-txpool"
+             :accept-function
+             (lambda ()
+               (when public-requests
+                 (destructuring-bind (body . output)
+                     (pop public-requests)
+                   (make-engine-rpc-http-connection
+                    :input-stream
+                    (make-string-input-stream
+                     (devnet-cli-json-rpc-http-request body))
+                    :output-stream output
+                    :close-function (lambda () nil)))))
+             :close-function (lambda () nil))
+            :max-connections 5))
+         (raw-response (get-output-stream-string raw-output))
+         (pending-response (get-output-stream-string pending-output))
+         (status-response (get-output-stream-string status-output))
+         (content-response (get-output-stream-string content-output))
+         (content-from-response
+           (get-output-stream-string content-from-output))
+         (raw-rpc (devnet-smoke-gate-rpc-body raw-response))
+         (pending-rpc (devnet-smoke-gate-rpc-body pending-response))
+         (status-rpc (devnet-smoke-gate-rpc-body status-response))
+         (content-rpc (devnet-smoke-gate-rpc-body content-response))
+         (content-from-rpc
+           (devnet-smoke-gate-rpc-body content-from-response))
+         (pending-transactions
+           (fixture-object-field pending-rpc "result"))
+         (pending-object (first pending-transactions))
+         (status (fixture-object-field status-rpc "result"))
+         (content (fixture-object-field content-rpc "result"))
+         (content-pending (fixture-object-field content "pending"))
+         (content-sender
+           (fixture-object-field content-pending sender-hex))
+         (content-transaction
+           (fixture-object-field content-sender nonce-key))
+         (content-from
+           (fixture-object-field content-from-rpc "result"))
+         (content-from-pending
+           (fixture-object-field content-from "pending"))
+         (content-from-transaction
+           (fixture-object-field content-from-pending nonce-key)))
+    (devnet-smoke-gate-require
+     (= 5 (getf summary :public-connections))
+     "Restored txpool probe expected 5 public connections, got ~S"
+     (getf summary :public-connections))
+    (dolist (response (list raw-response pending-response status-response
+                            content-response content-from-response))
+      (devnet-smoke-gate-require
+       (= 200 (devnet-cli-http-status response))
+       "Restored txpool RPC HTTP status mismatch"))
+    (devnet-smoke-gate-require
+     (string= raw-transaction (fixture-object-field raw-rpc "result"))
+     "Restored txpool raw transaction mismatch")
+    (devnet-smoke-gate-require
+     (= 1 (length pending-transactions))
+     "Restored txpool pending transaction count mismatch")
+    (devnet-smoke-gate-require
+     (string= transaction-hash-hex
+              (fixture-object-field pending-object "hash"))
+     "Restored eth_pendingTransactions hash mismatch")
+    (devnet-smoke-gate-require
+     (null (fixture-object-field pending-object "blockHash"))
+     "Restored pending transaction should not have a block hash")
+    (devnet-smoke-gate-require
+     (string= "0x1" (fixture-object-field status "pending"))
+     "Restored txpool_status pending count mismatch")
+    (devnet-smoke-gate-require
+     (string= "0x0" (fixture-object-field status "queued"))
+     "Restored txpool_status queued count mismatch")
+    (devnet-smoke-gate-require
+     (string= transaction-hash-hex
+              (fixture-object-field content-transaction "hash"))
+     "Restored txpool_content hash mismatch")
+    (devnet-smoke-gate-require
+     (string= transaction-hash-hex
+              (fixture-object-field content-from-transaction "hash"))
+     "Restored txpool_contentFrom hash mismatch")
+    (list :txpool-transaction-hash transaction-hash-hex
+          :txpool-raw-transaction raw-transaction
+          :txpool-sender sender-hex
+          :txpool-nonce nonce-key
+          :txpool-status-pending
+          (fixture-object-field status "pending")
+          :txpool-status-queued
+          (fixture-object-field status "queued")
+          :txpool-content-hash
+          (fixture-object-field content-transaction "hash")
+          :txpool-content-from-hash
+          (fixture-object-field content-from-transaction "hash")
+          :public-connections (getf summary :public-connections)))
+  #-sbcl
+  (declare (ignore node pending-transaction))
+  #-sbcl
+  (error "Restored devnet txpool RPC verification requires SBCL threads"))
+
 (defun devnet-smoke-gate-verify-database
     (path expected-block-number balance-targets
      sender-address expected-sender-nonce
@@ -2361,7 +2563,8 @@
           prepared-payload-id prepared-payload-parent-hash
           prepared-payload-block-number
           remote-payload remote-block
-          invalid-block invalid-descendant-payload)
+          invalid-block invalid-descendant-payload
+          pending-transaction)
   (let* ((database (make-file-key-value-database path))
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -2432,7 +2635,11 @@
                  node
                  invalid-descendant-payload
                  (block-header-parent-hash (block-header invalid-block))
-                 expected-block-number))))
+                 expected-block-number)))
+         (txpool-rpc-summary
+           (and pending-transaction
+                (devnet-smoke-gate-verify-restored-txpool-rpc
+                 node pending-transaction))))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
      "Database export did not write block records")
@@ -2465,6 +2672,10 @@
        (bytes= (block-rlp invalid-block)
                (block-rlp restored-invalid-block))
        "Database restore changed the invalid-tipset block RLP"))
+    (when pending-transaction
+      (devnet-smoke-gate-require
+       (< 0 (length (kv-chain-record-entries database :txpool)))
+       "Database export did not write txpool records"))
     (devnet-smoke-gate-require
      (= (hex-to-quantity expected-block-number)
         (getf summary :head-number))
@@ -2646,7 +2857,41 @@
                   :rpc-invalid-tipset-engine-connections
                   (and invalid-tipset-rpc-summary
                        (getf invalid-tipset-rpc-summary
-                             :engine-connections))))))
+                             :engine-connections))
+                  :rpc-txpool-transaction-hash
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-transaction-hash))
+                  :rpc-txpool-raw-transaction
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-raw-transaction))
+                  :rpc-txpool-sender
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary :txpool-sender))
+                  :rpc-txpool-nonce
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary :txpool-nonce))
+                  :rpc-txpool-status-pending
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-status-pending))
+                  :rpc-txpool-status-queued
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-status-queued))
+                  :rpc-txpool-content-hash
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-content-hash))
+                  :rpc-txpool-content-from-hash
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-content-from-hash))
+                  :rpc-txpool-public-connections
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :public-connections))))))
 
 (defun devnet-smoke-gate-run
     (case-name &key ready-file log-file database-file state-prune-before)
@@ -2676,6 +2921,9 @@
                                                         "childBlock"))
                              (payload
                                (devnet-smoke-gate-field fixture "payload"))
+                             (pending-transaction
+                               (devnet-smoke-gate-field
+                                fixture "pendingTransaction"))
                              (payload-case
                                (devnet-smoke-gate-field fixture
                                                         "payloadCase"))
@@ -2715,6 +2963,10 @@
                   (prepared-public-output (make-string-output-stream))
                   (remote-public-output (make-string-output-stream))
                   (invalid-public-output (make-string-output-stream))
+                  (send-raw-output (make-string-output-stream))
+                  (raw-pending-output (make-string-output-stream))
+                  (txpool-status-output (make-string-output-stream))
+                  (txpool-content-from-output (make-string-output-stream))
                   (balance-targets
                     (devnet-smoke-gate-balance-targets expect))
                   (transaction-checks
@@ -2741,6 +2993,20 @@
                   (invalid-descendant-payload
                     (execution-payload-envelope-execution-payload
                      (block-to-executable-data invalid-descendant-block)))
+                  (pending-transaction-hash
+                    (transaction-hash pending-transaction))
+                  (pending-transaction-hash-hex
+                    (hash32-to-hex pending-transaction-hash))
+                  (pending-transaction-raw
+                    (bytes-to-hex
+                     (transaction-encoding pending-transaction)))
+                  (pending-transaction-sender
+                    (transaction-sender pending-transaction))
+                  (pending-transaction-sender-hex
+                    (address-to-hex pending-transaction-sender))
+                  (pending-transaction-nonce-key
+                    (format nil "~D"
+                            (transaction-nonce pending-transaction)))
                   (engine-requests
                     (list
                      (cons
@@ -2817,12 +3083,43 @@
                                (cons "params" '())))
                         remote-public-output)
                        (cons
-                        (json-encode
+                       (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 35)
                                (cons "method" "eth_blockNumber")
                                (cons "params" '())))
-                        invalid-public-output))))
+                        invalid-public-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 36)
+                               (cons "method" "eth_sendRawTransaction")
+                               (cons "params"
+                                     (list pending-transaction-raw))))
+                        send-raw-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 37)
+                               (cons "method" "eth_getRawTransactionByHash")
+                               (cons "params"
+                                     (list pending-transaction-hash-hex))))
+                        raw-pending-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 38)
+                               (cons "method" "txpool_status")
+                               (cons "params" '())))
+                        txpool-status-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 39)
+                               (cons "method" "txpool_contentFrom")
+                               (cons "params"
+                                     (list pending-transaction-sender-hex))))
+                        txpool-content-from-output))))
                   (engine-served-count 0)
                   (engine-done-p nil)
                   (public-served-count 0))
@@ -2870,7 +3167,7 @@
                               :close-function
                               (lambda () (incf public-served-count))))))
                       :close-function (lambda () nil))
-                      :max-connections 5
+                      :max-connections 9
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
                         (let ((engine-endpoint
@@ -2917,6 +3214,15 @@
                         (get-output-stream-string remote-public-output))
                       (invalid-public-response
                         (get-output-stream-string invalid-public-output))
+                      (send-raw-response
+                        (get-output-stream-string send-raw-output))
+                      (raw-pending-response
+                        (get-output-stream-string raw-pending-output))
+                      (txpool-status-response
+                        (get-output-stream-string txpool-status-output))
+                      (txpool-content-from-response
+                        (get-output-stream-string
+                         txpool-content-from-output))
                       (new-payload-rpc
                         (devnet-smoke-gate-rpc-body new-payload-response))
                       (forkchoice-rpc
@@ -2937,6 +3243,15 @@
                         (devnet-smoke-gate-rpc-body remote-public-response))
                       (invalid-public-rpc
                         (devnet-smoke-gate-rpc-body invalid-public-response))
+                      (send-raw-rpc
+                        (devnet-smoke-gate-rpc-body send-raw-response))
+                      (raw-pending-rpc
+                        (devnet-smoke-gate-rpc-body raw-pending-response))
+                      (txpool-status-rpc
+                        (devnet-smoke-gate-rpc-body txpool-status-response))
+                      (txpool-content-from-rpc
+                        (devnet-smoke-gate-rpc-body
+                         txpool-content-from-response))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -2963,6 +3278,18 @@
                         (hash32-to-hex (block-hash remote-block)))
                       (expected-invalid-block-hash
                         (hash32-to-hex (block-hash invalid-block)))
+                      (txpool-status
+                        (fixture-object-field txpool-status-rpc "result"))
+                      (txpool-content-from
+                        (fixture-object-field
+                         txpool-content-from-rpc "result"))
+                      (txpool-content-from-pending
+                        (fixture-object-field
+                         txpool-content-from "pending"))
+                      (txpool-content-from-transaction
+                        (fixture-object-field
+                         txpool-content-from-pending
+                         pending-transaction-nonce-key))
                   (expected-block-number
                     (fixture-object-field payload-case "number"))
                   (expected-prepared-block-number
@@ -2983,8 +3310,8 @@
                   "Expected 5 Engine connections, got ~S"
                   (getf summary :engine-connections))
                  (devnet-smoke-gate-require
-                  (= 5 (getf summary :public-connections))
-                  "Expected 5 public RPC connections, got ~S"
+                  (= 9 (getf summary :public-connections))
+                  "Expected 9 public RPC connections, got ~S"
                   (getf summary :public-connections))
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
@@ -3016,6 +3343,18 @@
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status invalid-public-response))
                   "invalid-tipset eth_blockNumber HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status send-raw-response))
+                  "eth_sendRawTransaction HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status raw-pending-response))
+                  "eth_getRawTransactionByHash pending HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status txpool-status-response))
+                  "txpool_status HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status txpool-content-from-response))
+                  "txpool_contentFrom HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
@@ -3088,6 +3427,27 @@
                            (fixture-object-field invalid-public-rpc "result"))
                   "invalid-tipset eth_blockNumber mismatch")
                  (devnet-smoke-gate-require
+                  (string= pending-transaction-hash-hex
+                           (fixture-object-field send-raw-rpc "result"))
+                  "eth_sendRawTransaction hash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-raw
+                           (fixture-object-field raw-pending-rpc "result"))
+                  "eth_getRawTransactionByHash pending raw mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x1"
+                           (fixture-object-field txpool-status "pending"))
+                  "txpool_status pending count mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x0"
+                           (fixture-object-field txpool-status "queued"))
+                  "txpool_status queued count mismatch")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-hash-hex
+                           (fixture-object-field
+                            txpool-content-from-transaction "hash"))
+                  "txpool_contentFrom pending hash mismatch")
+                 (devnet-smoke-gate-require
                  (string= expected-balance actual-balance)
                  "eth_getBalance mismatch: expected ~A got ~A"
                  expected-balance
@@ -3127,7 +3487,8 @@
                                :remote-block remote-block
                                :invalid-block invalid-block
                                :invalid-descendant-payload
-                               invalid-descendant-payload))))
+                               invalid-descendant-payload
+                               :pending-transaction pending-transaction))))
                  (devnet-smoke-gate-add-run-metadata
                   (list
                   (cons "status" "ok")
@@ -3159,6 +3520,18 @@
                   (cons "invalidTipsetValidationError"
                         (fixture-object-field invalid-payload-result
                                               "validationError"))
+                  (cons "txpoolPendingTransactionHash"
+                        pending-transaction-hash-hex)
+                  (cons "txpoolPendingTransactionRaw"
+                        pending-transaction-raw)
+                  (cons "txpoolPendingSender"
+                        pending-transaction-sender-hex)
+                  (cons "txpoolPendingNonce"
+                        pending-transaction-nonce-key)
+                  (cons "txpoolStatusPending"
+                        (fixture-object-field txpool-status "pending"))
+                  (cons "txpoolStatusQueued"
+                        (fixture-object-field txpool-status "queued"))
                   (cons "blockNumber" actual-block-number)
                   (cons "safeBlockNumber" expected-safe-block-number)
                   (cons "safeBlockHash"
@@ -3289,6 +3662,44 @@
                         (if database-summary
                             (getf database-summary
                                   :rpc-invalid-tipset-validation-error)
+                            :false))
+                  (cons "databaseRpcTxpoolPendingHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-transaction-hash)
+                            :false))
+                  (cons "databaseRpcTxpoolRawTransaction"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-raw-transaction)
+                            :false))
+                  (cons "databaseRpcTxpoolSender"
+                        (if database-summary
+                            (getf database-summary :rpc-txpool-sender)
+                            :false))
+                  (cons "databaseRpcTxpoolNonce"
+                        (if database-summary
+                            (getf database-summary :rpc-txpool-nonce)
+                            :false))
+                  (cons "databaseRpcTxpoolStatusPending"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-status-pending)
+                            :false))
+                  (cons "databaseRpcTxpoolStatusQueued"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-status-queued)
+                            :false))
+                  (cons "databaseRpcTxpoolContentHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-content-hash)
+                            :false))
+                  (cons "databaseRpcTxpoolContentFromHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-content-from-hash)
                             :false))
                   (cons "databaseRpcProofAddress"
                         (if database-summary
@@ -4027,6 +4438,17 @@
         (format t "invalidTipsetValidationError=~A~%"
                 (devnet-smoke-gate-field
                  report "invalidTipsetValidationError"))
+        (format t "txpoolPendingTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolPendingTransactionHash"))
+        (format t "txpoolPendingSender=~A~%"
+                (devnet-smoke-gate-field report "txpoolPendingSender"))
+        (format t "txpoolPendingNonce=~A~%"
+                (devnet-smoke-gate-field report "txpoolPendingNonce"))
+        (format t "txpoolStatusPending=~A~%"
+                (devnet-smoke-gate-field report "txpoolStatusPending"))
+        (format t "txpoolStatusQueued=~A~%"
+                (devnet-smoke-gate-field report "txpoolStatusQueued"))
         (format t "blockNumber=~A~%"
                 (devnet-smoke-gate-field report "blockNumber"))
         (format t "safeBlockNumber=~A~%"
@@ -4121,6 +4543,27 @@
         (format t "databaseRpcInvalidTipsetValidationError=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcInvalidTipsetValidationError"))
+        (format t "databaseRpcTxpoolPendingHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolPendingHash"))
+        (format t "databaseRpcTxpoolSender=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolSender"))
+        (format t "databaseRpcTxpoolNonce=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolNonce"))
+        (format t "databaseRpcTxpoolStatusPending=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolStatusPending"))
+        (format t "databaseRpcTxpoolStatusQueued=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolStatusQueued"))
+        (format t "databaseRpcTxpoolContentHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolContentHash"))
+        (format t "databaseRpcTxpoolContentFromHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolContentFromHash"))
         (format t "databaseRpcProofAddress=~A~%"
                 (devnet-smoke-gate-field report
                                          "databaseRpcProofAddress"))

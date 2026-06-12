@@ -254,7 +254,11 @@ fixes in those areas are allowed; expansion is not.
   survives KV export/import into a fresh node. Known-parent invalid payloads
   now also populate the invalid-tipset cache through the same Engine boundary,
   and restored nodes reject descendants as linking to the previously rejected
-  block.
+  block. The database-backed gate also submits a signed pending transaction
+  through public `eth_sendRawTransaction`, exports it with the KV snapshot, and
+  verifies restored public txpool views (`eth_pendingTransactions`,
+  `txpool_status`, `txpool_content`, `txpool_contentFrom`, and
+  `eth_getRawTransactionByHash`) still expose the same transaction.
   Restored executable-code cases also probe an under-gassed `eth_call` and
   assert the public RPC reports the retained non-revert execution failure as a
   JSON-RPC error.
@@ -803,7 +807,9 @@ first pass, but interfaces must not block that path.
   indexes needed by the in-memory Phase A smoke path,
   plus explicit retained-state snapshot pruning before a block-number boundary
   and devnet CLI restore/export/pruned-export wiring for file-backed KV
-  chain-store snapshots.
+  chain-store snapshots. The process/database smoke gate now covers restored
+  pending txpool visibility through public RPC, not only lower-level KV
+  import/export helpers.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, fuller sync-stage persistence, and durable trie-node storage remain
   later work.
