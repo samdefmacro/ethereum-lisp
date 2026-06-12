@@ -4202,6 +4202,11 @@ splits can land after the Phase A smoke path closes.
     checkpoint, receipt, state, and transaction-location record validates. A
     malformed KV record no longer clears or partially overwrites an existing
     readable chain-store view.
+  - Result: KV state snapshot import now recomputes the imported account and
+    storage trie commitments and rejects state records whose root does not
+    match the referenced block header. The staging import boundary preserves
+    the existing readable chain view when a persisted state snapshot is
+    corrupted.
   - Result: the devnet CLI now accepts `--database PATH`, imports an existing
     file-backed KV chain-store snapshot after genesis setup, and exports the
     current readable chain-store view on `--no-serve` or normal serve-mode

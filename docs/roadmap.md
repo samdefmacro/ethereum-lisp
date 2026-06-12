@@ -156,12 +156,13 @@ fixes in those areas are allowed; expansion is not.
   restored from KV into a fresh memory store for local block, transaction, and
   retained-state reads, including decoded typed receipt records for restored
   block-receipt and transaction-receipt RPC visibility. KV import now stages
-  and validates the restored readable tables before publishing them, so a
-  malformed record does not clear or partially replace an existing in-memory
-  chain-store view. The devnet CLI can now wire that development persistence
-  path through `--database PATH`, restoring existing KV chain-store snapshots
-  at startup, optionally pruning retained state before a configured block
-  number on export, and exporting the current readable chain view on
+  and validates the restored readable tables before publishing them, including
+  receipt roots and retained-state snapshot roots against their block headers,
+  so a malformed record does not clear or partially replace an existing
+  in-memory chain-store view. The devnet CLI can now wire that development
+  persistence path through `--database PATH`, restoring existing KV chain-store
+  snapshots at startup, optionally pruning retained state before a configured
+  block number on export, and exporting the current readable chain view on
   `--no-serve` or normal shutdown. The standalone devnet smoke gate can now
   pass the same pruning boundary through its database export/restore check and
   verify a covered safe/finalized state snapshot is absent while the block and

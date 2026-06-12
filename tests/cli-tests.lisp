@@ -831,6 +831,11 @@
                       :parent-hash (block-hash genesis)
                       :timestamp 1
                       :gas-limit 30000000))))
+             (let ((state (make-state-db)))
+               (state-db-set-account
+                state funded (make-state-account :balance 42))
+               (setf (block-header-state-root (block-header child))
+                     (state-db-root state)))
              (chain-store-put-block seed-store child :state-available-p t)
              (chain-store-put-account-balance
               seed-store (block-hash child) funded 42)
@@ -907,7 +912,13 @@
                     :timestamp 1
                     :gas-limit 30000000)))
                 (genesis-id (hash32-bytes (block-hash genesis)))
-                (child-id (hash32-bytes (block-hash child))))
+                child-id)
+           (let ((state (make-state-db)))
+             (state-db-set-account
+              state funded (make-state-account :balance 42))
+             (setf (block-header-state-root (block-header child))
+                   (state-db-root state)
+                   child-id (hash32-bytes (block-hash child))))
            (chain-store-put-block seed-store child :state-available-p t)
            (chain-store-put-account-balance
             seed-store (block-hash child) funded 42)

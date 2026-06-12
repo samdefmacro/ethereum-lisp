@@ -3983,6 +3983,13 @@
          (typed-transaction-hash (transaction-hash typed-transaction)))
     (unwind-protect
          (progn
+           (let ((state (make-state-db)))
+             (state-db-set-account
+              state recipient (make-state-account :nonce 7 :balance 11))
+             (state-db-set-code state recipient #(1 2 3))
+             (state-db-set-storage state recipient slot 22)
+             (setf (block-header-state-root (block-header branch-a-2))
+                   (state-db-root state)))
            (dolist (block (list genesis branch-a-1 branch-a-2 branch-b-1))
              (chain-store-put-block store block :state-available-p t))
            (chain-store-put-account-balance
@@ -4075,6 +4082,82 @@
                         restored (block-hash branch-a-2) recipient)))
            (is (= 22 (chain-store-account-storage
                       restored (block-hash branch-a-2) recipient slot))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-state-root-mismatch
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-state-root-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (slot
+           (hash32-from-hex
+            "0x0000000000000000000000000000000000000000000000000000000000000002"))
+         (state (make-state-db))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         source-block
+         source-id)
+    (state-db-set-account
+     state recipient (make-state-account :nonce 7 :balance 11))
+    (state-db-set-code state recipient #(1 2 3))
+    (state-db-set-storage state recipient slot 22)
+    (setf source-block
+          (make-block
+           :header
+           (make-block-header :number 1
+                              :state-root (state-db-root state)
+                              :transactions-root +empty-trie-hash+
+                              :receipts-root +empty-trie-hash+
+                              :gas-limit 30000000))
+          source-id (hash32-bytes (block-hash source-block)))
+    (unwind-protect
+         (progn
+           (chain-store-put-block source source-block :state-available-p t)
+           (commit-state-db-to-chain-store
+            source (block-hash source-block) state)
+           (chain-store-put-block target target-block :state-available-p t)
+           (chain-store-put-account-balance
+            target (block-hash target-block) recipient 55)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :state
+              source-id
+              (rlp-encode
+               (make-rlp-list
+                (make-rlp-list
+                 (address-bytes recipient)
+                 12
+                 7
+                 (hex-to-bytes "010203")
+                 (make-rlp-list
+                  (make-rlp-list (hash32-bytes slot) 22)))))))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 9 (chain-store-head-number target)))
+           (is (not (chain-store-known-block
+                     target
+                     (block-hash source-block))))
+           (is (chain-store-state-available-p
+                target
+                (block-hash target-block)))
+           (is (= 55 (chain-store-account-balance
+                      target (block-hash target-block) recipient))))
       (when (probe-file path)
         (delete-file path)))))
 
