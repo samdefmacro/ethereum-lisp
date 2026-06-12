@@ -107,6 +107,8 @@ fixes in those areas are allowed; expansion is not.
   Retained-state simulations also use call-style fee handling rather than
   live-transaction EIP-1559 fee-cap checks, so below-base-fee `gasPrice` and
   partial dynamic-fee call objects can still execute for local simulation.
+  When the resulting call gas price is zero, the simulation EVM context lowers
+  base fee to zero, matching geth `applyMessage` behavior for `BASEFEE`.
   `eth_createAccessList` can turn retained-state call access tracking into
   geth-shaped access-list and gas-used results. Retained-state RPC block
   selectors now also accept EIP-1898-style `blockHash` /

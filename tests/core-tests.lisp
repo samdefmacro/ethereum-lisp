@@ -13100,8 +13100,12 @@
            (config (make-chain-config :chain-id 1 :london-block 0))
            (contract
              (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           (basefee-contract
+             (address-from-hex "0x00000000000000000000000000000000000000dd"))
            ;; GASPRICE; MSTORE 0; RETURN 32 bytes.
            (code #(#x3a #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
+           ;; BASEFEE; MSTORE 0; RETURN 32 bytes.
+           (basefee-code #(#x48 #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
            (state (make-state-db))
            (block
              (make-block
@@ -13125,6 +13129,14 @@
              (list (cons "to" (address-to-hex contract))
                    (cons "gas" (quantity-to-hex 100000))
                    (cons "maxPriorityFeePerGas" (quantity-to-hex 5))))
+           (zero-price-basefee-call
+             (list (cons "to" (address-to-hex basefee-contract))
+                   (cons "gas" (quantity-to-hex 100000))))
+           (dynamic-basefee-call
+             (list (cons "to" (address-to-hex basefee-contract))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "maxFeePerGas" (quantity-to-hex 11))
+                   (cons "maxPriorityFeePerGas" (quantity-to-hex 5))))
            (mixed-call
              (list (cons "to" (address-to-hex contract))
                    (cons "gas" (quantity-to-hex 100000))
@@ -13135,6 +13147,7 @@
                    (cons "chainId" (quantity-to-hex 2))
                    (cons "gas" (quantity-to-hex 100000)))))
       (state-db-set-code state contract code)
+      (state-db-set-code state basefee-contract basefee-code)
       (setf (block-header-state-root (block-header block))
             (state-db-root state))
       (chain-store-put-block store block :state-available-p t)
@@ -13142,13 +13155,19 @@
       (let* ((dynamic-response (call 154 dynamic-call store config))
              (low-gas-price-response (call 155 low-gas-price-call store config))
              (priority-only-response (call 156 priority-only-call store config))
-             (mixed-response (call 157 mixed-call store config))
-             (wrong-chain-response (call 158 wrong-chain-call store config))
+             (zero-price-basefee-response
+               (call 157 zero-price-basefee-call store config))
+             (dynamic-basefee-response
+               (call 158 dynamic-basefee-call store config))
+             (mixed-response (call 159 mixed-call store config))
+             (wrong-chain-response (call 160 wrong-chain-call store config))
              (mixed-error (field mixed-response "error"))
              (wrong-chain-error (field wrong-chain-response "error")))
         (is (string= (word-hex 11) (field dynamic-response "result")))
         (is (string= (word-hex 7) (field low-gas-price-response "result")))
         (is (string= (word-hex 0) (field priority-only-response "result")))
+        (is (string= (word-hex 0) (field zero-price-basefee-response "result")))
+        (is (string= (word-hex 10) (field dynamic-basefee-response "result")))
         (is (= -32602 (field mixed-error "code")))
         (is (string=
              "eth_call cannot specify gasPrice with maxFeePerGas or maxPriorityFeePerGas"

@@ -150,6 +150,9 @@
           (+ base-fee
              (transaction-max-priority-fee-per-gas transaction))))))
 
+(defun call-transaction-context-base-fee (gas-price base-fee)
+  (if (zerop gas-price) 0 base-fee))
+
 (defun charge-sender-upfront (state sender tx
                               &key (base-fee 0) (blob-base-fee 0)
                                    chain-rules)
@@ -647,6 +650,8 @@
          (gas-limit (transaction-gas-limit tx))
          (gas-price (call-transaction-effective-gas-price
                      tx :base-fee base-fee))
+         (context-base-fee
+           (call-transaction-context-base-fee gas-price base-fee))
          (intrinsic-gas (execution-transaction-intrinsic-gas
                          tx effective-chain-rules)))
     (if (execution-contract-address-collision-p call-state contract)
@@ -671,7 +676,7 @@
                     (make-message-evm-context
                      call-state sender tx contract (make-byte-vector 0)
                      gas-price
-                     :base-fee base-fee
+                     :base-fee context-base-fee
                      :blob-base-fee blob-base-fee
                      :chain-id chain-id
                      :chain-rules effective-chain-rules
@@ -769,6 +774,8 @@ mutated."
            (gas-limit (transaction-gas-limit tx))
            (gas-price (call-transaction-effective-gas-price
                        tx :base-fee base-fee))
+           (context-base-fee
+             (call-transaction-context-base-fee gas-price base-fee))
            (intrinsic-gas (execution-transaction-intrinsic-gas
                            tx effective-chain-rules))
            (code (execution-resolved-code call-state recipient)))
@@ -785,7 +792,7 @@ mutated."
                       (make-message-evm-context
                        call-state sender tx recipient (transaction-data tx)
                        gas-price
-                       :base-fee base-fee
+                       :base-fee context-base-fee
                        :blob-base-fee blob-base-fee
                        :chain-id chain-id
                        :chain-rules effective-chain-rules

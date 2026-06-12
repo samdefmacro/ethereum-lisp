@@ -4118,6 +4118,9 @@ splits can land after the Phase A smoke path closes.
     handling instead of live-transaction EIP-1559 fee-cap checks. Calls with a
     `gasPrice` below the block base fee execute with that gas price, and
     partial dynamic-fee call objects default missing fee caps to zero.
+  - Progress: zero-gas-price retained-state simulations now lower the EVM
+    context base fee to zero before execution, matching geth `8a0223e`
+    `applyMessage` behavior for `BASEFEE` as well as `GASPRICE`.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7
