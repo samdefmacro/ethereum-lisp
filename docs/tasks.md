@@ -4041,11 +4041,13 @@ splits can land after the Phase A smoke path closes.
     state advances and closes a nonce gap, contiguous queued transactions move
     into pending without waiting for another local submission.
   - Progress: blob raw transactions that pass Cancun/type/sender admission now
-    route into the blob subpool instead of pending. Public `txpool_*` queued
-    views and `eth_getTransactionByHash` can observe them, while
-    `eth_pendingTransactions` and pending transaction filters remain limited to
-    executable pending transactions. Sidecar/KZG-backed blob execution remains
-    out of the Shanghai Phase A gate.
+    route into the blob subpool instead of pending. `txpool_status` counts
+    them and `eth_getTransactionByHash` can observe them, while
+    `txpool_content`, `txpool_contentFrom`, `txpool_inspect`,
+    `eth_pendingTransactions`, and pending transaction filters omit blob
+    details, matching geth `BlobPool.Content` at reference commit `8a0223e`
+    and Nethermind `TxPoolInfoProvider` at reference commit `1c72a72`.
+    Sidecar/KZG-backed blob execution remains out of the Shanghai Phase A gate.
   - Progress: basefee and blob placeholder subpools now maintain sender/nonce
     indexes like pending and queued transactions. Replacement, included-tx
     removal, cross-subpool conflict checks, and txpool snapshot copying no
@@ -4061,13 +4063,15 @@ splits can land after the Phase A smoke path closes.
     lets a basefee drop promote nonce `N` and the newly contiguous queued nonce
     `N+1` in the same pass instead of leaving the queued tail parked until a
     later txpool event.
-  - Progress: `txpool_contentFrom` now reads pending plus queued/basefee/blob
+  - Progress: `txpool_contentFrom` now reads pending plus queued/basefee
     subpool entries through sender/nonce indexes instead of filtering the full
-    queued view, keeping the per-sender RPC path aligned with txpool indexing.
+    queued view, keeping the per-sender RPC path aligned with txpool indexing
+    while preserving geth/Nethermind's blob-content omission.
   - Progress: `txpool_content` and `txpool_inspect` queued views now merge the
-    queued/basefee/blob sender indexes directly instead of rebuilding sender /
+    queued/basefee sender indexes directly instead of rebuilding sender /
     nonce groupings from concatenated transaction lists. This keeps all txpool
-    read RPCs on the indexed subpool boundary.
+    read RPCs on the indexed subpool boundary without exposing blob pool
+    contents.
   - Progress: txpool sender/nonce RPC views now sort nonce keys numerically,
     so multi-digit nonces are reported in executable nonce order instead of
     lexicographic string order.

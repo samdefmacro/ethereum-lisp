@@ -1896,8 +1896,7 @@
 
 (defun eth-rpc-txpool-queued-view-transactions (store)
   (append (engine-payload-store-queued-transactions store)
-          (engine-payload-store-basefee-transactions store)
-          (engine-payload-store-blob-transactions store)))
+          (engine-payload-store-basefee-transactions store)))
 
 (defun eth-rpc-txpool-queued-view-count (store)
   (+ (engine-payload-store-queued-transaction-count store)
@@ -1932,8 +1931,7 @@
          (txpool-rpc-indexed-sender-transactions-from-indexes
           #'eth-rpc-pending-transaction-object
           (engine-payload-store-queued-sender-index store)
-          (engine-payload-store-basefee-sender-index store)
-          (engine-payload-store-blob-sender-index store)))))
+          (engine-payload-store-basefee-sender-index store)))))
 
 (defun engine-rpc-handle-txpool-content-from (params store)
   (unless (= 1 (length params))
@@ -1953,8 +1951,7 @@
             address
             #'eth-rpc-pending-transaction-object
             (engine-payload-store-queued-sender-index store)
-            (engine-payload-store-basefee-sender-index store)
-            (engine-payload-store-blob-sender-index store))))))
+            (engine-payload-store-basefee-sender-index store))))))
 
 (defun engine-rpc-handle-txpool-inspect (params store)
   (when params
@@ -1967,8 +1964,7 @@
          (txpool-rpc-indexed-sender-transactions-from-indexes
           #'txpool-rpc-transaction-summary
           (engine-payload-store-queued-sender-index store)
-          (engine-payload-store-basefee-sender-index store)
-          (engine-payload-store-blob-sender-index store)))))
+          (engine-payload-store-basefee-sender-index store)))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store)
