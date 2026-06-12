@@ -12787,6 +12787,60 @@
                (chain-store-account-storage
                 store (block-hash block) contract slot)))))))
 
+(deftest eth-rpc-call-default-gas-is-not-block-gas-limited
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (id method params store config)
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" method)
+                    (cons "params" params))
+              store
+              config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :london-block 0
+                                      :berlin-block 0))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000cd"))
+           ;; SSTORE slot 0 := 1; STOP. This needs more execution gas than the
+           ;; block limit leaves after intrinsic gas below.
+           (code #(#x60 #x01 #x60 #x00 #x55 #x00))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 31
+                       :timestamp 310
+                       :gas-limit 22000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state))))
+           (call-object
+             (list (cons "to" (address-to-hex contract)))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((call-response
+               (request 161 "eth_call" (list call-object "latest")
+                        store config))
+             (access-list-response
+               (request 162 "eth_createAccessList"
+                        (list call-object "latest")
+                        store config))
+             (access-list-result (field access-list-response "result")))
+        (is (string= "0x" (field call-response "result")))
+        (is (< (block-header-gas-limit (block-header block))
+               (hex-to-quantity (field access-list-result "gasUsed"))))
+        (is (= 0
+               (chain-store-account-storage
+                store
+                (block-hash block)
+                contract
+                (zero-hash32))))))))
+
 (deftest eth-rpc-simulates-contract-creation-without-commit
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

@@ -4121,6 +4121,11 @@ splits can land after the Phase A smoke path closes.
   - Progress: zero-gas-price retained-state simulations now lower the EVM
     context base fee to zero before execution, matching geth `8a0223e`
     `applyMessage` behavior for `BASEFEE` as well as `GASPRICE`.
+  - Progress: retained-state `eth_call` and `eth_createAccessList` now default
+    omitted call-object gas to a call-style uint64 RPC cap instead of the
+    selected block gas limit, matching geth `8a0223e` `CallDefaults` / gas-pool
+    behavior while leaving explicit gas and `eth_estimateGas` cap handling
+    unchanged.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7

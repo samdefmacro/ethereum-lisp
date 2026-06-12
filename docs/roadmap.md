@@ -109,6 +109,10 @@ fixes in those areas are allowed; expansion is not.
   partial dynamic-fee call objects can still execute for local simulation.
   When the resulting call gas price is zero, the simulation EVM context lowers
   base fee to zero, matching geth `applyMessage` behavior for `BASEFEE`.
+  Omitted gas on retained-state `eth_call` / `eth_createAccessList` now uses a
+  call-style uint64 RPC gas cap instead of the selected block gas limit,
+  matching geth `CallDefaults` gas-pool behavior while keeping explicit gas
+  and `eth_estimateGas` caps unchanged.
   `eth_createAccessList` can turn retained-state call access tracking into
   geth-shaped access-list and gas-used results. Retained-state RPC block
   selectors now also accept EIP-1898-style `blockHash` /
