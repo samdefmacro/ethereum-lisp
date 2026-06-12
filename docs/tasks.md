@@ -4518,6 +4518,25 @@ splits can land after the Phase A smoke path closes.
     tests that pruned genesis state records disappear from KV while the child
     head state and block lookups remain available after restore.
 
+- [x] `DEVNET-SMOKE-GATE-PRUNED-EXPORT`: Verify pruned devnet exports through
+  the standalone process gate.
+  - Milestone: 6 / Phase A process gate
+  - Dependencies: `DEVNET-PRUNED-STATE-EXPORT`, devnet smoke gate database
+    restore.
+  - Acceptance: `scripts/devnet-smoke-gate.lisp` can accept a retained-state
+    pruning boundary alongside `--database PATH`, apply it before export,
+    restore the resulting KV snapshot into a fresh node, report the configured
+    pruning boundary, and verify any covered safe/finalized state snapshot is
+    absent while block, checkpoint, transaction, receipt, and head retained
+    state reads still work.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: added `--prune-state-before NUMBER` to the standalone devnet smoke
+    gate. The database-backed gate now exports with optional retained-state
+    pruning, verifies restored block lookup for the pruned checkpoint block,
+    reports `databasePruneStateBefore` and `databasePrunedStateAvailable`, and
+    the CLI test covers a default Shanghai run whose safe/finalized state is
+    pruned from the restored KV snapshot while the head remains readable.
+
 ## Recently Completed
 
 - [x] Document optional local Reth reference availability and skip/reporting

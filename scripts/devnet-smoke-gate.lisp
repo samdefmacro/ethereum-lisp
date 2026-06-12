@@ -23,6 +23,8 @@
   (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
   (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
   (format t "  --database PATH      Export and verify a file-backed KV chain snapshot.~%")
+  (format t "  --prune-state-before NUMBER~%")
+  (format t "                       Prune retained state before NUMBER when exporting --database.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%"))
@@ -46,6 +48,8 @@
 (defconstant +devnet-smoke-gate-ready-file-option+ "--ready-file")
 (defconstant +devnet-smoke-gate-log-file-option+ "--log-file")
 (defconstant +devnet-smoke-gate-database-option+ "--database")
+(defconstant +devnet-smoke-gate-prune-state-before-option+
+  "--prune-state-before")
 (defconstant +devnet-smoke-gate-all-fixtures-flag+ "--all-fixtures")
 (defconstant +devnet-smoke-gate-default-fixture-case+
   "shanghai-one-transfer-with-withdrawal")
@@ -90,6 +94,7 @@
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
                  (string= arg +devnet-smoke-gate-log-file-option+)
                  (string= arg +devnet-smoke-gate-database-option+)
+                 (string= arg +devnet-smoke-gate-prune-state-before-option+)
                  (string= arg +devnet-smoke-gate-fixture-case-option+))
              (when (and (string= arg +devnet-smoke-gate-fixture-case-option+)
                         args)
@@ -112,11 +117,14 @@
             ((string= arg +devnet-smoke-gate-all-fixtures-flag+))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
                  (string= arg +devnet-smoke-gate-log-file-option+)
-                 (string= arg +devnet-smoke-gate-database-option+))
+                 (string= arg +devnet-smoke-gate-database-option+)
+                 (string= arg +devnet-smoke-gate-prune-state-before-option+))
              (unless args
-               (error "~A requires a path" arg))
+               (error "~A requires a value" arg))
              (let ((value (pop args)))
-               (when (devnet-smoke-gate-option-like-p value)
+               (when (and (not (string= arg
+                                         +devnet-smoke-gate-prune-state-before-option+))
+                          (devnet-smoke-gate-option-like-p value))
                  (error "~A requires a path, got option ~A" arg value))))
             ((string= arg +devnet-smoke-gate-fixture-case-option+)
              (when fixture-case
@@ -158,10 +166,39 @@
                (pop args)))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
                  (string= arg +devnet-smoke-gate-log-file-option+)
-                 (string= arg +devnet-smoke-gate-database-option+))
+                 (string= arg +devnet-smoke-gate-database-option+)
+                 (string= arg +devnet-smoke-gate-prune-state-before-option+))
              (when args
                (pop args)))))
     path))
+
+(defun devnet-smoke-gate-non-negative-integer-option (args option)
+  (let ((integer nil))
+    (loop while args
+          for arg = (pop args)
+          do
+          (cond
+            ((string= arg option)
+             (when integer
+               (error "Only one ~A option is supported" option))
+             (unless args
+               (error "~A requires a value" option))
+             (let ((value (pop args)))
+               (handler-case
+                   (setf integer (parse-integer value :junk-allowed nil))
+                 (error ()
+                   (error "~A requires an integer value" option)))
+               (when (minusp integer)
+                 (error "~A must be non-negative" option))))
+            ((string= arg +devnet-smoke-gate-fixture-case-option+)
+             (when args
+               (pop args)))
+            ((or (string= arg +devnet-smoke-gate-ready-file-option+)
+                 (string= arg +devnet-smoke-gate-log-file-option+)
+                 (string= arg +devnet-smoke-gate-database-option+))
+             (when args
+               (pop args)))))
+    integer))
 
 (defun devnet-smoke-gate-print-help ()
   (format t "~&Usage: sbcl --script scripts/devnet-smoke-gate.lisp -- [options] [FIXTURE-CASE]~%")
@@ -172,6 +209,8 @@
   (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
   (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
   (format t "  --database PATH      Export and verify a file-backed KV chain snapshot.~%")
+  (format t "  --prune-state-before NUMBER~%")
+  (format t "                       Prune retained state before NUMBER when exporting --database.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
@@ -1706,7 +1745,8 @@
      code-address expected-code storage-address storage-key expected-storage
      transaction-checks log-targets block-hash
      expected-safe-block-number expected-safe-block-hash
-     expected-finalized-block-number expected-finalized-block-hash)
+     expected-finalized-block-number expected-finalized-block-hash
+     &key state-prune-before pruned-state-hash)
   (let* ((database (make-file-key-value-database path))
          (node
            (ethereum-lisp.cli:make-devnet-node
@@ -1717,6 +1757,12 @@
             :port 0
             :database-path path))
          (summary (ethereum-lisp.cli:devnet-node-summary node))
+         (restored-store (ethereum-lisp.cli:devnet-node-store node))
+         (pruned-state-expected-p
+           (and state-prune-before
+                pruned-state-hash
+                (< (hex-to-quantity expected-safe-block-number)
+                   state-prune-before)))
          (public-rpc-summary
            (devnet-smoke-gate-verify-restored-public-rpc
             node
@@ -1751,8 +1797,20 @@
     (devnet-smoke-gate-require
      (string= path (getf summary :database-path))
      "Database path missing from restored node summary")
+    (when pruned-state-expected-p
+      (devnet-smoke-gate-require
+       (chain-store-known-block restored-store pruned-state-hash)
+       "Pruned-state block was not restored by hash")
+      (devnet-smoke-gate-require
+       (not (chain-store-state-available-p restored-store pruned-state-hash))
+       "Pruned state snapshot is still available after restore"))
     (append summary
-            (list :rpc-block-number
+            (list :pruned-state-before state-prune-before
+                  :pruned-state-available-p
+                  (and pruned-state-hash
+                       (chain-store-state-available-p
+                        restored-store pruned-state-hash))
+                  :rpc-block-number
                   (getf public-rpc-summary :block-number)
                   :rpc-balance
                   (getf public-rpc-summary :balance)
@@ -1869,7 +1927,7 @@
                   (getf public-rpc-summary :public-connections)))))
 
 (defun devnet-smoke-gate-run
-    (case-name &key ready-file log-file database-file)
+    (case-name &key ready-file log-file database-file state-prune-before)
   #+sbcl
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-jwt" "hex")))
     (unwind-protect
@@ -2048,7 +2106,9 @@
                              :engine-endpoint engine-endpoint
                              :rpc-endpoint rpc-endpoint)))))))
                (when database-file
-                 (ethereum-lisp.cli::devnet-node-export-database node))
+                 (ethereum-lisp.cli::devnet-node-export-database
+                  node
+                  :state-prune-before state-prune-before))
                (when log-file
                  (ethereum-lisp.cli::devnet-cli-log-event
                   node
@@ -2106,7 +2166,9 @@
                           expected-safe-block-number
                           expected-safe-block-hash
                           expected-finalized-block-number
-                          expected-finalized-block-hash)))
+                          expected-finalized-block-hash
+                          :state-prune-before state-prune-before
+                          :pruned-state-hash expected-safe-block-hash)))
                       (actual-block-number
                         (fixture-object-field block-number-rpc "result"))
                       (actual-balance
@@ -2210,6 +2272,15 @@
                   (cons "readyFile" (or ready-file :false))
                   (cons "logFile" (or log-file :false))
                   (cons "databaseFile" (or database-file :false))
+                  (cons "databasePruneStateBefore"
+                        (or state-prune-before :false))
+                  (cons "databasePrunedStateAvailable"
+                        (if database-summary
+                            (if (getf database-summary
+                                      :pruned-state-available-p)
+                                t
+                                :false)
+                            :false))
                   (cons "databaseHeadNumber"
                         (if database-summary
                             (quantity-to-hex
@@ -2510,7 +2581,7 @@
         :defaults pathname)))))
 
 (defun devnet-smoke-gate-run-all
-    (case-names &key ready-file log-file database-file)
+    (case-names &key ready-file log-file database-file state-prune-before)
   (let* ((reports
            (mapcar (lambda (case-name)
                      (devnet-smoke-gate-strip-run-metadata
@@ -2525,7 +2596,8 @@
                        :database-file
                        (devnet-smoke-gate-case-path
                         database-file case-name
-                        :default-name "devnet-chain"))))
+                        :default-name "devnet-chain")
+                       :state-prune-before state-prune-before)))
                    case-names))
          (engine-connections
            (reduce #'+ reports
@@ -2806,6 +2878,7 @@
      (cons "logFile" (or log-file :false))
      (cons "logCaseCount" (if log-file (length reports) 0))
      (cons "databaseFile" (or database-file :false))
+     (cons "databasePruneStateBefore" (or state-prune-before :false))
      (cons "databaseCaseCount" (if database-file (length reports) 0))
      (cons "engineConnections" engine-connections)
      (cons "publicConnections" public-connections)
@@ -2850,6 +2923,8 @@
             (devnet-smoke-gate-field report "logCaseCount"))
     (format t "databaseFile=~A~%"
             (devnet-smoke-gate-field report "databaseFile"))
+    (format t "databasePruneStateBefore=~A~%"
+            (devnet-smoke-gate-field report "databasePruneStateBefore"))
     (format t "databaseCaseCount=~D~%"
             (devnet-smoke-gate-field report "databaseCaseCount")))
   (unless (devnet-smoke-gate-suite-report-p report)
@@ -2920,6 +2995,12 @@
         (format t "logFile=~A~%" (devnet-smoke-gate-field report "logFile"))
         (format t "databaseFile=~A~%"
                 (devnet-smoke-gate-field report "databaseFile"))
+        (format t "databasePruneStateBefore=~A~%"
+                (devnet-smoke-gate-field
+                 report "databasePruneStateBefore"))
+        (format t "databasePrunedStateAvailable=~A~%"
+                (devnet-smoke-gate-field
+                 report "databasePrunedStateAvailable"))
         (format t "databaseHeadNumber=~A~%"
                 (devnet-smoke-gate-field report "databaseHeadNumber"))
         (format t "databaseRpcBlockNumber=~A~%"
@@ -3085,6 +3166,9 @@
          (database-file
            (devnet-smoke-gate-path-option
             args +devnet-smoke-gate-database-option+))
+         (state-prune-before
+           (devnet-smoke-gate-non-negative-integer-option
+            args +devnet-smoke-gate-prune-state-before-option+))
          (case-name (devnet-smoke-gate-fixture-case-name args)))
     (if help-p
         (devnet-smoke-gate-print-help)
@@ -3098,12 +3182,14 @@
                        +engine-newpayload-v2-smoke-case-names+
                        :ready-file ready-file
                        :log-file log-file
-                       :database-file database-file))
+                       :database-file database-file
+                       :state-prune-before state-prune-before))
                     (devnet-smoke-gate-run
                      case-name
                      :ready-file ready-file
                      :log-file log-file
-                     :database-file database-file))))
+                     :database-file database-file
+                     :state-prune-before state-prune-before))))
           (if json-p
               (format t "~&~A~%" (json-encode report))
               (devnet-smoke-gate-print-text report))))))

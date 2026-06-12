@@ -1119,7 +1119,8 @@
     (is (search "--all-fixtures" stdout))
     (is (search "--ready-file PATH" stdout))
     (is (search "--log-file PATH" stdout))
-    (is (search "--database PATH" stdout))))
+    (is (search "--database PATH" stdout))
+    (is (search "--prune-state-before NUMBER" stdout))))
 
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
   #-sbcl
@@ -1141,7 +1142,8 @@
                     "--json"
                     "--ready-file" (namestring ready-path)
                     "--log-file" (namestring log-path)
-                    "--database" (namestring database-path))
+                    "--database" (namestring database-path)
+                    "--prune-state-before" "42")
               :output :string
               :error-output :string
               :ignore-error-status t)
@@ -1176,6 +1178,21 @@
                             (fixture-object-field report "logFile")))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
+               (is (= 42 (fixture-object-field
+                          report "databasePruneStateBefore")))
+               (is (eq nil
+                       (fixture-object-field
+                        report "databasePrunedStateAvailable")))
+               (multiple-value-bind (value present-p)
+                   (kv-get-chain-record
+                    database
+                    :state
+                    (hash32-bytes
+                     (hash32-from-hex
+                      (fixture-object-field report "safeBlockHash")))
+                    :missing)
+                 (is (eq :missing value))
+                 (is (not present-p)))
                (is (string= (fixture-object-field report "blockNumber")
                             (fixture-object-field report
                                                   "databaseHeadNumber")))

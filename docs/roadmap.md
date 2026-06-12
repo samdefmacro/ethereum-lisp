@@ -162,7 +162,10 @@ fixes in those areas are allowed; expansion is not.
   path through `--database PATH`, restoring existing KV chain-store snapshots
   at startup, optionally pruning retained state before a configured block
   number on export, and exporting the current readable chain view on
-  `--no-serve` or normal shutdown.
+  `--no-serve` or normal shutdown. The standalone devnet smoke gate can now
+  pass the same pruning boundary through its database export/restore check and
+  verify a covered safe/finalized state snapshot is absent while the block and
+  checkpoint records still restore.
 - **Current Phase A smoke gate:** `scripts/phase-a-smoke-gate.lisp` now fails
   unless the in-repo Phase A fixture root has selector-gated state,
   transaction, and blockchain replay coverage, including both `blockRlp` and
@@ -191,7 +194,10 @@ fixes in those areas are allowed; expansion is not.
   receipt, raw transaction, and block/index lookup. The
   top-level Phase A process gate therefore covers authenticated Engine import,
   forkchoice, public reads, runner readiness/shutdown signals, and readable
-  chain-store persistence across the local process/database boundary.
+  chain-store persistence across the local process/database boundary. The
+  standalone devnet gate can also export a pruned database snapshot and assert
+  that covered safe/finalized state has been removed without losing the
+  checkpoint block or head-state RPC readability.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected
