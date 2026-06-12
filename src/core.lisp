@@ -3420,6 +3420,19 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-memory-store-transaction-locations store)
         (make-hash-table :test 'equal)))
 
+(defun chain-store-import-header-records-from-kv (store database)
+  (dolist (entry (kv-chain-record-entries database :header))
+    (let* ((identifier (car entry))
+           (hash (make-hash32 identifier))
+           (block (chain-store-known-block store hash)))
+      (unless block
+        (block-validation-fail
+         "KV header record references an unknown block"))
+      (unless (bytes= (cdr entry)
+                      (block-header-rlp (block-header block)))
+        (block-validation-fail
+         "KV header record does not match block header")))))
+
 (defun chain-store-import-canonical-indexes-from-kv (store database)
   (let ((head-number 0))
     (dolist (entry (kv-chain-canonical-hashes database))
@@ -3781,6 +3794,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (block-validation-fail "Chain import source must be a key-value database"))
     (let ((staging (make-engine-payload-memory-store)))
       (chain-store-import-block-records-from-kv staging database)
+      (chain-store-import-header-records-from-kv staging database)
       (chain-store-import-canonical-indexes-from-kv staging database)
       (chain-store-import-receipt-records-from-kv staging database)
       (chain-store-import-state-records-from-kv staging database)

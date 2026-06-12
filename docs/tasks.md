@@ -4222,6 +4222,10 @@ splits can land after the Phase A smoke path closes.
     or carry a log-index start inconsistent with preceding receipts. This keeps
     restored transaction and receipt RPC indexes aligned with the canonical
     readable chain view.
+  - Result: KV header records now participate in staging import validation.
+    Persisted header records must reference an imported block and exactly match
+    that block's header encoding; mismatched or orphan header records reject
+    the import before the readable chain view is published.
   - Result: the devnet CLI now accepts `--database PATH`, imports an existing
     file-backed KV chain-store snapshot after genesis setup, and exports the
     current readable chain-store view on `--no-serve` or normal serve-mode

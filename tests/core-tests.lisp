@@ -4161,6 +4161,118 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-rejects-header-record-mismatch
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-header-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (source-block
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         (replacement-header
+           (make-block-header :number 1
+                              :state-root +empty-trie-hash+
+                              :timestamp 99
+                              :gas-limit 30000000))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block source source-block :state-available-p t)
+           (chain-store-set-canonical-head source (block-hash source-block))
+           (chain-store-update-forkchoice-checkpoints
+            source
+            (make-forkchoice-state
+             :head-block-hash (block-hash source-block)
+             :safe-block-hash (zero-hash32)
+             :finalized-block-hash (zero-hash32)))
+           (chain-store-put-block target target-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :header
+              (hash32-bytes (block-hash source-block))
+              (block-header-rlp replacement-header)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 9 (chain-store-head-number target)))
+           (is (not (chain-store-known-block
+                     target
+                     (block-hash source-block)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-orphan-header-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-orphan-header-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (source-block
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         (orphan-header
+           (make-block-header :number 2
+                              :state-root +empty-trie-hash+
+                              :timestamp 99
+                              :gas-limit 30000000))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block source source-block :state-available-p t)
+           (chain-store-set-canonical-head source (block-hash source-block))
+           (chain-store-update-forkchoice-checkpoints
+            source
+            (make-forkchoice-state
+             :head-block-hash (block-hash source-block)
+             :safe-block-hash (zero-hash32)
+             :finalized-block-hash (zero-hash32)))
+           (chain-store-put-block target target-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :header
+              (hash32-bytes (block-header-hash orphan-header))
+              (block-header-rlp orphan-header)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 9 (chain-store-head-number target)))
+           (is (not (chain-store-known-block
+                     target
+                     (block-hash source-block)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-rejects-invalid-checkpoints
   (let* ((path
            (merge-pathnames
