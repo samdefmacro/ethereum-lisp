@@ -3402,6 +3402,40 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-populate-txpool-record-export-batch store database batch)
       (kv-apply-batch database batch))))
 
+(defun chain-store-export-invalid-tipset-to-kv
+    (batch tipset-key invalid-block)
+  (kv-batch-put-chain-record
+   batch
+   :invalid-tipset
+   (hex-to-bytes tipset-key)
+   (block-rlp invalid-block)))
+
+(defun chain-store-populate-invalid-tipset-export-batch
+    (store database batch)
+  (let ((current-tipset-keys (make-hash-table :test 'equal)))
+    (maphash
+     (lambda (tipset-key invalid-block)
+       (setf (gethash tipset-key current-tipset-keys) t)
+       (chain-store-export-invalid-tipset-to-kv
+        batch tipset-key invalid-block))
+     (engine-payload-memory-store-invalid-tipsets store))
+    (dolist (entry (kv-chain-record-entries database :invalid-tipset))
+      (unless (gethash (bytes-to-hex (car entry)) current-tipset-keys)
+        (kv-batch-delete-chain-record
+         batch
+         :invalid-tipset
+         (car entry))))))
+
+(defun chain-store-export-invalid-tipsets-to-kv (store database)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Chain invalid-tipset export target must be a key-value database"))
+    (let ((batch (make-kv-write-batch)))
+      (chain-store-populate-invalid-tipset-export-batch
+       store database batch)
+      (kv-apply-batch database batch))))
+
 (defun chain-store-export-to-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
@@ -3413,6 +3447,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        store database batch)
       (chain-store-populate-state-record-export-batch store database batch)
       (chain-store-populate-txpool-record-export-batch store database batch)
+      (chain-store-populate-invalid-tipset-export-batch
+       store database batch)
       (kv-apply-batch database batch))))
 
 (defun chain-store-clear-readable-tables (store)
@@ -3472,7 +3508,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-memory-store-finalized-checkpoint store)
         (engine-payload-memory-store-finalized-checkpoint source)
         (engine-payload-memory-store-txpool store)
-        (engine-payload-memory-store-txpool source))
+        (engine-payload-memory-store-txpool source)
+        (engine-payload-memory-store-invalid-tipsets store)
+        (engine-payload-memory-store-invalid-tipsets source))
   store)
 
 (defun chain-store-import-block-records-from-kv (store database)
@@ -3925,6 +3963,24 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (chain-store-import-txpool-transaction-from-kv
      store (car entry) (cdr entry))))
 
+(defun chain-store-import-invalid-tipset-from-kv
+    (store tipset-identifier record)
+  (handler-case
+      (let ((tipset-hash (make-hash32 tipset-identifier))
+            (invalid-block (block-from-rlp record)))
+        (setf (gethash
+               (engine-payload-store-key tipset-hash)
+               (engine-payload-memory-store-invalid-tipsets store))
+              invalid-block))
+    (rlp-error (condition)
+      (block-validation-fail
+       "Invalid KV invalid-tipset record RLP: ~A" condition))))
+
+(defun chain-store-import-invalid-tipsets-from-kv (store database)
+  (dolist (entry (kv-chain-record-entries database :invalid-tipset))
+    (chain-store-import-invalid-tipset-from-kv
+     store (car entry) (cdr entry))))
+
 (defun chain-store-import-from-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
@@ -3938,6 +3994,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-checkpoints-from-kv staging database)
       (chain-store-import-transaction-locations-from-kv staging database)
       (chain-store-import-txpool-records-from-kv staging database)
+      (chain-store-import-invalid-tipsets-from-kv staging database)
       (chain-store-publish-readable-tables store staging))
     store))
 

@@ -4309,6 +4309,11 @@ splits can land after the Phase A smoke path closes.
     stages the txpool, validates hash round-trips, sender recovery, and
     sender/nonce uniqueness before publishing, preserving the existing store on
     corrupted txpool records.
+  - Result: KV export/import now persists invalid-tipset cache entries. Records
+    are keyed by the cached tip/head hash and store the invalid ancestor block
+    RLP, so restored stores can keep rejecting descendants of previously
+    rejected payloads after a dev database restart; malformed invalid-tipset
+    records reject during staging without replacing the existing cache.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject

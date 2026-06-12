@@ -789,8 +789,8 @@ first pass, but interfaces must not block that path.
 - *Done:* memory key-value store, file-backed development store, canonical
   number/hash indexes, typed head/safe/finalized checkpoints, retained block,
   receipt, transaction, account, storage, txpool contents, pending/filter,
-  blob sidecar, and
-  invalid-payload cache indexes needed by the in-memory Phase A smoke path,
+  blob sidecar, and invalid-payload cache indexes needed by the in-memory
+  Phase A smoke path,
   plus explicit retained-state snapshot pruning before a block-number boundary
   and devnet CLI restore/export/pruned-export wiring for file-backed KV
   chain-store snapshots.
