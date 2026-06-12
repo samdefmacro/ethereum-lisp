@@ -3335,6 +3335,73 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-populate-state-record-export-batch store database batch)
       (kv-apply-batch database batch))))
 
+(defparameter +chain-store-txpool-subpool-labels+
+  '((:pending . "pending")
+    (:queued . "queued")
+    (:basefee . "basefee")
+    (:blob . "blob")))
+
+(defun chain-store-txpool-subpool-identifier (subpool)
+  (let ((name (and (symbolp subpool)
+                   (cdr (assoc subpool
+                               +chain-store-txpool-subpool-labels+)))))
+    (unless name
+      (block-validation-fail "Unknown txpool subpool: ~S" subpool))
+    name))
+
+(defun chain-store-txpool-subpool-label (identifier)
+  (let* ((name (bytes-to-ascii (ensure-byte-vector identifier)))
+         (entry (rassoc name +chain-store-txpool-subpool-labels+
+                        :test #'string=)))
+    (unless entry
+      (block-validation-fail "Unknown KV txpool subpool: ~S" name))
+    (car entry)))
+
+(defun chain-store-txpool-transaction-record-rlp
+    (subpool transaction)
+  (rlp-encode
+   (make-rlp-list
+    (ascii-to-bytes (chain-store-txpool-subpool-identifier subpool))
+    (transaction-encoding transaction))))
+
+(defun chain-store-export-txpool-transaction-to-kv
+    (batch subpool transaction)
+  (kv-batch-put-chain-record
+   batch
+   :txpool
+   (hash32-bytes (transaction-hash transaction))
+   (chain-store-txpool-transaction-record-rlp subpool transaction)))
+
+(defun chain-store-populate-txpool-record-export-batch
+    (store database batch)
+  (let ((current-transaction-keys (make-hash-table :test 'equal)))
+    (flet ((export-subpool (subpool transactions)
+             (dolist (transaction transactions)
+               (let ((key (hash32-to-hex (transaction-hash transaction))))
+                 (setf (gethash key current-transaction-keys) t)
+                 (chain-store-export-txpool-transaction-to-kv
+                  batch subpool transaction)))))
+      (export-subpool :pending
+                      (engine-payload-store-pending-transactions store))
+      (export-subpool :queued
+                      (engine-payload-store-queued-transactions store))
+      (export-subpool :basefee
+                      (engine-payload-store-basefee-transactions store))
+      (export-subpool :blob
+                      (engine-payload-store-blob-transactions store)))
+    (dolist (entry (kv-chain-record-entries database :txpool))
+      (unless (gethash (bytes-to-hex (car entry)) current-transaction-keys)
+        (kv-batch-delete-chain-record batch :txpool (car entry))))))
+
+(defun chain-store-export-txpool-records-to-kv (store database)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Chain txpool export target must be a key-value database"))
+    (let ((batch (make-kv-write-batch)))
+      (chain-store-populate-txpool-record-export-batch store database batch)
+      (kv-apply-batch database batch))))
+
 (defun chain-store-export-to-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
@@ -3345,6 +3412,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-populate-transaction-location-export-batch
        store database batch)
       (chain-store-populate-state-record-export-batch store database batch)
+      (chain-store-populate-txpool-record-export-batch store database batch)
       (kv-apply-batch database batch))))
 
 (defun chain-store-clear-readable-tables (store)
@@ -3402,7 +3470,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-memory-store-safe-checkpoint store)
         (engine-payload-memory-store-safe-checkpoint source)
         (engine-payload-memory-store-finalized-checkpoint store)
-        (engine-payload-memory-store-finalized-checkpoint source))
+        (engine-payload-memory-store-finalized-checkpoint source)
+        (engine-payload-memory-store-txpool store)
+        (engine-payload-memory-store-txpool source))
   store)
 
 (defun chain-store-import-block-records-from-kv (store database)
@@ -3789,6 +3859,72 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (chain-store-import-transaction-location-from-kv
      store (car entry) (cdr entry))))
 
+(defun chain-store-txpool-transaction-record-values (record)
+  (handler-case
+      (let ((fields (rlp-list-field (rlp-decode-one record)
+                                    "Txpool transaction record")))
+        (unless (= (length fields) 2)
+          (block-validation-fail
+           "Txpool transaction record must contain 2 fields"))
+        (let* ((subpool
+                 (chain-store-txpool-subpool-label
+                  (rlp-bytes-field (first fields)
+                                   "Txpool transaction subpool")))
+               (encoded
+                 (rlp-bytes-field (second fields)
+                                  "Txpool transaction encoding"))
+               (transaction (transaction-from-encoding encoded)))
+          (unless (bytes= encoded (transaction-encoding transaction))
+            (block-validation-fail
+             "Txpool transaction record does not round-trip"))
+          (values subpool transaction)))
+    (rlp-error (condition)
+      (block-validation-fail
+       "Invalid KV txpool transaction record RLP: ~A" condition))))
+
+(defun chain-store-import-txpool-transaction-conflict-p
+    (txpool transaction)
+  (or (engine-pending-txpool-pending-conflict txpool transaction)
+      (engine-pending-txpool-queued-conflict txpool transaction)
+      (engine-pending-txpool-basefee-conflict txpool transaction)
+      (engine-pending-txpool-blob-conflict txpool transaction)))
+
+(defun chain-store-import-txpool-transaction-to-subpool
+    (txpool subpool transaction)
+  (ecase subpool
+    (:pending
+     (engine-pending-txpool-put-pending-transaction txpool transaction))
+    (:queued
+     (engine-pending-txpool-put-queued-transaction txpool transaction))
+    (:basefee
+     (engine-pending-txpool-put-basefee-transaction txpool transaction))
+    (:blob
+     (engine-pending-txpool-put-blob-transaction txpool transaction))))
+
+(defun chain-store-import-txpool-transaction-from-kv
+    (store transaction-identifier record)
+  (let ((transaction-hash (make-hash32 transaction-identifier))
+        (txpool (engine-payload-store-txpool store)))
+    (multiple-value-bind (subpool transaction)
+        (chain-store-txpool-transaction-record-values record)
+      (unless (hash32= transaction-hash (transaction-hash transaction))
+        (block-validation-fail
+         "KV txpool record key does not match encoded transaction hash"))
+      (when (engine-payload-store-pooled-transaction store transaction-hash)
+        (block-validation-fail
+         "KV txpool record duplicates a pooled transaction hash"))
+      (when (chain-store-import-txpool-transaction-conflict-p
+             txpool transaction)
+        (block-validation-fail
+         "KV txpool record duplicates a sender nonce"))
+      (chain-store-import-txpool-transaction-to-subpool
+       txpool subpool transaction))))
+
+(defun chain-store-import-txpool-records-from-kv (store database)
+  (dolist (entry (kv-chain-record-entries database :txpool))
+    (chain-store-import-txpool-transaction-from-kv
+     store (car entry) (cdr entry))))
+
 (defun chain-store-import-from-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
@@ -3801,6 +3937,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-state-records-from-kv staging database)
       (chain-store-import-checkpoints-from-kv staging database)
       (chain-store-import-transaction-locations-from-kv staging database)
+      (chain-store-import-txpool-records-from-kv staging database)
       (chain-store-publish-readable-tables store staging))
     store))
 

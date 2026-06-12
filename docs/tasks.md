@@ -4303,6 +4303,12 @@ splits can land after the Phase A smoke path closes.
     or carry a log-index start inconsistent with preceding receipts. This keeps
     restored transaction and receipt RPC indexes aligned with the canonical
     readable chain view.
+  - Result: KV export/import now persists txpool contents across pending,
+    queued, basefee, and blob subpools. Records are keyed by transaction hash
+    and store the subpool label plus canonical raw transaction encoding; import
+    stages the txpool, validates hash round-trips, sender recovery, and
+    sender/nonce uniqueness before publishing, preserving the existing store on
+    corrupted txpool records.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject

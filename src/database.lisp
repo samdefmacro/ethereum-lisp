@@ -29,7 +29,8 @@
     (:canonical-hash . #x04)
     (:checkpoint . #x05)
     (:state . #x06)
-    (:transaction-location . #x07)))
+    (:transaction-location . #x07)
+    (:txpool . #x08)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")
