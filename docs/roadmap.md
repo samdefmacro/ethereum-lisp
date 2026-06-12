@@ -175,7 +175,9 @@ fixes in those areas are allowed; expansion is not.
   subpool lists. A standalone
   `scripts/devnet-smoke-gate.lisp` now exercises the local split
   Engine/public listener boundary with authenticated payload import,
-  forkchoice, and public retained-state reads. The development key-value
+  forkchoice, public retained-state reads, and ready/shutdown telemetry for
+  both serving-style smoke runs and one-shot no-serve CLI runs. The development
+  key-value
   database now has a stable chain-record namespace for block/header/receipt,
   canonical-hash, checkpoint, state, and transaction-location records, giving
   the future chain-store persistence backend ordered keys for canonical-height

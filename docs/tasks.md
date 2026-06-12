@@ -4464,6 +4464,10 @@ splits can land after the Phase A smoke path closes.
     readiness JSON plus `devnet.ready`/`devnet.shutdown` telemetry around the
     same authenticated Engine import and public latest-state read sequence, so
     the process-runner contract is covered by an executable smoke script.
+    The base devnet CLI `--no-serve --log-file` path now emits the same
+    `devnet.shutdown` telemetry after its successful ready/export/summary
+    sequence, keeping one-shot runner logs aligned with serving runs and the
+    smoke gate contract.
   - Result: added `--database PATH` to the devnet CLI process shell. The shell
     restores existing file-backed KV chain-store snapshots before serving and
     exports the current readable chain view during `--no-serve` or normal

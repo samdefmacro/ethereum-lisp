@@ -1151,25 +1151,30 @@
                     (parse-json (get-output-stream-string output)))
                   (ready-summary
                     (parse-json (devnet-cli-file-string ready-path)))
-                  (log-record
-                    (read-from-string (devnet-cli-file-string log-path)))
-                  (fields (getf log-record :fields)))
+                  (log-records (devnet-cli-file-forms log-path))
+                  (log-names
+                    (mapcar (lambda (record) (getf record :name))
+                            log-records)))
              (dolist (summary (list stdout-summary ready-summary))
                (is (string= log-path-string
                             (fixture-object-field summary "logPath"))))
-             (is (eq :log (getf log-record :kind)))
-             (is (string= "devnet.ready" (getf log-record :name)))
-             (is (eq :info (getf log-record :value)))
-             (is (string= "127.0.0.1:0"
-                          (cdr (assoc "engineEndpoint" fields
-                                      :test #'string=))))
-             (is (string= "127.0.0.1:8546"
-                          (cdr (assoc "rpcEndpoint" fields
-                                      :test #'string=))))
-             (is (string= "0x539"
-                          (cdr (assoc "chainId" fields :test #'string=))))
-             (is (string= log-path-string
-                          (cdr (assoc "logPath" fields :test #'string=)))))))
+             (is (member "devnet.ready" log-names :test #'string=))
+             (is (member "devnet.shutdown" log-names :test #'string=))
+             (dolist (log-record log-records)
+               (let ((fields (getf log-record :fields)))
+                 (is (eq :log (getf log-record :kind)))
+                 (is (eq :info (getf log-record :value)))
+                 (is (string= "127.0.0.1:0"
+                              (cdr (assoc "engineEndpoint" fields
+                                          :test #'string=))))
+                 (is (string= "127.0.0.1:8546"
+                              (cdr (assoc "rpcEndpoint" fields
+                                          :test #'string=))))
+                 (is (string= "0x539"
+                              (cdr (assoc "chainId" fields :test #'string=))))
+                 (is (string= log-path-string
+                              (cdr (assoc "logPath" fields
+                                          :test #'string=)))))))))
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)

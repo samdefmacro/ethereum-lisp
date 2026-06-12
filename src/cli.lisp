@@ -695,7 +695,9 @@
                          (devnet-cli-print-summary
                           node
                           output-stream
-                          :format (getf options :summary-format))))
+                          :format (getf options :summary-format))
+                         (when (getf options :log-file)
+                           (devnet-cli-log-event node "devnet.shutdown"))))
                    0))))))
     (error (condition)
       (format error-stream "~A~%" condition)
