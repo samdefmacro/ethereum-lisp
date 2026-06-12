@@ -13090,6 +13090,7 @@
                        :state-root (state-db-root state))))
            (dynamic-call
              (list (cons "to" (address-to-hex contract))
+                   (cons "chainId" (quantity-to-hex 1))
                    (cons "gas" (quantity-to-hex 100000))
                    (cons "maxFeePerGas" (quantity-to-hex 11))
                    (cons "maxPriorityFeePerGas" (quantity-to-hex 5))))
@@ -13097,7 +13098,11 @@
              (list (cons "to" (address-to-hex contract))
                    (cons "gas" (quantity-to-hex 100000))
                    (cons "gasPrice" (quantity-to-hex 7))
-                   (cons "maxFeePerGas" (quantity-to-hex 11)))))
+                   (cons "maxFeePerGas" (quantity-to-hex 11))))
+           (wrong-chain-call
+             (list (cons "to" (address-to-hex contract))
+                   (cons "chainId" (quantity-to-hex 2))
+                   (cons "gas" (quantity-to-hex 100000)))))
       (state-db-set-code state contract code)
       (setf (block-header-state-root (block-header block))
             (state-db-root state))
@@ -13105,12 +13110,17 @@
       (commit-state-db-to-chain-store store (block-hash block) state)
       (let* ((dynamic-response (call 154 dynamic-call store config))
              (mixed-response (call 155 mixed-call store config))
-             (mixed-error (field mixed-response "error")))
+             (wrong-chain-response (call 156 wrong-chain-call store config))
+             (mixed-error (field mixed-response "error"))
+             (wrong-chain-error (field wrong-chain-response "error")))
         (is (string= (word-hex 11) (field dynamic-response "result")))
         (is (= -32602 (field mixed-error "code")))
         (is (string=
              "eth_call cannot specify gasPrice with maxFeePerGas or maxPriorityFeePerGas"
-             (field mixed-error "message")))))))
+             (field mixed-error "message")))
+        (is (= -32602 (field wrong-chain-error "code")))
+        (is (string= "eth_call chainId does not match configured chain id"
+                     (field wrong-chain-error "message")))))))
 
 (deftest eth-rpc-call-rejects-non-revert-execution-failure
   (labels ((field (object name)

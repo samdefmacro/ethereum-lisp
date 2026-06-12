@@ -98,6 +98,8 @@ fixes in those areas are allowed; expansion is not.
   Explicit EIP-1559 call-object fee fields now build dynamic-fee simulation
   transactions, reject mixed legacy/dynamic fee arguments, and expose the
   base-fee-capped effective gas price to the `GASPRICE` opcode.
+  Explicit call-object `chainId` values are validated against the configured
+  chain before retained-state simulation runs.
   `eth_createAccessList` can turn retained-state call access tracking into
   geth-shaped access-list and gas-used results. Retained-state RPC block
   selectors now also accept EIP-1898-style `blockHash` /

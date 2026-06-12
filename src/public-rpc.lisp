@@ -711,6 +711,18 @@
                  object "gasPrice" method :default 0)
                 0))))
 
+(defun eth-rpc-call-object-chain-id (object method config)
+  (let ((chain-id (if config (chain-config-chain-id config) 0)))
+    (when (genesis-object-field-present-p object "chainId")
+      (let ((supplied
+              (eth-rpc-call-object-quantity-field
+               object "chainId" method :default chain-id)))
+        (unless (= supplied chain-id)
+          (block-validation-fail
+           "~A chainId does not match configured chain id"
+           method))))
+    chain-id))
+
 (defun eth-rpc-call-object-transaction
     (object header method config &key gas-limit-override)
   (unless (json-object-p object)
@@ -728,7 +740,8 @@
          (value
            (eth-rpc-call-object-quantity-field
             object "value" method :default 0))
-         (data (eth-rpc-call-object-data object method)))
+         (data (eth-rpc-call-object-data object method))
+         (chain-id (eth-rpc-call-object-chain-id object method config)))
     (multiple-value-bind (access-list access-list-present-p)
         (eth-rpc-call-object-access-list object method)
       (multiple-value-bind (fee-style max-fee max-priority-fee)
@@ -738,7 +751,7 @@
          (case fee-style
            (:dynamic
             (make-dynamic-fee-transaction
-             :chain-id (if config (chain-config-chain-id config) 0)
+             :chain-id chain-id
              :max-fee-per-gas max-fee
              :max-priority-fee-per-gas max-priority-fee
              :gas-limit gas-limit
@@ -749,7 +762,7 @@
            (otherwise
             (if access-list-present-p
                 (make-access-list-transaction
-                 :chain-id (if config (chain-config-chain-id config) 0)
+                 :chain-id chain-id
                  :gas-price max-fee
                  :gas-limit gas-limit
                  :to recipient

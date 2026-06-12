@@ -4102,6 +4102,10 @@ splits can land after the Phase A smoke path closes.
     `maxPriorityFeePerGas`, and explicit EIP-1559 fields build dynamic-fee
     simulation transactions so `GASPRICE` observes the effective
     `min(maxFeePerGas, baseFee + maxPriorityFeePerGas)` value.
+  - Progress: retained-state call objects now also validate an explicit
+    `chainId` against the configured chain ID before simulation, matching the
+    geth `8a0223e` `CallDefaults` boundary instead of silently ignoring
+    mismatched chain IDs.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7
