@@ -4333,6 +4333,12 @@ splits can land after the Phase A smoke path closes.
     follows the new canonical head while the old child remains hash-readable,
     re-exports the database, and verifies a fresh node restores the sibling as
     head.
+  - Result: extended the same restored side-reorg smoke to canonical receipt
+    and log visibility. After forkchoice switches to the empty sibling, the
+    process/database gate now verifies `eth_getBlockReceipts("latest")` and a
+    same-height `eth_getLogs` query return empty results, so stale
+    transaction-branch receipts/logs do not remain visible through restored
+    public RPC after a reorg.
   - Result: KV export/import now persists invalid-tipset cache entries. Records
     are keyed by the cached tip/head hash and store the invalid ancestor block
     RLP, so restored stores can keep rejecting descendants of previously

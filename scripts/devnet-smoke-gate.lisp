@@ -2816,6 +2816,8 @@
                   (side-transaction-output (make-string-output-stream))
                   (side-receipt-output (make-string-output-stream))
                   (child-block-output (make-string-output-stream))
+                  (side-block-receipts-output (make-string-output-stream))
+                  (side-logs-output (make-string-output-stream))
                   (engine-requests
                     (list
                      (cons
@@ -2871,7 +2873,27 @@
                              (cons "params"
                                    (list (hash32-to-hex child-block-hash)
                                          :false))))
-                      child-block-output)))
+                      child-block-output)
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 208)
+                             (cons "method" "eth_getBlockReceipts")
+                             (cons "params" (list "latest"))))
+                      side-block-receipts-output)
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 209)
+                             (cons "method" "eth_getLogs")
+                             (cons "params"
+                                   (list
+                                    (list
+                                     (cons "fromBlock"
+                                           expected-side-block-number)
+                                     (cons "toBlock"
+                                           expected-side-block-number))))))
+                      side-logs-output)))
                   (engine-done-p nil)
                   (engine-served-count 0)
                   (summary
@@ -2912,7 +2934,7 @@
                              :output-stream output
                              :close-function (lambda () nil)))))
                       :close-function (lambda () nil))
-                     :max-connections 5))
+                     :max-connections 7))
                   (side-payload-response
                     (get-output-stream-string side-payload-output))
                   (side-forkchoice-response
@@ -2927,6 +2949,10 @@
                     (get-output-stream-string side-receipt-output))
                   (child-block-response
                     (get-output-stream-string child-block-output))
+                  (side-block-receipts-response
+                    (get-output-stream-string side-block-receipts-output))
+                  (side-logs-response
+                    (get-output-stream-string side-logs-output))
                   (side-payload-rpc
                     (devnet-smoke-gate-rpc-body side-payload-response))
                   (side-forkchoice-rpc
@@ -2941,6 +2967,11 @@
                     (devnet-smoke-gate-rpc-body side-receipt-response))
                   (child-block-rpc
                     (devnet-smoke-gate-rpc-body child-block-response))
+                  (side-block-receipts-rpc
+                    (devnet-smoke-gate-rpc-body
+                     side-block-receipts-response))
+                  (side-logs-rpc
+                    (devnet-smoke-gate-rpc-body side-logs-response))
                   (side-payload-result
                     (fixture-object-field side-payload-rpc "result"))
                   (side-forkchoice-status
@@ -2950,21 +2981,27 @@
                   (side-latest-block
                     (fixture-object-field side-latest-block-rpc "result"))
                   (child-block-by-hash
-                    (fixture-object-field child-block-rpc "result")))
+                    (fixture-object-field child-block-rpc "result"))
+                  (side-block-receipts
+                    (fixture-object-field side-block-receipts-rpc "result"))
+                  (side-logs
+                    (fixture-object-field side-logs-rpc "result")))
              (devnet-smoke-gate-require
               (= 2 (getf summary :engine-connections))
               "Expected 2 side-reorg Engine connections, got ~S"
               (getf summary :engine-connections))
-             (devnet-smoke-gate-require
-              (= 5 (getf summary :public-connections))
-              "Expected 5 side-reorg public connections, got ~S"
-              (getf summary :public-connections))
+	             (devnet-smoke-gate-require
+	              (= 7 (getf summary :public-connections))
+	              "Expected 7 side-reorg public connections, got ~S"
+	              (getf summary :public-connections))
              (dolist (response
                       (list side-payload-response side-forkchoice-response
-                            side-block-number-response
-                            side-latest-block-response
-                            side-transaction-response
-                            side-receipt-response child-block-response))
+	                            side-block-number-response
+	                            side-latest-block-response
+	                            side-transaction-response
+	                            side-receipt-response child-block-response
+                                    side-block-receipts-response
+                                    side-logs-response))
                (devnet-smoke-gate-require
                 (= 200 (devnet-cli-http-status response))
                 "Restored side-reorg RPC HTTP status mismatch"))
@@ -2995,10 +3032,16 @@
              (devnet-smoke-gate-require
               (null (fixture-object-field side-receipt-rpc "result"))
               "Restored side sibling should hide old canonical receipt")
-             (devnet-smoke-gate-require
-              (string= (hash32-to-hex child-block-hash)
-                       (fixture-object-field child-block-by-hash "hash"))
-              "Restored side sibling lost child block hash lookup")
+	             (devnet-smoke-gate-require
+	              (string= (hash32-to-hex child-block-hash)
+	                       (fixture-object-field child-block-by-hash "hash"))
+	              "Restored side sibling lost child block hash lookup")
+	             (devnet-smoke-gate-require
+	              (zerop (length side-block-receipts))
+	              "Restored side sibling should have no canonical receipts")
+	             (devnet-smoke-gate-require
+	              (zerop (length side-logs))
+	              "Restored side sibling should have no canonical logs")
              (ethereum-lisp.cli::devnet-node-export-database node)
              (let* ((fresh-node
                       (ethereum-lisp.cli:make-devnet-node
@@ -3036,10 +3079,14 @@
                      :side-receipt
                      (or (fixture-object-field side-receipt-rpc "result")
                          :false)
-                     :side-child-block-hash
-                     (fixture-object-field child-block-by-hash "hash")
-                     :side-restored-head-number
-                     (quantity-to-hex (getf fresh-summary :head-number))
+	                     :side-child-block-hash
+	                     (fixture-object-field child-block-by-hash "hash")
+                             :side-block-receipts-count
+                             (length side-block-receipts)
+                             :side-log-count
+                             (length side-logs)
+	                     :side-restored-head-number
+	                     (quantity-to-hex (getf fresh-summary :head-number))
                      :side-restored-head-hash
                      (getf fresh-summary :head-hash)
                      :engine-connections (getf summary :engine-connections)
@@ -3476,6 +3523,13 @@
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-child-block-hash))
+                  :rpc-side-block-receipts-count
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-block-receipts-count))
+                  :rpc-side-log-count
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary :side-log-count))
                   :rpc-side-restored-head-number
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
@@ -4792,6 +4846,18 @@
                                       :rpc-side-child-block-hash)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideBlockReceiptsCount"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-block-receipts-count)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideLogCount"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-log-count)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideRestoredHeadNumber"
                         (if database-summary
                             (or (getf database-summary
@@ -5259,6 +5325,16 @@
                "Devnet smoke gate suite side reorg lost child block for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
+               (zerop (devnet-smoke-gate-field
+                       report "databaseRpcSideBlockReceiptsCount"))
+               "Devnet smoke gate suite side reorg kept canonical receipts for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (zerop (devnet-smoke-gate-field
+                       report "databaseRpcSideLogCount"))
+               "Devnet smoke gate suite side reorg kept canonical logs for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
                (devnet-smoke-gate-false-p
                 (devnet-smoke-gate-field
                  report "databaseRpcSideTransactionByHash"))
@@ -5275,7 +5351,7 @@
                "Devnet smoke gate suite side Engine connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 5 (devnet-smoke-gate-field
+               (= 7 (devnet-smoke-gate-field
                      report "databaseRpcSidePublicConnections"))
                "Devnet smoke gate suite side public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
@@ -5713,6 +5789,12 @@
         (format t "databaseRpcSideChildBlockHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideChildBlockHash"))
+        (format t "databaseRpcSideBlockReceiptsCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideBlockReceiptsCount"))
+        (format t "databaseRpcSideLogCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideLogCount"))
         (format t "databaseRpcSideRestoredHeadNumber=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredHeadNumber"))
