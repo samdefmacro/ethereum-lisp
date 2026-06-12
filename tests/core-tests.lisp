@@ -4571,6 +4571,155 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-export-import-kv-restores-blob-sidecars
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-blob-sidecar-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (restored (make-engine-payload-memory-store))
+         (blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proofs
+           (loop for index below +cell-proofs-per-blob+
+                 collect
+                 (let ((proof (make-byte-vector +kzg-proof-size+)))
+                   (setf (aref proof 0) index)
+                   proof)))
+         sidecar
+         versioned-hash
+         versioned-hash-id)
+    (setf (aref blob 0) #xaa
+          (aref commitment 0) #xbb
+          sidecar (make-blob-sidecar
+                   :blobs (list blob)
+                   :commitments (list commitment)
+                   :proofs proofs)
+          versioned-hash (first (blob-sidecar-versioned-hashes sidecar))
+          versioned-hash-id (hash32-bytes versioned-hash))
+    (unwind-protect
+         (progn
+           (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+            source sidecar)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (record present-p)
+                 (kv-get-chain-record
+                  database :blob-sidecar versioned-hash-id)
+               (is present-p)
+               (is (bytes= record
+                           (ethereum-lisp.core::chain-store-blob-sidecar-record-rlp
+                            (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+                             source versioned-hash))))))
+           (let ((database (make-file-key-value-database path)))
+             (is (eq restored
+                     (chain-store-import-from-kv restored database))))
+           (let ((restored-blob
+                   (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v2
+                    restored
+                    versioned-hash)))
+             (is restored-blob)
+             (is (bytes= blob
+                         (ethereum-lisp.core::engine-blob-and-proofs-blob
+                          restored-blob)))
+             (is (bytes= (first proofs)
+                         (ethereum-lisp.core::engine-blob-and-proofs-proof
+                          restored-blob)))
+             (is (= +cell-proofs-per-blob+
+                    (length
+                     (ethereum-lisp.core::engine-blob-and-proofs-cell-proofs
+                      restored-blob))))
+             (is (bytes= (car (last proofs))
+                         (car
+                          (last
+                           (ethereum-lisp.core::engine-blob-and-proofs-cell-proofs
+                            restored-blob))))))
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv
+              (make-engine-payload-memory-store)
+              database))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (record present-p)
+                 (kv-get-chain-record
+                  database :blob-sidecar versioned-hash-id :missing)
+               (is (eq :missing record))
+               (is (not present-p)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-corrupt-blob-sidecar-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-blob-sidecar-corrupt-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (target-blob (make-byte-vector +blob-byte-size+))
+         (target-commitment (make-byte-vector +kzg-commitment-size+))
+         (target-proof (make-byte-vector +kzg-proof-size+))
+         (source-blob (make-byte-vector +blob-byte-size+))
+         (source-commitment (make-byte-vector +kzg-commitment-size+))
+         (source-proof (make-byte-vector +kzg-proof-size+))
+         target-sidecar
+         target-versioned-hash
+         source-sidecar
+         source-versioned-hash)
+    (setf (aref target-blob 0) #x11
+          (aref target-commitment 0) #x22
+          (aref target-proof 0) #x33
+          (aref source-blob 0) #x44
+          (aref source-commitment 0) #x55
+          (aref source-proof 0) #x66
+          target-sidecar (make-blob-sidecar
+                          :blobs (list target-blob)
+                          :commitments (list target-commitment)
+                          :proofs (list target-proof))
+          target-versioned-hash
+          (first (blob-sidecar-versioned-hashes target-sidecar))
+          source-sidecar (make-blob-sidecar
+                          :blobs (list source-blob)
+                          :commitments (list source-commitment)
+                          :proofs (list source-proof))
+          source-versioned-hash
+          (first (blob-sidecar-versioned-hashes source-sidecar)))
+    (unwind-protect
+         (progn
+           (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+            target target-sidecar)
+           (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+            source source-sidecar)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :blob-sidecar
+              (hash32-bytes source-versioned-hash)
+              (rlp-encode
+               (make-rlp-list
+                (make-byte-vector 3 :initial-element 1)
+                source-proof
+                (make-rlp-list)))))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+                target
+                target-versioned-hash))
+           (is (not
+                (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+                 target
+                 source-versioned-hash))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-rejects-state-root-mismatch
   (let* ((path
            (merge-pathnames

@@ -4319,6 +4319,11 @@ splits can land after the Phase A smoke path closes.
     are keyed by block hash, validate the decoded block hash on import, and
     publish through the existing staging boundary so corrupt sync-cache records
     do not replace an existing remote-block cache.
+  - Result: KV export/import now persists Engine blob sidecar cache entries
+    used by `engine_getBlobsV1`/`V2`/`V3`. Records are keyed by versioned hash,
+    store the blob/proof/cell-proof payload shape already kept in the memory
+    store, prune stale KV entries on export, and reject malformed records during
+    staging without replacing an existing blob cache.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject

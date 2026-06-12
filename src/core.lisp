@@ -3467,6 +3467,48 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-populate-remote-block-export-batch store database batch)
       (kv-apply-batch database batch))))
 
+(defun chain-store-blob-sidecar-record-rlp (blob-and-proofs)
+  (rlp-encode
+   (make-rlp-list
+    (engine-blob-and-proofs-blob blob-and-proofs)
+    (engine-blob-and-proofs-proof blob-and-proofs)
+    (apply #'make-rlp-list
+           (engine-blob-and-proofs-cell-proofs blob-and-proofs)))))
+
+(defun chain-store-export-blob-sidecar-to-kv
+    (batch versioned-hash-key blob-and-proofs)
+  (kv-batch-put-chain-record
+   batch
+   :blob-sidecar
+   (hex-to-bytes versioned-hash-key)
+   (chain-store-blob-sidecar-record-rlp blob-and-proofs)))
+
+(defun chain-store-populate-blob-sidecar-export-batch
+    (store database batch)
+  (let ((current-versioned-hash-keys (make-hash-table :test 'equal)))
+    (maphash
+     (lambda (versioned-hash-key blob-and-proofs)
+       (setf (gethash versioned-hash-key current-versioned-hash-keys) t)
+       (chain-store-export-blob-sidecar-to-kv
+        batch versioned-hash-key blob-and-proofs))
+     (engine-payload-memory-store-blob-sidecars store))
+    (dolist (entry (kv-chain-record-entries database :blob-sidecar))
+      (unless (gethash (bytes-to-hex (car entry))
+                       current-versioned-hash-keys)
+        (kv-batch-delete-chain-record
+         batch
+         :blob-sidecar
+         (car entry))))))
+
+(defun chain-store-export-blob-sidecars-to-kv (store database)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Chain blob-sidecar export target must be a key-value database"))
+    (let ((batch (make-kv-write-batch)))
+      (chain-store-populate-blob-sidecar-export-batch store database batch)
+      (kv-apply-batch database batch))))
+
 (defun chain-store-export-to-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
@@ -3481,6 +3523,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-populate-invalid-tipset-export-batch
        store database batch)
       (chain-store-populate-remote-block-export-batch
+       store database batch)
+      (chain-store-populate-blob-sidecar-export-batch
        store database batch)
       (kv-apply-batch database batch))))
 
@@ -3545,7 +3589,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-memory-store-invalid-tipsets store)
         (engine-payload-memory-store-invalid-tipsets source)
         (engine-payload-memory-store-remote-blocks store)
-        (engine-payload-memory-store-remote-blocks source))
+        (engine-payload-memory-store-remote-blocks source)
+        (engine-payload-memory-store-blob-sidecars store)
+        (engine-payload-memory-store-blob-sidecars source))
   store)
 
 (defun chain-store-import-block-records-from-kv (store database)
@@ -4037,6 +4083,63 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (chain-store-import-remote-block-from-kv
      store (car entry) (cdr entry))))
 
+(defun chain-store-blob-sidecar-record-from-rlp (record)
+  (handler-case
+      (let* ((value (rlp-decode-one record))
+             (fields (rlp-list-field value "KV blob-sidecar record")))
+        (unless (= 3 (length fields))
+          (block-validation-fail
+           "KV blob-sidecar record must have exactly 3 fields"))
+        (let* ((blob
+                 (validate-sized-byte-vector
+                  (rlp-bytes-field (first fields) "KV blob-sidecar blob")
+                  +blob-byte-size+
+                  "KV blob-sidecar blob"))
+               (proof
+                 (validate-sized-byte-vector
+                  (rlp-bytes-field (second fields) "KV blob-sidecar proof")
+                  +kzg-proof-size+
+                  "KV blob-sidecar proof"))
+               (cell-proofs
+                 (mapcar
+                  (lambda (proof-field)
+                    (validate-sized-byte-vector
+                     (rlp-bytes-field
+                      proof-field
+                      "KV blob-sidecar cell proof")
+                     +kzg-proof-size+
+                     "KV blob-sidecar cell proof"))
+                  (rlp-list-field
+                   (third fields)
+                   "KV blob-sidecar cell proofs"))))
+          (unless (or (null cell-proofs)
+                      (= +cell-proofs-per-blob+ (length cell-proofs)))
+            (block-validation-fail
+             "KV blob-sidecar cell proof count must be zero or ~D"
+             +cell-proofs-per-blob+))
+          (make-engine-blob-and-proofs
+           :blob blob
+           :proof proof
+           :cell-proofs cell-proofs)))
+    (rlp-error (condition)
+      (block-validation-fail
+       "Invalid KV blob-sidecar record RLP: ~A" condition))))
+
+(defun chain-store-import-blob-sidecar-from-kv
+    (store versioned-hash-identifier record)
+  (let ((versioned-hash (make-hash32 versioned-hash-identifier))
+        (blob-and-proofs
+          (chain-store-blob-sidecar-record-from-rlp record)))
+    (setf (gethash
+           (engine-payload-store-key versioned-hash)
+           (engine-payload-memory-store-blob-sidecars store))
+          blob-and-proofs)))
+
+(defun chain-store-import-blob-sidecars-from-kv (store database)
+  (dolist (entry (kv-chain-record-entries database :blob-sidecar))
+    (chain-store-import-blob-sidecar-from-kv
+     store (car entry) (cdr entry))))
+
 (defun chain-store-import-from-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
@@ -4052,6 +4155,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-txpool-records-from-kv staging database)
       (chain-store-import-invalid-tipsets-from-kv staging database)
       (chain-store-import-remote-blocks-from-kv staging database)
+      (chain-store-import-blob-sidecars-from-kv staging database)
       (chain-store-publish-readable-tables store staging))
     store))
 
