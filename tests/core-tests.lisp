@@ -13145,6 +13145,48 @@
         (is (string= "eth_call chainId does not match configured chain id"
                      (field wrong-chain-error "message")))))))
 
+(deftest eth-rpc-call-object-input-precedes-data
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (word-hex (value)
+             (let ((bytes (make-byte-vector 32)))
+               (setf (aref bytes 31) value)
+               (bytes-to-hex bytes))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           ;; CALLDATALOAD 0; MSTORE 0; RETURN 32 bytes.
+           (code #(#x60 #x00 #x35 #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 31
+                       :timestamp 310
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state))))
+           (call-object
+             (list (cons "to" (address-to-hex contract))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "data" (word-hex 1))
+                   (cons "input" (word-hex 2)))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let ((response
+              (engine-rpc-handle-request
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 157)
+                     (cons "method" "eth_call")
+                     (cons "params" (list call-object "latest")))
+               store
+               config)))
+        (is (string= (word-hex 2) (field response "result")))))))
+
 (deftest eth-rpc-call-rejects-non-revert-execution-failure
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

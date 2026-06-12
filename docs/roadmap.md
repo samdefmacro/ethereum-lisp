@@ -101,7 +101,9 @@ fixes in those areas are allowed; expansion is not.
   Explicit call-object `chainId` values are validated against the configured
   chain before retained-state simulation runs. Explicit call-object `nonce`
   values are now honored by retained-state simulation transactions, including
-  contract-creation address derivation without committing created code.
+  contract-creation address derivation without committing created code. When
+  both calldata compatibility fields are present, `input` now takes precedence
+  over `data` for retained-state simulations.
   `eth_createAccessList` can turn retained-state call access tracking into
   geth-shaped access-list and gas-used results. Retained-state RPC block
   selectors now also accept EIP-1898-style `blockHash` /

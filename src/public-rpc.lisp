@@ -623,9 +623,7 @@
          (input (when input-present-p
                   (engine-rpc-bytes (genesis-object-field object "input")
                                     (format nil "~A input" method)))))
-    (when (and data input (not (bytes= data input)))
-      (block-validation-fail "~A data and input fields must match" method))
-    (or data input (make-byte-vector 0))))
+    (or input data (make-byte-vector 0))))
 
 (defun eth-rpc-call-object-access-list-storage-key (value method)
   (handler-case

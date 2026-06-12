@@ -4111,6 +4111,9 @@ splits can land after the Phase A smoke path closes.
     creation simulations use that nonce for address derivation while still
     leaving retained state unchanged, matching geth `8a0223e` call-style
     transaction defaults where nonce checks are skipped for simulation.
+  - Progress: retained-state call objects now follow geth `8a0223e`
+    call-style calldata precedence when both compatibility fields are supplied:
+    `input` is used ahead of `data` instead of rejecting mismatched values.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7
