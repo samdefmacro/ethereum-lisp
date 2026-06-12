@@ -157,10 +157,11 @@ fixes in those areas are allowed; expansion is not.
   retained-state reads, including decoded typed receipt records for restored
   block-receipt and transaction-receipt RPC visibility. KV import now stages
   and validates the restored readable tables before publishing them, including
-  receipt roots, retained-state snapshot roots, persisted forkchoice
-  checkpoint ancestry/order, and head checkpoint state availability, so a
-  malformed record does not clear or partially replace an existing in-memory
-  chain-store view. The devnet CLI can now wire that development
+  receipt roots, retained-state snapshot roots, retained-window canonical
+  parent links, persisted forkchoice checkpoint ancestry/order, and head
+  checkpoint state plus canonical-head alignment, so a malformed record does
+  not clear or partially replace an existing in-memory chain-store view. The
+  devnet CLI can now wire that development
   persistence path through `--database PATH`, restoring existing KV chain-store
   snapshots at startup, optionally pruning retained state before a configured
   block number on export, and exporting the current readable chain view on

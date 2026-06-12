@@ -3437,6 +3437,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (engine-payload-memory-store-number-blocks store))
               block)
         (setf head-number (max head-number number))))
+    (maphash
+     (lambda (number block)
+       (let ((header (block-header block)))
+         (unless (= number (block-header-number header))
+           (block-validation-fail
+            "KV canonical height does not match block number"))
+         (when (plusp number)
+           (let ((parent
+                   (chain-store-block-by-number store (1- number))))
+             (unless (or (not parent)
+                         (hash32=
+                          (block-header-parent-hash header)
+                          (block-hash parent)))
+               (block-validation-fail
+                "KV canonical chain is not parent-linked"))))))
+     (engine-payload-memory-store-number-blocks store))
     (setf (engine-payload-memory-store-head-number store) head-number)))
 
 (defun chain-store-import-checkpoints-from-kv (store database)
@@ -3458,6 +3474,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (not (engine-payload-store-state-available-p
                      store head-hash)))
       (block-validation-fail "KV head checkpoint state is not available"))
+    (when head-hash
+      (let* ((head-block (engine-payload-store-known-block store head-hash))
+             (head-number (block-header-number (block-header head-block)))
+             (canonical-head (chain-store-canonical-hash store head-number)))
+        (unless (and canonical-head
+                     (hash32= canonical-head head-hash)
+                     (= head-number
+                        (engine-payload-memory-store-head-number store)))
+          (block-validation-fail
+           "KV head checkpoint does not match canonical head"))))
     (when (and head-hash safe-hash
                (not (engine-payload-store-ancestor-p
                      store safe-hash head-hash)))

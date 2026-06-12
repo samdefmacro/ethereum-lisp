@@ -4212,6 +4212,11 @@ splits can land after the Phase A smoke path closes.
     state, safe/finalized checkpoints must be known ancestors of head and keep
     safe at or after finalized height, while pruned safe/finalized state
     remains allowed for retained-state snapshots.
+  - Result: KV import now rejects corrupted canonical indexes whose retained
+    adjacent heights are not parent-linked, while still allowing pruned
+    retained-window snapshots that start above genesis. Persisted head
+    checkpoints must also match the restored canonical head height/hash before
+    the staging view is published.
   - Result: the devnet CLI now accepts `--database PATH`, imports an existing
     file-backed KV chain-store snapshot after genesis setup, and exports the
     current readable chain-store view on `--no-serve` or normal serve-mode
