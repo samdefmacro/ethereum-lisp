@@ -651,9 +651,6 @@
            (eth-rpc-call-object-quantity-field
             object "value" method :default 0))
          (data (eth-rpc-call-object-data object method)))
-    (unless recipient
-      (block-validation-fail
-       "~A contract creation calls are not supported yet" method))
     (values
      sender
      (make-legacy-transaction :gas-price gas-price

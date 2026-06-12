@@ -563,6 +563,105 @@
              table)
     copy))
 
+(defun execute-contract-creation-call
+    (state sender tx effective-chain-rules
+     &key (base-fee 0)
+          (blob-base-fee 0)
+          (chain-id 0)
+          chain-config
+          (coinbase (zero-address))
+          (timestamp 0)
+          (block-number 0)
+          (prev-randao (zero-hash32))
+          (difficulty 0)
+          (random-p t)
+          (context-gas-limit 0))
+  (let* ((call-state (state-db-copy state))
+         (sender-account (execution-account-or-empty call-state sender))
+         (contract (execution-create-address
+                    sender
+                    (state-account-nonce sender-account)))
+         (gas-limit (transaction-gas-limit tx))
+         (gas-price (transaction-effective-gas-price tx :base-fee base-fee))
+         (intrinsic-gas (execution-transaction-intrinsic-gas
+                         tx effective-chain-rules)))
+    (if (execution-contract-address-collision-p call-state contract)
+        (values :failed
+                (make-byte-vector 0)
+                gas-limit
+                (make-hash-table :test 'equalp)
+                (make-hash-table :test 'equalp))
+        (handler-case
+            (let ((context nil))
+              (let ((contract-account
+                      (execution-account-or-empty call-state contract)))
+                (put-execution-account-values
+                 call-state
+                 contract
+                 1
+                 (+ (state-account-balance contract-account)
+                    (transaction-value tx))
+                 (state-account-code-hash contract-account)))
+              (setf context
+                    (make-message-evm-context
+                     call-state sender tx contract (make-byte-vector 0)
+                     gas-price
+                     :base-fee base-fee
+                     :blob-base-fee blob-base-fee
+                     :chain-id chain-id
+                     :chain-rules effective-chain-rules
+                     :chain-config chain-config
+                     :coinbase coinbase
+                     :timestamp timestamp
+                     :block-number block-number
+                     :prev-randao prev-randao
+                     :difficulty difficulty
+                     :random-p random-p
+                     :context-gas-limit context-gas-limit))
+              (let* ((result
+                       (execute-bytecode
+                        (transaction-data tx)
+                        :context context
+                        :gas-limit (- gas-limit intrinsic-gas)))
+                     (return-data (copy-seq (evm-result-return-data result)))
+                     (accessed-addresses
+                       (execution-copy-equalp-table
+                        (evm-context-accessed-addresses context)))
+                     (accessed-storage
+                       (execution-copy-equalp-table
+                        (evm-context-accessed-storage context))))
+                (if (eq (evm-result-status result) :reverted)
+                    (values :reverted
+                            return-data
+                            (transaction-evm-gas-used
+                             tx result effective-chain-rules)
+                            accessed-addresses
+                            accessed-storage)
+                    (let ((gas-used
+                            (+ (transaction-evm-gas-used
+                                tx result effective-chain-rules)
+                               (contract-code-deposit-gas return-data))))
+                      (if (or (invalid-contract-runtime-code-p
+                               return-data
+                               (evm-context-chain-rules context))
+                              (> gas-used gas-limit))
+                          (values :failed
+                                  (make-byte-vector 0)
+                                  gas-limit
+                                  accessed-addresses
+                                  accessed-storage)
+                          (values (evm-result-status result)
+                                  return-data
+                                  gas-used
+                                  accessed-addresses
+                                  accessed-storage))))))
+          (evm-error ()
+            (values :failed
+                    (make-byte-vector 0)
+                    gas-limit
+                    (make-hash-table :test 'equalp)
+                    (make-hash-table :test 'equalp)))))))
+
 (defun execute-message-call
     (state sender tx
      &key (base-fee 0)
@@ -587,8 +686,20 @@ mutated."
          (recipient (transaction-to tx)))
     (validate-execution-transaction-fields tx effective-chain-rules blob-base-fee)
     (unless recipient
-      (error 'transaction-validation-error
-             :message "eth_call contract creation is not supported yet"))
+      (return-from execute-message-call
+        (execute-contract-creation-call
+         state sender tx effective-chain-rules
+         :base-fee base-fee
+         :blob-base-fee blob-base-fee
+         :chain-id chain-id
+         :chain-config chain-config
+         :coinbase coinbase
+         :timestamp timestamp
+         :block-number block-number
+         :prev-randao prev-randao
+         :difficulty difficulty
+         :random-p random-p
+         :context-gas-limit context-gas-limit)))
     (let* ((call-state (state-db-copy state))
            (gas-limit (transaction-gas-limit tx))
            (gas-price (transaction-effective-gas-price tx :base-fee base-fee))

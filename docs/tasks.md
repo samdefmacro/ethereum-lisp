@@ -4080,6 +4080,10 @@ splits can land after the Phase A smoke path closes.
     simulation methods. Hash-pinned side-chain state can be queried through
     `eth_getBalance` and executed through `eth_call`, while
     `requireCanonical: true` rejects non-canonical block hashes.
+  - Progress: retained-state simulation now supports contract-creation call
+    objects with no `to` address. The RPC path executes initcode against a
+    copied state DB, returns the creation output for `eth_call`, and leaves the
+    retained chain-store state unchanged.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7
@@ -4091,6 +4095,9 @@ splits can land after the Phase A smoke path closes.
     caps estimates by the block/request gas limit, detects reverting calls, and
     binary-searches the lowest successful gas for simple transfers and contract
     calls.
+  - Progress: `eth_estimateGas` now reuses the same retained-state
+    contract-creation simulation and accounts for runtime code-deposit gas
+    when searching the minimum successful gas limit.
 
 - [x] Add `eth_createAccessList` first-pass support.
   - Milestone: 7
@@ -4103,6 +4110,9 @@ splits can land after the Phase A smoke path closes.
     tables, and `eth_createAccessList` converts them into geth-shaped
     `accessList`/`gasUsed` results while filtering implicit warm addresses and
     preserving touched storage keys.
+  - Progress: `eth_createAccessList` now accepts retained-state
+    contract-creation simulations and reports the same gas-used result as the
+    creation call path without committing the created code.
 
 - [x] Add subscription-compatible filter lifecycle notes before implementing
   WebSocket subscriptions.

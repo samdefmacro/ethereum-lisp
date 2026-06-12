@@ -79,12 +79,16 @@ fixes in those areas are allowed; expansion is not.
   execute simple retained-state calls against a copied state DB without
   committing writes, and `eth_estimateGas` can binary-search retained-state
   call simulations for simple transfers and contract calls while detecting
-  reverts. `eth_createAccessList` can turn retained-state call access tracking
-  into geth-shaped access-list and gas-used results. Retained-state RPC block
-  selectors now also accept EIP-1898-style `blockHash` / `blockNumber`
-  objects, including `requireCanonical` rejection for side-chain hashes, so
-  hash-pinned side-chain state can be read and simulated without changing
-  canonical indexes. Signed block import,
+  reverts. These retained-state simulation APIs now also accept
+  contract-creation call objects, executing initcode against copied state,
+  returning creation output for `eth_call`, accounting for code-deposit gas in
+  `eth_estimateGas` / `eth_createAccessList`, and leaving retained chain-store
+  state unchanged. `eth_createAccessList` can turn retained-state call access
+  tracking into geth-shaped access-list and gas-used results. Retained-state
+  RPC block selectors now also accept EIP-1898-style `blockHash` /
+  `blockNumber` objects, including `requireCanonical` rejection for side-chain
+  hashes, so hash-pinned side-chain state can be read and simulated without
+  changing canonical indexes. Signed block import,
   Engine payload import, transaction admission, and mined transaction RPC
   objects require real sender recovery rather than zero-address fallbacks. The
   in-memory Engine import path is atomic for state DB plus block, receipt,
@@ -793,7 +797,9 @@ first pass, but interfaces must not block that path.
   transfers and creations. The same restored snapshot smoke also exercises
   retained-state simulation RPCs (`eth_call`, `eth_estimateGas`, and
   `eth_createAccessList`) and then re-reads storage to prove simulation calls
-  do not commit writes through the restored chain-store view.
+  do not commit writes through the restored chain-store view. The direct RPC
+  regression suite now also covers retained-state contract-creation
+  simulations without committing created code.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

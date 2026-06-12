@@ -12787,6 +12787,78 @@
                (chain-store-account-storage
                 store (block-hash block) contract slot)))))))
 
+(deftest eth-rpc-simulates-contract-creation-without-commit
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (id method params store config)
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" method)
+                    (cons "params" params))
+              store
+              config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :london-block 0
+                                      :shanghai-time 0))
+           (sender
+             (address-from-hex "0x0000000000000000000000000000000000000001"))
+           ;; MSTORE8 0 := 0; RETURN mem[0:1].
+           (initcode #(96 0 96 0 83 96 1 96 0 243))
+           (contract
+             (make-address
+              (subseq
+               (keccak-256
+                (rlp-encode
+                 (make-rlp-list (address-bytes sender) 0)))
+               12 32)))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 30
+                       :timestamp 300
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state))))
+           (tx (make-legacy-transaction :gas-limit 100000
+                                        :to nil
+                                        :data initcode))
+           (expected-gas
+             (+ (transaction-intrinsic-gas tx) 18 200))
+           (call-object
+             (list (cons "from" (address-to-hex sender))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "data" (bytes-to-hex initcode)))))
+      (state-db-set-account state sender
+                            (make-state-account :nonce 0
+                                                :balance 1000000))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((call-response
+               (request 140 "eth_call" (list call-object "latest")
+                        store config))
+             (estimate-response
+               (request 141 "eth_estimateGas" (list call-object "latest")
+                        store config))
+             (access-list-response
+               (request 142 "eth_createAccessList" (list call-object "latest")
+                        store config))
+             (code-response
+               (request 143 "eth_getCode"
+                        (list (address-to-hex contract) "latest")
+                        store config))
+             (access-list-result (field access-list-response "result")))
+        (is (string= "0x00" (field call-response "result")))
+        (is (string= (quantity-to-hex expected-gas)
+                     (field estimate-response "result")))
+        (is (string= (quantity-to-hex expected-gas)
+                     (field access-list-result "gasUsed")))
+        (is (string= "0x" (field code-response "result")))))))
+
 (deftest eth-rpc-state-methods-support-block-identifier-objects
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
