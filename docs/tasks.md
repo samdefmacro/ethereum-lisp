@@ -4314,6 +4314,11 @@ splits can land after the Phase A smoke path closes.
     RLP, so restored stores can keep rejecting descendants of previously
     rejected payloads after a dev database restart; malformed invalid-tipset
     records reject during staging without replacing the existing cache.
+  - Result: KV export/import now persists remote Engine blocks parked by
+    `newPayload` when a parent block or parent state is unavailable. Records
+    are keyed by block hash, validate the decoded block hash on import, and
+    publish through the existing staging boundary so corrupt sync-cache records
+    do not replace an existing remote-block cache.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject

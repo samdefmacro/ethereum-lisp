@@ -795,8 +795,8 @@ first pass, but interfaces must not block that path.
   and devnet CLI restore/export/pruned-export wiring for file-backed KV
   chain-store snapshots.
 - *Partial:* production database layout, freezer/history retention, pruning
-  modes, sync-stage persistence, and durable trie-node storage remain later
-  work.
+  modes, fuller sync-stage persistence, and durable trie-node storage remain
+  later work.
 - *Missing for Phase A:* no storage abstraction blocker for the in-memory
   Shanghai smoke path.
 - *Next:* define retention/pruning contracts before enabling historical-data

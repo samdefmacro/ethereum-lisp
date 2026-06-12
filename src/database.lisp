@@ -31,7 +31,8 @@
     (:state . #x06)
     (:transaction-location . #x07)
     (:txpool . #x08)
-    (:invalid-tipset . #x09)))
+    (:invalid-tipset . #x09)
+    (:remote-block . #x0a)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")

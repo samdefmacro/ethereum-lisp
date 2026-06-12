@@ -3436,6 +3436,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        store database batch)
       (kv-apply-batch database batch))))
 
+(defun chain-store-export-remote-block-to-kv (batch block-key block)
+  (kv-batch-put-chain-record
+   batch
+   :remote-block
+   (hex-to-bytes block-key)
+   (block-rlp block)))
+
+(defun chain-store-populate-remote-block-export-batch
+    (store database batch)
+  (let ((current-block-keys (make-hash-table :test 'equal)))
+    (maphash
+     (lambda (block-key block)
+       (setf (gethash block-key current-block-keys) t)
+       (chain-store-export-remote-block-to-kv batch block-key block))
+     (engine-payload-memory-store-remote-blocks store))
+    (dolist (entry (kv-chain-record-entries database :remote-block))
+      (unless (gethash (bytes-to-hex (car entry)) current-block-keys)
+        (kv-batch-delete-chain-record
+         batch
+         :remote-block
+         (car entry))))))
+
+(defun chain-store-export-remote-blocks-to-kv (store database)
+  (let ((store (chain-store-require-memory-store store)))
+    (unless (typep database 'key-value-database)
+      (block-validation-fail
+       "Chain remote-block export target must be a key-value database"))
+    (let ((batch (make-kv-write-batch)))
+      (chain-store-populate-remote-block-export-batch store database batch)
+      (kv-apply-batch database batch))))
+
 (defun chain-store-export-to-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
@@ -3448,6 +3479,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-populate-state-record-export-batch store database batch)
       (chain-store-populate-txpool-record-export-batch store database batch)
       (chain-store-populate-invalid-tipset-export-batch
+       store database batch)
+      (chain-store-populate-remote-block-export-batch
        store database batch)
       (kv-apply-batch database batch))))
 
@@ -3510,7 +3543,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-memory-store-txpool store)
         (engine-payload-memory-store-txpool source)
         (engine-payload-memory-store-invalid-tipsets store)
-        (engine-payload-memory-store-invalid-tipsets source))
+        (engine-payload-memory-store-invalid-tipsets source)
+        (engine-payload-memory-store-remote-blocks store)
+        (engine-payload-memory-store-remote-blocks source))
   store)
 
 (defun chain-store-import-block-records-from-kv (store database)
@@ -3981,6 +4016,27 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (chain-store-import-invalid-tipset-from-kv
      store (car entry) (cdr entry))))
 
+(defun chain-store-import-remote-block-from-kv
+    (store block-identifier record)
+  (handler-case
+      (let* ((block-hash (make-hash32 block-identifier))
+             (block (block-from-rlp record)))
+        (unless (hash32= block-hash (block-hash block))
+          (block-validation-fail
+           "KV remote-block record key does not match encoded block hash"))
+        (setf (gethash
+               (engine-payload-store-key block-hash)
+               (engine-payload-memory-store-remote-blocks store))
+              block))
+    (rlp-error (condition)
+      (block-validation-fail
+       "Invalid KV remote-block record RLP: ~A" condition))))
+
+(defun chain-store-import-remote-blocks-from-kv (store database)
+  (dolist (entry (kv-chain-record-entries database :remote-block))
+    (chain-store-import-remote-block-from-kv
+     store (car entry) (cdr entry))))
+
 (defun chain-store-import-from-kv (store database)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
@@ -3995,6 +4051,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-transaction-locations-from-kv staging database)
       (chain-store-import-txpool-records-from-kv staging database)
       (chain-store-import-invalid-tipsets-from-kv staging database)
+      (chain-store-import-remote-blocks-from-kv staging database)
       (chain-store-publish-readable-tables store staging))
     store))
 
