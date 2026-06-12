@@ -4720,6 +4720,159 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-export-import-kv-restores-prepared-payloads
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((path
+             (merge-pathnames
+              (make-pathname
+               :name (format nil "ethereum-lisp-chain-prepared-payload-~A"
+                             (gensym))
+               :type "sexp")
+              #P"/private/tmp/"))
+           (source (make-engine-payload-memory-store))
+           (restored (make-engine-payload-memory-store))
+           (payload-id #(5 0 0 0 0 0 0 1))
+           (block
+             (make-block
+              :header
+              (make-block-header :number 9
+                                 :timestamp 14
+                                 :withdrawals-root
+                                 (withdrawal-list-root '()))
+              :withdrawals '()))
+           (sidecar
+             (make-blob-sidecar
+              :blobs (list #(#x03 #xdd))
+              :commitments (list #(#x04 #xee))
+              :proofs (list #(#x05 #xff) #(#x06 #x11))))
+           (prepared-payload
+             (make-engine-prepared-payload
+              :payload-id payload-id
+              :version 5
+              :block block
+              :blobs-bundle sidecar))
+           (payload-id-bytes (ensure-byte-vector payload-id)))
+      (unwind-protect
+           (progn
+             (chain-store-put-prepared-payload source prepared-payload)
+             (let ((database (make-file-key-value-database path)))
+               (chain-store-export-to-kv source database))
+             (let ((database (make-file-key-value-database path)))
+               (multiple-value-bind (record present-p)
+                   (kv-get-chain-record
+                    database :prepared-payload payload-id-bytes)
+                 (is present-p)
+                 (is (bytes= record
+                             (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+                              prepared-payload)))))
+             (let ((database (make-file-key-value-database path)))
+               (is (eq restored
+                       (chain-store-import-from-kv restored database))))
+             (let ((restored-payload
+                     (chain-store-prepared-payload restored payload-id)))
+               (is restored-payload)
+               (is (= 5
+                      (ethereum-lisp.core::engine-prepared-payload-version
+                       restored-payload)))
+               (is (bytes= (block-rlp block)
+                           (block-rlp
+                            (ethereum-lisp.core::engine-prepared-payload-block
+                             restored-payload)))))
+             (let* ((response
+                      (engine-rpc-handle-request
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 40)
+                             (cons "method" "engine_getPayloadV5")
+                             (cons "params" (list (bytes-to-hex payload-id))))
+                       restored
+                       (make-chain-config)))
+                    (envelope (field response "result"))
+                    (bundle (field envelope "blobsBundle")))
+               (is (= 40 (field response "id")))
+               (is (string= "0x04ee" (first (field bundle "commitments"))))
+               (is (string= "0x05ff" (first (field bundle "proofs"))))
+               (is (string= "0x0611" (second (field bundle "proofs"))))
+               (is (string= "0x03dd" (first (field bundle "blobs")))))
+             (let ((database (make-file-key-value-database path)))
+               (chain-store-export-to-kv
+                (make-engine-payload-memory-store)
+                database))
+             (let ((database (make-file-key-value-database path)))
+               (multiple-value-bind (record present-p)
+                   (kv-get-chain-record
+                    database :prepared-payload payload-id-bytes :missing)
+                 (is (eq :missing record))
+                 (is (not present-p)))))
+        (when (probe-file path)
+          (delete-file path))))))
+
+(deftest chain-store-import-from-kv-rejects-corrupt-prepared-payload-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-prepared-payload-corrupt-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (source-payload-id #(5 0 0 0 0 0 0 1))
+         (replacement-payload-id #(5 0 0 0 0 0 0 2))
+         (target-payload-id #(5 0 0 0 0 0 0 3))
+         (source-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 10
+                               :timestamp 15
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (source-payload
+           (make-engine-prepared-payload
+            :payload-id source-payload-id
+            :version 5
+            :block source-block))
+         (replacement-payload
+           (make-engine-prepared-payload
+            :payload-id replacement-payload-id
+            :version 5
+            :block source-block))
+         (target-payload
+           (make-engine-prepared-payload
+            :payload-id target-payload-id
+            :version 5
+            :block target-block)))
+    (unwind-protect
+         (progn
+           (chain-store-put-prepared-payload target target-payload)
+           (chain-store-put-prepared-payload source source-payload)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :prepared-payload
+              (ensure-byte-vector source-payload-id)
+              (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+               replacement-payload)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (chain-store-prepared-payload target target-payload-id))
+           (is (not
+                (chain-store-prepared-payload target source-payload-id))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-rejects-state-root-mismatch
   (let* ((path
            (merge-pathnames

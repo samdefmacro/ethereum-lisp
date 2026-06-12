@@ -33,7 +33,8 @@
     (:txpool . #x08)
     (:invalid-tipset . #x09)
     (:remote-block . #x0a)
-    (:blob-sidecar . #x0b)))
+    (:blob-sidecar . #x0b)
+    (:prepared-payload . #x0c)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")

@@ -4324,6 +4324,12 @@ splits can land after the Phase A smoke path closes.
     store the blob/proof/cell-proof payload shape already kept in the memory
     store, prune stale KV entries on export, and reject malformed records during
     staging without replacing an existing blob cache.
+  - Result: KV export/import now persists prepared Engine payload cache entries
+    used by `engine_getPayload*`. Records are keyed by the 8-byte payload id,
+    store the prepared payload version, block RLP, and blob bundle byte lists,
+    prune stale KV entries on export, validate key/id consistency on import,
+    and reject malformed records during staging without replacing existing
+    prepared payloads.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject
