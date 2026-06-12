@@ -4537,6 +4537,24 @@ splits can land after the Phase A smoke path closes.
     the CLI test covers a default Shanghai run whose safe/finalized state is
     pruned from the restored KV snapshot while the head remains readable.
 
+- [x] `DEVNET-SMOKE-GATE-PRUNED-RPC-CONTRACT`: Lock restored RPC behavior for
+  pruned retained-state snapshots.
+  - Milestone: 6 / Phase A process gate
+  - Dependencies: `DEVNET-SMOKE-GATE-PRUNED-EXPORT`, retained-state RPC error
+    handling.
+  - Acceptance: when a standalone devnet database export prunes a
+    safe/finalized state snapshot, the restored public RPC listener still
+    resolves the safe/finalized block tags but state-dependent reads against
+    the pruned tag fail with the existing JSON-RPC "state is not available"
+    error instead of silently returning head state or a zero/default value.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: the database-backed devnet smoke gate now sends an additional
+    restored `eth_getBalance` request against `"safe"` when the pruning
+    boundary covers the safe checkpoint state. It requires the JSON-RPC error
+    message `eth_getBalance state is not available`, reports it as
+    `databaseRpcPrunedStateError`, and CLI tests assert the process/database
+    contract alongside the retained block/checkpoint checks.
+
 ## Recently Completed
 
 - [x] Document optional local Reth reference availability and skip/reporting

@@ -533,7 +533,8 @@
      code-address expected-code storage-address storage-key expected-storage
      transaction-checks log-targets block-hash
      expected-safe-block-number expected-safe-block-hash
-     expected-finalized-block-number expected-finalized-block-hash)
+     expected-finalized-block-number expected-finalized-block-hash
+     &key pruned-state-rpc-tag)
   #+sbcl
   (let* ((primary-balance-target (first balance-targets))
          (balance-address (getf primary-balance-target :address))
@@ -575,7 +576,8 @@
               (length extra-balance-outputs)
               (* 6 (length extra-receipt-outputs))
               (* 2 (length log-targets))
-              4))
+              4
+              (if pruned-state-rpc-tag 1 0)))
          (block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
         (nonce-output (make-string-output-stream))
@@ -599,6 +601,9 @@
         (estimate-gas-output (make-string-output-stream))
         (create-access-list-output (make-string-output-stream))
         (post-call-storage-output (make-string-output-stream))
+        (pruned-state-output
+          (when pruned-state-rpc-tag
+            (make-string-output-stream)))
         (public-requests nil))
     (setf public-requests
           (list
@@ -783,6 +788,20 @@
                                         storage-key
                                         expected-block-number))))
             post-call-storage-output)))
+    (when pruned-state-rpc-tag
+      (setf public-requests
+            (append
+             public-requests
+             (list
+              (cons
+               (json-encode
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 154)
+                      (cons "method" "eth_getBalance")
+                      (cons "params"
+                            (list (address-to-hex balance-address)
+                                  pruned-state-rpc-tag))))
+               pruned-state-output)))))
     (setf public-requests
           (nconc
            public-requests
@@ -1043,6 +1062,18 @@
                (devnet-smoke-gate-rpc-body create-access-list-response))
              (post-call-storage-rpc
                (devnet-smoke-gate-rpc-body post-call-storage-response))
+             (pruned-state-response
+               (when pruned-state-output
+                 (get-output-stream-string pruned-state-output)))
+             (pruned-state-rpc
+               (when pruned-state-response
+                 (devnet-smoke-gate-rpc-body pruned-state-response)))
+             (pruned-state-error
+               (and pruned-state-rpc
+                    (fixture-object-field pruned-state-rpc "error")))
+             (pruned-state-error-message
+               (and pruned-state-error
+                    (fixture-object-field pruned-state-error "message")))
              (actual-block-number
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
@@ -1261,6 +1292,18 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status post-call-storage-response))
          "Restored post-eth_call eth_getStorageAt HTTP status mismatch")
+        (when pruned-state-rpc-tag
+          (devnet-smoke-gate-require
+           (= 200 (devnet-cli-http-status pruned-state-response))
+           "Restored pruned-state eth_getBalance HTTP status mismatch")
+          (devnet-smoke-gate-require
+           pruned-state-error
+           "Restored pruned-state eth_getBalance did not return an error")
+          (devnet-smoke-gate-require
+           (string= "eth_getBalance state is not available"
+                    pruned-state-error-message)
+           "Restored pruned-state eth_getBalance error mismatch: ~A"
+           pruned-state-error-message))
         (devnet-smoke-gate-require
          (string= expected-block-number actual-block-number)
          "Restored eth_blockNumber mismatch: expected ~A got ~A"
@@ -1735,6 +1778,7 @@
               :access-list-gas-used actual-access-list-gas-used
               :post-call-storage actual-post-call-storage
               :simulation-count 4
+              :pruned-state-error-message pruned-state-error-message
               :public-connections (getf summary :public-connections)))))
   #-sbcl
   (error "Restored devnet public RPC verification requires SBCL threads"))
@@ -1781,7 +1825,9 @@
             expected-safe-block-number
             expected-safe-block-hash
             expected-finalized-block-number
-            expected-finalized-block-hash)))
+            expected-finalized-block-hash
+            :pruned-state-rpc-tag
+            (when pruned-state-expected-p "safe"))))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
      "Database export did not write block records")
@@ -1923,6 +1969,8 @@
                   (getf public-rpc-summary :post-call-storage)
                   :rpc-simulation-count
                   (getf public-rpc-summary :simulation-count)
+                  :rpc-pruned-state-error-message
+                  (getf public-rpc-summary :pruned-state-error-message)
                   :rpc-public-connections
                   (getf public-rpc-summary :public-connections)))))
 
@@ -2540,6 +2588,12 @@
                             (getf database-summary
                                   :rpc-simulation-count)
                             :false))
+                  (cons "databaseRpcPrunedStateError"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-pruned-state-error-message)
+                                :false)
+                            :false))
                   (cons "databaseRpcPublicConnections"
                         (if database-summary
                             (getf database-summary :rpc-public-connections)
@@ -3150,7 +3204,10 @@
                  report "databaseRpcPostCallStorage"))
         (format t "databaseRpcSimulationCount=~A~%"
                 (devnet-smoke-gate-field
-                 report "databaseRpcSimulationCount")))))
+                 report "databaseRpcSimulationCount"))
+        (format t "databaseRpcPrunedStateError=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcPrunedStateError")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))

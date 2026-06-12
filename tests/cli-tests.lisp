@@ -53,7 +53,10 @@
      (1- (fixture-object-field report "checkedBalanceCount"))
      (* 6 (1- (fixture-object-field report "transactionCount")))
      (* 2 (fixture-object-field report "checkedLogCount"))
-     (fixture-object-field report "checkedSimulationCount")))
+     (fixture-object-field report "checkedSimulationCount")
+     (if (fixture-object-field report "databaseRpcPrunedStateError")
+         1
+         0)))
 
 (defun devnet-cli-engine-fixture-payload-number (case-name)
   (let* ((case (select-engine-newpayload-v2-fixture-case
@@ -1183,6 +1186,9 @@
                (is (eq nil
                        (fixture-object-field
                         report "databasePrunedStateAvailable")))
+               (is (string= "eth_getBalance state is not available"
+                            (fixture-object-field
+                             report "databaseRpcPrunedStateError")))
                (multiple-value-bind (value present-p)
                    (kv-get-chain-record
                     database
