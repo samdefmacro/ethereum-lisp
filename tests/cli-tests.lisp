@@ -116,6 +116,7 @@
     (if (fixture-object-field report "databasePruneStateBefore")
         (dolist (field '("databaseRpcSideBlockHash"
                          "databaseRpcSideForkchoiceStatus"
+                         "databaseRpcSideRejectedCheckpointError"
                          "databaseRpcSideBlockNumber"
                          "databaseRpcSideLatestBlockHash"
                          "databaseRpcSideTransactionByHash"
@@ -132,6 +133,9 @@
           (is (string= "VALID"
                        (fixture-object-field
                         report "databaseRpcSideForkchoiceStatus")))
+          (is (string= "forkchoice safe block is not an ancestor of head"
+                       (fixture-object-field
+                        report "databaseRpcSideRejectedCheckpointError")))
           (is (string= (fixture-object-field report "blockNumber")
                        (fixture-object-field
                         report "databaseRpcSideBlockNumber")))
@@ -161,7 +165,7 @@
                    report "databaseRpcSideTransactionByHash")))
           (is (eq nil
                   (fixture-object-field report "databaseRpcSideReceipt")))
-          (is (= 2
+          (is (= 3
                  (fixture-object-field
                   report "databaseRpcSideEngineConnections")))
           (is (= 7

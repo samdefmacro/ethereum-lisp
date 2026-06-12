@@ -4339,6 +4339,12 @@ splits can land after the Phase A smoke path closes.
     same-height `eth_getLogs` query return empty results, so stale
     transaction-branch receipts/logs do not remain visible through restored
     public RPC after a reorg.
+  - Result: extended the restored side-reorg smoke with a rejected checkpoint
+    update through authenticated Engine RPC. After importing the empty sibling,
+    the gate first attempts to publish the old canonical child as `safe` for
+    that sibling and requires the Engine endpoint to reject it as
+    `forkchoice safe block is not an ancestor of head`; the following valid
+    forkchoice must still switch to the sibling and survive KV re-export.
   - Result: KV export/import now persists invalid-tipset cache entries. Records
     are keyed by the cached tip/head hash and store the invalid ancestor block
     RLP, so restored stores can keep rejecting descendants of previously

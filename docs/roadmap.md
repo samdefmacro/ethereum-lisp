@@ -266,7 +266,8 @@ fixes in those areas are allowed; expansion is not.
   authenticated Engine RPC, switches forkchoice to that sibling, verifies
   public canonical transaction/receipt lookups plus latest block-receipt and
   log queries follow the side head while the old child block remains
-  hash-readable, re-exports the database, and checks a fresh node restores the
+  hash-readable, rejects a non-ancestor `safe` checkpoint update before the
+  valid switch, re-exports the database, and checks a fresh node restores the
   sibling as canonical head.
   Restored executable-code cases also probe an under-gassed `eth_call` and
   assert the public RPC reports the retained non-revert execution failure as a

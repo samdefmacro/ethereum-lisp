@@ -2810,6 +2810,8 @@
                     (quantity-to-hex
                      (block-header-number (block-header side-block))))
                   (side-payload-output (make-string-output-stream))
+                  (side-rejected-forkchoice-output
+                    (make-string-output-stream))
                   (side-forkchoice-output (make-string-output-stream))
                   (side-block-number-output (make-string-output-stream))
                   (side-latest-block-output (make-string-output-stream))
@@ -2828,6 +2830,13 @@
                       (json-encode
                        (devnet-cli-engine-forkchoice-v2-request
                         202 side-block-hash
+                        :safe child-block-hash
+                        :finalized expected-safe-block-hash))
+                      side-rejected-forkchoice-output)
+                     (cons
+                      (json-encode
+                       (devnet-cli-engine-forkchoice-v2-request
+                        210 side-block-hash
                         :safe expected-safe-block-hash
                         :finalized expected-safe-block-hash))
                       side-forkchoice-output)))
@@ -2915,7 +2924,7 @@
                              :close-function
                              (lambda ()
                                (incf engine-served-count)
-                               (when (= engine-served-count 2)
+                               (when (= engine-served-count 3)
                                  (setf engine-done-p t)))))))
                       :close-function (lambda () nil))
                      (make-engine-rpc-http-listener
@@ -2937,6 +2946,9 @@
                      :max-connections 7))
                   (side-payload-response
                     (get-output-stream-string side-payload-output))
+                  (side-rejected-forkchoice-response
+                    (get-output-stream-string
+                     side-rejected-forkchoice-output))
                   (side-forkchoice-response
                     (get-output-stream-string side-forkchoice-output))
                   (side-block-number-response
@@ -2955,6 +2967,9 @@
                     (get-output-stream-string side-logs-output))
                   (side-payload-rpc
                     (devnet-smoke-gate-rpc-body side-payload-response))
+                  (side-rejected-forkchoice-rpc
+                    (devnet-smoke-gate-rpc-body
+                     side-rejected-forkchoice-response))
                   (side-forkchoice-rpc
                     (devnet-smoke-gate-rpc-body side-forkchoice-response))
                   (side-block-number-rpc
@@ -2974,6 +2989,9 @@
                     (devnet-smoke-gate-rpc-body side-logs-response))
                   (side-payload-result
                     (fixture-object-field side-payload-rpc "result"))
+                  (side-rejected-forkchoice-error
+                    (fixture-object-field side-rejected-forkchoice-rpc
+                                          "error"))
                   (side-forkchoice-status
                     (fixture-object-field
                      (fixture-object-field side-forkchoice-rpc "result")
@@ -2987,15 +3005,17 @@
                   (side-logs
                     (fixture-object-field side-logs-rpc "result")))
              (devnet-smoke-gate-require
-              (= 2 (getf summary :engine-connections))
-              "Expected 2 side-reorg Engine connections, got ~S"
+              (= 3 (getf summary :engine-connections))
+              "Expected 3 side-reorg Engine connections, got ~S"
               (getf summary :engine-connections))
 	             (devnet-smoke-gate-require
 	              (= 7 (getf summary :public-connections))
 	              "Expected 7 side-reorg public connections, got ~S"
 	              (getf summary :public-connections))
              (dolist (response
-                      (list side-payload-response side-forkchoice-response
+                      (list side-payload-response
+                            side-rejected-forkchoice-response
+                            side-forkchoice-response
 	                            side-block-number-response
 	                            side-latest-block-response
 	                            side-transaction-response
@@ -3014,6 +3034,16 @@
                        (fixture-object-field side-payload-result
                                              "latestValidHash"))
               "Restored side sibling latestValidHash mismatch")
+             (devnet-smoke-gate-require
+              (= -38002
+                 (fixture-object-field side-rejected-forkchoice-error
+                                       "code"))
+              "Restored side sibling rejected checkpoint error code mismatch")
+             (devnet-smoke-gate-require
+              (string= "forkchoice safe block is not an ancestor of head"
+                       (fixture-object-field side-rejected-forkchoice-error
+                                             "message"))
+              "Restored side sibling rejected checkpoint error mismatch")
              (devnet-smoke-gate-require
               (string= +payload-status-valid+
                        (fixture-object-field side-forkchoice-status "status"))
@@ -3069,6 +3099,9 @@
                (list :side-block-hash (hash32-to-hex side-block-hash)
                      :side-forkchoice-status
                      (fixture-object-field side-forkchoice-status "status")
+                     :side-rejected-checkpoint-error
+                     (fixture-object-field side-rejected-forkchoice-error
+                                           "message")
                      :side-block-number
                      (fixture-object-field side-block-number-rpc "result")
                      :side-latest-block-hash
@@ -3505,6 +3538,10 @@
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-forkchoice-status))
+                  :rpc-side-rejected-checkpoint-error
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-rejected-checkpoint-error))
                   :rpc-side-block-number
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary :side-block-number))
@@ -4817,6 +4854,12 @@
                                       :rpc-side-forkchoice-status)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideRejectedCheckpointError"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-rejected-checkpoint-error)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideBlockNumber"
                         (if database-summary
                             (or (getf database-summary
@@ -5285,6 +5328,12 @@
                "Devnet smoke gate suite side forkchoice status mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
+               (string= "forkchoice safe block is not an ancestor of head"
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRejectedCheckpointError"))
+               "Devnet smoke gate suite side rejected checkpoint error mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
                (string= (devnet-smoke-gate-field report "blockNumber")
                         (devnet-smoke-gate-field
                          report "databaseRpcSideBlockNumber"))
@@ -5346,7 +5395,7 @@
                "Devnet smoke gate suite side reorg kept old receipt canonical for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 2 (devnet-smoke-gate-field
+               (= 3 (devnet-smoke-gate-field
                      report "databaseRpcSideEngineConnections"))
                "Devnet smoke gate suite side Engine connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
@@ -5774,6 +5823,9 @@
         (format t "databaseRpcSideForkchoiceStatus=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideForkchoiceStatus"))
+        (format t "databaseRpcSideRejectedCheckpointError=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRejectedCheckpointError"))
         (format t "databaseRpcSideBlockNumber=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideBlockNumber"))
