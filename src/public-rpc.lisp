@@ -699,7 +699,10 @@
     (multiple-value-bind (status return-data gas-used)
         (eth-rpc-simulate-call-object
          (first params) block store config "eth_call")
-      (declare (ignore status gas-used))
+      (declare (ignore gas-used))
+      (unless (or (eth-rpc-call-status-success-p status)
+                  (eq status :reverted))
+        (block-validation-fail "eth_call execution failed"))
       (bytes-to-hex return-data))))
 
 (defun eth-rpc-call-status-success-p (status)

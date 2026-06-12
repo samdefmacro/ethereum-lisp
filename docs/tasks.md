@@ -4090,6 +4090,9 @@ splits can land after the Phase A smoke path closes.
     simulated transfer, insufficient sender balance is rejected as an invalid
     simulation transaction, and the retained sender/recipient/created-contract
     balances remain unchanged after the call.
+  - Progress: `eth_call` now distinguishes REVERT return data from non-revert
+    execution failures. Reverts still return the EVM output bytes, while
+    out-of-gas or other failed execution statuses become JSON-RPC errors.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7

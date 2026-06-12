@@ -77,9 +77,11 @@ fixes in those areas are allowed; expansion is not.
   canonical-head switch path, including transaction, receipt, block-receipt,
   state, and log visibility across branch switches. Public `eth_call` can now
   execute simple retained-state calls against a copied state DB without
-  committing writes, and `eth_estimateGas` can binary-search retained-state
-  call simulations for simple transfers and contract calls while detecting
-  reverts. These retained-state simulation APIs now also accept
+  committing writes, returning REVERT data while rejecting non-revert
+  execution failures instead of reporting them as successful empty output, and
+  `eth_estimateGas` can binary-search retained-state call simulations for
+  simple transfers and contract calls while detecting reverts. These
+  retained-state simulation APIs now also accept
   contract-creation call objects, executing initcode against copied state,
   returning creation output for `eth_call`, accounting for code-deposit gas in
   `eth_estimateGas` / `eth_createAccessList`, and leaving retained chain-store
