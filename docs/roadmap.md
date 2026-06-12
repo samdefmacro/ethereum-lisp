@@ -208,9 +208,11 @@ fixes in those areas are allowed; expansion is not.
   `eth_getTransactionByHash` and transaction by block/index canonical
   transaction lookup, safe/finalized checkpoint number/hash persistence plus
   `eth_getBlockByNumber("safe"|"finalized")` checkpoint-tag reads, and
-  `eth_getBlockReceipts` block-receipt lookup. Multi-transaction restored
-  blocks verify all declared recipient balances plus every transaction's
-  receipt, raw transaction, and block/index lookup. The
+  `eth_getBlockReceipts` block-receipt lookup. Restored executable-code cases
+  also probe an under-gassed `eth_call` and assert the public RPC reports the
+  retained non-revert execution failure as a JSON-RPC error.
+  Multi-transaction restored blocks verify all declared recipient balances plus
+  every transaction's receipt, raw transaction, and block/index lookup. The
   top-level Phase A process gate therefore covers authenticated Engine import,
   forkchoice, public reads, runner readiness/shutdown signals, and readable
   chain-store persistence across the local process/database boundary. The

@@ -564,6 +564,8 @@
          (expected-raw-transaction (getf primary-transaction-check :raw))
          (transaction-count (length transaction-checks))
          (expected-transaction-count (quantity-to-hex transaction-count))
+         (executable-code-p
+           (devnet-smoke-gate-executable-code-p expected-code))
          (extra-balance-outputs
            (loop repeat (length (rest balance-targets))
                  collect (make-string-output-stream)))
@@ -611,6 +613,8 @@
         (safe-block-output (make-string-output-stream))
         (finalized-block-output (make-string-output-stream))
         (call-output (make-string-output-stream))
+        (failed-call-output
+          (and executable-code-p (make-string-output-stream)))
         (estimate-gas-output (make-string-output-stream))
         (create-access-list-output (make-string-output-stream))
         (post-call-storage-output (make-string-output-stream))
@@ -720,10 +724,13 @@
               (* 6 (length extra-receipt-outputs))
               (* 2 (length log-targets))
               4
+              (if executable-code-p 1 0)
               (length pruned-state-probes)))
         (public-requests nil))
     (setf public-requests
-          (list
+          (remove
+           nil
+           (list
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
@@ -874,6 +881,22 @@
                            sender-address code-address)
                           expected-block-number))))
             call-output)
+           (when executable-code-p
+             (cons
+              (json-encode
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 162)
+                     (cons "method" "eth_call")
+                     (cons "params"
+                           (list
+                            (list
+                             (cons "from" (address-to-hex sender-address))
+                             (cons "to" (address-to-hex code-address))
+                             (cons "gas" (quantity-to-hex 22000))
+                             (cons "gasPrice" "0x64")
+                             (cons "data" "0x"))
+                            expected-block-number))))
+              failed-call-output))
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
@@ -904,7 +927,7 @@
                    (cons "params" (list (address-to-hex storage-address)
                                         storage-key
                                         expected-block-number))))
-            post-call-storage-output)))
+            post-call-storage-output))))
     (when pruned-state-probes
       (setf public-requests
             (append
@@ -1116,6 +1139,9 @@
                (get-output-stream-string finalized-block-output))
              (call-response
                (get-output-stream-string call-output))
+             (failed-call-response
+               (and failed-call-output
+                    (get-output-stream-string failed-call-output)))
              (estimate-gas-response
                (get-output-stream-string estimate-gas-output))
              (create-access-list-response
@@ -1168,6 +1194,9 @@
                (devnet-smoke-gate-rpc-body finalized-block-response))
              (call-rpc
                (devnet-smoke-gate-rpc-body call-response))
+             (failed-call-rpc
+               (and failed-call-response
+                    (devnet-smoke-gate-rpc-body failed-call-response)))
              (estimate-gas-rpc
                (devnet-smoke-gate-rpc-body estimate-gas-response))
              (create-access-list-rpc
@@ -1318,6 +1347,13 @@
                (fixture-object-field actual-finalized-block "number"))
              (actual-call-result
                (fixture-object-field call-rpc "result"))
+             (actual-failed-call-error
+               (and failed-call-rpc
+                    (fixture-object-field failed-call-rpc "error")))
+             (actual-failed-call-error-message
+               (and actual-failed-call-error
+                    (fixture-object-field
+                     actual-failed-call-error "message")))
              (actual-estimate-gas
                (fixture-object-field estimate-gas-rpc "result"))
              (actual-create-access-list
@@ -1409,6 +1445,10 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status call-response))
          "Restored eth_call HTTP status mismatch")
+        (when failed-call-response
+          (devnet-smoke-gate-require
+           (= 200 (devnet-cli-http-status failed-call-response))
+           "Restored failing eth_call HTTP status mismatch"))
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status estimate-gas-response))
          "Restored eth_estimateGas HTTP status mismatch")
@@ -1466,6 +1506,16 @@
          (string= "0x" actual-call-result)
          "Restored eth_call result mismatch: expected empty return, got ~A"
          actual-call-result)
+        (when executable-code-p
+          (devnet-smoke-gate-require
+           actual-failed-call-error
+           "Restored failing eth_call did not return an error response: ~S"
+           failed-call-rpc)
+          (devnet-smoke-gate-require
+           (string= "eth_call execution failed"
+                    actual-failed-call-error-message)
+           "Restored failing eth_call error mismatch: ~A"
+           actual-failed-call-error-message))
         (devnet-smoke-gate-require
          (<= 21000 (hex-to-quantity actual-estimate-gas))
          "Restored eth_estimateGas must be at least intrinsic gas")
@@ -1887,11 +1937,13 @@
               :finalized-block-hash actual-finalized-block-hash
               :finalized-block-number actual-finalized-block-number
               :call-result actual-call-result
+              :failed-call-error-message
+              (or actual-failed-call-error-message :false)
               :estimate-gas actual-estimate-gas
               :access-list-count (length actual-access-list)
               :access-list-gas-used actual-access-list-gas-used
               :post-call-storage actual-post-call-storage
-              :simulation-count 4
+              :simulation-count (if executable-code-p 5 4)
               :pruned-state-error-message
               (first pruned-state-error-messages)
               :pruned-state-error-messages pruned-state-error-messages
@@ -2075,6 +2127,8 @@
                   (getf public-rpc-summary :finalized-block-number)
                   :rpc-call-result
                   (getf public-rpc-summary :call-result)
+                  :rpc-failed-call-error-message
+                  (getf public-rpc-summary :failed-call-error-message)
                   :rpc-estimate-gas
                   (getf public-rpc-summary :estimate-gas)
                   :rpc-access-list-count
@@ -2682,6 +2736,11 @@
                         (if database-summary
                             (getf database-summary :rpc-call-result)
                             :false))
+                  (cons "databaseRpcFailedCallError"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-failed-call-error-message)
+                            :false))
                   (cons "databaseRpcEstimateGas"
                         (if database-summary
                             (getf database-summary :rpc-estimate-gas)
@@ -2988,6 +3047,19 @@
                   (devnet-smoke-gate-field report "databaseRpcCallResult"))
          "Devnet smoke gate suite restored eth_call mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
+        (if (devnet-smoke-gate-executable-code-p
+             (devnet-smoke-gate-field report "checkedCode"))
+            (devnet-smoke-gate-require
+             (string= "eth_call execution failed"
+                      (devnet-smoke-gate-field
+                       report "databaseRpcFailedCallError"))
+             "Devnet smoke gate suite restored failing eth_call mismatch for ~A"
+             (devnet-smoke-gate-field report "fixtureCase"))
+            (devnet-smoke-gate-require
+             (devnet-smoke-gate-false-p
+              (devnet-smoke-gate-field report "databaseRpcFailedCallError"))
+             "Devnet smoke gate suite unexpected failing eth_call for ~A"
+             (devnet-smoke-gate-field report "fixtureCase")))
         (devnet-smoke-gate-require
          (<= 21000
              (hex-to-quantity
@@ -3369,6 +3441,9 @@
                  report "databaseRpcFinalizedBlockNumber"))
         (format t "databaseRpcCallResult=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcCallResult"))
+        (format t "databaseRpcFailedCallError=~A~%"
+                (devnet-smoke-gate-field report
+                                         "databaseRpcFailedCallError"))
         (format t "databaseRpcEstimateGas=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcEstimateGas"))
         (format t "databaseRpcAccessListCount=~A~%"

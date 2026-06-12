@@ -4517,6 +4517,11 @@ splits can land after the Phase A smoke path closes.
     restored state snapshot, then re-reads storage to verify the simulation did
     not commit writes. CLI tests and suite validation track the extra restored
     public RPC connections and simulation counts.
+  - Result: extended restored-database devnet smoke coverage to retained
+    `eth_call` failure semantics. Executable-code fixture cases now issue a
+    deliberately under-gassed restored `eth_call`, assert the public RPC keeps
+    the non-revert execution failure as the expected JSON-RPC error, and report
+    `databaseRpcFailedCallError` through text/JSON suite output.
   - Result: `scripts/devnet-smoke-gate.lisp -- --help` now prints usage and
     exits before loading the test system. This keeps process runners and
     automation probes from depending on full fixture/test initialization merely
