@@ -8,10 +8,21 @@
 
 (defvar *devnet-cli-temp-counter* 0)
 
+(defun devnet-cli-current-process-id ()
+  #+sbcl
+  (sb-unix:unix-getpid)
+  #-sbcl
+  nil)
+
+(defun devnet-cli-current-process-id-string ()
+  (let ((process-id (devnet-cli-current-process-id)))
+    (if process-id
+        (write-to-string process-id)
+        "")))
+
 (defun devnet-cli-temp-token ()
   (format nil "~A-~D-~A"
-          #+sbcl (sb-unix:unix-getpid)
-          #-sbcl "nopid"
+          (or (devnet-cli-current-process-id) "nopid")
           (incf *devnet-cli-temp-counter*)
           (gensym)))
 
@@ -310,6 +321,7 @@
     (is (= 0 (getf summary :head-number)))
     (is (string= "127.0.0.1:0" (getf summary :engine-endpoint)))
     (is (string= "127.0.0.1:8545" (getf summary :rpc-endpoint)))
+    (is (equal (devnet-cli-current-process-id) (getf summary :process-id)))
     (is (string= (hash32-to-hex head-hash) (getf summary :head-hash)))
     (is (null (getf summary :safe-number)))
     (is (null (getf summary :safe-hash)))
@@ -856,7 +868,10 @@
                                                 "engineEndpoint")))
              (is (string= "127.0.0.1:18545"
                           (fixture-object-field ready-summary
-                                                "rpcEndpoint"))))
+                                                "rpcEndpoint")))
+             (is (equal (devnet-cli-current-process-id)
+                        (fixture-object-field ready-summary
+                                              "processId"))))
            (let ((events
                    (remove-if-not
                     (lambda (event)
@@ -875,6 +890,9 @@
                                           :test #'string=))))
                  (is (string= "127.0.0.1:18545"
                               (cdr (assoc "rpcEndpoint" fields
+                                          :test #'string=))))
+                 (is (string= (devnet-cli-current-process-id-string)
+                              (cdr (assoc "processId" fields
                                           :test #'string=))))))))
       (when (probe-file ready-path)
         (delete-file ready-path)))))
@@ -1229,6 +1247,8 @@
                             (fixture-object-field summary "engineEndpoint")))
                (is (string= "127.0.0.1:8546"
                             (fixture-object-field summary "rpcEndpoint")))
+               (is (equal (devnet-cli-current-process-id)
+                          (fixture-object-field summary "processId")))
                (is (eq t (fixture-object-field summary "authRequired")))
                (is (eq t (fixture-object-field summary "stateAvailable")))
                (is (string= (namestring jwt-path)
@@ -1281,6 +1301,9 @@
                                           :test #'string=))))
                  (is (string= "127.0.0.1:8546"
                               (cdr (assoc "rpcEndpoint" fields
+                                          :test #'string=))))
+                 (is (string= (devnet-cli-current-process-id-string)
+                              (cdr (assoc "processId" fields
                                           :test #'string=))))
                  (is (string= "0x539"
                               (cdr (assoc "chainId" fields :test #'string=))))
@@ -1759,6 +1782,9 @@
                (is (string= "public"
                             (fixture-object-field ready-summary
                                                   "rpcEndpoint")))
+               (is (integerp (fixture-object-field ready-summary
+                                                    "processId")))
+               (is (< 0 (fixture-object-field ready-summary "processId")))
                (is (eq t (fixture-object-field ready-summary
                                                 "authRequired")))
                (is (eq t (fixture-object-field ready-summary
@@ -1799,6 +1825,11 @@
                                               :test #'string=))))
                      (is (string= expected-head-hash
                                   (cdr (assoc "headHash" fields
+                                              :test #'string=))))
+                     (is (string= (write-to-string
+                                    (fixture-object-field ready-summary
+                                                          "processId"))
+                                  (cdr (assoc "processId" fields
                                               :test #'string=))))
                      (is (string= "true"
                                   (cdr (assoc "stateAvailable" fields

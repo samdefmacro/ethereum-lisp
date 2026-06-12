@@ -23,6 +23,12 @@
 
 (defconstant +devnet-default-public-rpc-port+ 8545)
 
+(defun devnet-process-id ()
+  #+sbcl
+  (sb-unix:unix-getpid)
+  #-sbcl
+  nil)
+
 (defun devnet-shutdown-requested-p (controller)
   (and controller
        (devnet-shutdown-controller-requested-p controller)))
@@ -234,6 +240,7 @@
     (list :genesis-path (devnet-node-genesis-path node)
           :engine-endpoint engine-endpoint
           :rpc-endpoint rpc-endpoint
+          :process-id (devnet-process-id)
           :auth-required-p
           (not (null (engine-rpc-http-service-jwt-secret
                       (devnet-node-service node))))
@@ -260,6 +267,7 @@
     `(("genesisPath" . ,(getf summary :genesis-path))
       ("engineEndpoint" . ,(getf summary :engine-endpoint))
       ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
+      ("processId" . ,(or (getf summary :process-id) :false))
       ("authRequired" . ,(if (getf summary :auth-required-p) t :false))
       ("jwtSecretPath" . ,(getf summary :jwt-secret-path))
       ("logPath" . ,(getf summary :log-path))
@@ -567,6 +575,10 @@
                   :rpc-endpoint rpc-endpoint)))
     `(("engineEndpoint" . ,(getf summary :engine-endpoint))
       ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
+      ("processId" . ,(let ((process-id (getf summary :process-id)))
+                         (if process-id
+                             (write-to-string process-id)
+                             "")))
       ("chainId" . ,(quantity-to-hex (getf summary :chain-id)))
       ("headNumber" . ,(quantity-to-hex (getf summary :head-number)))
       ("headHash" . ,(getf summary :head-hash))

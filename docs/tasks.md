@@ -4678,6 +4678,10 @@ splits can land after the Phase A smoke path closes.
     `devnet.shutdown` must report the post-forkchoice imported child head.
     This locks the process-runner contract for consuming startup versus
     shutdown chain state.
+  - Result: devnet startup summaries, readiness JSON, and lifecycle telemetry
+    now include `processId`, giving Hive-style runners a stable OS-process
+    correlation key across stdout, ready-file, `devnet.ready`, and
+    `devnet.shutdown` records.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8
