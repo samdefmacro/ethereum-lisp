@@ -251,7 +251,10 @@ fixes in those areas are allowed; expansion is not.
   node, and verifies `engine_getPayloadV2` can read the prepared payload by id.
   It also submits an orphan `engine_newPayloadV2` through the authenticated
   Engine boundary and verifies the resulting `SYNCING` remote-block cache
-  survives KV export/import into a fresh node.
+  survives KV export/import into a fresh node. Known-parent invalid payloads
+  now also populate the invalid-tipset cache through the same Engine boundary,
+  and restored nodes reject descendants as linking to the previously rejected
+  block.
   Restored executable-code cases also probe an under-gassed `eth_call` and
   assert the public RPC reports the retained non-revert execution failure as a
   JSON-RPC error.

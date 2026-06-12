@@ -1604,11 +1604,30 @@
                (is (string= +payload-status-syncing+
                             (fixture-object-field
                              report "databaseRpcRemoteBlockStatus")))
+               (is (string= +payload-status-invalid+
+                            (fixture-object-field report
+                                                  "invalidTipsetStatus")))
+               (is (string= "Timestamp is not greater than parent timestamp"
+                            (fixture-object-field
+                             report "invalidTipsetValidationError")))
+               (is (string= (fixture-object-field
+                              report "invalidTipsetBlockHash")
+                            (fixture-object-field
+                             report "databaseInvalidTipsetBlockHash")))
+               (is (string= +payload-status-invalid+
+                            (fixture-object-field
+                             report "databaseRpcInvalidTipsetStatus")))
+               (is (string= "links to previously rejected block"
+                            (fixture-object-field
+                             report
+                             "databaseRpcInvalidTipsetValidationError")))
                (is (< 0 (length (kv-chain-record-entries database :block))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :prepared-payload))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :remote-block))))
+               (is (< 0 (length (kv-chain-record-entries
+                                 database :invalid-tipset))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :canonical-hash))))
                (is (string= "engine"
@@ -1752,11 +1771,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 8 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 10 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
                (dolist (case cases)
@@ -1770,8 +1789,8 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 4 (fixture-object-field case "engineConnections")))
-                   (is (= 4 (fixture-object-field case "publicConnections")))
+                   (is (= 5 (fixture-object-field case "engineConnections")))
+                   (is (= 5 (fixture-object-field case "publicConnections")))
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")
@@ -1983,6 +2002,23 @@
                  (is (string= +payload-status-syncing+
                               (fixture-object-field
                                case "databaseRpcRemoteBlockStatus")))
+                 (is (string= +payload-status-invalid+
+                              (fixture-object-field case
+                                                    "invalidTipsetStatus")))
+                 (is (string= "Timestamp is not greater than parent timestamp"
+                              (fixture-object-field
+                               case "invalidTipsetValidationError")))
+                 (is (string= (fixture-object-field
+                                case "invalidTipsetBlockHash")
+                              (fixture-object-field
+                               case "databaseInvalidTipsetBlockHash")))
+                 (is (string= +payload-status-invalid+
+                              (fixture-object-field
+                               case "databaseRpcInvalidTipsetStatus")))
+                 (is (string= "links to previously rejected block"
+                              (fixture-object-field
+                               case
+                               "databaseRpcInvalidTipsetValidationError")))
                  (is (probe-file
                       (fixture-object-field case "readyFile")))
                  (is (probe-file
@@ -2245,11 +2281,11 @@
                (length (devnet-smoke-gate-case-database-files devnet))))
         (devnet-cli-assert-pruned-state-suite
          devnet cases prune-boundary)
-        (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 4 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 8 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 10 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")
@@ -2450,7 +2486,22 @@
                         case "databaseRemoteBlockHash")))
           (is (string= +payload-status-syncing+
                        (fixture-object-field
-                        case "databaseRpcRemoteBlockStatus")))))))))
+                        case "databaseRpcRemoteBlockStatus")))
+          (is (string= +payload-status-invalid+
+                       (fixture-object-field case "invalidTipsetStatus")))
+          (is (string= "Timestamp is not greater than parent timestamp"
+                       (fixture-object-field
+                        case "invalidTipsetValidationError")))
+          (is (string= (fixture-object-field case "invalidTipsetBlockHash")
+                       (fixture-object-field
+                        case "databaseInvalidTipsetBlockHash")))
+          (is (string= +payload-status-invalid+
+                       (fixture-object-field
+                        case "databaseRpcInvalidTipsetStatus")))
+          (is (string= "links to previously rejected block"
+                       (fixture-object-field
+                        case
+                        "databaseRpcInvalidTipsetValidationError")))))))))
 
 (deftest phase-a-smoke-gate-devnet-mode-is-cwd-independent
   #-sbcl

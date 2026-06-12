@@ -4314,6 +4314,12 @@ splits can land after the Phase A smoke path closes.
     RLP, so restored stores can keep rejecting descendants of previously
     rejected payloads after a dev database restart; malformed invalid-tipset
     records reject during staging without replacing the existing cache.
+  - Result: the standalone devnet smoke gate now exercises invalid-tipset
+    persistence across the process boundary. Each database-backed pinned
+    Shanghai run submits a known-parent invalid `engine_newPayloadV2`, verifies
+    the `INVALID` response and invalid-tipset cache population, exports the KV
+    snapshot, restores a fresh node, and verifies a descendant payload is still
+    rejected as linking to the previously rejected block.
   - Result: KV export/import now persists remote Engine blocks parked by
     `newPayload` when a parent block or parent state is unavailable. Records
     are keyed by block hash, validate the decoded block hash on import, and
