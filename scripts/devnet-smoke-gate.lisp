@@ -221,6 +221,26 @@
   (unless condition
     (apply #'error format-control args)))
 
+(defun devnet-smoke-gate-pruned-state-error-messages ()
+  '("eth_getBalance state is not available"
+    "eth_getTransactionCount state is not available"
+    "eth_getCode state is not available"
+    "eth_getStorageAt state is not available"
+    "eth_getProof state is not available"
+    "eth_call state is not available"
+    "eth_estimateGas state is not available"
+    "eth_createAccessList state is not available"))
+
+(defun devnet-smoke-gate-false-p (value)
+  (or (null value) (eq value :false)))
+
+(defun devnet-smoke-gate-report-pruned-state-covered-p
+    (report state-prune-before)
+  (and state-prune-before
+       (< (hex-to-quantity
+           (devnet-smoke-gate-field report "safeBlockNumber"))
+          state-prune-before)))
+
 (defun devnet-smoke-gate-rpc-body (response)
   (parse-json (devnet-cli-http-body response)))
 
@@ -2768,7 +2788,23 @@
                    :key (lambda (report)
                           (devnet-smoke-gate-field report
                                                    "publicConnections"))
-                   :initial-value 0)))
+                   :initial-value 0))
+         (pruned-state-case-count
+           (count-if
+            (lambda (report)
+              (devnet-smoke-gate-report-pruned-state-covered-p
+               report state-prune-before))
+            reports))
+         (pruned-state-error-case-count
+           (count-if
+            (lambda (report)
+              (let ((errors
+                      (devnet-smoke-gate-field
+                       report "databaseRpcPrunedStateErrors")))
+                (and errors
+                     (equal (devnet-smoke-gate-pruned-state-error-messages)
+                            errors))))
+            reports)))
     (devnet-smoke-gate-require
      (= (length case-names) (length reports))
      "Devnet smoke gate suite case count mismatch")
@@ -2799,6 +2835,35 @@
                   (devnet-smoke-gate-field report "databaseFinalizedHash"))
          "Devnet smoke gate suite database finalized hash mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
+        (let ((pruned-state-covered-p
+                (devnet-smoke-gate-report-pruned-state-covered-p
+                 report state-prune-before))
+              (pruned-errors
+                (devnet-smoke-gate-field
+                 report "databaseRpcPrunedStateErrors")))
+          (if pruned-state-covered-p
+              (progn
+                (devnet-smoke-gate-require
+                 (devnet-smoke-gate-false-p
+                  (devnet-smoke-gate-field
+                   report "databasePrunedStateAvailable"))
+                 "Devnet smoke gate suite pruned state still available for ~A"
+                 (devnet-smoke-gate-field report "fixtureCase"))
+                (devnet-smoke-gate-require
+                 (equal (devnet-smoke-gate-pruned-state-error-messages)
+                        pruned-errors)
+                 "Devnet smoke gate suite pruned-state RPC errors mismatch for ~A"
+                 (devnet-smoke-gate-field report "fixtureCase")))
+              (when state-prune-before
+                (devnet-smoke-gate-require
+                 (devnet-smoke-gate-field
+                  report "databasePrunedStateAvailable")
+                 "Devnet smoke gate suite unexpectedly pruned state for ~A"
+                 (devnet-smoke-gate-field report "fixtureCase"))
+                (devnet-smoke-gate-require
+                 (devnet-smoke-gate-false-p pruned-errors)
+                 "Devnet smoke gate suite unexpected pruned-state RPC errors for ~A"
+                 (devnet-smoke-gate-field report "fixtureCase")))))
         (devnet-smoke-gate-require
          (string= (devnet-smoke-gate-field report "checkedCode")
                   (devnet-smoke-gate-field report "databaseRpcCode"))
@@ -3038,6 +3103,9 @@
      (cons "databaseFile" (or database-file :false))
      (cons "databasePruneStateBefore" (or state-prune-before :false))
      (cons "databaseCaseCount" (if database-file (length reports) 0))
+     (cons "databasePrunedStateCaseCount" pruned-state-case-count)
+     (cons "databaseRpcPrunedStateErrorCaseCount"
+           pruned-state-error-case-count)
      (cons "engineConnections" engine-connections)
      (cons "publicConnections" public-connections)
      (cons "totalConnections" (+ engine-connections public-connections))
@@ -3084,7 +3152,13 @@
     (format t "databasePruneStateBefore=~A~%"
             (devnet-smoke-gate-field report "databasePruneStateBefore"))
     (format t "databaseCaseCount=~D~%"
-            (devnet-smoke-gate-field report "databaseCaseCount")))
+            (devnet-smoke-gate-field report "databaseCaseCount"))
+    (format t "databasePrunedStateCaseCount=~D~%"
+            (devnet-smoke-gate-field report
+                                     "databasePrunedStateCaseCount"))
+    (format t "databaseRpcPrunedStateErrorCaseCount=~D~%"
+            (devnet-smoke-gate-field
+             report "databaseRpcPrunedStateErrorCaseCount")))
   (unless (devnet-smoke-gate-suite-report-p report)
     (format t "fixtureCase=~A~%"
             (devnet-smoke-gate-field report "fixtureCase")))

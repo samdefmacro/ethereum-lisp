@@ -60,6 +60,20 @@
            (length errors)
            0))))
 
+(defun devnet-cli-pruned-state-error-messages ()
+  '("eth_getBalance state is not available"
+    "eth_getTransactionCount state is not available"
+    "eth_getCode state is not available"
+    "eth_getStorageAt state is not available"
+    "eth_getProof state is not available"
+    "eth_call state is not available"
+    "eth_estimateGas state is not available"
+    "eth_createAccessList state is not available"))
+
+(defun devnet-cli-pruned-state-covered-p (report prune-boundary)
+  (< (hex-to-quantity (fixture-object-field report "safeBlockNumber"))
+     prune-boundary))
+
 (defun devnet-cli-engine-fixture-payload-number (case-name)
   (let* ((case (select-engine-newpayload-v2-fixture-case
                 +engine-newpayload-v2-fixture-path+
@@ -1195,15 +1209,7 @@
                        (fixture-object-field
                         report "databaseRpcPrunedStateErrors")))
                  (is (= 8 (length errors)))
-                 (dolist (message
-                          '("eth_getBalance state is not available"
-                            "eth_getTransactionCount state is not available"
-                            "eth_getCode state is not available"
-                            "eth_getStorageAt state is not available"
-                            "eth_getProof state is not available"
-                            "eth_call state is not available"
-                            "eth_estimateGas state is not available"
-                            "eth_createAccessList state is not available"))
+                 (dolist (message (devnet-cli-pruned-state-error-messages))
                    (is (member message errors :test #'string=))))
                (multiple-value-bind (value present-p)
                    (kv-get-chain-record
@@ -1442,6 +1448,7 @@
         (database-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-suite-chain"
                                 "sexp"))
+        (prune-boundary 42)
         (ready-files nil)
         (log-files nil)
         (database-files nil))
@@ -1456,7 +1463,9 @@
                     "--all-fixtures"
                     "--ready-file" (namestring ready-path)
                     "--log-file" (namestring log-path)
-                    "--database" (namestring database-path))
+                    "--database" (namestring database-path)
+                    "--prune-state-before"
+                    (write-to-string prune-boundary))
               :output :string
               :error-output :string
               :ignore-error-status t)
@@ -1504,10 +1513,27 @@
                       (length log-files)))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
+               (is (= prune-boundary
+                      (fixture-object-field
+                       report "databasePruneStateBefore")))
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
                       (fixture-object-field report "databaseCaseCount")))
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
                       (length database-files)))
+               (let ((pruned-case-count
+                       (count-if
+                        (lambda (case)
+                          (devnet-cli-pruned-state-covered-p
+                           case prune-boundary))
+                        cases)))
+                 (is (< 0 pruned-case-count))
+                 (is (< pruned-case-count (length cases)))
+                 (is (= pruned-case-count
+                        (fixture-object-field
+                         report "databasePrunedStateCaseCount")))
+                 (is (= pruned-case-count
+                        (fixture-object-field
+                         report "databaseRpcPrunedStateErrorCaseCount"))))
                (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
                (is (= (* 2 (length +engine-newpayload-v2-smoke-case-names+))
@@ -1546,6 +1572,31 @@
                  (is (string= (fixture-object-field case "finalizedBlockHash")
                               (fixture-object-field
                                case "databaseFinalizedHash")))
+                 (if (devnet-cli-pruned-state-covered-p
+                      case prune-boundary)
+                     (progn
+                       (is (eq nil
+                               (fixture-object-field
+                                case "databasePrunedStateAvailable")))
+                       (is (string= "eth_getBalance state is not available"
+                                    (fixture-object-field
+                                     case "databaseRpcPrunedStateError")))
+                       (let ((errors
+                               (fixture-object-field
+                                case "databaseRpcPrunedStateErrors")))
+                         (is (equal
+                              (devnet-cli-pruned-state-error-messages)
+                              errors))))
+                     (progn
+                       (is (eq t
+                               (fixture-object-field
+                                case "databasePrunedStateAvailable")))
+                       (is (eq nil
+                               (fixture-object-field
+                                case "databaseRpcPrunedStateError")))
+                       (is (eq nil
+                               (fixture-object-field
+                                case "databaseRpcPrunedStateErrors")))))
                  (is (string= (fixture-object-field case "blockNumber")
                               (fixture-object-field
                                case "databaseRpcBlockNumber")))

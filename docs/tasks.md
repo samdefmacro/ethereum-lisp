@@ -4557,6 +4557,25 @@ splits can land after the Phase A smoke path closes.
     `databaseRpcPrunedStateErrors`, and CLI tests assert the process/database
     contract alongside the retained block/checkpoint checks.
 
+- [x] `DEVNET-SMOKE-GATE-PRUNED-SUITE-CONTRACT`: Apply the pruned retained-state
+  RPC contract to the all-fixtures process gate.
+  - Milestone: 6 / Phase A process gate
+  - Dependencies: `DEVNET-SMOKE-GATE-PRUNED-RPC-CONTRACT`,
+    `DEVNET-SMOKE-GATE-PRUNED-EXPORT`, devnet all-fixtures database mode.
+  - Acceptance: `scripts/devnet-smoke-gate.lisp --all-fixtures --database PATH
+    --prune-state-before NUMBER` reports how many pinned Shanghai cases have a
+    safe/finalized checkpoint covered by the pruning boundary, requires each
+    covered case to return the full retained-state unavailable RPC error set,
+    and requires uncovered cases to keep their checkpoint state readable.
+  - Validation: `sbcl --script tests/run-tests.lisp`.
+  - Result: the suite-mode devnet smoke gate now reports
+    `databasePrunedStateCaseCount` and
+    `databaseRpcPrunedStateErrorCaseCount`, enforces the pruned-state RPC
+    error set for every covered pinned Shanghai case, and asserts that cases
+    whose checkpoint is above the pruning boundary do not emit pruned-state
+    errors. The CLI all-fixtures process test now runs with
+    `--prune-state-before 42` and validates both covered and uncovered cases.
+
 ## Recently Completed
 
 - [x] Document optional local Reth reference availability and skip/reporting
