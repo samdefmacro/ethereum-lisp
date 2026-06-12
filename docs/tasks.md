@@ -4217,6 +4217,11 @@ splits can land after the Phase A smoke path closes.
     retained-window snapshots that start above genesis. Persisted head
     checkpoints must also match the restored canonical head height/hash before
     the staging view is published.
+  - Result: KV transaction-location import now rejects records that point to a
+    non-canonical block, lack a restored receipt for the indexed transaction,
+    or carry a log-index start inconsistent with preceding receipts. This keeps
+    restored transaction and receipt RPC indexes aligned with the canonical
+    readable chain view.
   - Result: the devnet CLI now accepts `--database PATH`, imports an existing
     file-backed KV chain-store snapshot after genesis setup, and exports the
     current readable chain-store view on `--no-serve` or normal serve-mode

@@ -3723,6 +3723,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (rlp-uint-field (second fields) "Transaction location index")
      (rlp-uint-field (third fields) "Transaction location log index start"))))
 
+(defun chain-store-expected-log-index-start (receipts index)
+  (loop for receipt in receipts
+        for receipt-index from 0 below index
+        do (unless receipt
+             (block-validation-fail
+              "KV transaction location references a missing receipt"))
+        sum (length (receipt-logs receipt))))
+
 (defun chain-store-import-transaction-location-from-kv
     (store transaction-identifier location-record)
   (let ((transaction-hash (make-hash32 transaction-identifier)))
@@ -3733,14 +3741,25 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (unless block
           (block-validation-fail
            "KV transaction location references an unknown block"))
+        (unless (engine-payload-store-canonical-block-p store block)
+          (block-validation-fail
+           "KV transaction location references a non-canonical block"))
         (unless (< index (length transactions))
           (block-validation-fail
            "KV transaction location index is outside the block body"))
-        (let ((transaction (nth index transactions))
-              (receipt (nth index (block-receipts block))))
+        (let* ((receipts (block-receipts block))
+               (transaction (nth index transactions))
+               (receipt (nth index receipts)))
           (unless (hash32= transaction-hash (transaction-hash transaction))
             (block-validation-fail
              "KV transaction location key does not match block transaction"))
+          (unless receipt
+            (block-validation-fail
+             "KV transaction location references a missing receipt"))
+          (unless (= log-index-start
+                     (chain-store-expected-log-index-start receipts index))
+            (block-validation-fail
+             "KV transaction location log index is inconsistent"))
           (setf (gethash (hash32-to-hex transaction-hash)
                          (engine-payload-memory-store-transaction-locations
                           store))

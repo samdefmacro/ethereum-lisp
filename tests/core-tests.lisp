@@ -4391,6 +4391,171 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-rejects-noncanonical-transaction-location
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-tx-location-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (transaction
+           (make-legacy-transaction :nonce 1
+                                    :gas-price 2
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 3
+                                    :v 27
+                                    :r 4
+                                    :s 5))
+         (receipt
+           (make-receipt :status 1 :cumulative-gas-used 21000))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         (canonical-head
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :state-root +empty-trie-hash+
+                               :timestamp 1
+                               :gas-limit 30000000)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (side-block
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :state-root +empty-trie-hash+
+                               :timestamp 2
+                               :extra-data (hex-to-bytes "01")
+                               :gas-limit 30000000)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         (transaction-id (hash32-bytes (transaction-hash transaction))))
+    (unwind-protect
+         (progn
+           (dolist (block (list genesis canonical-head side-block))
+             (chain-store-put-block source block :state-available-p t))
+           (chain-store-set-canonical-head source (block-hash canonical-head))
+           (chain-store-update-forkchoice-checkpoints
+            source
+            (make-forkchoice-state
+             :head-block-hash (block-hash canonical-head)
+             :safe-block-hash (block-hash genesis)
+             :finalized-block-hash (block-hash genesis)))
+           (chain-store-put-block target target-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :transaction-location
+              transaction-id
+              (rlp-encode
+               (make-rlp-list
+                (hash32-bytes (block-hash side-block))
+                0
+                0))))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 9 (chain-store-head-number target)))
+           (is (not (chain-store-transaction-location
+                     target
+                     (transaction-hash transaction)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-location-without-receipt
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-import-tx-receipt-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (transaction
+           (make-legacy-transaction :nonce 1
+                                    :gas-price 2
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 3
+                                    :v 27
+                                    :r 4
+                                    :s 5))
+         (receipt
+           (make-receipt :status 1 :cumulative-gas-used 21000))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         (head
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :state-root +empty-trie-hash+
+                               :timestamp 1
+                               :gas-limit 30000000)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (target-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000))))
+    (unwind-protect
+         (progn
+           (dolist (block (list genesis head))
+             (chain-store-put-block source block :state-available-p t))
+           (chain-store-set-canonical-head source (block-hash head))
+           (chain-store-update-forkchoice-checkpoints
+            source
+            (make-forkchoice-state
+             :head-block-hash (block-hash head)
+             :safe-block-hash (block-hash genesis)
+             :finalized-block-hash (block-hash genesis)))
+           (chain-store-put-block target target-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-delete-chain-record
+              database :receipt (hash32-bytes (block-hash head))))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 9 (chain-store-head-number target)))
+           (is (not (chain-store-transaction-location
+                     target
+                     (transaction-hash transaction)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-failure-keeps-existing-readable-data
   (let* ((path
            (merge-pathnames
