@@ -102,6 +102,24 @@
       (error "--jwt-secret must name a file containing a 32-byte hex secret"))
     secret))
 
+(defun devnet-cli-empty-file-p (path)
+  (with-open-file (stream path :direction :input)
+    (zerop (file-length stream))))
+
+(defun devnet-cli-kv-chain-records-present-p (database)
+  (some
+   (lambda (kind)
+     (not (null
+           (ethereum-lisp.database:kv-chain-record-entries database kind))))
+   '(:block :header :receipt :canonical-hash :checkpoint :state
+     :transaction-location)))
+
+(defun devnet-cli-make-output-kv-database (path)
+  (let ((existing-path (probe-file path)))
+    (when (and existing-path (devnet-cli-empty-file-p existing-path))
+      (delete-file existing-path)))
+  (ethereum-lisp.database:make-file-key-value-database path))
+
 (defun make-devnet-node
     (&key
        genesis-path
@@ -142,10 +160,15 @@
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
-    (when (and database-path (probe-file database-path))
-      (chain-store-import-from-kv
-       store
-       (ethereum-lisp.database:make-file-key-value-database database-path)))
+    (when database-path
+      (let ((existing-database-path (probe-file database-path)))
+        (when (and existing-database-path
+                   (not (devnet-cli-empty-file-p existing-database-path)))
+          (let ((database
+                  (ethereum-lisp.database:make-file-key-value-database
+                   existing-database-path)))
+            (when (devnet-cli-kv-chain-records-present-p database)
+              (chain-store-import-from-kv store database))))))
     (%make-devnet-node
      :genesis-path genesis-path
      :store store
@@ -172,7 +195,7 @@
     (when database-path
       (chain-store-export-to-kv
        (devnet-node-store node)
-       (ethereum-lisp.database:make-file-key-value-database database-path)))))
+       (devnet-cli-make-output-kv-database database-path)))))
 
 (defun devnet-block-number (block)
   (and block (block-header-number (block-header block))))

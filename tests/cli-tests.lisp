@@ -886,6 +886,64 @@
       (when (probe-file database-path)
         (delete-file database-path)))))
 
+(deftest devnet-cli-main-treats-empty-database-as-new-chain
+  (labels ((write-empty-kv-database (path)
+             (with-open-file (stream path
+                                     :direction :output
+                                     :if-exists :supersede
+                                     :if-does-not-exist :create)
+               (let ((*print-readably* t)
+                     (*print-pretty* nil))
+                 (write '(:ethereum-lisp-kv-v1 nil) :stream stream)
+                 (terpri stream)))))
+    (dolist (mode '(:empty-file :empty-kv))
+      (let ((database-path
+              (devnet-cli-temp-path "ethereum-lisp-devnet-empty-chain"
+                                     "sexp"))
+            (output (make-string-output-stream))
+            (errors (make-string-output-stream)))
+        (unwind-protect
+             (progn
+               (ecase mode
+                 (:empty-file
+                  (devnet-cli-write-temp-file database-path ""))
+                 (:empty-kv
+                  (write-empty-kv-database database-path)))
+               (is (= 0
+                      (ethereum-lisp.cli:main
+                       (list "devnet"
+                             "--genesis" +devnet-cli-genesis-fixture+
+                             "--port" "0"
+                             "--database" (namestring database-path)
+                             "--json"
+                             "--no-serve")
+                       :output-stream output
+                       :error-stream errors)))
+               (is (string= "" (get-output-stream-string errors)))
+               (let* ((summary
+                        (parse-json (get-output-stream-string output)))
+                      (database (make-file-key-value-database database-path))
+                      (restored-node
+                        (ethereum-lisp.cli:make-devnet-node
+                         :genesis-path +devnet-cli-genesis-fixture+
+                         :port 0
+                         :database-path (namestring database-path)))
+                      (restored-store
+                        (ethereum-lisp.cli:devnet-node-store restored-node))
+                      (head (chain-store-latest-block restored-store)))
+                 (is (= 1337 (fixture-object-field summary "chainId")))
+                 (is (= 0 (fixture-object-field summary "headNumber")))
+                 (is (eq t (fixture-object-field summary "stateAvailable")))
+                 (is (< 0 (length (kv-chain-record-entries database :block))))
+                 (is (< 0 (length (kv-chain-record-entries
+                                   database :canonical-hash))))
+                 (is (< 0 (length (kv-chain-record-entries database :state))))
+                 (is (= 0 (block-header-number (block-header head))))
+                 (is (chain-store-state-available-p restored-store
+                                                    (block-hash head)))))
+          (when (probe-file database-path)
+            (delete-file database-path)))))))
+
 (deftest devnet-cli-main-prunes-state-before-database-export
   (let ((database-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-pruned-chain" "sexp"))

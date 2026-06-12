@@ -207,7 +207,10 @@ fixes in those areas are allowed; expansion is not.
   persistence path through `--database PATH`, restoring existing KV chain-store
   snapshots at startup, optionally pruning retained state before a configured
   block number on export, and exporting the current readable chain view on
-  `--no-serve` or normal shutdown. The standalone devnet smoke gate can now
+  `--no-serve` or normal shutdown. Empty existing database files are treated as
+  new stores, so first-run devnet startup preserves and exports the loaded
+  genesis state instead of publishing an empty readable chain. The standalone
+  devnet smoke gate can now
   pass the same pruning boundary through its database export/restore check and
   verify a covered safe/finalized state snapshot is absent while the block and
   checkpoint records still restore. The same restored public RPC smoke now

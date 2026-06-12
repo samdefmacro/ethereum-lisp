@@ -4468,7 +4468,9 @@ splits can land after the Phase A smoke path closes.
     restores existing file-backed KV chain-store snapshots before serving and
     exports the current readable chain view during `--no-serve` or normal
     shutdown, making the development persistence path usable from local
-    devnet runs instead of only unit helpers.
+    devnet runs instead of only unit helpers. Existing empty database files
+    are now treated as new databases instead of clearing the freshly loaded
+    genesis chain, and the first export writes a restorable genesis snapshot.
   - Result: extended the standalone devnet smoke gate with `--database PATH`.
     The gate now exports the chain-store snapshot produced by the authenticated
     Engine import/forkchoice/public-read sequence, reopens the file-backed KV
