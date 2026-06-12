@@ -13058,6 +13058,60 @@
         (is (string= "eth_estimateGas execution reverted or exceeded gas cap"
                      (field cold-error "message")))))))
 
+(deftest eth-rpc-call-object-dynamic-fee-uses-effective-gas-price
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (word-hex (value)
+             (let ((bytes (make-byte-vector 32)))
+               (setf (aref bytes 31) value)
+               (bytes-to-hex bytes)))
+           (call (id call-object store config)
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" "eth_call")
+                    (cons "params" (list call-object "latest")))
+              store
+              config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           ;; GASPRICE; MSTORE 0; RETURN 32 bytes.
+           (code #(#x3a #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 31
+                       :timestamp 310
+                       :gas-limit 100000
+                       :base-fee-per-gas 10
+                       :state-root (state-db-root state))))
+           (dynamic-call
+             (list (cons "to" (address-to-hex contract))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "maxFeePerGas" (quantity-to-hex 11))
+                   (cons "maxPriorityFeePerGas" (quantity-to-hex 5))))
+           (mixed-call
+             (list (cons "to" (address-to-hex contract))
+                   (cons "gas" (quantity-to-hex 100000))
+                   (cons "gasPrice" (quantity-to-hex 7))
+                   (cons "maxFeePerGas" (quantity-to-hex 11)))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((dynamic-response (call 154 dynamic-call store config))
+             (mixed-response (call 155 mixed-call store config))
+             (mixed-error (field mixed-response "error")))
+        (is (string= (word-hex 11) (field dynamic-response "result")))
+        (is (= -32602 (field mixed-error "code")))
+        (is (string=
+             "eth_call cannot specify gasPrice with maxFeePerGas or maxPriorityFeePerGas"
+             (field mixed-error "message")))))))
+
 (deftest eth-rpc-call-rejects-non-revert-execution-failure
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

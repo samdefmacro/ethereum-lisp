@@ -682,6 +682,35 @@
          t))
       (values '() nil)))
 
+(defun eth-rpc-call-object-fees (object method)
+  (let ((gas-price-present-p
+          (genesis-object-field-present-p object "gasPrice"))
+        (max-fee-present-p
+          (genesis-object-field-present-p object "maxFeePerGas"))
+        (max-priority-present-p
+          (genesis-object-field-present-p object "maxPriorityFeePerGas")))
+    (when (and gas-price-present-p
+               (or max-fee-present-p max-priority-present-p))
+      (block-validation-fail
+       "~A cannot specify gasPrice with maxFeePerGas or maxPriorityFeePerGas"
+       method))
+    (if (or max-fee-present-p max-priority-present-p)
+        (let ((max-fee
+                (eth-rpc-call-object-quantity-field
+                 object "maxFeePerGas" method :default 0))
+              (max-priority
+                (eth-rpc-call-object-quantity-field
+                 object "maxPriorityFeePerGas" method :default 0)))
+          (when (< max-fee max-priority)
+            (block-validation-fail
+             "~A maxFeePerGas must be greater than or equal to maxPriorityFeePerGas"
+             method))
+          (values :dynamic max-fee max-priority))
+        (values :legacy
+                (eth-rpc-call-object-quantity-field
+                 object "gasPrice" method :default 0)
+                0))))
+
 (defun eth-rpc-call-object-transaction
     (object header method config &key gas-limit-override)
   (unless (json-object-p object)
@@ -696,34 +725,42 @@
                 object "gas" method
                 :default (or (and header (block-header-gas-limit header))
                              +genesis-gas-limit+))))
-         (gas-price
-           (or (eth-rpc-call-object-quantity-field
-                object "gasPrice" method)
-               (eth-rpc-call-object-quantity-field
-                object "maxFeePerGas" method)
-               0))
          (value
            (eth-rpc-call-object-quantity-field
             object "value" method :default 0))
          (data (eth-rpc-call-object-data object method)))
     (multiple-value-bind (access-list access-list-present-p)
         (eth-rpc-call-object-access-list object method)
-      (values
-       sender
-       (if access-list-present-p
-           (make-access-list-transaction
-            :chain-id (if config (chain-config-chain-id config) 0)
-            :gas-price gas-price
-            :gas-limit gas-limit
-            :to recipient
-            :value value
-            :data data
-            :access-list access-list)
-           (make-legacy-transaction :gas-price gas-price
-                                    :gas-limit gas-limit
-                                    :to recipient
-                                    :value value
-                                    :data data))))))
+      (multiple-value-bind (fee-style max-fee max-priority-fee)
+          (eth-rpc-call-object-fees object method)
+        (values
+         sender
+         (case fee-style
+           (:dynamic
+            (make-dynamic-fee-transaction
+             :chain-id (if config (chain-config-chain-id config) 0)
+             :max-fee-per-gas max-fee
+             :max-priority-fee-per-gas max-priority-fee
+             :gas-limit gas-limit
+             :to recipient
+             :value value
+             :data data
+             :access-list access-list))
+           (otherwise
+            (if access-list-present-p
+                (make-access-list-transaction
+                 :chain-id (if config (chain-config-chain-id config) 0)
+                 :gas-price max-fee
+                 :gas-limit gas-limit
+                 :to recipient
+                 :value value
+                 :data data
+                 :access-list access-list)
+                (make-legacy-transaction :gas-price max-fee
+                                         :gas-limit gas-limit
+                                         :to recipient
+                                         :value value
+                                         :data data)))))))))
 
 (defun eth-rpc-simulate-call-object
     (object block store config method &key gas-limit)

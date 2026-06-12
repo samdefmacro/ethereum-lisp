@@ -95,6 +95,9 @@ fixes in those areas are allowed; expansion is not.
   transactions for `eth_call`, `eth_estimateGas`, and
   `eth_createAccessList`, so retained-state simulations honor warm-account /
   warm-storage behavior and access-list intrinsic gas.
+  Explicit EIP-1559 call-object fee fields now build dynamic-fee simulation
+  transactions, reject mixed legacy/dynamic fee arguments, and expose the
+  base-fee-capped effective gas price to the `GASPRICE` opcode.
   `eth_createAccessList` can turn retained-state call access tracking into
   geth-shaped access-list and gas-used results. Retained-state RPC block
   selectors now also accept EIP-1898-style `blockHash` /

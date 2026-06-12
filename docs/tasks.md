@@ -4096,6 +4096,12 @@ splits can land after the Phase A smoke path closes.
   - Progress: retained-state simulation now parses call-object `accessList`
     entries and builds typed access-list simulation transactions, so
     predeclared accounts/storage keys are warm during `eth_call` execution.
+  - Progress: retained-state call-object fee parsing now mirrors geth
+    `8a0223e` call-argument boundaries for legacy versus EIP-1559 fields:
+    `gasPrice` is rejected when mixed with `maxFeePerGas` or
+    `maxPriorityFeePerGas`, and explicit EIP-1559 fields build dynamic-fee
+    simulation transactions so `GASPRICE` observes the effective
+    `min(maxFeePerGas, baseFee + maxPriorityFeePerGas)` value.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7
@@ -4120,6 +4126,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: `eth_estimateGas` now shares the retained-state call-object
     `accessList` parser, including access-list intrinsic gas and warm-access
     effects during the binary-search simulation.
+  - Progress: `eth_estimateGas` now shares the retained-state EIP-1559
+    call-object fee parser, so explicit dynamic-fee fields use dynamic
+    transaction validation and effective gas price semantics during search.
 
 - [x] Add `eth_createAccessList` first-pass support.
   - Milestone: 7
