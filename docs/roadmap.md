@@ -86,6 +86,9 @@ fixes in those areas are allowed; expansion is not.
   state unchanged. Call-object `value` is now applied inside the copied
   retained-state simulation for both recipient calls and contract creation, so
   balance reads observe the simulated transfer while overdrafts are rejected.
+  `eth_estimateGas` now derives contract-creation intrinsic gas from the
+  selected block's fork rules, so pre-Shanghai estimates do not include
+  EIP-3860 initcode word gas while Shanghai-and-later estimates retain it.
   `eth_createAccessList` can turn retained-state call access tracking into
   geth-shaped access-list and gas-used results. Retained-state RPC block
   selectors now also accept EIP-1898-style `blockHash` /
@@ -802,8 +805,9 @@ first pass, but interfaces must not block that path.
   `eth_createAccessList`) and then re-reads storage to prove simulation calls
   do not commit writes through the restored chain-store view. The direct RPC
   regression suite now also covers retained-state contract-creation
-  simulations plus value-bearing retained-state calls without committing
-  sender, recipient, or created-contract balance changes.
+  simulations, fork-specific contract-creation estimate lower bounds, and
+  value-bearing retained-state calls without committing sender, recipient, or
+  created-contract balance changes.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

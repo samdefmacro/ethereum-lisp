@@ -12955,6 +12955,39 @@
         (is (= -32602
                (field (field overdraft-response "error") "code")))))))
 
+(deftest eth-rpc-estimate-gas-uses-fork-intrinsic-gas
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 30
+                       :timestamp 300
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state))))
+           (tx (make-legacy-transaction :gas-limit 100000 :to nil))
+           (call-object
+             (list (cons "gas" (quantity-to-hex 100000)))))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let ((response
+              (engine-rpc-handle-request
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 150)
+                     (cons "method" "eth_estimateGas")
+                     (cons "params" (list call-object "latest")))
+               store
+               config)))
+        (is (string= (quantity-to-hex
+                      (transaction-intrinsic-gas tx :eip3860-p nil))
+                     (field response "result")))))))
+
 (deftest eth-rpc-state-methods-support-block-identifier-objects
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

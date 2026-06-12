@@ -723,6 +723,16 @@
     (declare (ignore return-data gas-used))
     (eth-rpc-call-status-success-p status)))
 
+(defun eth-rpc-call-intrinsic-gas (tx header config)
+  (let ((rules (and config
+                    header
+                    (chain-config-rules config
+                                        (block-header-number header)
+                                        (block-header-timestamp header)))))
+    (ethereum-lisp.state:transaction-intrinsic-gas
+     tx
+     :eip3860-p (or (null rules) (chain-rules-shanghai-p rules)))))
+
 (defun engine-rpc-handle-eth-estimate-gas (params store config)
   (unless (or (= 1 (length params)) (= 2 (length params)))
     (block-validation-fail
@@ -737,7 +747,8 @@
          object (block-header block) "eth_estimateGas")
       (declare (ignore sender))
       (let* ((intrinsic-gas
-               (ethereum-lisp.state:transaction-intrinsic-gas tx))
+               (eth-rpc-call-intrinsic-gas
+                tx (block-header block) config))
              (high
                (eth-rpc-call-object-gas-cap
                 object (block-header block) "eth_estimateGas")))

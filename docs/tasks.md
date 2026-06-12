@@ -4107,6 +4107,10 @@ splits can land after the Phase A smoke path closes.
   - Progress: `eth_estimateGas` now shares the retained-state value-transfer
     simulation boundary, so overdrafting call objects fail during gas search
     instead of executing against impossible copied balances.
+  - Progress: `eth_estimateGas` now computes the contract-creation intrinsic
+    lower bound with the selected block's fork rules, so pre-Shanghai
+    estimates avoid EIP-3860 initcode word gas while Shanghai-and-later
+    estimates keep it.
 
 - [x] Add `eth_createAccessList` first-pass support.
   - Milestone: 7
