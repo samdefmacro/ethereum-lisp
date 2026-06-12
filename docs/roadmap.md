@@ -144,6 +144,10 @@ fixes in those areas are allowed; expansion is not.
   already-pending transaction costs. When retained state is available, a
   missing sender balance entry is treated as the known zero balance rather
   than as unknown state, so absent senders cannot bypass txpool funding checks.
+  Txpool admission now also rejects raw transactions whose gas limit exceeds
+  the current head block gas limit, and canonical-head updates drop already
+  pooled pending/queued/basefee/blob entries that exceed the new head gas
+  limit before promotion or hash lookup can expose them again.
   Canonical-head updates prune stale txpool entries below the new retained
   sender nonce before promotion, so transactions made obsolete by another
   canonical branch disappear from txpool and hash lookups.

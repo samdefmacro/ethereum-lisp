@@ -15195,6 +15195,7 @@
            (private-key 1)
            (low-gas-store (make-engine-payload-memory-store))
            (typed-store (make-engine-payload-memory-store))
+           (over-gas-store (make-engine-payload-memory-store))
            (nonce-store (make-engine-payload-memory-store))
            (balance-store (make-engine-payload-memory-store))
            (missing-balance-store (make-engine-payload-memory-store))
@@ -15224,6 +15225,16 @@
               :y-parity 1
               :r #xc9519f4f2b30335884581971573fadf60c6204f59a911df35ee8a540456b2660
               :s #x32f1e8e2c5dd761f9e4f88f41c8310aeaba26a8bfcdacfedfa12ec3862d37521))
+           (over-gas-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 1
+               :gas-limit 30000001
+               :to recipient
+               :value 0)
+              private-key
+              1))
            (sender-code-transaction
              (fixture-sign-legacy-transaction
               (make-legacy-transaction
@@ -15266,6 +15277,11 @@
        nonce-store (block-hash head-block) sender 2)
       (chain-store-put-account-balance
        nonce-store (block-hash head-block) sender 1000000)
+      (chain-store-put-block over-gas-store head-block :state-available-p t)
+      (chain-store-put-account-nonce
+       over-gas-store (block-hash head-block) sender 0)
+      (chain-store-put-account-balance
+       over-gas-store (block-hash head-block) sender 100000000)
       (chain-store-put-block balance-store head-block :state-available-p t)
       (chain-store-put-account-balance
        balance-store (block-hash head-block) sender 100)
@@ -15281,6 +15297,8 @@
                (send-raw low-gas-transaction 112 low-gas-store config))
              (typed-response
                (send-raw unsupported-access-transaction 113 typed-store config))
+             (over-gas-response
+               (send-raw over-gas-transaction 124 over-gas-store config))
              (nonce-too-low-response
                (send-raw nonce-too-low-transaction 114 nonce-store config))
              (insufficient-balance-response
@@ -15309,6 +15327,12 @@
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":118,\"method\":\"txpool_status\",\"params\":[]}"
                  typed-store
+                 config)))
+             (over-gas-status
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":125,\"method\":\"txpool_status\",\"params\":[]}"
+                 over-gas-store
                  config)))
              (nonce-status
                (parse-json
@@ -15340,6 +15364,9 @@
         (is (= -32602 (field (field typed-response "error") "code")))
         (is (string= "Access-list transaction before Berlin"
                      (field (field typed-response "error") "message")))
+        (is (= -32602 (field (field over-gas-response "error") "code")))
+        (is (string= "eth_sendRawTransaction gas limit exceeds block gas limit"
+                     (field (field over-gas-response "error") "message")))
         (is (= -32602
                (field (field nonce-too-low-response "error") "code")))
         (is (string= "eth_sendRawTransaction nonce too low"
@@ -15366,6 +15393,7 @@
         (dolist (status-response
                  (list low-gas-status
                        typed-status
+                       over-gas-status
                        nonce-status
                        balance-status
                        missing-balance-status
@@ -17138,6 +17166,177 @@
                        (field (field queued "0") "hash")))
           (is (string= (quantity-to-hex 0)
                        (field transaction-count-response "result")))
+          (is (= 0 (length (field filter-changes "result")))))))))
+
+(deftest txpool-canonical-gas-limit-drop-removes-overlimit-transactions
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw (transaction id store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding transaction))
+                "\"]}")
+               store
+               config)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (pending-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 6
+               :gas-limit 50000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (queued-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 2
+               :gas-price 6
+               :gas-limit 60000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (basefee-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 3
+               :gas-price 4
+               :gas-limit 55000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (pending-hash
+             (hash32-to-hex (transaction-hash pending-transaction)))
+           (queued-hash
+             (hash32-to-hex (transaction-hash queued-transaction)))
+           (basefee-hash
+             (hash32-to-hex (transaction-hash basefee-transaction)))
+           (sender (transaction-sender pending-transaction
+                                       :expected-chain-id 1))
+           (parent-block
+             (make-block
+              :header (make-block-header :number 0
+                                         :timestamp 0
+                                         :gas-limit 100000
+                                         :base-fee-per-gas 5)))
+           (child-block
+             (make-block
+              :header (make-block-header :parent-hash
+                                         (block-hash parent-block)
+                                         :number 1
+                                         :timestamp 12
+                                         :gas-limit 30000
+                                         :base-fee-per-gas 5))))
+      (chain-store-put-block store parent-block :state-available-p t)
+      (chain-store-put-account-nonce store (block-hash parent-block) sender 0)
+      (chain-store-put-account-balance
+       store (block-hash parent-block) sender 1000000000)
+      (let* ((filter-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":231,\"method\":\"eth_newPendingTransactionFilter\"}"
+                store
+                config))
+             (filter-id (field filter-response "result"))
+             (queued-response (send-raw queued-transaction 232 store config))
+             (basefee-response (send-raw basefee-transaction 233 store config))
+             (pending-response (send-raw pending-transaction 234 store config))
+             (initial-status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":235,\"method\":\"txpool_status\",\"params\":[]}"
+                store
+                config))
+             (initial-filter-changes
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":236,"
+                 "\"method\":\"eth_getFilterChanges\","
+                 "\"params\":[\"" filter-id "\"]}")
+                store
+                config))
+             (initial-status (field initial-status-response "result")))
+        (is (string= queued-hash (field queued-response "result")))
+        (is (string= basefee-hash (field basefee-response "result")))
+        (is (string= pending-hash (field pending-response "result")))
+        (is (string= (quantity-to-hex 1) (field initial-status "pending")))
+        (is (string= (quantity-to-hex 2) (field initial-status "queued")))
+        (is (= 1 (length (field initial-filter-changes "result"))))
+        (chain-store-put-block store child-block :state-available-p t)
+        (chain-store-put-account-nonce
+         store (block-hash child-block) sender 0)
+        (chain-store-put-account-balance
+         store (block-hash child-block) sender 1000000000)
+        (chain-store-set-canonical-head store (block-hash child-block))
+        (let* ((status-response
+                 (request
+                  "{\"jsonrpc\":\"2.0\",\"id\":237,\"method\":\"txpool_status\",\"params\":[]}"
+                  store
+                  config))
+               (content-response
+                 (request
+                  "{\"jsonrpc\":\"2.0\",\"id\":238,\"method\":\"txpool_content\",\"params\":[]}"
+                  store
+                  config))
+               (pending-lookup-response
+                 (request
+                  (concatenate
+                   'string
+                   "{\"jsonrpc\":\"2.0\",\"id\":239,"
+                   "\"method\":\"eth_getTransactionByHash\","
+                   "\"params\":[\"" pending-hash "\"]}")
+                  store
+                  config))
+               (queued-lookup-response
+                 (request
+                  (concatenate
+                   'string
+                   "{\"jsonrpc\":\"2.0\",\"id\":240,"
+                   "\"method\":\"eth_getTransactionByHash\","
+                   "\"params\":[\"" queued-hash "\"]}")
+                  store
+                  config))
+               (basefee-lookup-response
+                 (request
+                  (concatenate
+                   'string
+                   "{\"jsonrpc\":\"2.0\",\"id\":241,"
+                   "\"method\":\"eth_getTransactionByHash\","
+                   "\"params\":[\"" basefee-hash "\"]}")
+                  store
+                  config))
+               (filter-changes
+                 (request
+                  (concatenate
+                   'string
+                   "{\"jsonrpc\":\"2.0\",\"id\":242,"
+                   "\"method\":\"eth_getFilterChanges\","
+                   "\"params\":[\"" filter-id "\"]}")
+                  store
+                  config))
+               (status (field status-response "result"))
+               (content (field content-response "result")))
+          (is (string= (quantity-to-hex 0) (field status "pending")))
+          (is (string= (quantity-to-hex 0) (field status "queued")))
+          (is (null (field content "pending")))
+          (is (null (field content "queued")))
+          (is (null (field pending-lookup-response "result")))
+          (is (null (field queued-lookup-response "result")))
+          (is (null (field basefee-lookup-response "result")))
           (is (= 0 (length (field filter-changes "result")))))))))
 
 (deftest txpool-canonical-balance-drop-demotes-overbudget-pending-tail

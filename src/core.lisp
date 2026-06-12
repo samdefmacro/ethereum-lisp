@@ -2684,6 +2684,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (engine-payload-memory-store-head-checkpoint store)
               (make-chain-store-checkpoint :label :head :block-hash hash)))
       (engine-payload-store-remove-stale-txpool-transactions store)
+      (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
       (engine-payload-store-revalidate-pending-transactions store)
       (engine-payload-store-promote-queued-transactions store)
       (engine-payload-store-promote-basefee-and-queued-transactions store)
@@ -4745,6 +4746,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (engine-payload-store-basefee-transactions store)
          #'engine-pending-txpool-remove-basefee-transaction)
         (remove-stale
+         (engine-payload-store-blob-transactions store)
+         #'engine-pending-txpool-remove-blob-transaction)))
+    (nreverse removed-transactions)))
+
+(defun engine-payload-store-over-gas-limit-txpool-transaction-p
+    (head transaction)
+  (> (transaction-gas-limit transaction)
+     (block-header-gas-limit (block-header head))))
+
+(defun engine-payload-store-remove-over-gas-limit-txpool-transactions (store)
+  (let ((head (chain-store-latest-block store))
+        (removed-transactions nil))
+    (when head
+      (flet ((remove-over-gas (transactions remove-function)
+               (dolist (transaction transactions)
+                 (when (engine-payload-store-over-gas-limit-txpool-transaction-p
+                        head transaction)
+                   (funcall remove-function
+                            (engine-payload-store-txpool store)
+                            (transaction-hash transaction))
+                   (push transaction removed-transactions)))))
+        (remove-over-gas
+         (engine-payload-store-pending-transactions store)
+         #'engine-pending-txpool-remove-pending-transaction)
+        (remove-over-gas
+         (engine-payload-store-queued-transactions store)
+         #'engine-pending-txpool-remove-queued-transaction)
+        (remove-over-gas
+         (engine-payload-store-basefee-transactions store)
+         #'engine-pending-txpool-remove-basefee-transaction)
+        (remove-over-gas
          (engine-payload-store-blob-transactions store)
          #'engine-pending-txpool-remove-blob-transaction)))
     (nreverse removed-transactions)))

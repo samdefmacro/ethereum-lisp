@@ -3944,6 +3944,10 @@ splits can land after the Phase A smoke path closes.
     head has retained account state, admission now rejects transactions below
     the retained sender nonce and rejects insufficient retained sender balance
     for the transaction's maximum upfront execution/blob gas plus value.
+    Admission also rejects transactions whose gas limit exceeds the current
+    head block gas limit, matching geth's `ErrGasLimit` / Nethermind's
+    `GasLimitTxFilter` boundary instead of exposing impossible-to-include
+    transactions in pending views.
 
 - [x] Add same-sender same-nonce replacement policy.
   - Milestone: 7
@@ -4022,6 +4026,11 @@ splits can land after the Phase A smoke path closes.
     queued view, and same-sender pending tails that exceed the new retained
     balance are demoted into queued so `eth_pendingTransactions` and pending
     nonces only expose the executable contiguous prefix.
+  - Progress: canonical-head updates now remove pending, queued, basefee, and
+    blob subpool transactions whose gas limit exceeds the new head block gas
+    limit. These entries are dropped from txpool counts and pooled hash
+    lookups before pending revalidation or queued/basefee promotion can expose
+    them again.
   - Progress: retained-state txpool balance checks now treat a missing sender
     balance entry as the known zero balance returned by retained state, rather
     than as unknown state. Raw submissions from absent senders are rejected for

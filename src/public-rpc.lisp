@@ -1722,6 +1722,11 @@
         (when (< (transaction-gas-limit transaction) intrinsic-gas)
           (block-validation-fail
            "eth_sendRawTransaction gas limit below intrinsic gas")))
+      (when (and head
+                 (> (transaction-gas-limit transaction)
+                    (block-header-gas-limit (block-header head))))
+        (block-validation-fail
+         "eth_sendRawTransaction gas limit exceeds block gas limit"))
       (eth-rpc-validate-txpool-sender-state
        store head sender transaction)
       (eth-rpc-validate-txpool-sender-code store head sender)))
