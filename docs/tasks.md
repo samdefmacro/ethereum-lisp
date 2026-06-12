@@ -4548,11 +4548,13 @@ splits can land after the Phase A smoke path closes.
     the pruned tag fail with the existing JSON-RPC "state is not available"
     error instead of silently returning head state or a zero/default value.
   - Validation: `sbcl --script tests/run-tests.lisp`.
-  - Result: the database-backed devnet smoke gate now sends an additional
-    restored `eth_getBalance` request against `"safe"` when the pruning
-    boundary covers the safe checkpoint state. It requires the JSON-RPC error
-    message `eth_getBalance state is not available`, reports it as
-    `databaseRpcPrunedStateError`, and CLI tests assert the process/database
+  - Result: the database-backed devnet smoke gate now sends restored
+    state-dependent requests against `"safe"` when the pruning boundary covers
+    the safe checkpoint state: balance, nonce, code, storage, proof, call,
+    estimate-gas, and access-list simulation. It requires each request to fail
+    with its JSON-RPC `state is not available` error, reports the first message
+    as `databaseRpcPrunedStateError` and the full set as
+    `databaseRpcPrunedStateErrors`, and CLI tests assert the process/database
     contract alongside the retained block/checkpoint checks.
 
 ## Recently Completed

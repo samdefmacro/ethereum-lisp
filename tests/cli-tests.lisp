@@ -54,9 +54,11 @@
      (* 6 (1- (fixture-object-field report "transactionCount")))
      (* 2 (fixture-object-field report "checkedLogCount"))
      (fixture-object-field report "checkedSimulationCount")
-     (if (fixture-object-field report "databaseRpcPrunedStateError")
-         1
-         0)))
+     (let ((errors
+             (fixture-object-field report "databaseRpcPrunedStateErrors")))
+       (if errors
+           (length errors)
+           0))))
 
 (defun devnet-cli-engine-fixture-payload-number (case-name)
   (let* ((case (select-engine-newpayload-v2-fixture-case
@@ -1189,6 +1191,20 @@
                (is (string= "eth_getBalance state is not available"
                             (fixture-object-field
                              report "databaseRpcPrunedStateError")))
+               (let ((errors
+                       (fixture-object-field
+                        report "databaseRpcPrunedStateErrors")))
+                 (is (= 8 (length errors)))
+                 (dolist (message
+                          '("eth_getBalance state is not available"
+                            "eth_getTransactionCount state is not available"
+                            "eth_getCode state is not available"
+                            "eth_getStorageAt state is not available"
+                            "eth_getProof state is not available"
+                            "eth_call state is not available"
+                            "eth_estimateGas state is not available"
+                            "eth_createAccessList state is not available"))
+                   (is (member message errors :test #'string=))))
                (multiple-value-bind (value present-p)
                    (kv-get-chain-record
                     database

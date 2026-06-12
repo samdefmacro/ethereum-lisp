@@ -571,13 +571,6 @@
          (log-block-hash-outputs
            (loop repeat (length log-targets)
                  collect (make-string-output-stream)))
-         (expected-public-connections
-           (+ 19
-              (length extra-balance-outputs)
-              (* 6 (length extra-receipt-outputs))
-              (* 2 (length log-targets))
-              4
-              (if pruned-state-rpc-tag 1 0)))
          (block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
         (nonce-output (make-string-output-stream))
@@ -601,9 +594,113 @@
         (estimate-gas-output (make-string-output-stream))
         (create-access-list-output (make-string-output-stream))
         (post-call-storage-output (make-string-output-stream))
-        (pruned-state-output
+        (pruned-state-probes
           (when pruned-state-rpc-tag
-            (make-string-output-stream)))
+            (list
+             (list
+              :method "eth_getBalance"
+              :expected-error "eth_getBalance state is not available"
+              :output (make-string-output-stream)
+              :request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 154)
+                    (cons "method" "eth_getBalance")
+                    (cons "params"
+                          (list (address-to-hex balance-address)
+                                pruned-state-rpc-tag))))
+             (list
+              :method "eth_getTransactionCount"
+              :expected-error
+              "eth_getTransactionCount state is not available"
+              :output (make-string-output-stream)
+              :request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 155)
+                    (cons "method" "eth_getTransactionCount")
+                    (cons "params"
+                          (list (address-to-hex sender-address)
+                                pruned-state-rpc-tag))))
+             (list
+              :method "eth_getCode"
+              :expected-error "eth_getCode state is not available"
+              :output (make-string-output-stream)
+              :request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 156)
+                    (cons "method" "eth_getCode")
+                    (cons "params"
+                          (list (address-to-hex code-address)
+                                pruned-state-rpc-tag))))
+             (list
+              :method "eth_getStorageAt"
+              :expected-error "eth_getStorageAt state is not available"
+              :output (make-string-output-stream)
+              :request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 157)
+                    (cons "method" "eth_getStorageAt")
+                    (cons "params"
+                          (list (address-to-hex storage-address)
+                                storage-key
+                                pruned-state-rpc-tag))))
+             (list
+              :method "eth_getProof"
+              :expected-error "eth_getProof state is not available"
+              :output (make-string-output-stream)
+              :request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 158)
+                    (cons "method" "eth_getProof")
+                    (cons "params"
+                          (list (address-to-hex storage-address)
+                                (list storage-key)
+                                pruned-state-rpc-tag))))
+             (list
+              :method "eth_call"
+              :expected-error "eth_call state is not available"
+              :output (make-string-output-stream)
+              :request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 159)
+                    (cons "method" "eth_call")
+                    (cons "params"
+                          (list
+                           (devnet-smoke-gate-simulation-call-object
+                            sender-address code-address)
+                           pruned-state-rpc-tag))))
+             (list
+              :method "eth_estimateGas"
+              :expected-error "eth_estimateGas state is not available"
+              :output (make-string-output-stream)
+              :request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 160)
+                    (cons "method" "eth_estimateGas")
+                    (cons "params"
+                          (list
+                           (devnet-smoke-gate-simulation-call-object
+                            sender-address code-address)
+                           pruned-state-rpc-tag))))
+             (list
+              :method "eth_createAccessList"
+              :expected-error "eth_createAccessList state is not available"
+              :output (make-string-output-stream)
+              :request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 161)
+                    (cons "method" "eth_createAccessList")
+                    (cons "params"
+                          (list
+                           (devnet-smoke-gate-simulation-call-object
+                            sender-address code-address)
+                           pruned-state-rpc-tag)))))))
+         (expected-public-connections
+           (+ 19
+              (length extra-balance-outputs)
+              (* 6 (length extra-receipt-outputs))
+              (* 2 (length log-targets))
+              4
+              (length pruned-state-probes)))
         (public-requests nil))
     (setf public-requests
           (list
@@ -788,20 +885,15 @@
                                         storage-key
                                         expected-block-number))))
             post-call-storage-output)))
-    (when pruned-state-rpc-tag
+    (when pruned-state-probes
       (setf public-requests
             (append
              public-requests
-             (list
-              (cons
-               (json-encode
-                (list (cons "jsonrpc" "2.0")
-                      (cons "id" 154)
-                      (cons "method" "eth_getBalance")
-                      (cons "params"
-                            (list (address-to-hex balance-address)
-                                  pruned-state-rpc-tag))))
-               pruned-state-output)))))
+             (mapcar
+              (lambda (probe)
+                (cons (json-encode (getf probe :request))
+                      (getf probe :output)))
+              pruned-state-probes))))
     (setf public-requests
           (nconc
            public-requests
@@ -1062,18 +1154,32 @@
                (devnet-smoke-gate-rpc-body create-access-list-response))
              (post-call-storage-rpc
                (devnet-smoke-gate-rpc-body post-call-storage-response))
-             (pruned-state-response
-               (when pruned-state-output
-                 (get-output-stream-string pruned-state-output)))
-             (pruned-state-rpc
-               (when pruned-state-response
-                 (devnet-smoke-gate-rpc-body pruned-state-response)))
-             (pruned-state-error
-               (and pruned-state-rpc
-                    (fixture-object-field pruned-state-rpc "error")))
-             (pruned-state-error-message
-               (and pruned-state-error
-                    (fixture-object-field pruned-state-error "message")))
+             (pruned-state-error-messages
+               (mapcar
+                (lambda (probe)
+                  (let* ((response
+                           (get-output-stream-string
+                            (getf probe :output)))
+                         (rpc (devnet-smoke-gate-rpc-body response))
+                         (error (fixture-object-field rpc "error"))
+                         (message
+                           (and error
+                                (fixture-object-field error "message"))))
+                    (devnet-smoke-gate-require
+                     (= 200 (devnet-cli-http-status response))
+                     "Restored pruned-state ~A HTTP status mismatch"
+                     (getf probe :method))
+                    (devnet-smoke-gate-require
+                     error
+                     "Restored pruned-state ~A did not return an error"
+                     (getf probe :method))
+                    (devnet-smoke-gate-require
+                     (string= (getf probe :expected-error) message)
+                     "Restored pruned-state ~A error mismatch: ~A"
+                     (getf probe :method)
+                     message)
+                    message))
+                pruned-state-probes))
              (actual-block-number
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
@@ -1292,18 +1398,6 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status post-call-storage-response))
          "Restored post-eth_call eth_getStorageAt HTTP status mismatch")
-        (when pruned-state-rpc-tag
-          (devnet-smoke-gate-require
-           (= 200 (devnet-cli-http-status pruned-state-response))
-           "Restored pruned-state eth_getBalance HTTP status mismatch")
-          (devnet-smoke-gate-require
-           pruned-state-error
-           "Restored pruned-state eth_getBalance did not return an error")
-          (devnet-smoke-gate-require
-           (string= "eth_getBalance state is not available"
-                    pruned-state-error-message)
-           "Restored pruned-state eth_getBalance error mismatch: ~A"
-           pruned-state-error-message))
         (devnet-smoke-gate-require
          (string= expected-block-number actual-block-number)
          "Restored eth_blockNumber mismatch: expected ~A got ~A"
@@ -1778,7 +1872,9 @@
               :access-list-gas-used actual-access-list-gas-used
               :post-call-storage actual-post-call-storage
               :simulation-count 4
-              :pruned-state-error-message pruned-state-error-message
+              :pruned-state-error-message
+              (first pruned-state-error-messages)
+              :pruned-state-error-messages pruned-state-error-messages
               :public-connections (getf summary :public-connections)))))
   #-sbcl
   (error "Restored devnet public RPC verification requires SBCL threads"))
@@ -1971,6 +2067,8 @@
                   (getf public-rpc-summary :simulation-count)
                   :rpc-pruned-state-error-message
                   (getf public-rpc-summary :pruned-state-error-message)
+                  :rpc-pruned-state-error-messages
+                  (getf public-rpc-summary :pruned-state-error-messages)
                   :rpc-public-connections
                   (getf public-rpc-summary :public-connections)))))
 
@@ -2594,6 +2692,12 @@
                                       :rpc-pruned-state-error-message)
                                 :false)
                             :false))
+                  (cons "databaseRpcPrunedStateErrors"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-pruned-state-error-messages)
+                                :false)
+                            :false))
                   (cons "databaseRpcPublicConnections"
                         (if database-summary
                             (getf database-summary :rpc-public-connections)
@@ -3207,7 +3311,10 @@
                  report "databaseRpcSimulationCount"))
         (format t "databaseRpcPrunedStateError=~A~%"
                 (devnet-smoke-gate-field
-                 report "databaseRpcPrunedStateError")))))
+                 report "databaseRpcPrunedStateError"))
+        (format t "databaseRpcPrunedStateErrors=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcPrunedStateErrors")))))
 
 (defun devnet-smoke-gate-main ()
   (let* ((args (devnet-smoke-gate-arguments))
