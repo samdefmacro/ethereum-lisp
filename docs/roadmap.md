@@ -91,6 +91,10 @@ fixes in those areas are allowed; expansion is not.
   `eth_estimateGas` now derives contract-creation intrinsic gas from the
   selected block's fork rules, so pre-Shanghai estimates do not include
   EIP-3860 initcode word gas while Shanghai-and-later estimates retain it.
+  Call-object `accessList` entries now build typed access-list simulation
+  transactions for `eth_call`, `eth_estimateGas`, and
+  `eth_createAccessList`, so retained-state simulations honor warm-account /
+  warm-storage behavior and access-list intrinsic gas.
   `eth_createAccessList` can turn retained-state call access tracking into
   geth-shaped access-list and gas-used results. Retained-state RPC block
   selectors now also accept EIP-1898-style `blockHash` /

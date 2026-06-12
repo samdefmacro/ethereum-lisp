@@ -619,16 +619,71 @@
          (input-present-p (genesis-object-field-present-p object "input"))
          (data (when data-present-p
                  (engine-rpc-bytes (genesis-object-field object "data")
-                                   "eth_call data")))
+                                   (format nil "~A data" method))))
          (input (when input-present-p
                   (engine-rpc-bytes (genesis-object-field object "input")
-                                    "eth_call input"))))
+                                    (format nil "~A input" method)))))
     (when (and data input (not (bytes= data input)))
       (block-validation-fail "~A data and input fields must match" method))
     (or data input (make-byte-vector 0))))
 
+(defun eth-rpc-call-object-access-list-storage-key (value method)
+  (handler-case
+      (engine-rpc-hash32 value "accessList storage key")
+    (block-validation-error ()
+      (block-validation-fail
+       "~A accessList storage key must be a 32-byte hash"
+       method))))
+
+(defun eth-rpc-call-object-access-list-entry (entry method)
+  (unless (json-object-p entry)
+    (block-validation-fail "~A accessList entry must be an object" method))
+  (unless (genesis-object-field-present-p entry "address")
+    (block-validation-fail "~A accessList entry address is missing" method))
+  (unless (genesis-object-field-present-p entry "storageKeys")
+    (block-validation-fail "~A accessList entry storageKeys is missing" method))
+  (let ((storage-keys (genesis-object-field entry "storageKeys")))
+    (when (json-object-p storage-keys)
+      (block-validation-fail
+       "~A accessList storageKeys must be an array"
+       method))
+    (unless (listp storage-keys)
+      (block-validation-fail
+       "~A accessList storageKeys must be an array"
+       method))
+    (make-access-list-entry
+     :address
+     (eth-rpc-address-param
+      (genesis-object-field entry "address")
+      method
+      "accessList address")
+     :storage-keys
+     (mapcar
+      (lambda (storage-key)
+        (eth-rpc-call-object-access-list-storage-key storage-key method))
+      storage-keys))))
+
+(defun eth-rpc-call-object-access-list (object method)
+  (if (genesis-object-field-present-p object "accessList")
+      (let ((access-list (genesis-object-field object "accessList")))
+        (when (json-object-p access-list)
+          (block-validation-fail
+           "~A accessList must be an array"
+           method))
+        (unless (listp access-list)
+          (block-validation-fail
+           "~A accessList must be an array"
+           method))
+        (values
+         (mapcar
+          (lambda (entry)
+            (eth-rpc-call-object-access-list-entry entry method))
+          access-list)
+         t))
+      (values '() nil)))
+
 (defun eth-rpc-call-object-transaction
-    (object header method &key gas-limit-override)
+    (object header method config &key gas-limit-override)
   (unless (json-object-p object)
     (block-validation-fail "~A call object must be a JSON object" method))
   (let* ((sender (or (eth-rpc-call-object-optional-address object "from" method)
@@ -651,19 +706,31 @@
            (eth-rpc-call-object-quantity-field
             object "value" method :default 0))
          (data (eth-rpc-call-object-data object method)))
-    (values
-     sender
-     (make-legacy-transaction :gas-price gas-price
-                              :gas-limit gas-limit
-                              :to recipient
-                              :value value
-                              :data data))))
+    (multiple-value-bind (access-list access-list-present-p)
+        (eth-rpc-call-object-access-list object method)
+      (values
+       sender
+       (if access-list-present-p
+           (make-access-list-transaction
+            :chain-id (if config (chain-config-chain-id config) 0)
+            :gas-price gas-price
+            :gas-limit gas-limit
+            :to recipient
+            :value value
+            :data data
+            :access-list access-list)
+           (make-legacy-transaction :gas-price gas-price
+                                    :gas-limit gas-limit
+                                    :to recipient
+                                    :value value
+                                    :data data))))))
 
 (defun eth-rpc-simulate-call-object
     (object block store config method &key gas-limit)
   (multiple-value-bind (sender tx)
       (eth-rpc-call-object-transaction
-       object (block-header block) method :gas-limit-override gas-limit)
+       object (block-header block) method config
+       :gas-limit-override gas-limit)
     (handler-case
         (ethereum-lisp.execution:execute-message-call
          (ethereum-lisp.execution:chain-store-state-db
@@ -747,7 +814,7 @@
                  "eth_estimateGas")))
     (multiple-value-bind (sender tx)
         (eth-rpc-call-object-transaction
-         object (block-header block) "eth_estimateGas")
+         object (block-header block) "eth_estimateGas" config)
       (declare (ignore sender))
       (let* ((intrinsic-gas
                (eth-rpc-call-intrinsic-gas
@@ -840,7 +907,7 @@
                  "eth_createAccessList")))
     (multiple-value-bind (sender tx)
         (eth-rpc-call-object-transaction
-         object (block-header block) "eth_createAccessList")
+         object (block-header block) "eth_createAccessList" config)
       (multiple-value-bind
             (status return-data gas-used accessed-addresses accessed-storage)
           (eth-rpc-simulate-call-object

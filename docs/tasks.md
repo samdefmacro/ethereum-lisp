@@ -4093,6 +4093,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: `eth_call` now distinguishes REVERT return data from non-revert
     execution failures. Reverts still return the EVM output bytes, while
     out-of-gas or other failed execution statuses become JSON-RPC errors.
+  - Progress: retained-state simulation now parses call-object `accessList`
+    entries and builds typed access-list simulation transactions, so
+    predeclared accounts/storage keys are warm during `eth_call` execution.
 
 - [x] Add `eth_estimateGas` first-pass binary search.
   - Milestone: 7
@@ -4114,6 +4117,9 @@ splits can land after the Phase A smoke path closes.
     lower bound with the selected block's fork rules, so pre-Shanghai
     estimates avoid EIP-3860 initcode word gas while Shanghai-and-later
     estimates keep it.
+  - Progress: `eth_estimateGas` now shares the retained-state call-object
+    `accessList` parser, including access-list intrinsic gas and warm-access
+    effects during the binary-search simulation.
 
 - [x] Add `eth_createAccessList` first-pass support.
   - Milestone: 7
@@ -4129,6 +4135,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: `eth_createAccessList` now accepts retained-state
     contract-creation simulations and reports the same gas-used result as the
     creation call path without committing the created code.
+  - Progress: `eth_createAccessList` now also accepts caller-supplied
+    call-object `accessList` entries, preserving typed-transaction intrinsic
+    gas and warm-set behavior while collecting additional touched state.
 
 - [x] Add subscription-compatible filter lifecycle notes before implementing
   WebSocket subscriptions.

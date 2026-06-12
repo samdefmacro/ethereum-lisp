@@ -12988,6 +12988,76 @@
                       (transaction-intrinsic-gas tx :eip3860-p nil))
                      (field response "result")))))))
 
+(deftest eth-rpc-call-object-access-list-warms-retained-simulation
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (id params store config)
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" "eth_estimateGas")
+                    (cons "params" params))
+              store
+              config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :berlin-block 0
+                                      :london-block 0))
+           (contract
+             (address-from-hex "0x00000000000000000000000000000000000000cc"))
+           (target
+             (address-from-hex "0x00000000000000000000000000000000000000bb"))
+           ;; PUSH20 target; BALANCE; POP; STOP.
+           (code (concat-bytes #(#x73) (address-bytes target)
+                               #(#x31 #x50 #x00)))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 31
+                       :timestamp 310
+                       :gas-limit 100000
+                       :base-fee-per-gas 0
+                       :state-root (state-db-root state))))
+           (access-list
+             (list
+              (list
+               (cons "address" (address-to-hex target))
+               (cons "storageKeys" '()))))
+           (access-list-transaction
+             (make-access-list-transaction
+              :chain-id 1
+              :gas-limit 100000
+              :to contract
+              :access-list
+              (list (make-access-list-entry :address target))))
+           (expected-gas
+             (+ (transaction-intrinsic-gas access-list-transaction)
+                105))
+           (access-list-call
+             (list (cons "to" (address-to-hex contract))
+                   (cons "gas" (quantity-to-hex expected-gas))
+                   (cons "accessList" access-list)))
+           (cold-call
+             (list (cons "to" (address-to-hex contract))
+                   (cons "gas" (quantity-to-hex expected-gas)))))
+      (state-db-set-code state contract code)
+      (state-db-set-account state target (make-state-account :balance 11))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((access-list-response
+               (request 152 (list access-list-call "latest") store config))
+             (cold-response
+               (request 153 (list cold-call "latest") store config))
+             (cold-error (field cold-response "error")))
+        (is (string= (quantity-to-hex expected-gas)
+                     (field access-list-response "result")))
+        (is (= -32602 (field cold-error "code")))
+        (is (string= "eth_estimateGas execution reverted or exceeded gas cap"
+                     (field cold-error "message")))))))
+
 (deftest eth-rpc-call-rejects-non-revert-execution-failure
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
