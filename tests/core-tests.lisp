@@ -2687,7 +2687,8 @@
       (is (string= (hash32-to-hex (block-hash child-block))
                    (hash32-to-hex
                     (payload-status-latest-valid-hash status))))
-      (is (eq child-block block)))))
+      (is (bytes= (block-rlp child-block)
+                  (block-rlp block))))))
 
 (deftest engine-new-payload-memory-status-rejects-unrecoverable-transaction-sender
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -3217,8 +3218,10 @@
             :block block)))
     (is (eq block
             (chain-store-put-block store block :state-available-p t)))
-    (is (eq block (chain-store-known-block store block-hash)))
-    (is (eq block (chain-store-block-by-number store 43)))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-known-block store block-hash))))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-block-by-number store 43))))
     (is (string= (hash32-to-hex block-hash)
                  (hash32-to-hex (chain-store-canonical-hash store 43))))
     (is (= 43 (chain-store-head-number store)))
@@ -3227,12 +3230,16 @@
       (chain-store-block-tag-number store "safe"))
     (signals block-validation-error
       (chain-store-block-tag-number store "finalized"))
-    (is (eq block (chain-store-latest-block store)))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-latest-block store))))
     (chain-store-put-block store competing-block)
-    (is (eq competing-block
-            (chain-store-known-block store competing-block-hash)))
-    (is (eq block (chain-store-block-by-number store 43)))
-    (is (eq block (chain-store-latest-block store)))
+    (is (bytes= (block-rlp competing-block)
+                (block-rlp
+                 (chain-store-known-block store competing-block-hash))))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-block-by-number store 43))))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-latest-block store))))
     (is (string= (hash32-to-hex block-hash)
                  (hash32-to-hex (chain-store-canonical-hash store 43))))
     (is (chain-store-state-available-p store block-hash))
@@ -3259,13 +3266,19 @@
     (let ((location
             (chain-store-transaction-location store transaction-hash)))
       (is (typep location 'engine-transaction-location))
-      (is (eq block (engine-transaction-location-block location)))
+      (is (bytes= (block-rlp block)
+                  (block-rlp (engine-transaction-location-block location))))
       (is (= 0 (engine-transaction-location-index location)))
-      (is (eq transaction
-              (engine-transaction-location-transaction location)))
-      (is (eq receipt (engine-transaction-location-receipt location))))
-    (is (equal (list receipt)
-               (chain-store-block-receipts store block-hash)))
+      (is (bytes= (transaction-encoding transaction)
+                  (transaction-encoding
+                   (engine-transaction-location-transaction location))))
+      (is (bytes= (receipt-rlp receipt)
+                  (receipt-rlp
+                   (engine-transaction-location-receipt location)))))
+    (let ((receipts (chain-store-block-receipts store block-hash)))
+      (is (= 1 (length receipts)))
+      (is (bytes= (receipt-rlp receipt)
+                  (receipt-rlp (first receipts)))))
     (is (eq store
             (chain-store-update-forkchoice-checkpoints
              store forkchoice-state)))
@@ -3288,14 +3301,77 @@
     (is (eq :finalized
             (chain-store-checkpoint-label
              (chain-store-finalized-checkpoint store))))
-    (is (eq block (chain-store-head-block store)))
-    (is (eq block (chain-store-safe-block store)))
-    (is (eq block (chain-store-finalized-block store)))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-head-block store))))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-safe-block store))))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-finalized-block store))))
     (is (= 43 (chain-store-block-tag-number store "safe")))
     (is (= 43 (chain-store-block-tag-number store "finalized")))
     (is (eq prepared-payload
             (chain-store-put-prepared-payload store prepared-payload)))
     (is (chain-store-prepared-payload store payload-id))))
+
+(deftest chain-store-put-block-copies-known-block-record
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (log-data (vector #x01 #x02))
+         (transaction
+           (make-legacy-transaction :nonce 1
+                                    :gas-price 7
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 3))
+         (receipt
+           (make-receipt
+            :status 1
+            :cumulative-gas-used 21000
+            :logs
+            (list
+             (make-log-entry :address recipient
+                             :topics (list (zero-hash32))
+                             :data log-data))))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-used 21000
+                               :extra-data #(#x03 #x04))
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (block-hash (block-hash block))
+         (transaction-hash (transaction-hash transaction))
+         (expected-block-rlp (block-rlp block))
+         (expected-transaction-encoding (transaction-encoding transaction))
+         (expected-receipt-rlp (receipt-rlp receipt)))
+    (chain-store-put-block store block :state-available-p t)
+    (setf (block-header-extra-data (block-header block)) #(#xff)
+          (legacy-transaction-gas-price transaction) 99
+          (receipt-status receipt) 0
+          (aref log-data 0) #xee)
+    (is (not (eq block (chain-store-known-block store block-hash))))
+    (is (bytes= expected-block-rlp
+                (block-rlp (chain-store-known-block store block-hash))))
+    (is (bytes= expected-block-rlp
+                (block-rlp (chain-store-block-by-number store 9))))
+    (let ((location (chain-store-transaction-location store transaction-hash)))
+      (is (typep location 'engine-transaction-location))
+      (is (bytes= expected-block-rlp
+                  (block-rlp (engine-transaction-location-block location))))
+      (is (bytes= expected-transaction-encoding
+                  (transaction-encoding
+                   (engine-transaction-location-transaction location))))
+      (is (bytes= expected-receipt-rlp
+                  (receipt-rlp
+                   (engine-transaction-location-receipt location)))))
+    (let ((receipts (chain-store-block-receipts store block-hash)))
+      (is (= 1 (length receipts)))
+      (is (bytes= expected-receipt-rlp
+                  (receipt-rlp (first receipts)))))))
 
 (deftest chain-store-export-indexes-to-kv-syncs-canonical-and-checkpoints
   (let* ((path
@@ -3779,9 +3855,13 @@
            (is (not (chain-store-state-available-p store
                                                    (block-hash block-a))))
            (is (chain-store-state-available-p store (block-hash block-b)))
-           (is (eq block-a (chain-store-known-block store (block-hash block-a))))
-           (is (eq block-a (chain-store-block-by-number store 1)))
-           (is (eq block-b (chain-store-block-by-number store 2)))
+           (is (bytes= (block-rlp block-a)
+                       (block-rlp
+                        (chain-store-known-block store (block-hash block-a)))))
+           (is (bytes= (block-rlp block-a)
+                       (block-rlp (chain-store-block-by-number store 1))))
+           (is (bytes= (block-rlp block-b)
+                       (block-rlp (chain-store-block-by-number store 2))))
            (is (= 0 (chain-store-account-balance
                      store (block-hash block-a) address)))
            (is (= 0 (chain-store-account-nonce
@@ -7199,7 +7279,8 @@
            (values :committed block)))
       (is (eq :committed result))
       (is (eq block committed-block)))
-    (is (eq block (chain-store-known-block store block-hash)))
+    (is (bytes= (block-rlp block)
+                (block-rlp (chain-store-known-block store block-hash))))
     (is (chain-store-state-available-p store block-hash))
     (is (= 99 (chain-store-account-balance store block-hash address)))
     (is (typep (chain-store-transaction-location store transaction-hash)
@@ -7481,8 +7562,9 @@
             (transaction-hash pending-transaction))))
       (is (null sender-transactions))
       (is (typep location 'engine-transaction-location))
-      (is (eq mined-transaction
-              (engine-transaction-location-transaction location))))))
+      (is (bytes= (transaction-encoding mined-transaction)
+                  (transaction-encoding
+                   (engine-transaction-location-transaction location)))))))
 
 (deftest engine-payload-store-removes-included-transactions-from-subpools
   (labels ((put-queued (store transaction)
@@ -8347,8 +8429,11 @@
            (execute-legacy-block state sender (list transaction)
                                  :header header)))
       (is (= 1 (length receipts)))
-      (is (eq block (chain-store-known-block store (block-hash block))))
-      (is (eq block (chain-store-block-by-number store 0)))
+      (is (bytes= (block-rlp block)
+                  (block-rlp
+                   (chain-store-known-block store (block-hash block)))))
+      (is (bytes= (block-rlp block)
+                  (block-rlp (chain-store-block-by-number store 0))))
       (is (chain-store-state-available-p store (block-hash block)))
       (is (typep (chain-store-transaction-location
                   store
@@ -8492,7 +8577,8 @@
          :expected-chain-id 1
          :header header)
       (is (= 1 (length receipts)))
-      (is (eq block (chain-store-block-by-number store 0)))
+      (is (bytes= (block-rlp block)
+                  (block-rlp (chain-store-block-by-number store 0))))
       (is (typep (chain-store-transaction-location
                   store
                   (transaction-hash transaction))
@@ -8611,22 +8697,30 @@
              (b3-transaction-hash (transaction-hash b3-transaction)))
         (dolist (block (list genesis a1 a2 b1 b2 b3))
           (chain-store-put-block store block))
-        (is (eq a1 (chain-store-block-by-number store 1)))
-        (is (eq a2 (chain-store-block-by-number store 2)))
+        (is (bytes= (block-rlp a1)
+                    (block-rlp (chain-store-block-by-number store 1))))
+        (is (bytes= (block-rlp a2)
+                    (block-rlp (chain-store-block-by-number store 2))))
         (is (null (chain-store-canonical-hash store 3)))
         (is (= 2 (chain-store-head-number store)))
-        (is (eq a2 (chain-store-latest-block store)))
+        (is (bytes= (block-rlp a2)
+                    (block-rlp (chain-store-latest-block store))))
         (is (typep (chain-store-transaction-location
                     store a2-transaction-hash)
                    'engine-transaction-location))
         (is (null (chain-store-transaction-location
                    store b3-transaction-hash)))
-        (is (eq b3 (chain-store-known-block store b3-hash)))
-        (is (eq b3
-                (chain-store-set-canonical-head store b3-hash)))
-        (is (eq b1 (chain-store-block-by-number store 1)))
-        (is (eq b2 (chain-store-block-by-number store 2)))
-        (is (eq b3 (chain-store-block-by-number store 3)))
+        (is (bytes= (block-rlp b3)
+                    (block-rlp (chain-store-known-block store b3-hash))))
+        (is (bytes= (block-rlp b3)
+                    (block-rlp
+                     (chain-store-set-canonical-head store b3-hash))))
+        (is (bytes= (block-rlp b1)
+                    (block-rlp (chain-store-block-by-number store 1))))
+        (is (bytes= (block-rlp b2)
+                    (block-rlp (chain-store-block-by-number store 2))))
+        (is (bytes= (block-rlp b3)
+                    (block-rlp (chain-store-block-by-number store 3))))
         (is (string= (hash32-to-hex b1-hash)
                      (hash32-to-hex
                       (chain-store-canonical-hash store 1))))
@@ -8636,20 +8730,27 @@
         (is (string= (hash32-to-hex b3-hash)
                      (hash32-to-hex
                       (chain-store-canonical-hash store 3))))
-        (is (eq a1 (chain-store-known-block store a1-hash)))
-        (is (eq a2 (chain-store-known-block store a2-hash)))
+        (is (bytes= (block-rlp a1)
+                    (block-rlp (chain-store-known-block store a1-hash))))
+        (is (bytes= (block-rlp a2)
+                    (block-rlp (chain-store-known-block store a2-hash))))
         (is (null (chain-store-transaction-location
                    store a2-transaction-hash)))
         (let ((location
                 (chain-store-transaction-location
                  store b3-transaction-hash)))
           (is (typep location 'engine-transaction-location))
-          (is (eq b3 (engine-transaction-location-block location)))
-          (is (eq b3-transaction
-                  (engine-transaction-location-transaction location)))
-          (is (eq b3-receipt
-                  (engine-transaction-location-receipt location))))
-        (is (eq b3 (chain-store-latest-block store)))
+          (is (bytes= (block-rlp b3)
+                      (block-rlp
+                       (engine-transaction-location-block location))))
+          (is (bytes= (transaction-encoding b3-transaction)
+                      (transaction-encoding
+                       (engine-transaction-location-transaction location))))
+          (is (bytes= (receipt-rlp b3-receipt)
+                      (receipt-rlp
+                       (engine-transaction-location-receipt location)))))
+        (is (bytes= (block-rlp b3)
+                    (block-rlp (chain-store-latest-block store))))
         (is (= 3 (chain-store-block-tag-number store "latest")))))))
 
 (deftest chain-store-keeps-canonical-transaction-location-over-sidechain-duplicate
@@ -8694,20 +8795,28 @@
         (let ((location
                 (chain-store-transaction-location store shared-hash)))
           (is (typep location 'engine-transaction-location))
-          (is (eq a2 (engine-transaction-location-block location))))
+          (is (bytes= (block-rlp a2)
+                      (block-rlp
+                       (engine-transaction-location-block location)))))
         (dolist (block (list b1 b2))
           (chain-store-put-block store block))
         (let ((location
                 (chain-store-transaction-location store shared-hash)))
           (is (typep location 'engine-transaction-location))
-          (is (eq a2 (engine-transaction-location-block location))))
+          (is (bytes= (block-rlp a2)
+                      (block-rlp
+                       (engine-transaction-location-block location)))))
         (chain-store-set-canonical-head store (block-hash b2))
         (let ((location
                 (chain-store-transaction-location store shared-hash)))
           (is (typep location 'engine-transaction-location))
-          (is (eq b2 (engine-transaction-location-block location)))
-          (is (eq shared-transaction
-                  (engine-transaction-location-transaction location))))))))
+          (is (bytes= (block-rlp b2)
+                      (block-rlp
+                       (engine-transaction-location-block location))))
+          (is (bytes= (transaction-encoding shared-transaction)
+                      (transaction-encoding
+                       (engine-transaction-location-transaction
+                        location)))))))))
 
 (deftest chain-store-keeps-pending-transaction-when-sidechain-block-includes-it
   (let* ((store (make-engine-payload-memory-store))
@@ -8770,9 +8879,12 @@
     (let ((location
             (chain-store-transaction-location store transaction-hash)))
       (is (typep location 'engine-transaction-location))
-      (is (eq sidechain-child (engine-transaction-location-block location)))
-      (is (eq transaction
-              (engine-transaction-location-transaction location))))))
+      (is (bytes= (block-rlp sidechain-child)
+                  (block-rlp
+                   (engine-transaction-location-block location))))
+      (is (bytes= (transaction-encoding transaction)
+                  (transaction-encoding
+                   (engine-transaction-location-transaction location)))))))
 
 (deftest chain-store-reinserts-displaced-canonical-transactions-after-reorg
   (let* ((store (make-engine-payload-memory-store))
@@ -8830,10 +8942,11 @@
     (is (= 1
            (ethereum-lisp.core::engine-payload-store-pending-transaction-count
             store)))
-    (is (eq transaction
-            (ethereum-lisp.core::engine-payload-store-pending-transaction
-             store
-             transaction-hash)))))
+    (is (bytes= (transaction-encoding transaction)
+                (transaction-encoding
+                 (ethereum-lisp.core::engine-payload-store-pending-transaction
+                  store
+                  transaction-hash))))))
 
 (deftest engine-rpc-forkchoice-reinsert-enforces-configured-chain-id
   (labels ((field (object name)
@@ -11107,7 +11220,8 @@
           (is (= -38002 (field error "code")))
           (is (string= "forkchoice safe block state is not available"
                        (field error "message")))
-          (is (eq safe-block (chain-store-safe-block store)))))
+          (is (bytes= (block-rlp safe-block)
+                      (block-rlp (chain-store-safe-block store))))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -11121,7 +11235,8 @@
         (is (= -38002 (field error "code")))
         (is (string= "forkchoice safe block is not an ancestor of head"
                      (field error "message")))
-        (is (eq safe-block (chain-store-safe-block store))))
+        (is (bytes= (block-rlp safe-block)
+                    (block-rlp (chain-store-safe-block store)))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -11147,7 +11262,8 @@
         (is (= -38002 (field error "code")))
         (is (string= "forkchoice finalized block is not an ancestor of head"
                      (field error "message")))
-        (is (eq finalized-block (chain-store-finalized-block store))))
+        (is (bytes= (block-rlp finalized-block)
+                    (block-rlp (chain-store-finalized-block store)))))
       (let* ((response
                (engine-rpc-handle-request
                 (forkchoice-request
@@ -11162,8 +11278,10 @@
         (is (= -38002 (field error "code")))
         (is (string= "forkchoice safe block is older than finalized block"
                      (field error "message")))
-        (is (eq safe-block (chain-store-safe-block store)))
-        (is (eq finalized-block (chain-store-finalized-block store))))
+        (is (bytes= (block-rlp safe-block)
+                    (block-rlp (chain-store-safe-block store))))
+        (is (bytes= (block-rlp finalized-block)
+                    (block-rlp (chain-store-finalized-block store)))))
       (let* ((bad-state
                (list (cons "headBlockHash" (hash32-to-hex known-hash))))
              (response
@@ -11290,9 +11408,12 @@
         (is (= -32602 (field error "code")))
         (is (string= "Canonical head ancestry must be fully known"
                      (field error "message")))
-        (is (eq old-head (chain-store-head-block store)))
-        (is (eq genesis (chain-store-safe-block store)))
-        (is (eq genesis (chain-store-finalized-block store)))
+        (is (bytes= (block-rlp old-head)
+                    (block-rlp (chain-store-head-block store))))
+        (is (bytes= (block-rlp genesis)
+                    (block-rlp (chain-store-safe-block store))))
+        (is (bytes= (block-rlp genesis)
+                    (block-rlp (chain-store-finalized-block store))))
         (is (string= (hash32-to-hex (block-hash old-head))
                      (hash32-to-hex
                       (chain-store-canonical-hash store 1))))

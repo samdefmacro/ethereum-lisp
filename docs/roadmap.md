@@ -839,6 +839,10 @@ first pass, but interfaces must not block that path.
   cached sidecar bytes after lookup.
   Remote-block and invalid-tipset cache insertion and lookup likewise copy
   parked block records before exposing them to sync-cache callers or KV export.
+  Known-block publication now copies block, transaction, receipt, and log
+  records before updating readable chain-store indexes, so canonical block
+  reads, transaction locations, receipt lookups, txpool reinsertion, and KV
+  export cannot observe caller-side mutation after block insertion.
   Txpool
   snapshot copies now also copy transaction objects by canonical encoding while
   preserving table/index identity inside the copied txpool, preventing rollback

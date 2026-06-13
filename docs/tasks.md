@@ -1399,6 +1399,12 @@ splits can land after the Phase A smoke path closes.
       cached block records. Caller-side mutation of parked or invalid block
       objects, including objects returned by sync-cache lookups, can no longer
       change later sync-cache reads or KV export records.
+    - Known-block publication now copies the stored block graph, including
+      transaction, receipt, and log records, before updating block-by-hash,
+      block-by-number, transaction-location, receipt, txpool-removal, and
+      filter-notification indexes. Caller-side mutation after
+      `chain-store-put-block` can no longer change canonical reads,
+      transaction-location records, block receipts, or exported KV block data.
   - Follow-up:
     - Pending txpool and filter cursors remain in the in-memory store because
       they are pool/filter concerns rather than chain-store block/state indexes.

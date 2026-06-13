@@ -2574,20 +2574,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (unless (engine-pending-txpool-empty-p txpool)
       (dolist (transaction (block-transactions block))
         (engine-pending-txpool-sender transaction))))
-  (let ((key (engine-payload-store-key (block-hash block)))
+  (let ((stored-block (engine-payload-store-copy-block block))
+        (key (engine-payload-store-key (block-hash block)))
         (canonicalized-p nil)
         (notify-head-p nil))
     (remhash key (engine-payload-memory-store-remote-blocks store))
-    (setf (gethash key (engine-payload-memory-store-blocks store)) block)
-    (let ((number (block-header-number (block-header block))))
+    (setf (gethash key (engine-payload-memory-store-blocks store))
+          stored-block)
+    (let ((number (block-header-number (block-header stored-block))))
       (when (and (integerp number) (not (minusp number)))
         (setf (gethash number
                        (engine-payload-memory-store-number-blocks store))
-              block)
+              stored-block)
         (when (and (not (gethash
                          number
                          (engine-payload-memory-store-canonical-hashes store)))
-                   (engine-payload-store-canonical-parent-p store block))
+                   (engine-payload-store-canonical-parent-p store stored-block))
           (setf (gethash number
                          (engine-payload-memory-store-canonical-hashes store))
                 key
@@ -2596,15 +2598,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    (> number (engine-payload-memory-store-head-number store)))
           (setf notify-head-p t)
           (setf (engine-payload-memory-store-head-number store) number))))
-    (loop with receipts = (block-receipts block)
+    (loop with receipts = (block-receipts stored-block)
           with log-index-start = 0
-          for transaction in (block-transactions block)
+          for transaction in (block-transactions stored-block)
           for index from 0
           for receipt = (nth index receipts)
           do (progn
                (engine-payload-store-put-transaction-location
                 store
-                block
+                stored-block
                 index
                 transaction
                 receipt
@@ -2612,15 +2614,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (when receipt
                  (incf log-index-start
                        (length (receipt-logs receipt))))))
-    (when (engine-payload-store-canonical-block-p store block)
-      (engine-payload-store-remove-included-block-transactions store block))
+    (when (engine-payload-store-canonical-block-p store stored-block)
+      (engine-payload-store-remove-included-block-transactions store stored-block))
     (if state-available-p
         (setf (gethash key
                        (engine-payload-memory-store-state-blocks store))
               t)
         (remhash key (engine-payload-memory-store-state-blocks store)))
     (when notify-head-p
-      (engine-payload-store-notify-block-filters store block))
+      (engine-payload-store-notify-block-filters store stored-block))
     block))
 
 (defun engine-payload-store-known-block
@@ -3056,14 +3058,44 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (maybe-copy-hash32 (block-header-block-access-list-hash header))
      :slot-number (block-header-slot-number header))))
 
+(defun engine-payload-store-copy-log-entry (log)
+  (cond
+    ((typep log 'log-entry)
+     (make-log-entry
+      :address (maybe-copy-address (log-entry-address log))
+      :topics (mapcar (lambda (topic)
+                        (if (typep topic 'hash32)
+                            (maybe-copy-hash32 topic)
+                            (maybe-copy-bytes topic)))
+                      (log-entry-topics log))
+      :data (maybe-copy-bytes (log-entry-data log))))
+    (t log)))
+
+(defun engine-payload-store-copy-receipt (receipt)
+  (cond
+    ((typep receipt 'receipt)
+     (make-receipt
+      :post-state (maybe-copy-bytes (receipt-post-state receipt))
+      :status (receipt-status receipt)
+      :cumulative-gas-used (receipt-cumulative-gas-used receipt)
+      :logs (mapcar #'engine-payload-store-copy-log-entry
+                    (receipt-logs receipt))))
+    (t receipt)))
+
 (defun engine-payload-store-copy-block (block)
   (cond
     ((typep block 'ethereum-block)
      (let ((copy (copy-ethereum-block block)))
        (setf (block-header copy)
              (engine-payload-store-copy-block-header (block-header block))
-             (block-transactions copy) (copy-list (block-transactions block))
-             (block-receipts copy) (copy-list (block-receipts block))
+             (block-transactions copy)
+             (mapcar (lambda (transaction)
+                       (transaction-from-encoding
+                        (transaction-encoding transaction)))
+                     (block-transactions block))
+             (block-receipts copy)
+             (mapcar #'engine-payload-store-copy-receipt
+                     (block-receipts block))
              (block-ommers copy) (copy-list (block-ommers block))
              (block-withdrawals copy)
              (maybe-copy-withdrawals (block-withdrawals block))
