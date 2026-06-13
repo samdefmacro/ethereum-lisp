@@ -1386,6 +1386,11 @@ splits can land after the Phase A smoke path closes.
     - Added chain-store head number and block-tag number wrappers, then moved
       public block-number/tag resolution, fee-history bounds, block filter
       cursors, and Engine payload-body range bounds through the boundary.
+    - KV chain-store import now revalidates restored txpool records against
+      the restored canonical head when head state is available: stale nonces
+      and over-gas entries are pruned, pending entries are demoted when no
+      longer executable, and basefee/queued entries are promoted when the
+      restored head makes them contiguous and eligible.
   - Follow-up:
     - Pending txpool and filter cursors remain in the in-memory store because
       they are pool/filter concerns rather than chain-store block/state indexes.

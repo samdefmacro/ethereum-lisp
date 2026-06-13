@@ -4347,6 +4347,147 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-revalidates-restored-txpool
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-txpool-revalidate-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (restored (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (head-block
+           (make-block
+            :header
+            (make-block-header
+             :number 1
+             :timestamp 12
+             :gas-limit 30000
+             :base-fee-per-gas 5)))
+         (stale-pending
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 6
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (basefee-ready
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1
+             :gas-price 6
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (queued-ready
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 2
+             :gas-price 6
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (queued-over-gas
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 3
+             :gas-price 6
+             :gas-limit 40000
+             :to recipient)
+            1
+            1))
+         (sender (transaction-sender basefee-ready :expected-chain-id 1)))
+    (unwind-protect
+         (progn
+           (let ((state (make-state-db)))
+             (state-db-set-account
+              state
+              sender
+              (make-state-account :balance 10000000 :nonce 1))
+             (setf (block-header-state-root (block-header head-block))
+                   (state-db-root state)))
+           (chain-store-put-block source head-block :state-available-p t)
+           (chain-store-put-account-nonce
+            source (block-hash head-block) sender 1)
+           (chain-store-put-account-balance
+            source (block-hash head-block) sender 10000000)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash stale-pending))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :pending
+               stale-pending))
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash basefee-ready))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :basefee
+               basefee-ready))
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash queued-ready))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :queued
+               queued-ready))
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash queued-over-gas))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :queued
+               queued-over-gas)))
+           (let ((database (make-file-key-value-database path)))
+             (is (eq restored
+                     (chain-store-import-from-kv restored database))))
+           (is (= 2
+                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                   restored)))
+           (is (= 0
+                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                   restored)))
+           (is (= 0
+                  (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+                   restored)))
+           (is (eq nil
+                   (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                    restored
+                    (transaction-hash stale-pending))))
+           (is (eq nil
+                   (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                    restored
+                    (transaction-hash queued-over-gas))))
+           (is (bytes= (transaction-encoding basefee-ready)
+                       (transaction-encoding
+                        (ethereum-lisp.core::engine-payload-store-pending-transaction
+                         restored
+                         (transaction-hash basefee-ready)))))
+           (is (bytes= (transaction-encoding queued-ready)
+                       (transaction-encoding
+                        (ethereum-lisp.core::engine-payload-store-pending-transaction
+                         restored
+                         (transaction-hash queued-ready)))))
+           (let ((sender-transactions
+                   (ethereum-lisp.core::engine-payload-store-pending-sender-transactions
+                    restored
+                    sender)))
+             (is (= 2 (length sender-transactions)))
+             (is (= 1 (transaction-nonce (first sender-transactions))))
+             (is (= 2 (transaction-nonce (second sender-transactions))))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-rejects-corrupt-txpool-record
   (let* ((path
            (merge-pathnames

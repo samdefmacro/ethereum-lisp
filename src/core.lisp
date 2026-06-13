@@ -4357,6 +4357,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (chain-store-import-txpool-transaction-from-kv
      store (car entry) (cdr entry))))
 
+(defun chain-store-restore-txpool-consistency (store)
+  (let ((head (chain-store-latest-block store)))
+    (when head
+      (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
+      (when (chain-store-state-available-p store (block-hash head))
+        (engine-payload-store-remove-stale-txpool-transactions store)
+        (engine-payload-store-revalidate-pending-transactions store)
+        (engine-payload-store-promote-queued-transactions store)
+        (engine-payload-store-promote-basefee-and-queued-transactions store))))
+  store)
+
 (defun chain-store-import-invalid-tipset-from-kv
     (store tipset-identifier record)
   (handler-case
@@ -4571,7 +4582,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-remote-blocks-from-kv staging database)
       (chain-store-import-blob-sidecars-from-kv staging database)
       (chain-store-import-prepared-payloads-from-kv staging database)
-      (chain-store-publish-readable-tables store staging))
+      (chain-store-publish-readable-tables store staging)
+      (chain-store-restore-txpool-consistency store))
     store))
 
 (defun chain-store-put-prepared-payload (store prepared-payload)

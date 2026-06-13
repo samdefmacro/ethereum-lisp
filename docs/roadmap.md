@@ -819,7 +819,11 @@ first pass, but interfaces must not block that path.
   and devnet CLI restore/export/pruned-export wiring for file-backed KV
   chain-store snapshots. The process/database smoke gate now covers restored
   pending txpool visibility through public RPC, not only lower-level KV
-  import/export helpers.
+  import/export helpers. KV chain-store import also revalidates restored
+  txpool records against the restored canonical head when head state is
+  available, pruning stale or over-gas entries and promoting eligible
+  basefee/queued entries so restart state matches canonical-head update
+  policy.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, fuller sync-stage persistence, and durable trie-node storage remain
   later work.
