@@ -2318,8 +2318,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (block-hash-consumed-p nil :type boolean))
 
 (defstruct (engine-block-filter
-            (:constructor make-engine-block-filter (&key last-block-number)))
-  (last-block-number 0 :type (integer 0 *)))
+            (:constructor make-engine-block-filter
+                (&key last-block-number hashes)))
+  (last-block-number 0 :type (integer 0 *))
+  hashes)
 
 (defstruct (engine-pending-transaction-filter
             (:constructor make-engine-pending-transaction-filter
@@ -2335,6 +2337,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (setf (engine-pending-transaction-filter-hashes filter)
         (append
          (engine-pending-transaction-filter-hashes filter)
+         (list hash)))
+  filter)
+
+(defun engine-block-filter-record-hash (filter hash)
+  (unless (typep filter 'engine-block-filter)
+    (block-validation-fail "Block filter must be a block filter"))
+  (unless (hash32-p hash)
+    (block-validation-fail "Block filter hash must be a hash32"))
+  (setf (engine-block-filter-hashes filter)
+        (append
+         (engine-block-filter-hashes filter)
          (list hash)))
   filter)
 
@@ -2486,6 +2499,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (push transaction reinserted-transactions))))))
     (nreverse reinserted-transactions)))
 
+(defun engine-payload-store-notify-block-filters (store block)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "Block filter notification block must be a block"))
+  (loop for filter
+          being the hash-values of
+            (engine-payload-memory-store-log-filters store)
+        when (typep filter 'engine-block-filter)
+          do (engine-block-filter-record-hash filter (block-hash block))))
+
 (defun engine-payload-store-put-block
     (store block &key (state-available-p nil))
   (unless (typep store 'engine-payload-memory-store)
@@ -2497,7 +2521,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (dolist (transaction (block-transactions block))
         (engine-pending-txpool-sender transaction))))
   (let ((key (engine-payload-store-key (block-hash block)))
-        (canonicalized-p nil))
+        (canonicalized-p nil)
+        (notify-head-p nil))
     (remhash key (engine-payload-memory-store-remote-blocks store))
     (setf (gethash key (engine-payload-memory-store-blocks store)) block)
     (let ((number (block-header-number (block-header block))))
@@ -2515,6 +2540,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 canonicalized-p t))
         (when (and canonicalized-p
                    (> number (engine-payload-memory-store-head-number store)))
+          (setf notify-head-p t)
           (setf (engine-payload-memory-store-head-number store) number))))
     (loop with receipts = (block-receipts block)
           with log-index-start = 0
@@ -2539,6 +2565,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (engine-payload-memory-store-state-blocks store))
               t)
         (remhash key (engine-payload-memory-store-state-blocks store)))
+    (when notify-head-p
+      (engine-payload-store-notify-block-filters store block))
     block))
 
 (defun engine-payload-store-known-block
@@ -2726,7 +2754,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (store hash &key expected-chain-id)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
-  (let ((head-block (engine-payload-store-known-block store hash)))
+  (let* ((head-block (engine-payload-store-known-block store hash))
+         (previous-head-hash
+           (engine-payload-store-canonical-hash
+            store
+            (engine-payload-memory-store-head-number store)))
+         (head-changed-p
+           (or (null previous-head-hash)
+               (not (hash32= previous-head-hash hash)))))
     (unless head-block
       (block-validation-fail "Canonical head block must be known"))
     (let ((path '()))
@@ -2812,6 +2847,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-payload-store-revalidate-pending-transactions store)
       (engine-payload-store-promote-queued-transactions store)
       (engine-payload-store-promote-basefee-and-queued-transactions store)
+      (when head-changed-p
+        (engine-payload-store-notify-block-filters store head-block))
       head-block)))
 
 (defun engine-payload-store-transaction-location (store hash)
@@ -2847,7 +2884,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-log-filter-block-hash-consumed-p filter)))
     ((typep filter 'engine-block-filter)
      (make-engine-block-filter
-      :last-block-number (engine-block-filter-last-block-number filter)))
+      :last-block-number (engine-block-filter-last-block-number filter)
+      :hashes (copy-list (engine-block-filter-hashes filter))))
     ((typep filter 'engine-pending-transaction-filter)
      (make-engine-pending-transaction-filter
       :hashes (copy-list

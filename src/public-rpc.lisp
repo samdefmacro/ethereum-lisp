@@ -2197,13 +2197,23 @@
 (defun engine-block-filter-changes (block-filter store)
   (let* ((cursor (engine-block-filter-last-block-number block-filter))
          (latest (chain-store-head-number store))
-         (hashes (loop for number from (1+ cursor) to latest
-                       for block =
-                         (chain-store-block-by-number store number)
-                       when block
-                         collect (hash32-to-hex (block-hash block)))))
-    (prog1 (eth-rpc-json-array hashes)
-      (setf (engine-block-filter-last-block-number block-filter) latest))))
+         (seen (make-hash-table :test 'equal))
+         (hashes nil))
+    (dolist (hash (engine-block-filter-hashes block-filter))
+      (let ((hash-hex (hash32-to-hex hash)))
+        (unless (gethash hash-hex seen)
+          (setf (gethash hash-hex seen) t)
+          (push hash-hex hashes))))
+    (loop for number from (1+ cursor) to latest
+          for block = (chain-store-block-by-number store number)
+          when block
+            do (let ((hash-hex (hash32-to-hex (block-hash block))))
+                 (unless (gethash hash-hex seen)
+                   (setf (gethash hash-hex seen) t)
+                   (push hash-hex hashes))))
+    (prog1 (eth-rpc-json-array (nreverse hashes))
+      (setf (engine-block-filter-last-block-number block-filter) latest
+            (engine-block-filter-hashes block-filter) nil))))
 
 (defun engine-pending-transaction-filter-changes (pending-filter)
   (let ((hashes (engine-pending-transaction-filter-hashes pending-filter)))

@@ -901,7 +901,10 @@ first pass, but interfaces must not block that path.
   devnet database smoke path now carries that reorg reinsertion contract across
   process restart: `eth_getTransactionByHash` must expose the displaced
   transaction as pending, while receipts, logs, and canonical receipt indexes
-  remain absent from the new canonical head.
+  remain absent from the new canonical head. Block polling filters now record
+  canonical-head events directly, so same-height forkchoice reorgs surface the
+  replacement head hash through `eth_getFilterChanges` instead of being hidden
+  by number-only cursoring.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
