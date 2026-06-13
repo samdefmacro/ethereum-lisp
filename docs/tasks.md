@@ -4407,6 +4407,10 @@ splits can land after the Phase A smoke path closes.
     `SYNCING` response and remote-block cache population, exports the KV
     snapshot, restores a fresh node, and verifies the restored Engine RPC path
     still returns `SYNCING` for that cached orphan payload.
+  - Progress: remote-block cache entries are now removed when a previously
+    parked payload is imported or marked invalid, preventing file-backed KV
+    export from persisting stale remote-block records for blocks that have
+    since become known or invalid.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject

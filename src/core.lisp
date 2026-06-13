@@ -2397,6 +2397,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-pending-txpool-sender transaction))))
   (let ((key (engine-payload-store-key (block-hash block)))
         (canonicalized-p nil))
+    (remhash key (engine-payload-memory-store-remote-blocks store))
     (setf (gethash key (engine-payload-memory-store-blocks store)) block)
     (let ((number (block-header-number (block-header block))))
       (when (and (integerp number) (not (minusp number)))
@@ -5768,6 +5769,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         block)
   block)
 
+(defun engine-payload-store-remove-remote-block
+    (store hash)
+  (remhash (engine-payload-store-key hash)
+           (engine-payload-memory-store-remote-blocks store)))
+
 (defun engine-payload-store-mark-invalid
     (store invalid-block &key head-hash)
   (unless (typep store 'engine-payload-memory-store)
@@ -5776,6 +5782,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Engine payload invalid marker must be a block"))
   (let* ((invalid-hash (block-hash invalid-block))
          (key (engine-payload-store-key (or head-hash invalid-hash))))
+    (engine-payload-store-remove-remote-block store invalid-hash)
     (setf (gethash key (engine-payload-memory-store-invalid-tipsets store))
           invalid-block)
     invalid-block))
