@@ -1,0 +1,98 @@
+{
+  "phase-a-contract-creation-engine": {
+    "network": "Shanghai",
+    "lastblockhash": "0x79c65d18da56381dd1e0ea8e9f071ff51cba418f92a9591dc0d6139a41ee4a12",
+    "config": {
+      "chainid": "0x1"
+    },
+    "genesisBlockHeader": {
+      "coinbase": "0x0000000000000000000000000000000000000001",
+      "number": "0x29",
+      "gasLimit": "0x186a0",
+      "gasUsed": "0xc350",
+      "timestamp": "0x62",
+      "baseFeePerGas": "0x64"
+    },
+    "pre": {
+      "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf": {
+        "nonce": "0x0",
+        "balance": "0x3b9aca00",
+        "code": "0x",
+        "storage": {}
+      },
+      "0x0000000000000000000000000000000000001002": {
+        "nonce": "0x0",
+        "balance": "0x5",
+        "code": "0x6001600055",
+        "storage": {
+          "0x0000000000000000000000000000000000000000000000000000000000000000": "0x2a"
+        }
+      }
+    },
+    "postState": {
+      "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf": {
+        "nonce": "0x1",
+        "balance": "0x3b496479",
+        "code": "0x",
+        "storage": {}
+      },
+      "0x0000000000000000000000000000000000001002": {
+        "nonce": "0x0",
+        "balance": "0x5",
+        "code": "0x6001600055",
+        "storage": {
+          "0x0000000000000000000000000000000000000000000000000000000000000000": "0x2a"
+        }
+      },
+      "0x0000000000000000000000000000000000000002": {
+        "nonce": "0x0",
+        "balance": "0x3b9aca00",
+        "code": "0x",
+        "storage": {}
+      },
+      "0xf2e246bb76df876cef8b38ae84130f4f55de395b": {
+        "nonce": "0x1",
+        "balance": "0x7",
+        "code": "0x00",
+        "storage": {}
+      }
+    },
+    "engineNewPayloads": [
+      {
+        "newPayloadVersion": "2",
+        "forkchoiceUpdatedVersion": "2",
+        "params": [
+          {
+            "parentHash": "0x874a7923c10fe5e08855da21d69cecb80efeee03b8b9b942ac3bffd608130ccc",
+            "feeRecipient": "0x0000000000000000000000000000000000000001",
+            "stateRoot": "0xfba8eaab12dadeb2f0aee90fd5c4d101d3126a016d0c4c8a821ebb5aeb0dff7c",
+            "receiptsRoot": "0x8b7f8c267ccbecd67d423c4db151f26183cb9f9033b2aaef7d20c2d128a9cec9",
+            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "blockNumber": "0x2a",
+            "gasLimit": "0x186a0",
+            "gasUsed": "0xd060",
+            "timestamp": "0x63",
+            "extraData": "0x",
+            "baseFeePerGas": "0x64",
+            "blockHash": "0x79c65d18da56381dd1e0ea8e9f071ff51cba418f92a9591dc0d6139a41ee4a12",
+            "transactions": [
+              "0xf85680648301388080078a600060005360016000f325a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a03ce2d734854fceb1ecbdf0b4aae095e88c569480682ef5c1a7c8e598170ff89e"
+            ],
+            "withdrawals": [
+              {
+                "index": "0x0",
+                "validatorIndex": "0x1",
+                "address": "0x0000000000000000000000000000000000000002",
+                "amount": "0x1"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "_info": {
+      "comment": "Upstream-shaped blockchain_tests_engine sample for a Shanghai contract-creation transaction through engineNewPayloadV2 replay."
+    }
+  }
+}

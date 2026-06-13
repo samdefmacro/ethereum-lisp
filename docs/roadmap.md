@@ -234,8 +234,9 @@ fixes in those areas are allowed; expansion is not.
   fixture/total case and executed counts. The in-repo blockchain replay set
   now includes empty Engine payload, standard block RLP, legacy transfer,
   EIP-2930 access-list transfer, EIP-1559 dynamic-fee transfer, and
-  log-producing contract-call payload coverage. Its `--devnet` mode now runs the
-  standalone devnet all-fixtures listener-boundary suite with per-case
+  log-producing contract-call, top-level contract creation, and internal
+  CREATE2 payload coverage. Its `--devnet` mode now runs the standalone devnet
+  all-fixtures listener-boundary suite with per-case
   readiness JSON, `devnet.ready` / `devnet.shutdown` telemetry logs, and
   file-backed KV database export/restore enabled for every pinned Shanghai
   case, including the multi-transaction legacy-transfer payload. Restored KV
@@ -777,7 +778,9 @@ Reth consensus/executor integration.
   commit/rollback, strict sender recovery on signed import/admission paths,
   Ethash reward hook, Merge/Paris validation, and in-repo EEST-shaped
   blockchain replay for empty Engine payloads, standard block RLP, and a
-  non-empty Shanghai Engine transfer payload.
+  non-empty Shanghai Engine transfer payload, typed transaction payloads,
+  log-producing contract-call payloads, and contract creation / CREATE2
+  payloads.
 - *Partial:* EIP-7702 set-code execution beyond delegation shape, blob
   transaction semantics without KZG verification, and broader post-execution
   rollback symmetry across all failure modes.
