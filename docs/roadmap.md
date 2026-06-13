@@ -897,7 +897,11 @@ first pass, but interfaces must not block that path.
   until forkchoice actually makes that branch canonical. Forkchoice reorgs now
   also reinsert executable transactions from displaced old-canonical blocks
   into the local txpool as pending or queued entries while keeping receipts and
-  canonical transaction locations bound to the new canonical branch.
+  canonical transaction locations bound to the new canonical branch. The
+  devnet database smoke path now carries that reorg reinsertion contract across
+  process restart: `eth_getTransactionByHash` must expose the displaced
+  transaction as pending, while receipts, logs, and canonical receipt indexes
+  remain absent from the new canonical head.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

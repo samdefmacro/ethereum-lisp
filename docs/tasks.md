@@ -47,8 +47,9 @@ The end-to-end smoke scenario is:
 3. execute transactions atomically and validate state root, receipts root,
    logs bloom, and gas used;
 4. persist enough block, receipt, and state snapshot data for local RPC reads;
-5. apply `engine_forkchoiceUpdated` to canonical indexes and verify side-chain
-   blocks remain hash-retrievable;
+5. apply `engine_forkchoiceUpdated` to canonical indexes, verify side-chain
+   blocks remain hash-retrievable, and verify transactions displaced by a
+   persisted reorg return to pending txpool visibility without receipts;
 6. compare the same path against the pinned fixtures and, where local
    reference clones exist, a recorded geth/Nethermind/Reth commit.
 

@@ -199,9 +199,27 @@
                   report "databaseRpcSideBlockReceiptsCount")))
           (is (= 0
                  (fixture-object-field report "databaseRpcSideLogCount")))
+          (is (string= (fixture-object-field
+                        report "databaseRpcReceiptTransactionHash")
+                       (fixture-object-field
+                        (fixture-object-field
+                         report "databaseRpcSideTransactionByHash")
+                        "hash")))
           (is (eq nil
                   (fixture-object-field
-                   report "databaseRpcSideTransactionByHash")))
+                   (fixture-object-field
+                    report "databaseRpcSideTransactionByHash")
+                   "blockHash")))
+          (is (eq nil
+                  (fixture-object-field
+                   (fixture-object-field
+                    report "databaseRpcSideTransactionByHash")
+                   "blockNumber")))
+          (is (eq nil
+                  (fixture-object-field
+                   (fixture-object-field
+                    report "databaseRpcSideTransactionByHash")
+                   "transactionIndex")))
           (is (eq nil
                   (fixture-object-field report "databaseRpcSideReceipt")))
           (is (= 3
