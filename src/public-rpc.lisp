@@ -2023,13 +2023,14 @@
 
 (defun eth-rpc-log-topics-match-p (log topic-filters)
   (let ((topics (log-entry-topics log)))
-    (loop for slot in topic-filters
-          for index from 0
-          always (or (null slot)
-                     (and (< index (length topics))
-                          (some (lambda (topic)
-                                  (hash32= (nth index topics) topic))
-                                slot))))))
+    (or (null topic-filters)
+        (loop for slot in topic-filters
+              for index from 0
+              always (and (< index (length topics))
+                          (or (null slot)
+                              (some (lambda (topic)
+                                      (hash32= (nth index topics) topic))
+                                    slot)))))))
 
 (defun eth-rpc-log-filter-object (params method)
   (unless (= 1 (length params))
