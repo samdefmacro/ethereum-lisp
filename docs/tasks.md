@@ -439,6 +439,13 @@ ones.
     child report. This keeps the Hive-style process-runner contract enforced at
     the top-level acceptance command instead of only inside the standalone
     devnet gate.
+  - Result: the devnet process/database smoke path now verifies restored
+    `eth_getBlockByHash` and `eth_getBlockByNumber` responses with full
+    transaction objects, including transaction object count, hash, block hash /
+    number linkage, and index fields. The Phase A `--devnet` parent gate
+    inherits those assertions through the child report, so process-boundary
+    restore checks cover both hash-only and object-form block transaction
+    visibility.
   - Result: smoke gate JSON and text output now include aggregate
     `fixtureCaseCount`, `fixtureExecutedCount`, `totalCaseCount`, and
     `totalExecutedCount` fields. Automation can assert a single summary boundary

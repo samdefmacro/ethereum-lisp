@@ -834,6 +834,8 @@
         (receipt-output (make-string-output-stream))
         (block-output (make-string-output-stream))
         (block-by-number-output (make-string-output-stream))
+        (full-block-output (make-string-output-stream))
+        (full-block-by-number-output (make-string-output-stream))
         (transaction-output (make-string-output-stream))
         (block-receipts-output (make-string-output-stream))
         (block-transaction-count-by-hash-output (make-string-output-stream))
@@ -953,7 +955,7 @@
                             sender-address code-address)
                            pruned-state-rpc-tag)))))))
          (expected-public-connections
-           (+ 19
+           (+ 21
               (length extra-balance-outputs)
               (* 6 (length extra-receipt-outputs))
               (* 2 (length log-targets))
@@ -1033,6 +1035,20 @@
                    (cons "method" "eth_getBlockByNumber")
                    (cons "params" (list expected-block-number :false))))
             block-by-number-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 165)
+                   (cons "method" "eth_getBlockByHash")
+                   (cons "params" (list (hash32-to-hex block-hash) t))))
+            full-block-output)
+           (cons
+            (json-encode
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 166)
+                   (cons "method" "eth_getBlockByNumber")
+                   (cons "params" (list expected-block-number t))))
+            full-block-by-number-output)
            (cons
             (json-encode
              (list (cons "jsonrpc" "2.0")
@@ -1373,6 +1389,10 @@
                (get-output-stream-string block-output))
              (block-by-number-response
                (get-output-stream-string block-by-number-output))
+             (full-block-response
+               (get-output-stream-string full-block-output))
+             (full-block-by-number-response
+               (get-output-stream-string full-block-by-number-output))
              (transaction-response
                (get-output-stream-string transaction-output))
              (block-receipts-response
@@ -1429,6 +1449,10 @@
                (devnet-smoke-gate-rpc-body block-response))
              (block-by-number-rpc
                (devnet-smoke-gate-rpc-body block-by-number-response))
+             (full-block-rpc
+               (devnet-smoke-gate-rpc-body full-block-response))
+             (full-block-by-number-rpc
+               (devnet-smoke-gate-rpc-body full-block-by-number-response))
              (transaction-rpc
                (devnet-smoke-gate-rpc-body transaction-response))
              (block-receipts-rpc
@@ -1544,6 +1568,42 @@
                (fixture-object-field actual-block-by-number "transactions"))
              (actual-block-by-number-transaction-hash
                (first actual-block-by-number-transactions))
+             (actual-full-block
+               (fixture-object-field full-block-rpc "result"))
+             (actual-full-block-transactions
+               (fixture-object-field actual-full-block "transactions"))
+             (actual-full-block-transaction
+               (first actual-full-block-transactions))
+             (actual-full-block-transaction-hash
+               (fixture-object-field actual-full-block-transaction "hash"))
+             (actual-full-block-transaction-index
+               (fixture-object-field actual-full-block-transaction
+                                     "transactionIndex"))
+             (actual-full-block-transaction-block-hash
+               (fixture-object-field actual-full-block-transaction
+                                     "blockHash"))
+             (actual-full-block-transaction-block-number
+               (fixture-object-field actual-full-block-transaction
+                                     "blockNumber"))
+             (actual-full-block-by-number
+               (fixture-object-field full-block-by-number-rpc "result"))
+             (actual-full-block-by-number-transactions
+               (fixture-object-field
+                actual-full-block-by-number "transactions"))
+             (actual-full-block-by-number-transaction
+               (first actual-full-block-by-number-transactions))
+             (actual-full-block-by-number-transaction-hash
+               (fixture-object-field
+                actual-full-block-by-number-transaction "hash"))
+             (actual-full-block-by-number-transaction-index
+               (fixture-object-field
+                actual-full-block-by-number-transaction "transactionIndex"))
+             (actual-full-block-by-number-transaction-block-hash
+               (fixture-object-field
+                actual-full-block-by-number-transaction "blockHash"))
+             (actual-full-block-by-number-transaction-block-number
+               (fixture-object-field
+                actual-full-block-by-number-transaction "blockNumber"))
              (actual-transaction
                (fixture-object-field transaction-rpc "result"))
              (actual-transaction-hash
@@ -1684,6 +1744,12 @@
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status block-by-number-response))
          "Restored eth_getBlockByNumber HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status full-block-response))
+         "Restored full eth_getBlockByHash HTTP status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status full-block-by-number-response))
+         "Restored full eth_getBlockByNumber HTTP status mismatch")
         (devnet-smoke-gate-require
          (= 200 (devnet-cli-http-status transaction-response))
          "Restored eth_getTransactionByHash HTTP status mismatch")
@@ -1883,6 +1949,43 @@
         (devnet-smoke-gate-require
          (= transaction-count (length actual-block-by-number-transactions))
          "Restored eth_getBlockByNumber transaction count mismatch")
+        (devnet-smoke-gate-require
+         (= transaction-count (length actual-full-block-transactions))
+         "Restored full eth_getBlockByHash transaction count mismatch")
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex transaction-hash)
+                  actual-full-block-transaction-hash)
+         "Restored full eth_getBlockByHash transaction hash mismatch")
+        (devnet-smoke-gate-require
+         (string= "0x0" actual-full-block-transaction-index)
+         "Restored full eth_getBlockByHash transaction index mismatch")
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex block-hash)
+                  actual-full-block-transaction-block-hash)
+         "Restored full eth_getBlockByHash transaction block hash mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-block-number
+                  actual-full-block-transaction-block-number)
+         "Restored full eth_getBlockByHash transaction block number mismatch")
+        (devnet-smoke-gate-require
+         (= transaction-count
+            (length actual-full-block-by-number-transactions))
+         "Restored full eth_getBlockByNumber transaction count mismatch")
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex transaction-hash)
+                  actual-full-block-by-number-transaction-hash)
+         "Restored full eth_getBlockByNumber transaction hash mismatch")
+        (devnet-smoke-gate-require
+         (string= "0x0" actual-full-block-by-number-transaction-index)
+         "Restored full eth_getBlockByNumber transaction index mismatch")
+        (devnet-smoke-gate-require
+         (string= (hash32-to-hex block-hash)
+                  actual-full-block-by-number-transaction-block-hash)
+         "Restored full eth_getBlockByNumber transaction block hash mismatch")
+        (devnet-smoke-gate-require
+         (string= expected-block-number
+                  actual-full-block-by-number-transaction-block-number)
+         "Restored full eth_getBlockByNumber transaction block number mismatch")
         (devnet-smoke-gate-require
          (string= (hash32-to-hex transaction-hash) actual-transaction-hash)
          "Restored eth_getTransactionByHash hash mismatch")
@@ -2187,6 +2290,18 @@
               :block-by-number-number actual-block-by-number-number
               :block-by-number-transaction-hash
               actual-block-by-number-transaction-hash
+              :full-block-transaction-count
+              (length actual-full-block-transactions)
+              :full-block-transaction-hash
+              actual-full-block-transaction-hash
+              :full-block-transaction-index
+              actual-full-block-transaction-index
+              :full-block-by-number-transaction-count
+              (length actual-full-block-by-number-transactions)
+              :full-block-by-number-transaction-hash
+              actual-full-block-by-number-transaction-hash
+              :full-block-by-number-transaction-index
+              actual-full-block-by-number-transaction-index
               :transaction-hash actual-transaction-hash
               :transaction-block-hash actual-transaction-block-hash
               :transaction-block-number actual-transaction-block-number
@@ -3365,6 +3480,22 @@
                   :rpc-block-by-number-transaction-hash
                   (getf public-rpc-summary
                         :block-by-number-transaction-hash)
+                  :rpc-full-block-transaction-count
+                  (getf public-rpc-summary
+                        :full-block-transaction-count)
+                  :rpc-full-block-transaction-hash
+                  (getf public-rpc-summary :full-block-transaction-hash)
+                  :rpc-full-block-transaction-index
+                  (getf public-rpc-summary :full-block-transaction-index)
+                  :rpc-full-block-by-number-transaction-count
+                  (getf public-rpc-summary
+                        :full-block-by-number-transaction-count)
+                  :rpc-full-block-by-number-transaction-hash
+                  (getf public-rpc-summary
+                        :full-block-by-number-transaction-hash)
+                  :rpc-full-block-by-number-transaction-index
+                  (getf public-rpc-summary
+                        :full-block-by-number-transaction-index)
                   :rpc-transaction-hash
                   (getf public-rpc-summary :transaction-hash)
                   :rpc-transaction-block-hash
@@ -4698,6 +4829,36 @@
                             (getf database-summary
                                   :rpc-block-by-number-transaction-hash)
                             :false))
+                  (cons "databaseRpcFullBlockTransactionCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-full-block-transaction-count)
+                            :false))
+                  (cons "databaseRpcFullBlockTransactionHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-full-block-transaction-hash)
+                            :false))
+                  (cons "databaseRpcFullBlockTransactionIndex"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-full-block-transaction-index)
+                            :false))
+                  (cons "databaseRpcFullBlockByNumberTransactionCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-full-block-by-number-transaction-count)
+                            :false))
+                  (cons "databaseRpcFullBlockByNumberTransactionHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-full-block-by-number-transaction-hash)
+                            :false))
+                  (cons "databaseRpcFullBlockByNumberTransactionIndex"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-full-block-by-number-transaction-index)
+                            :false))
                   (cons "databaseRpcTransactionHash"
                         (if database-summary
                             (getf database-summary :rpc-transaction-hash)
@@ -5233,6 +5394,44 @@
          (= (devnet-smoke-gate-field report "transactionCount")
             (devnet-smoke-gate-field report "databaseRpcTransactionCount"))
          "Devnet smoke gate suite restored transaction count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= (devnet-smoke-gate-field report "transactionCount")
+            (devnet-smoke-gate-field
+             report "databaseRpcFullBlockTransactionCount"))
+         "Devnet smoke gate suite restored full block transaction count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= (devnet-smoke-gate-field report "transactionCount")
+            (devnet-smoke-gate-field
+             report "databaseRpcFullBlockByNumberTransactionCount"))
+         "Devnet smoke gate suite restored full block-by-number transaction count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field
+                   report "databaseRpcReceiptTransactionHash")
+                  (devnet-smoke-gate-field
+                   report "databaseRpcFullBlockTransactionHash"))
+         "Devnet smoke gate suite restored full block transaction hash mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= (devnet-smoke-gate-field
+                   report "databaseRpcReceiptTransactionHash")
+                  (devnet-smoke-gate-field
+                   report "databaseRpcFullBlockByNumberTransactionHash"))
+         "Devnet smoke gate suite restored full block-by-number transaction hash mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= "0x0"
+                  (devnet-smoke-gate-field
+                   report "databaseRpcFullBlockTransactionIndex"))
+         "Devnet smoke gate suite restored full block transaction index mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (string= "0x0"
+                  (devnet-smoke-gate-field
+                   report "databaseRpcFullBlockByNumberTransactionIndex"))
+         "Devnet smoke gate suite restored full block-by-number transaction index mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
         (devnet-smoke-gate-require
          (= (devnet-smoke-gate-field report "checkedBalanceCount")
@@ -5781,6 +5980,24 @@
         (format t "databaseRpcBlockByNumberTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcBlockByNumberTransactionHash"))
+        (format t "databaseRpcFullBlockTransactionCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcFullBlockTransactionCount"))
+        (format t "databaseRpcFullBlockTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcFullBlockTransactionHash"))
+        (format t "databaseRpcFullBlockTransactionIndex=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcFullBlockTransactionIndex"))
+        (format t "databaseRpcFullBlockByNumberTransactionCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcFullBlockByNumberTransactionCount"))
+        (format t "databaseRpcFullBlockByNumberTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcFullBlockByNumberTransactionHash"))
+        (format t "databaseRpcFullBlockByNumberTransactionIndex=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcFullBlockByNumberTransactionIndex"))
         (format t "databaseRpcTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcTransactionHash"))

@@ -66,7 +66,7 @@
     path))
 
 (defun devnet-cli-restored-public-connections (report)
-  (+ 21
+  (+ 23
      (1- (fixture-object-field report "checkedBalanceCount"))
      (* 6 (1- (fixture-object-field report "transactionCount")))
      (* 2 (fixture-object-field report "checkedLogCount"))
@@ -76,6 +76,28 @@
        (if errors
            (length errors)
            0))))
+
+(defun devnet-cli-assert-restored-full-block-transactions (report)
+  (is (= (fixture-object-field report "transactionCount")
+         (fixture-object-field
+          report "databaseRpcFullBlockTransactionCount")))
+  (is (= (fixture-object-field report "transactionCount")
+         (fixture-object-field
+          report "databaseRpcFullBlockByNumberTransactionCount")))
+  (is (string= (fixture-object-field
+                report "databaseRpcReceiptTransactionHash")
+               (fixture-object-field
+                report "databaseRpcFullBlockTransactionHash")))
+  (is (string= (fixture-object-field
+                report "databaseRpcReceiptTransactionHash")
+               (fixture-object-field
+                report "databaseRpcFullBlockByNumberTransactionHash")))
+  (is (string= "0x0"
+               (fixture-object-field
+                report "databaseRpcFullBlockTransactionIndex")))
+  (is (string= "0x0"
+               (fixture-object-field
+                report "databaseRpcFullBlockByNumberTransactionIndex"))))
 
 (defun devnet-cli-assert-txpool-subpool-persistence (report)
   (is (string= "0x1"
@@ -1662,6 +1684,7 @@
                (is (= (fixture-object-field report "transactionCount")
                       (fixture-object-field report
                                             "databaseRpcTransactionCount")))
+               (devnet-cli-assert-restored-full-block-transactions report)
                (is (= (fixture-object-field report "checkedBalanceCount")
                       (fixture-object-field report
                                             "databaseRpcBalanceCount")))
@@ -2096,6 +2119,7 @@
                  (is (= (fixture-object-field case "transactionCount")
                         (fixture-object-field case
                                               "databaseRpcTransactionCount")))
+                 (devnet-cli-assert-restored-full-block-transactions case)
                  (is (= (fixture-object-field case "checkedBalanceCount")
                         (fixture-object-field case "databaseRpcBalanceCount")))
                  (is (= (fixture-object-field case "checkedLogCount")
@@ -2678,6 +2702,7 @@
           (is (= (fixture-object-field case "transactionCount")
                  (fixture-object-field case
                                        "databaseRpcTransactionCount")))
+          (devnet-cli-assert-restored-full-block-transactions case)
           (is (= (fixture-object-field case "checkedBalanceCount")
                  (fixture-object-field case "databaseRpcBalanceCount")))
           (is (= (fixture-object-field case "checkedLogCount")
