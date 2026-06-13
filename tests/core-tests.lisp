@@ -5025,7 +5025,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-known-remote-block-record
+(deftest chain-store-import-from-kv-drops-known-remote-block-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -5066,18 +5066,18 @@
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
              (kv-put-chain-record
-              database
-              :remote-block
-              (hash32-bytes (block-hash known-block))
-              (block-rlp known-block)))
-           (signals block-validation-error
-             (chain-store-import-from-kv
-              target
-              (make-file-key-value-database path)))
-           (is (ethereum-lisp.core::engine-payload-store-remote-block
-                target
-                (block-hash target-remote)))
-           (is (not (chain-store-known-block target (block-hash known-block))))
+             database
+             :remote-block
+             (hash32-bytes (block-hash known-block))
+             (block-rlp known-block)))
+           (let ((database (make-file-key-value-database path)))
+             (is (eq target
+                     (chain-store-import-from-kv target database))))
+           (is (not
+                (ethereum-lisp.core::engine-payload-store-remote-block
+                 target
+                 (block-hash target-remote))))
+           (is (chain-store-known-block target (block-hash known-block)))
            (is (not
                 (ethereum-lisp.core::engine-payload-store-remote-block
                  target
@@ -5085,7 +5085,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest chain-store-import-from-kv-rejects-invalid-remote-block-record
+(deftest chain-store-import-from-kv-drops-invalid-remote-block-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -5127,21 +5127,20 @@
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv source database)
              (kv-put-chain-record
-              database
-              :remote-block
-              (hash32-bytes (block-hash invalid-block))
-              (block-rlp invalid-block)))
-           (signals block-validation-error
-             (chain-store-import-from-kv
-              target
-              (make-file-key-value-database path)))
-           (is (ethereum-lisp.core::engine-payload-store-remote-block
-                target
-                (block-hash target-remote)))
+             database
+             :remote-block
+             (hash32-bytes (block-hash invalid-block))
+             (block-rlp invalid-block)))
+           (let ((database (make-file-key-value-database path)))
+             (is (eq target
+                     (chain-store-import-from-kv target database))))
            (is (not
-                (ethereum-lisp.core::engine-payload-store-invalid-block
+                (ethereum-lisp.core::engine-payload-store-remote-block
                  target
-                 (block-hash invalid-block))))
+                 (block-hash target-remote))))
+           (is (ethereum-lisp.core::engine-payload-store-invalid-block
+                target
+                (block-hash invalid-block)))
            (is (not
                 (ethereum-lisp.core::engine-payload-store-remote-block
                  target

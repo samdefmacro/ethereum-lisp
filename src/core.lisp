@@ -4397,16 +4397,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (unless (hash32= block-hash (block-hash block))
           (block-validation-fail
            "KV remote-block record key does not match encoded block hash"))
-        (when (chain-store-known-block store block-hash)
-          (block-validation-fail
-           "KV remote-block record duplicates a known block"))
-        (when (engine-payload-store-invalid-block store block-hash)
-          (block-validation-fail
-           "KV remote-block record duplicates an invalid tipset"))
-        (setf (gethash
-               (engine-payload-store-key block-hash)
-               (engine-payload-memory-store-remote-blocks store))
-              block))
+        (unless (or (chain-store-known-block store block-hash)
+                    (engine-payload-store-invalid-block store block-hash))
+          (setf (gethash
+                 (engine-payload-store-key block-hash)
+                 (engine-payload-memory-store-remote-blocks store))
+                block)))
     (rlp-error (condition)
       (block-validation-fail
        "Invalid KV remote-block record RLP: ~A" condition))))

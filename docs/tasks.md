@@ -1391,6 +1391,10 @@ splits can land after the Phase A smoke path closes.
       and over-gas entries are pruned, pending entries are demoted when no
       longer executable, and basefee/queued entries are promoted when the
       restored head makes them contiguous and eligible.
+    - KV chain-store import now treats restored known blocks and invalid
+      tipsets as authoritative over stale remote-block cache records, dropping
+      duplicate remote-cache entries instead of rejecting the snapshot while
+      still rejecting corrupt or key-mismatched remote records.
   - Follow-up:
     - Pending txpool and filter cursors remain in the in-memory store because
       they are pool/filter concerns rather than chain-store block/state indexes.
@@ -4444,6 +4448,10 @@ splits can land after the Phase A smoke path closes.
     parked payload is imported or marked invalid, preventing file-backed KV
     export from persisting stale remote-block records for blocks that have
     since become known or invalid.
+  - Progress: KV import now mirrors that cleanup policy for snapshots that
+    already contain stale remote-block records, dropping remote-cache entries
+    that duplicate restored known blocks or invalid tipsets while preserving
+    strict rejection for corrupt or key-mismatched remote-block records.
   - Result: KV header records now participate in staging import validation.
     Persisted header records must reference an imported block and exactly match
     that block's header encoding; mismatched or orphan header records reject
