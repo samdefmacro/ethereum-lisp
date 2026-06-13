@@ -904,7 +904,9 @@ first pass, but interfaces must not block that path.
   remain absent from the new canonical head. Block polling filters now record
   canonical-head events directly, so same-height forkchoice reorgs surface the
   replacement head hash through `eth_getFilterChanges` instead of being hidden
-  by number-only cursoring.
+  by number-only cursoring. Log polling filters record the same canonical
+  reorg events, returning displaced old-canonical logs with `removed=true` and
+  replacement-head logs with the normal `removed=false` shape.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

@@ -19935,6 +19935,156 @@
         (is (null (field uninstall-missing-response "result")))
         (is (search "\"result\":false" uninstall-missing-json))))))
 
+(deftest eth-rpc-log-filter-records-same-height-reorg-changes
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json store config)
+             (parse-json (engine-rpc-handle-request-json json store config)))
+           (forkchoice-json (id head)
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+              ",\"method\":\"engine_forkchoiceUpdatedV1\","
+              "\"params\":[{\"headBlockHash\":\"" (hash32-to-hex head)
+              "\",\"safeBlockHash\":\"" (hash32-to-hex (zero-hash32))
+              "\",\"finalizedBlockHash\":\"" (hash32-to-hex (zero-hash32))
+              "\"}]}")))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1))
+           (log-address
+             (address-from-hex "0x1111111111111111111111111111111111111111"))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (topic
+             (hash32-from-hex
+              "0x2222222222222222222222222222222222222222222222222222222222222222"))
+           (old-transaction
+             (make-legacy-transaction :nonce 0
+                                      :gas-price 2
+                                      :gas-limit 21000
+                                      :to recipient
+                                      :value 3))
+           (new-transaction
+             (make-legacy-transaction :nonce 1
+                                      :gas-price 3
+                                      :gas-limit 21000
+                                      :to recipient
+                                      :value 4))
+           (old-receipt
+             (make-receipt
+              :status 1
+              :cumulative-gas-used 21000
+              :logs (list (make-log-entry
+                           :address log-address
+                           :topics (list topic)
+                           :data #(1)))))
+           (new-receipt
+             (make-receipt
+              :status 1
+              :cumulative-gas-used 21000
+              :logs (list (make-log-entry
+                           :address log-address
+                           :topics (list topic)
+                           :data #(2)))))
+           (genesis
+             (make-block
+              :header
+              (make-block-header :number 0
+                                 :parent-hash (zero-hash32)
+                                 :gas-limit 30000000
+                                 :timestamp 0
+                                 :extra-data #(0))))
+           (old-canonical-child
+             (make-block
+              :header
+              (make-block-header :number 1
+                                 :parent-hash (block-hash genesis)
+                                 :gas-limit 30000000
+                                 :timestamp 12
+                                 :extra-data #(1))
+              :transactions (list old-transaction)
+              :receipts (list old-receipt)))
+           (new-canonical-child
+             (make-block
+              :header
+              (make-block-header :number 1
+                                 :parent-hash (block-hash genesis)
+                                 :gas-limit 30000000
+                                 :timestamp 12
+                                 :extra-data #(2))
+              :transactions (list new-transaction)
+              :receipts (list new-receipt))))
+      (engine-payload-store-put-block store genesis :state-available-p t)
+      (engine-payload-store-put-block
+       store old-canonical-child :state-available-p t)
+      (let* ((filter-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":89,"
+                 "\"method\":\"eth_newFilter\","
+                 "\"params\":[{\"fromBlock\":\"0x0\","
+                 "\"address\":\"" (address-to-hex log-address) "\","
+                 "\"topics\":[\"" (hash32-to-hex topic) "\"]}]}")
+                store
+                config))
+             (filter-id (field filter-response "result"))
+             (initial-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":90,"
+                 "\"method\":\"eth_getFilterChanges\","
+                 "\"params\":[\"" filter-id "\"]}")
+                store
+                config))
+             (initial-logs (field initial-response "result")))
+        (is (= 1 (length initial-logs)))
+        (is (string= "0x01" (field (first initial-logs) "data")))
+        (is (null (field (first initial-logs) "removed")))
+        (engine-payload-store-put-block
+         store new-canonical-child :state-available-p t)
+        (let* ((forkchoice-response
+                 (request (forkchoice-json 91 (block-hash new-canonical-child))
+                          store
+                          config))
+               (changes-response
+                 (request
+                  (concatenate
+                   'string
+                   "{\"jsonrpc\":\"2.0\",\"id\":92,"
+                   "\"method\":\"eth_getFilterChanges\","
+                   "\"params\":[\"" filter-id "\"]}")
+                  store
+                  config))
+               (empty-changes-json
+                 (engine-rpc-handle-request-json
+                  (concatenate
+                   'string
+                   "{\"jsonrpc\":\"2.0\",\"id\":93,"
+                   "\"method\":\"eth_getFilterChanges\","
+                   "\"params\":[\"" filter-id "\"]}")
+                  store
+                  config))
+               (payload-status
+                 (field (field forkchoice-response "result")
+                        "payloadStatus"))
+               (logs (field changes-response "result"))
+               (removed-log (first logs))
+               (added-log (second logs)))
+          (is (string= +payload-status-valid+
+                       (field payload-status "status")))
+          (is (= 2 (length logs)))
+          (is (string= "0x01" (field removed-log "data")))
+          (is (eq t (field removed-log "removed")))
+          (is (string= (hash32-to-hex (block-hash old-canonical-child))
+                       (field removed-log "blockHash")))
+          (is (string= "0x02" (field added-log "data")))
+          (is (null (field added-log "removed")))
+          (is (string= (hash32-to-hex (block-hash new-canonical-child))
+                       (field added-log "blockHash")))
+          (is (search "\"result\":[]" empty-changes-json)))))))
+
 (deftest eth-rpc-block-filter
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

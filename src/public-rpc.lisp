@@ -1739,7 +1739,7 @@
          0)))
 
 (defun eth-rpc-log-object
-    (log block transaction transaction-index log-index)
+    (log block transaction transaction-index log-index &key removed-p)
   (let ((header (block-header block)))
     (list
      (cons "address" (address-to-hex (log-entry-address log)))
@@ -1753,7 +1753,7 @@
            (hash32-to-hex (transaction-hash transaction)))
      (cons "transactionIndex" (quantity-to-hex transaction-index))
      (cons "logIndex" (quantity-to-hex log-index))
-     (cons "removed" :false))))
+     (cons "removed" (if removed-p t :false)))))
 
 (defun eth-rpc-receipt-object (location)
   (let* ((receipt (engine-transaction-location-receipt location))
@@ -2119,7 +2119,8 @@
               when block
                 collect block))))
 
-(defun eth-rpc-block-logs-object (block addresses topic-filters)
+(defun eth-rpc-block-logs-object
+    (block addresses topic-filters &key removed-p)
   (when (and block
              (= (length (block-transactions block))
                 (length (block-receipts block))))
@@ -2137,7 +2138,8 @@
                                   block
                                   transaction
                                   transaction-index
-                                  log-index))
+                                  log-index
+                                  :removed-p removed-p))
           do (incf log-index-start (length (receipt-logs receipt))))))
 
 (defun eth-rpc-filter-logs (filter store method)
@@ -2148,6 +2150,22 @@
                      append (eth-rpc-block-logs-object
                              block addresses topic-filters))))
     (eth-rpc-json-array logs)))
+
+(defun eth-rpc-log-filter-change-block-key (change)
+  (engine-payload-store-key
+   (block-hash (engine-log-filter-change-block change))))
+
+(defun eth-rpc-log-filter-change-logs
+    (changes criteria method)
+  (let ((addresses (eth-rpc-log-filter-addresses criteria method))
+        (topic-filters (eth-rpc-log-filter-topics criteria method)))
+    (loop for change in changes
+          append (eth-rpc-block-logs-object
+                  (engine-log-filter-change-block change)
+                  addresses
+                  topic-filters
+                  :removed-p
+                  (engine-log-filter-change-removed-p change)))))
 
 (defun eth-rpc-log-filter-range-bounds (filter store method)
   (unless (genesis-object-field-present-p filter "blockHash")
@@ -2179,20 +2197,53 @@
               (setf (engine-log-filter-block-hash-consumed-p log-filter) t)))
         (multiple-value-bind (from-number to-number)
             (eth-rpc-log-filter-range-bounds criteria store method)
-          (let* ((cursor (engine-log-filter-last-block-number log-filter))
+          (let* ((changes (engine-log-filter-pending-changes log-filter))
+                 (change-block-keys (make-hash-table :test 'equal))
+                 (cursor (engine-log-filter-last-block-number log-filter))
                  (change-from (if cursor
                                   (max from-number (1+ cursor))
                                   from-number)))
+            (dolist (change changes)
+              (setf (gethash (eth-rpc-log-filter-change-block-key change)
+                             change-block-keys)
+                    t))
             (prog1
-                (if (> change-from to-number)
-                    (eth-rpc-json-array '())
-                    (eth-rpc-filter-logs
-                     (eth-rpc-log-filter-with-range
-                      criteria change-from to-number)
-                     store
-                     method))
+                (let* ((change-logs
+                         (eth-rpc-log-filter-change-logs
+                          changes
+                          criteria
+                          method))
+                       (range-logs
+                         (if (> change-from to-number)
+                             nil
+                             (let ((addresses
+                                     (eth-rpc-log-filter-addresses
+                                      criteria
+                                      method))
+                                   (topic-filters
+                                     (eth-rpc-log-filter-topics
+                                      criteria
+                                      method)))
+                               (loop for number from change-from to to-number
+                                     for block =
+                                       (chain-store-block-by-number
+                                        store
+                                        number)
+                                     when (and block
+                                               (not
+                                                (gethash
+                                                 (engine-payload-store-key
+                                                  (block-hash block))
+                                                 change-block-keys)))
+                                       append (eth-rpc-block-logs-object
+                                               block
+                                               addresses
+                                               topic-filters))))))
+                  (eth-rpc-json-array (append change-logs range-logs)))
               (setf (engine-log-filter-last-block-number log-filter)
-                    (max (or cursor 0) to-number))))))))
+                    (max (or cursor 0) to-number)
+                    (engine-log-filter-pending-changes log-filter)
+                    nil)))))))
 
 (defun engine-block-filter-changes (block-filter store)
   (let* ((cursor (engine-block-filter-last-block-number block-filter))

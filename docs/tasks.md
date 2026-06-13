@@ -4873,6 +4873,8 @@ splits can land after the Phase A smoke path closes.
 - [x] Add `eth_feeHistory`.
 - [x] Add log, block, and pending-transaction polling filters.
 - [x] Record same-height forkchoice reorg heads in block filters.
+- [x] Record same-height forkchoice reorg additions and removals in log
+  filters.
 - [x] Add local pending transaction RPC views and txpool placeholder methods.
 - [x] Fold pending txpool transactions into
   `eth_getTransactionCount(..., "pending")`.

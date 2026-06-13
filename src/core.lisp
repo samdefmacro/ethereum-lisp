@@ -2312,10 +2312,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defstruct (engine-log-filter
             (:constructor make-engine-log-filter
-                (&key criteria last-block-number block-hash-consumed-p)))
+                (&key criteria last-block-number block-hash-consumed-p
+                      pending-changes)))
   criteria
   last-block-number
+  pending-changes
   (block-hash-consumed-p nil :type boolean))
+
+(defstruct (engine-log-filter-change
+            (:constructor make-engine-log-filter-change
+                (&key block removed-p)))
+  block
+  (removed-p nil :type boolean))
 
 (defstruct (engine-block-filter
             (:constructor make-engine-block-filter
@@ -2509,6 +2517,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (engine-payload-memory-store-log-filters store)
         when (typep filter 'engine-block-filter)
           do (engine-block-filter-record-hash filter (block-hash block))))
+
+(defun engine-log-filter-record-change (filter block &key removed-p)
+  (unless (typep filter 'engine-log-filter)
+    (block-validation-fail "Log filter must be a log filter"))
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "Log filter change block must be a block"))
+  (setf (engine-log-filter-pending-changes filter)
+        (append
+         (engine-log-filter-pending-changes filter)
+         (list (make-engine-log-filter-change
+                :block block
+                :removed-p (not (null removed-p))))))
+  filter)
+
+(defun engine-payload-store-notify-log-filters
+    (store block &key removed-p)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (loop for filter
+          being the hash-values of
+            (engine-payload-memory-store-log-filters store)
+        when (and (typep filter 'engine-log-filter)
+                  (not (genesis-object-field-present-p
+                        (engine-log-filter-criteria filter)
+                        "blockHash")))
+          do (engine-log-filter-record-change
+              filter
+              block
+              :removed-p removed-p)))
 
 (defun engine-payload-store-put-block
     (store block &key (state-available-p nil))
@@ -2841,7 +2878,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-store-reinsert-displaced-block-transactions
          store
          displaced-blocks
-         :expected-chain-id expected-chain-id))
+         :expected-chain-id expected-chain-id)
+        (when head-changed-p
+          (dolist (block (sort (copy-list displaced-blocks)
+                               #'<
+                               :key (lambda (block)
+                                      (block-header-number
+                                       (block-header block)))))
+            (engine-payload-store-notify-log-filters
+             store
+             block
+             :removed-p t))
+          (dolist (block (sort (copy-list path)
+                               #'<
+                               :key (lambda (block)
+                                      (block-header-number
+                                       (block-header block)))))
+            (engine-payload-store-notify-log-filters store block))))
       (engine-payload-store-remove-stale-txpool-transactions store)
       (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
       (engine-payload-store-revalidate-pending-transactions store)
@@ -2880,6 +2933,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (make-engine-log-filter
       :criteria (copy-tree (engine-log-filter-criteria filter))
       :last-block-number (engine-log-filter-last-block-number filter)
+      :pending-changes
+      (copy-list (engine-log-filter-pending-changes filter))
       :block-hash-consumed-p
       (engine-log-filter-block-hash-consumed-p filter)))
     ((typep filter 'engine-block-filter)
