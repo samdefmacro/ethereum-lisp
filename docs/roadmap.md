@@ -827,7 +827,8 @@ first pass, but interfaces must not block that path.
   restored known blocks or invalid tipsets, matching export cleanup while
   preserving strict rejection for malformed remote-cache data. Invalid-tipset
   KV export/import now similarly prevents a block from being restored as both
-  known and invalid.
+  known and invalid. Prepared-payload cache import/export now drops stale
+  payload-id records once their block is restored as known or invalid.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, fuller sync-stage persistence, and durable trie-node storage remain
   later work.

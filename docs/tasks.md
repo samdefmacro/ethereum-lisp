@@ -4436,6 +4436,10 @@ splits can land after the Phase A smoke path closes.
     require the stored version to match the payload-id version byte, and reject
     malformed records during staging without replacing existing prepared
     payloads.
+  - Progress: prepared-payload KV export now treats known or invalid blocks as
+    authoritative and prunes prepared cache entries for those blocks. Import
+    mirrors the cleanup by dropping stale prepared-payload records whose block
+    is already restored as known or invalid.
   - Result: the standalone devnet smoke gate now exercises that prepared
     payload persistence across the process boundary. Each database-backed
     pinned Shanghai devnet run prepares a V2 payload through authenticated
