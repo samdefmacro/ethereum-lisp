@@ -1395,10 +1395,10 @@ splits can land after the Phase A smoke path closes.
       tipsets as authoritative over stale remote-block cache records, dropping
       duplicate remote-cache entries instead of rejecting the snapshot while
       still rejecting corrupt or key-mismatched remote records.
-    - Remote-block and invalid-tipset cache insertion now copies cached block
-      records before publication. Caller-side mutation of parked or invalid
-      block objects can no longer change later sync-cache lookups or KV export
-      records.
+    - Remote-block and invalid-tipset cache insertion and lookup now copy
+      cached block records. Caller-side mutation of parked or invalid block
+      objects, including objects returned by sync-cache lookups, can no longer
+      change later sync-cache reads or KV export records.
   - Follow-up:
     - Pending txpool and filter cursors remain in the in-memory store because
       they are pool/filter concerns rather than chain-store block/state indexes.
@@ -4457,6 +4457,10 @@ splits can land after the Phase A smoke path closes.
     id, and blob bundle byte lists before publication, preventing caller-side
     mutation from changing later `engine_getPayload*` responses or exported KV
     records.
+  - Progress: prepared-payload cache lookups now return copied wrappers,
+    embedded blocks, payload ids, and blob bundle byte lists. Direct callers
+    and Engine `getPayload` response construction can no longer mutate cached
+    prepared payload records after reading them from the store.
   - Progress: prepared-payload KV export now treats known or invalid blocks as
     authoritative and prunes prepared cache entries for those blocks. Import
     mirrors the cleanup by dropping stale prepared-payload records whose block

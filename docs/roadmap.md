@@ -830,14 +830,16 @@ first pass, but interfaces must not block that path.
   known and invalid. Prepared-payload cache import/export now drops stale
   payload-id records once their block is restored as known or invalid, and the
   prepared-payload insertion boundary validates blob bundle type and byte-entry
-  shape before cache publication. Prepared payload insertion also copies the
-  stored wrapper, block, payload id, and blob bundle bytes so caller-side
-  mutation cannot change later Engine payload responses or KV exports.
+  shape before cache publication. Prepared payload insertion and lookup also
+  copy the stored wrapper, block, payload id, and blob bundle bytes so
+  caller-side mutation cannot change later Engine payload responses or KV
+  exports.
   Blob sidecar cache lookups likewise return copied blob/proof records, so
   Engine `getBlobs` response construction and direct store reads cannot mutate
   cached sidecar bytes after lookup.
-  Remote-block and invalid-tipset cache insertion likewise copies parked block
-  records before publishing them to sync-cache lookups or KV export. Txpool
+  Remote-block and invalid-tipset cache insertion and lookup likewise copy
+  parked block records before exposing them to sync-cache callers or KV export.
+  Txpool
   snapshot copies now also copy transaction objects by canonical encoding while
   preserving table/index identity inside the copied txpool, preventing rollback
   snapshots from sharing caller-mutated transaction instances.

@@ -5107,6 +5107,18 @@
       (is (not (eq remote cached-remote)))
       (is (not (eq invalid cached-invalid)))
       (is (= 0 (block-header-gas-used (block-header cached-remote))))
+      (is (= 0 (block-header-gas-used (block-header cached-invalid))))
+      (setf (block-header-gas-used (block-header cached-remote)) 11
+            (block-header-gas-used (block-header cached-invalid)) 22))
+    (let ((cached-remote
+            (ethereum-lisp.core::engine-payload-store-remote-block
+             store remote-hash))
+          (cached-invalid
+            (ethereum-lisp.core::engine-payload-store-invalid-block
+             store invalid-hash)))
+      (is cached-remote)
+      (is cached-invalid)
+      (is (= 0 (block-header-gas-used (block-header cached-remote))))
       (is (= 0 (block-header-gas-used (block-header cached-invalid)))))))
 
 (deftest chain-store-import-from-kv-rejects-corrupt-remote-block-record
@@ -5933,6 +5945,25 @@
       (is stored)
       (is (not (eq prepared-payload stored)))
       (is (not (eq block stored-block)))
+      (is (bytes= original-extra-data
+                  (block-header-extra-data (block-header stored-block))))
+      (is (bytes= #(#x03 #x04)
+                  (first (blob-sidecar-blobs stored-bundle))))
+      (is (bytes= #(#x05 #x06)
+                  (first (blob-sidecar-commitments stored-bundle))))
+      (is (bytes= #(#x07 #x08)
+                  (first (blob-sidecar-proofs stored-bundle))))
+      (setf (block-header-extra-data (block-header stored-block)) #(#xee)
+            (aref (first (blob-sidecar-blobs stored-bundle)) 0) #xdd
+            (aref (first (blob-sidecar-commitments stored-bundle)) 0) #xee
+            (aref (first (blob-sidecar-proofs stored-bundle)) 0) #xff))
+    (let* ((stored
+             (chain-store-prepared-payload store payload-id))
+           (stored-block
+             (ethereum-lisp.core::engine-prepared-payload-block stored))
+           (stored-bundle
+             (ethereum-lisp.core::engine-prepared-payload-blobs-bundle stored)))
+      (is stored)
       (is (bytes= original-extra-data
                   (block-header-extra-data (block-header stored-block))))
       (is (bytes= #(#x03 #x04)

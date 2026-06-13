@@ -6116,8 +6116,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-remote-block
     (store hash)
-  (gethash (engine-payload-store-key hash)
-           (engine-payload-memory-store-remote-blocks store)))
+  (engine-payload-store-copy-block
+   (gethash (engine-payload-store-key hash)
+            (engine-payload-memory-store-remote-blocks store))))
 
 (defun engine-payload-store-put-remote-block
     (store block)
@@ -6150,8 +6151,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-invalid-block
     (store hash)
-  (gethash (engine-payload-store-key hash)
-           (engine-payload-memory-store-invalid-tipsets store)))
+  (engine-payload-store-copy-block
+   (gethash (engine-payload-store-key hash)
+            (engine-payload-memory-store-invalid-tipsets store))))
 
 (defun engine-payload-store-invalid-ancestor-status
     (store check-hash head-hash)
@@ -6192,8 +6194,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   prepared-payload)
 
 (defun engine-payload-store-prepared-payload (store payload-id)
-  (gethash (engine-payload-id-key payload-id)
-           (engine-payload-memory-store-prepared-payloads store)))
+  (engine-payload-store-copy-prepared-payload
+   (gethash (engine-payload-id-key payload-id)
+            (engine-payload-memory-store-prepared-payloads store))))
 
 (defun engine-payload-store-put-blob-sidecar
     (store sidecar)
