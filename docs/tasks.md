@@ -4687,6 +4687,12 @@ splits can land after the Phase A smoke path closes.
     `devnet.shutdown` telemetry records carry the same process id. This turns
     the Hive-style PID correlation field into a self-checked process-runner
     contract rather than a best-effort summary field.
+  - Result: the devnet CLI now supports `--pid-file PATH` and writes the
+    current OS process id through the same same-directory temp-file/atomic
+    replace pattern used by readiness JSON. Startup summaries, readiness JSON,
+    and lifecycle telemetry report `pidFilePath`; the standalone devnet smoke
+    gate and top-level Phase A `--devnet` gate now pass and verify pid files
+    alongside ready/log/database artifacts.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

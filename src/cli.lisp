@@ -4,7 +4,7 @@
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
                       public-service telemetry-sink jwt-secret-path log-path
-                      database-path)))
+                      database-path pid-file-path)))
   genesis-path
   store
   config
@@ -14,7 +14,8 @@
   telemetry-sink
   jwt-secret-path
   log-path
-  database-path)
+  database-path
+  pid-file-path)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -147,6 +148,7 @@
        jwt-secret-path
        log-path
        database-path
+       pid-file-path
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
     (error "Devnet node requires a genesis JSON path"))
@@ -198,7 +200,8 @@
      :telemetry-sink telemetry-sink
      :jwt-secret-path jwt-secret-path
      :log-path log-path
-     :database-path database-path)))
+     :database-path database-path
+     :pid-file-path pid-file-path)))
 
 (defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)
@@ -247,6 +250,7 @@
           :jwt-secret-path (devnet-node-jwt-secret-path node)
           :log-path (devnet-node-log-path node)
           :database-path (devnet-node-database-path node)
+          :pid-file-path (devnet-node-pid-file-path node)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -272,6 +276,7 @@
       ("jwtSecretPath" . ,(getf summary :jwt-secret-path))
       ("logPath" . ,(getf summary :log-path))
       ("databasePath" . ,(getf summary :database-path))
+      ("pidFilePath" . ,(getf summary :pid-file-path))
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
@@ -440,6 +445,7 @@
         (summary-format :sexp)
         (ready-file nil)
         (log-file nil)
+        (pid-file nil)
         (help-p nil))
     (loop while args
           for option = (pop args)
@@ -493,6 +499,9 @@
                ((string= option "--log-file")
                 (multiple-value-setq (log-file args)
                   (devnet-cli-next-value args option)))
+               ((string= option "--pid-file")
+                (multiple-value-setq (pid-file args)
+                  (devnet-cli-next-value args option)))
                (t
                 (error "Unknown option ~A" option))))
     (list :genesis-path genesis-path
@@ -508,11 +517,12 @@
           :summary-format summary-format
           :ready-file ready-file
           :log-file log-file
+          :pid-file pid-file
           :help-p help-p)))
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -567,6 +577,26 @@
         (when (probe-file temp-path)
           (ignore-errors (delete-file temp-path)))))))
 
+(defun devnet-cli-write-pid-file (path)
+  (let ((process-id (devnet-process-id)))
+    (unless process-id
+      (error "Process id is not available on this Lisp implementation"))
+    (let ((temp-path (devnet-cli-ready-temp-path path))
+          (renamed-p nil))
+      (unwind-protect
+           (progn
+             (with-open-file (stream temp-path
+                                     :direction :output
+                                     :if-exists :error
+                                     :if-does-not-exist :create)
+               (format stream "~D~%" process-id))
+             (uiop:rename-file-overwriting-target temp-path path)
+             (setf renamed-p t)
+             path)
+        (unless renamed-p
+          (when (probe-file temp-path)
+            (ignore-errors (delete-file temp-path))))))))
+
 (defun devnet-node-telemetry-fields
     (node &key engine-endpoint rpc-endpoint)
   (let ((summary (devnet-node-summary
@@ -597,7 +627,8 @@
       ("authRequired" . ,(if (getf summary :auth-required-p) "true" "false"))
       ("jwtSecretPath" . ,(or (getf summary :jwt-secret-path) ""))
       ("logPath" . ,(or (getf summary :log-path) ""))
-      ("databasePath" . ,(or (getf summary :database-path) "")))))
+      ("databasePath" . ,(or (getf summary :database-path) ""))
+      ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
 
 (defun devnet-cli-log-event (node name &key engine-endpoint rpc-endpoint)
   (ethereum-lisp.telemetry:telemetry-log
@@ -650,7 +681,10 @@
                           :jwt-secret-path (getf options :jwt-secret-path)
                           :log-path (getf options :log-file)
                           :database-path (getf options :database-path)
+                          :pid-file-path (getf options :pid-file)
                           :telemetry-sink telemetry-sink)))
+                   (when (getf options :pid-file)
+                     (devnet-cli-write-pid-file (getf options :pid-file)))
                    (if (getf options :serve-p)
                        (let ((bound-engine-endpoint nil)
                              (bound-rpc-endpoint nil))

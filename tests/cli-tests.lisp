@@ -45,6 +45,12 @@
       (read-sequence string stream)
       string)))
 
+(defun devnet-cli-pid-file-process-id (path)
+  (parse-integer
+   (string-trim '(#\Space #\Tab #\Newline #\Return)
+                (devnet-cli-file-string path))
+   :junk-allowed nil))
+
 (defun devnet-cli-file-forms (path)
   (with-open-file (stream path :direction :input)
     (loop for form = (read stream nil :eof)
@@ -1213,12 +1219,14 @@
 (deftest devnet-cli-main-json-summary-and-ready-file
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex"))
         (ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
+        (pid-path (devnet-cli-temp-path "ethereum-lisp-devnet" "pid"))
         (output (make-string-output-stream))
         (errors (make-string-output-stream)))
     (unwind-protect
          (progn
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
            (devnet-cli-write-temp-file ready-path "stale readiness")
+           (devnet-cli-write-temp-file pid-path "0")
            (is (= 0
                   (ethereum-lisp.cli:main
                    (list "devnet"
@@ -1227,6 +1235,7 @@
                          "--public-port" "8546"
                          "--jwt-secret" (namestring jwt-path)
                          "--ready-file" (namestring ready-path)
+                         "--pid-file" (namestring pid-path)
                          "--json"
                          "--no-serve")
                    :output-stream output
@@ -1236,6 +1245,8 @@
                     (parse-json (get-output-stream-string output)))
                   (ready-summary
                     (parse-json (devnet-cli-file-string ready-path))))
+             (is (= (devnet-cli-current-process-id)
+                    (devnet-cli-pid-file-process-id pid-path)))
              (dolist (summary (list stdout-summary ready-summary))
                (is (= 1337 (fixture-object-field summary "chainId")))
                (is (= 0 (fixture-object-field summary "headNumber")))
@@ -1249,6 +1260,8 @@
                             (fixture-object-field summary "rpcEndpoint")))
                (is (equal (devnet-cli-current-process-id)
                           (fixture-object-field summary "processId")))
+               (is (string= (namestring pid-path)
+                            (fixture-object-field summary "pidFilePath")))
                (is (eq t (fixture-object-field summary "authRequired")))
                (is (eq t (fixture-object-field summary "stateAvailable")))
                (is (string= (namestring jwt-path)
@@ -1256,11 +1269,14 @@
       (when (probe-file jwt-path)
         (delete-file jwt-path))
       (when (probe-file ready-path)
-        (delete-file ready-path)))))
+        (delete-file ready-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path)))))
 
 (deftest devnet-cli-main-log-file-records-ready-event
   (let ((ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
         (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
+        (pid-path (devnet-cli-temp-path "ethereum-lisp-devnet" "pid"))
         (output (make-string-output-stream))
         (errors (make-string-output-stream)))
     (unwind-protect
@@ -1274,6 +1290,7 @@
                            "--public-port" "8546"
                            "--ready-file" (namestring ready-path)
                            "--log-file" log-path-string
+                           "--pid-file" (namestring pid-path)
                            "--json"
                            "--no-serve")
                      :output-stream output
@@ -1290,6 +1307,8 @@
              (dolist (summary (list stdout-summary ready-summary))
                (is (string= log-path-string
                             (fixture-object-field summary "logPath"))))
+             (is (= (devnet-cli-current-process-id)
+                    (devnet-cli-pid-file-process-id pid-path)))
              (is (member "devnet.ready" log-names :test #'string=))
              (is (member "devnet.shutdown" log-names :test #'string=))
              (dolist (log-record log-records)
@@ -1317,11 +1336,16 @@
                                           :test #'string=))))
                  (is (string= log-path-string
                               (cdr (assoc "logPath" fields
+                                          :test #'string=))))
+                 (is (string= (namestring pid-path)
+                              (cdr (assoc "pidFilePath" fields
                                           :test #'string=)))))))))
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)
-        (delete-file log-path)))))
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path)))))
 
 (defun phase-a-smoke-gate-reference-client
     (reference-clients name)
@@ -1448,6 +1472,7 @@
     (is (search "--all-fixtures" stdout))
     (is (search "--ready-file PATH" stdout))
     (is (search "--log-file PATH" stdout))
+    (is (search "--pid-file PATH" stdout))
     (is (search "--database PATH" stdout))
     (is (search "--prune-state-before NUMBER" stdout))))
 
@@ -1459,6 +1484,8 @@
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-ready" "json"))
         (log-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke" "log"))
+        (pid-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke" "pid"))
         (database-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-chain" "sexp")))
     (unwind-protect
@@ -1471,6 +1498,7 @@
                     "--json"
                     "--ready-file" (namestring ready-path)
                     "--log-file" (namestring log-path)
+                    "--pid-file" (namestring pid-path)
                     "--database" (namestring database-path)
                     "--prune-state-before" "42")
               :output :string
@@ -1505,6 +1533,10 @@
                             (fixture-object-field report "readyFile")))
                (is (string= (namestring log-path)
                             (fixture-object-field report "logFile")))
+               (is (string= (namestring pid-path)
+                            (fixture-object-field report "pidFile")))
+               (is (= (fixture-object-field ready-summary "processId")
+                      (devnet-cli-pid-file-process-id pid-path)))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (= 42 (fixture-object-field
@@ -1838,6 +1870,8 @@
         (delete-file ready-path))
       (when (probe-file log-path)
         (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path))
       (when (probe-file database-path)
         (delete-file database-path)))))
 
@@ -1851,12 +1885,16 @@
         (log-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-suite"
                                 "log"))
+        (pid-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-suite"
+                                "pid"))
         (database-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-suite-chain"
                                 "sexp"))
         (prune-boundary 42)
         (ready-files nil)
         (log-files nil)
+        (pid-files nil)
         (database-files nil))
     (unwind-protect
          (multiple-value-bind (stdout stderr status)
@@ -1869,6 +1907,7 @@
                     "--all-fixtures"
                     "--ready-file" (namestring ready-path)
                     "--log-file" (namestring log-path)
+                    "--pid-file" (namestring pid-path)
                     "--database" (namestring database-path)
                     "--prune-state-before"
                     (write-to-string prune-boundary))
@@ -1891,7 +1930,9 @@
                      ready-files
                      (devnet-smoke-gate-case-files report "readyFile")
                      log-files
-                     (devnet-smoke-gate-case-files report "logFile"))
+                     (devnet-smoke-gate-case-files report "logFile")
+                     pid-files
+                     (devnet-smoke-gate-case-files report "pidFile"))
                (is (string= "ok" (fixture-object-field report "status")))
                (is (string= "devnet-listener-boundary-suite"
                             (fixture-object-field report "mode")))
@@ -1917,6 +1958,12 @@
                       (fixture-object-field report "logCaseCount")))
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
                       (length log-files)))
+               (is (string= (namestring pid-path)
+                            (fixture-object-field report "pidFile")))
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (fixture-object-field report "pidCaseCount")))
+               (is (= (length +engine-newpayload-v2-smoke-case-names+)
+                      (length pid-files)))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (= (length +engine-newpayload-v2-smoke-case-names+)
@@ -2188,13 +2235,15 @@
                       (fixture-object-field case "logFile")))
                  (is (probe-file
                       (fixture-object-field case "databaseFile")))))))
-      (dolist (path (append ready-files log-files database-files))
+      (dolist (path (append ready-files log-files pid-files database-files))
         (when (probe-file path)
           (delete-file path)))
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)
         (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path))
       (when (probe-file database-path)
         (delete-file database-path)))))
 
@@ -2883,5 +2932,7 @@
                 (run-error (list "devnet" "--prune-state-before"))))
     (is (search "--log-file requires a value"
                 (run-error (list "devnet" "--log-file"))))
+    (is (search "--pid-file requires a value"
+                (run-error (list "devnet" "--pid-file"))))
     (is (search "Unknown option --wat"
                 (run-error (list "devnet" "--wat"))))))

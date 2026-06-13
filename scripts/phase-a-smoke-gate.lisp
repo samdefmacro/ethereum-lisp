@@ -398,6 +398,10 @@
           (namestring
            (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet"
                                  "log")))
+        (pid-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet"
+                                 "pid")))
         (database-file
           (namestring
            (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-chain"
@@ -418,6 +422,8 @@
                     ready-file
                     "--log-file"
                     log-file
+                    "--pid-file"
+                    pid-file
                     "--database"
                     database-file
                     "--prune-state-before"
@@ -434,11 +440,12 @@
              (error "Devnet smoke gate returned non-ok status: ~S" report))
            report)
       (when report
-        (dolist (field '("readyFile" "logFile" "databaseFile"))
+        (dolist (field '("readyFile" "logFile" "pidFile" "databaseFile"))
           (dolist (path (smoke-gate-devnet-case-files report field))
             (smoke-gate-delete-file-if-present path))))
       (smoke-gate-delete-file-if-present ready-file)
       (smoke-gate-delete-file-if-present log-file)
+      (smoke-gate-delete-file-if-present pid-file)
       (smoke-gate-delete-file-if-present database-file))))
 
 (defun smoke-gate-numeric-field (object field)

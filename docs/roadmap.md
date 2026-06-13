@@ -860,7 +860,10 @@ first pass, but interfaces must not block that path.
   `devnet.shutdown` reports the post-forkchoice imported child head, both with
   explicit process-id and state-availability fields for process runners; the
   standalone devnet smoke gate rejects readiness/log output whose lifecycle
-  `processId` fields are missing or inconsistent.
+  `processId` fields are missing or inconsistent. The CLI also supports a
+  Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
+  telemetry, and the standalone plus Phase A devnet smoke gates verify the
+  pid-file process id against readiness/log metadata.
   Standalone devnet smoke-gate reports also carry pinned EEST source metadata
   and local reference-client commit/status metadata, and concurrent standalone
   smoke-gate processes use distinct temp files so automation can run parallel
