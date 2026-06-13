@@ -2979,7 +2979,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       :payload-id (maybe-copy-bytes
                    (engine-prepared-payload-payload-id prepared-payload))
       :version (engine-prepared-payload-version prepared-payload)
-      :block (engine-prepared-payload-block prepared-payload)
+      :block
+      (engine-payload-store-copy-block
+       (engine-prepared-payload-block prepared-payload))
       :blobs-bundle
       (maybe-copy-blob-sidecar
        (engine-prepared-payload-blobs-bundle prepared-payload))))
@@ -6139,11 +6141,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (validate-engine-prepared-payload prepared-payload)
-  (setf (gethash
-         (engine-payload-id-key
-          (engine-prepared-payload-payload-id prepared-payload))
-         (engine-payload-memory-store-prepared-payloads store))
-        prepared-payload)
+  (let ((stored-payload
+          (engine-payload-store-copy-prepared-payload prepared-payload)))
+    (setf (gethash
+           (engine-payload-id-key
+            (engine-prepared-payload-payload-id stored-payload))
+           (engine-payload-memory-store-prepared-payloads store))
+          stored-payload))
   prepared-payload)
 
 (defun engine-payload-store-prepared-payload (store payload-id)

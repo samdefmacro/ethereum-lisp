@@ -4441,6 +4441,11 @@ splits can land after the Phase A smoke path closes.
     commitment, and proof entries are rejected at the same store/import
     boundary as payload-id and version mismatches, while compact synthetic byte
     lists used by the Phase A smoke fixtures remain valid.
+  - Progress: prepared-payload cache insertion now owns its stored entry. The
+    memory store copies the prepared payload wrapper, embedded block, payload
+    id, and blob bundle byte lists before publication, preventing caller-side
+    mutation from changing later `engine_getPayload*` responses or exported KV
+    records.
   - Progress: prepared-payload KV export now treats known or invalid blocks as
     authoritative and prunes prepared cache entries for those blocks. Import
     mirrors the cleanup by dropping stale prepared-payload records whose block

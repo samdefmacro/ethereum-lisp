@@ -3295,8 +3295,7 @@
     (is (= 43 (chain-store-block-tag-number store "finalized")))
     (is (eq prepared-payload
             (chain-store-put-prepared-payload store prepared-payload)))
-    (is (eq prepared-payload
-            (chain-store-prepared-payload store payload-id)))))
+    (is (chain-store-prepared-payload store payload-id))))
 
 (deftest chain-store-export-indexes-to-kv-syncs-canonical-and-checkpoints
   (let* ((path
@@ -5783,6 +5782,56 @@
     (is (chain-store-prepared-payload store valid-payload-id))
     (is (not (chain-store-prepared-payload store non-sidecar-payload-id)))
     (is (not (chain-store-prepared-payload store non-byte-payload-id)))))
+
+(deftest chain-store-put-prepared-payload-copies-cache-entry
+  (let* ((store (make-engine-payload-memory-store))
+         (payload-id #(5 0 0 0 0 0 0 1))
+         (original-extra-data #(#x01 #x02))
+         (blob (ensure-byte-vector '(#x03 #x04)))
+         (commitment (ensure-byte-vector '(#x05 #x06)))
+         (proof (ensure-byte-vector '(#x07 #x08)))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :extra-data original-extra-data
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list blob)
+            :commitments (list commitment)
+            :proofs (list proof)))
+         (prepared-payload
+           (make-engine-prepared-payload
+            :payload-id payload-id
+            :version 5
+            :block block
+            :blobs-bundle sidecar)))
+    (chain-store-put-prepared-payload store prepared-payload)
+    (setf (block-header-extra-data (block-header block)) #(#xff)
+          (aref blob 0) #xaa
+          (aref commitment 0) #xbb
+          (aref proof 0) #xcc)
+    (let* ((stored
+             (chain-store-prepared-payload store payload-id))
+           (stored-block
+             (ethereum-lisp.core::engine-prepared-payload-block stored))
+           (stored-bundle
+             (ethereum-lisp.core::engine-prepared-payload-blobs-bundle stored)))
+      (is stored)
+      (is (not (eq prepared-payload stored)))
+      (is (not (eq block stored-block)))
+      (is (bytes= original-extra-data
+                  (block-header-extra-data (block-header stored-block))))
+      (is (bytes= #(#x03 #x04)
+                  (first (blob-sidecar-blobs stored-bundle))))
+      (is (bytes= #(#x05 #x06)
+                  (first (blob-sidecar-commitments stored-bundle))))
+      (is (bytes= #(#x07 #x08)
+                  (first (blob-sidecar-proofs stored-bundle)))))))
 
 (deftest chain-store-import-from-kv-rejects-corrupt-prepared-payload-record
   (let* ((path

@@ -830,7 +830,9 @@ first pass, but interfaces must not block that path.
   known and invalid. Prepared-payload cache import/export now drops stale
   payload-id records once their block is restored as known or invalid, and the
   prepared-payload insertion boundary validates blob bundle type and byte-entry
-  shape before cache publication.
+  shape before cache publication. Prepared payload insertion also copies the
+  stored wrapper, block, payload id, and blob bundle bytes so caller-side
+  mutation cannot change later Engine payload responses or KV exports.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, fuller sync-stage persistence, and durable trie-node storage remain
   later work.
