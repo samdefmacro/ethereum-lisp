@@ -2932,7 +2932,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (engine-payload-store-canonical-block-p
                 store
                 (engine-transaction-location-block location)))
-      location)))
+      (engine-payload-store-copy-transaction-location location))))
 
 (defun chain-store-require-memory-store (store)
   (unless (typep store 'engine-payload-memory-store)
@@ -3118,6 +3118,37 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-copy-transaction (transaction)
   (transaction-from-encoding (transaction-encoding transaction)))
 
+(defun engine-payload-store-copy-transaction-location (location)
+  (cond
+    ((typep location 'engine-transaction-location)
+     (let* ((index (engine-transaction-location-index location))
+            (block-copy
+              (engine-payload-store-copy-block
+               (engine-transaction-location-block location)))
+            (transaction
+              (engine-transaction-location-transaction location))
+            (receipt (engine-transaction-location-receipt location)))
+       (make-engine-transaction-location
+        :block block-copy
+        :index index
+        :transaction (or (nth index (block-transactions block-copy))
+                         (and transaction
+                              (engine-payload-store-copy-transaction
+                               transaction)))
+        :receipt (or (nth index (block-receipts block-copy))
+                     (engine-payload-store-copy-receipt receipt))
+        :log-index-start
+        (engine-transaction-location-log-index-start location))))
+    (t location)))
+
+(defun engine-payload-store-copy-transaction-location-table (table)
+  (let ((copy (make-hash-table :test (hash-table-test table))))
+    (maphash (lambda (key value)
+               (setf (gethash key copy)
+                     (engine-payload-store-copy-transaction-location value)))
+             table)
+    copy))
+
 (defun engine-pending-txpool-copy-transaction (transaction transaction-copies)
   (or (gethash transaction transaction-copies)
       (setf (gethash transaction transaction-copies)
@@ -3205,7 +3236,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-copy-table
     (engine-payload-memory-store-canonical-hashes store))
    :transaction-locations
-   (engine-payload-store-copy-table
+   (engine-payload-store-copy-transaction-location-table
     (engine-payload-memory-store-transaction-locations store))
    :account-balances
    (engine-payload-store-copy-table
@@ -3355,7 +3386,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun chain-store-block-receipts (store hash)
   (let ((block (chain-store-known-block store hash)))
     (when block
-      (copy-list (block-receipts block)))))
+      (mapcar #'engine-payload-store-copy-receipt
+              (block-receipts block)))))
 
 (defun chain-store-state-available-p (store hash)
   (engine-payload-store-state-available-p

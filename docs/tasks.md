@@ -1405,6 +1405,12 @@ splits can land after the Phase A smoke path closes.
       filter-notification indexes. Caller-side mutation after
       `chain-store-put-block` can no longer change canonical reads,
       transaction-location records, block receipts, or exported KV block data.
+    - Transaction-location lookups, block-receipt lookups, and atomic
+      transaction-location snapshots now copy location, block, transaction,
+      receipt, and log records before exposing them to callers or rollback
+      snapshots. Public receipt/transaction RPC construction and direct
+      chain-store reads can no longer mutate stored transaction-location or
+      receipt data by changing returned objects.
   - Follow-up:
     - Pending txpool and filter cursors remain in the in-memory store because
       they are pool/filter concerns rather than chain-store block/state indexes.

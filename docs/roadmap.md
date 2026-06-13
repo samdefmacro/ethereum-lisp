@@ -843,6 +843,10 @@ first pass, but interfaces must not block that path.
   records before updating readable chain-store indexes, so canonical block
   reads, transaction locations, receipt lookups, txpool reinsertion, and KV
   export cannot observe caller-side mutation after block insertion.
+  Transaction-location and block-receipt read APIs now return copied location,
+  block, transaction, receipt, and log records, and atomic snapshots copy
+  transaction-location records before rollback storage, so read-side mutation
+  cannot alter later RPC responses or chain-store receipt/location reads.
   Txpool
   snapshot copies now also copy transaction objects by canonical encoding while
   preserving table/index identity inside the copied txpool, preventing rollback

@@ -3373,6 +3373,78 @@
       (is (bytes= expected-receipt-rlp
                   (receipt-rlp (first receipts)))))))
 
+(deftest chain-store-transaction-location-and-receipt-reads-are-copied
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (make-legacy-transaction :nonce 2
+                                    :gas-price 9
+                                    :gas-limit 21000
+                                    :to recipient
+                                    :value 5))
+         (receipt
+           (make-receipt
+            :status 1
+            :cumulative-gas-used 21000
+            :logs
+            (list
+             (make-log-entry :address recipient
+                             :topics (list (zero-hash32))
+                             :data (vector #x0a #x0b)))))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 10
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-used 21000)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (block-hash (block-hash block))
+         (transaction-hash (transaction-hash transaction))
+         (expected-block-rlp (block-rlp block))
+         (expected-transaction-encoding (transaction-encoding transaction))
+         (expected-receipt-rlp (receipt-rlp receipt)))
+    (chain-store-put-block store block :state-available-p t)
+    (let* ((location
+             (chain-store-transaction-location store transaction-hash))
+           (location-block (engine-transaction-location-block location))
+           (location-transaction
+             (engine-transaction-location-transaction location))
+           (location-receipt
+             (engine-transaction-location-receipt location))
+           (location-log
+             (first (receipt-logs location-receipt)))
+           (location-log-data (log-entry-data location-log)))
+      (is (not (eq block location-block)))
+      (is (not (eq transaction location-transaction)))
+      (is (not (eq receipt location-receipt)))
+      (setf (block-header-extra-data (block-header location-block)) #(#xff)
+            (legacy-transaction-gas-price location-transaction) 99
+            (receipt-status location-receipt) 0
+            (aref location-log-data 0) #xee))
+    (let* ((receipts (chain-store-block-receipts store block-hash))
+           (receipt-copy (first receipts))
+           (receipt-log-data (log-entry-data (first (receipt-logs receipt-copy)))))
+      (is (not (eq receipt receipt-copy)))
+      (setf (receipt-status receipt-copy) 0
+            (aref receipt-log-data 1) #xdd))
+    (let ((location
+            (chain-store-transaction-location store transaction-hash)))
+      (is (bytes= expected-block-rlp
+                  (block-rlp (engine-transaction-location-block location))))
+      (is (bytes= expected-transaction-encoding
+                  (transaction-encoding
+                   (engine-transaction-location-transaction location))))
+      (is (bytes= expected-receipt-rlp
+                  (receipt-rlp
+                   (engine-transaction-location-receipt location)))))
+    (let ((receipts (chain-store-block-receipts store block-hash)))
+      (is (= 1 (length receipts)))
+      (is (bytes= expected-receipt-rlp
+                  (receipt-rlp (first receipts)))))))
+
 (deftest chain-store-export-indexes-to-kv-syncs-canonical-and-checkpoints
   (let* ((path
            (merge-pathnames
