@@ -232,7 +232,8 @@ fixes in those areas are allowed; expansion is not.
   and blockchain replay imports rather than only reporting selector counts,
   and its text/JSON output records per-suite execution counts plus aggregate
   fixture/total case and executed counts. The in-repo blockchain replay set
-  now includes empty Engine payload, standard block RLP, transfer payload, and
+  now includes empty Engine payload, standard block RLP, legacy transfer,
+  EIP-2930 access-list transfer, EIP-1559 dynamic-fee transfer, and
   log-producing contract-call payload coverage. Its `--devnet` mode now runs the
   standalone devnet all-fixtures listener-boundary suite with per-case
   readiness JSON, `devnet.ready` / `devnet.shutdown` telemetry logs, and

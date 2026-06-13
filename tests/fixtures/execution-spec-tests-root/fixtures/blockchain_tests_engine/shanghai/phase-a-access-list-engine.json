@@ -1,0 +1,98 @@
+{
+  "phase-a-access-list-engine": {
+    "network": "Shanghai",
+    "lastblockhash": "0xbbc764a052cfaa4897b696a8c505db061f344dd880f7a7c0d3faea988e80acdb",
+    "config": {
+      "chainid": "0x1"
+    },
+    "genesisBlockHeader": {
+      "coinbase": "0x0000000000000000000000000000000000000001",
+      "number": "0x29",
+      "gasLimit": "0xc350",
+      "gasUsed": "0x61a8",
+      "timestamp": "0x62",
+      "baseFeePerGas": "0x1"
+    },
+    "pre": {
+      "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf": {
+        "nonce": "0x4",
+        "balance": "0x3b9aca00",
+        "code": "0x",
+        "storage": {}
+      },
+      "0x0000000000000000000000000000000000001002": {
+        "nonce": "0x0",
+        "balance": "0x5",
+        "code": "0x6001600055",
+        "storage": {
+          "0x0000000000000000000000000000000000000000000000000000000000000000": "0x2a"
+        }
+      }
+    },
+    "postState": {
+      "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf": {
+        "nonce": "0x5",
+        "balance": "0x3b9a5fb6",
+        "code": "0x",
+        "storage": {}
+      },
+      "0x0000000000000000000000000000000000001002": {
+        "nonce": "0x0",
+        "balance": "0x5",
+        "code": "0x6001600055",
+        "storage": {
+          "0x0000000000000000000000000000000000000000000000000000000000000000": "0x2a"
+        }
+      },
+      "0x0000000000000000000000000000000000000002": {
+        "nonce": "0x0",
+        "balance": "0x3b9aca00",
+        "code": "0x",
+        "storage": {}
+      },
+      "0xb94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+        "nonce": "0x0",
+        "balance": "0xa",
+        "code": "0x",
+        "storage": {}
+      }
+    },
+    "engineNewPayloads": [
+      {
+        "newPayloadVersion": "2",
+        "forkchoiceUpdatedVersion": "2",
+        "params": [
+          {
+            "parentHash": "0x0884eaa5a3a350de8b4d1a39f6c588b7b53db473470a017822d03be6b2e105e4",
+            "feeRecipient": "0x0000000000000000000000000000000000000001",
+            "stateRoot": "0x412e9b8c1f989e4711d6e7bb673f9bc3649d41f91d2b6744897a609ec0560072",
+            "receiptsRoot": "0x559d1e78e0a6f9616e0500b3a30e7e6083fb4839610bdebe7bcffd4719393aa3",
+            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "blockNumber": "0x2a",
+            "gasLimit": "0xc350",
+            "gasUsed": "0x6a40",
+            "timestamp": "0x63",
+            "extraData": "0x",
+            "baseFeePerGas": "0x1",
+            "blockHash": "0xbbc764a052cfaa4897b696a8c505db061f344dd880f7a7c0d3faea988e80acdb",
+            "transactions": [
+              "0x01f8bd01040182c35094b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a80f85bf859940000000000000000000000000000000000000101f842a00000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000280a079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a01ed995b55ae531ccce7f7355b76d169c08886a437e3932f6f0e79c9dcc297aed"
+            ],
+            "withdrawals": [
+              {
+                "index": "0x0",
+                "validatorIndex": "0x1",
+                "address": "0x0000000000000000000000000000000000000002",
+                "amount": "0x1"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "_info": {
+      "comment": "Upstream-shaped blockchain_tests_engine sample for a typed Shanghai engineNewPayloadV2 replay."
+    }
+  }
+}

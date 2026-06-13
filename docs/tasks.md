@@ -345,7 +345,7 @@ ones.
     the Phase A blockchain replay selector table, and prints the state /
     blockchain selector strings plus summary counts. Against the in-repo
     EEST-shaped root it reports 4 state selectors, 7 state transaction
-    combinations, 4 blockchain replay cases, one decoded block, and the
+    combinations, 6 blockchain replay cases, one decoded block, and the
     `blockRlp` / `engineNewPayloadV2` materialization split. The report also
     accepts `--json` so fixture-count and selector-table drift checks can parse
     the same contract without scraping the human-readable text output.
@@ -409,8 +409,8 @@ ones.
     present, plus `sbcl --script tests/run-tests.lisp`.
   - Result: added `scripts/phase-a-smoke-gate.lisp`. The in-repo gate now
     passes with 4 state selectors, 7 state transaction combinations, 25
-    transaction vectors, and 4 blockchain replay cases split across one
-    `blockRlp` and three `engineNewPayloadV2` materializations. The local
+    transaction vectors, and 6 blockchain replay cases split across one
+    `blockRlp` and five `engineNewPayloadV2` materializations. The local
     pinned v5.4.0 stable extraction passes in pinned mode with the single
     official Shanghai EIP-2930 `engineNewPayloadV2` selector while reporting
     state and transaction suites as missing, making the current bounded Phase A
@@ -1704,6 +1704,11 @@ splits can land after the Phase A smoke path closes.
     selector now materializes four source cases, including a non-empty payload
     that derives and validates logs bloom, receipts root, gas used, state root,
     and post-state storage through the Engine import path.
+  - Progress: added EEST-shaped typed transaction replay coverage for Shanghai
+    access-list and dynamic-fee `engineNewPayloads` cases. The in-repo replay
+    selector now materializes six source cases, and the Engine replay import
+    path validates legacy, EIP-2930, EIP-1559, log-producing call, and
+    block-RLP materialization coverage through the same Phase A gate.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.
