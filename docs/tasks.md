@@ -433,6 +433,12 @@ ones.
     subprocess and include its JSON report, so one automation command can cover
     the core in-repo fixture gate plus the devnet Engine/public process-boundary
     import smoke.
+  - Result: the Phase A `--devnet` parent gate now validates the child devnet
+    report's ready/log/pid/database artifact paths, per-case artifact counts,
+    fixture count, and retained-state pruning boundary before accepting the
+    child report. This keeps the Hive-style process-runner contract enforced at
+    the top-level acceptance command instead of only inside the standalone
+    devnet gate.
   - Result: smoke gate JSON and text output now include aggregate
     `fixtureCaseCount`, `fixtureExecutedCount`, `totalCaseCount`, and
     `totalExecutedCount` fields. Automation can assert a single summary boundary

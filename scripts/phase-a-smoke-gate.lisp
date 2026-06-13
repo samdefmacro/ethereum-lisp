@@ -389,6 +389,54 @@
         when (stringp path)
           collect path))
 
+(defun smoke-gate-devnet-require-field (report field expected)
+  (let ((actual (smoke-gate-field report field)))
+    (unless (equal actual expected)
+      (error "Devnet smoke gate ~A must be ~S, got ~S"
+             field expected actual))
+    actual))
+
+(defun smoke-gate-devnet-require-case-files
+    (report field count-field expected-count)
+  (let ((files (smoke-gate-devnet-case-files report field))
+        (count (smoke-gate-field report count-field)))
+    (unless (= expected-count count)
+      (error "Devnet smoke gate ~A must be ~D, got ~S"
+             count-field expected-count count))
+    (unless (= expected-count (length files))
+      (error "Devnet smoke gate ~A files must have count ~D, got ~D"
+             field expected-count (length files)))
+    files))
+
+(defun smoke-gate-validate-devnet-summary
+    (report ready-file log-file pid-file database-file)
+  (let ((expected-count
+          (length
+           (smoke-gate-variable "+engine-newpayload-v2-smoke-case-names+"))))
+    (unless (string= "ok" (smoke-gate-field report "status"))
+      (error "Devnet smoke gate returned non-ok status: ~S" report))
+    (smoke-gate-devnet-require-field report "readyFile" ready-file)
+    (smoke-gate-devnet-require-field report "logFile" log-file)
+    (smoke-gate-devnet-require-field report "pidFile" pid-file)
+    (smoke-gate-devnet-require-field report "databaseFile" database-file)
+    (smoke-gate-devnet-require-field
+     report
+     "databasePruneStateBefore"
+     +smoke-gate-devnet-prune-state-before+)
+    (smoke-gate-devnet-require-field
+     report
+     "caseCount"
+     expected-count)
+    (smoke-gate-devnet-require-case-files
+     report "readyFile" "readyCaseCount" expected-count)
+    (smoke-gate-devnet-require-case-files
+     report "logFile" "logCaseCount" expected-count)
+    (smoke-gate-devnet-require-case-files
+     report "pidFile" "pidCaseCount" expected-count)
+    (smoke-gate-devnet-require-case-files
+     report "databaseFile" "databaseCaseCount" expected-count)
+    report))
+
 (defun smoke-gate-devnet-summary ()
   (let ((ready-file
           (namestring
@@ -436,9 +484,12 @@
              (error "Devnet smoke gate failed with status ~D: ~A"
                     status stderr))
            (setf report (smoke-gate-json-decode stdout))
-           (unless (string= "ok" (smoke-gate-field report "status"))
-             (error "Devnet smoke gate returned non-ok status: ~S" report))
-           report)
+           (smoke-gate-validate-devnet-summary
+            report
+            ready-file
+            log-file
+            pid-file
+            database-file))
       (when report
         (dolist (field '("readyFile" "logFile" "pidFile" "databaseFile"))
           (dolist (path (smoke-gate-devnet-case-files report field))
