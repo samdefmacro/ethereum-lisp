@@ -145,11 +145,15 @@
                  :type nil
                  :defaults *ethereum-lisp-fixture-report-root*))
 
-(defun fixture-report-reference-path (relative-path)
-  (merge-pathnames relative-path (fixture-report-root-directory)))
+(defun fixture-report-reference-path (relative-path &optional env-var)
+  (let ((override (and env-var (uiop:getenv env-var))))
+    (if (and override (plusp (length override)))
+        (uiop:ensure-directory-pathname
+         (merge-pathnames override (fixture-report-root-directory)))
+        (merge-pathnames relative-path (fixture-report-root-directory)))))
 
-(defun fixture-report-reference-client-object (name relative-path)
-  (let ((path (fixture-report-reference-path relative-path)))
+(defun fixture-report-reference-client-object (name env-var relative-path)
+  (let ((path (fixture-report-reference-path relative-path env-var)))
     (cond
       ((not (probe-file path))
        (list
@@ -180,9 +184,12 @@
 
 (defun fixture-report-reference-clients ()
   (list
-   (fixture-report-reference-client-object "geth" "references/go-ethereum/")
-   (fixture-report-reference-client-object "nethermind" "references/nethermind/")
-   (fixture-report-reference-client-object "reth" "references/reth/")))
+   (fixture-report-reference-client-object
+    "geth" "ETHEREUM_LISP_GETH_ROOT" "references/go-ethereum/")
+   (fixture-report-reference-client-object
+    "nethermind" "ETHEREUM_LISP_NETHERMIND_ROOT" "references/nethermind/")
+   (fixture-report-reference-client-object
+    "reth" "ETHEREUM_LISP_RETH_ROOT" "references/reth/")))
 
 (defun fixture-report-execution-spec-tests-source ()
   (list

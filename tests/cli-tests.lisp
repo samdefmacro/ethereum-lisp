@@ -1397,6 +1397,14 @@
         (is (phase-a-smoke-gate-reference-commit-p commit))
         (is (null commit)))))
 
+(defun phase-a-smoke-gate-assert-reference-client-path
+    (reference-clients name expected-path)
+  (let ((client
+          (phase-a-smoke-gate-reference-client reference-clients name)))
+    (is client)
+    (is (string= expected-path
+                 (fixture-object-field client "path")))))
+
 (defun phase-a-smoke-gate-assert-execution-spec-tests-source (report)
   (let ((source (fixture-object-field report "executionSpecTests")))
     (is source)
@@ -2325,6 +2333,68 @@
          reference-clients "nethermind")
         (phase-a-smoke-gate-assert-reference-client
          reference-clients "reth")))))
+
+(deftest phase-a-report-scripts-honor-reference-client-root-env
+  #-sbcl
+  (skip-test "Phase A report scripts require SBCL")
+  #+sbcl
+  (let* ((token (format nil "~A-~A" (sb-unix:unix-getpid) (gensym)))
+         (geth-root
+           (format nil "/private/tmp/ethereum-lisp-geth-root-~A/" token))
+         (nethermind-root
+           (format nil "/private/tmp/ethereum-lisp-nethermind-root-~A/"
+                   token))
+         (reth-root
+           (format nil "/private/tmp/ethereum-lisp-reth-root-~A/" token))
+         (environment
+           (list
+            (format nil "ETHEREUM_LISP_GETH_ROOT=~A" geth-root)
+            (format nil "ETHEREUM_LISP_NETHERMIND_ROOT=~A"
+                    nethermind-root)
+            (format nil "ETHEREUM_LISP_RETH_ROOT=~A" reth-root))))
+    (labels ((run-report (script &rest extra-args)
+               (uiop:run-program
+                (append
+                 (list "env")
+                 environment
+                 (list "sbcl" "--script" script "--")
+                 extra-args)
+                :output :string
+                :error-output :string
+                :ignore-error-status t))
+             (assert-reference-roots (report)
+               (let ((reference-clients
+                       (fixture-object-field report "referenceClients")))
+                 (is (= 3 (length reference-clients)))
+                 (phase-a-smoke-gate-assert-reference-client-path
+                  reference-clients "geth" geth-root)
+                 (phase-a-smoke-gate-assert-reference-client-path
+                  reference-clients "nethermind" nethermind-root)
+                 (phase-a-smoke-gate-assert-reference-client-path
+                  reference-clients "reth" reth-root)
+                 (dolist (name '("geth" "nethermind" "reth"))
+                   (phase-a-smoke-gate-assert-reference-client
+                    reference-clients name)))))
+      (multiple-value-bind (stdout stderr status)
+          (run-report
+           "scripts/phase-a-fixture-report.lisp"
+           "--json"
+           "--root"
+           "tests/fixtures/execution-spec-tests-root/")
+        (is (= 0 status))
+        (is (string= "" stderr))
+        (when (= 0 status)
+          (assert-reference-roots (parse-json stdout))))
+      (multiple-value-bind (stdout stderr status)
+          (run-report
+           "scripts/phase-a-smoke-gate.lisp"
+           "--json"
+           "--root"
+           "tests/fixtures/execution-spec-tests-root/")
+        (is (= 0 status))
+        (is (string= "" stderr))
+        (when (= 0 status)
+          (assert-reference-roots (parse-json stdout)))))))
 
 (deftest phase-a-fixture-report-help-prints-without-loading-errors
   #-sbcl

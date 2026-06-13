@@ -152,6 +152,13 @@
 (defun smoke-gate-reference-path (relative-path)
   (merge-pathnames relative-path (smoke-gate-root-directory)))
 
+(defun smoke-gate-reference-client-path (relative-path env-var)
+  (let ((override (and env-var (uiop:getenv env-var))))
+    (if (and override (plusp (length override)))
+        (uiop:ensure-directory-pathname
+         (merge-pathnames override (smoke-gate-root-directory)))
+        (smoke-gate-reference-path relative-path))))
+
 (defun smoke-gate-temp-token ()
   (format nil "~A-~A"
           #+sbcl (sb-unix:unix-getpid)
@@ -168,8 +175,8 @@
   (when (and path (probe-file path))
     (delete-file path)))
 
-(defun smoke-gate-reference-client-object (name relative-path)
-  (let ((path (smoke-gate-reference-path relative-path)))
+(defun smoke-gate-reference-client-object (name env-var relative-path)
+  (let ((path (smoke-gate-reference-client-path relative-path env-var)))
     (cond
       ((not (probe-file path))
        (list
@@ -200,9 +207,12 @@
 
 (defun smoke-gate-reference-clients ()
   (list
-   (smoke-gate-reference-client-object "geth" "references/go-ethereum/")
-   (smoke-gate-reference-client-object "nethermind" "references/nethermind/")
-   (smoke-gate-reference-client-object "reth" "references/reth/")))
+   (smoke-gate-reference-client-object
+    "geth" "ETHEREUM_LISP_GETH_ROOT" "references/go-ethereum/")
+   (smoke-gate-reference-client-object
+    "nethermind" "ETHEREUM_LISP_NETHERMIND_ROOT" "references/nethermind/")
+   (smoke-gate-reference-client-object
+    "reth" "ETHEREUM_LISP_RETH_ROOT" "references/reth/")))
 
 (defun smoke-gate-execution-spec-tests-source ()
   (list

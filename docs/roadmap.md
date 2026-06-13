@@ -929,9 +929,13 @@ Detailed historical implementation notes for this section now live in
   Fixture report and smoke-gate outputs also record local geth, Nethermind, and
   optional Reth reference-client commit metadata when those clones are present,
   or explicit missing status when they are absent, so replay reports satisfy
-  the reference pinning rule without relying on PR prose. They also expose the
-  pinned `ethereum/execution-spec-tests` source metadata at top level: release
-  `v5.4.0`, tag target `88e9fb8`, and `fixtures_stable.tar.gz`. In pinned
+  the reference pinning rule without relying on PR prose. The same metadata
+  paths can be overridden with `ETHEREUM_LISP_GETH_ROOT`,
+  `ETHEREUM_LISP_NETHERMIND_ROOT`, and `ETHEREUM_LISP_RETH_ROOT`, allowing
+  automation to pin external local clones without repository-local checkouts.
+  They also expose the pinned `ethereum/execution-spec-tests` source metadata
+  at top level: release `v5.4.0`, tag target `88e9fb8`, and
+  `fixtures_stable.tar.gz`. In pinned
   mode the fixture report and smoke gate require an explicit suite root or
   `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, matching the optional fixture
   runner contract while keeping missing pinned fixture configuration

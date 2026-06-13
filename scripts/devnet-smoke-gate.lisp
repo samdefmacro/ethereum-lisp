@@ -428,8 +428,18 @@
 (defun devnet-smoke-gate-reference-path (relative-path)
   (merge-pathnames relative-path (devnet-smoke-gate-root-directory)))
 
-(defun devnet-smoke-gate-reference-client-object (name relative-path)
-  (let ((path (devnet-smoke-gate-reference-path relative-path)))
+(defun devnet-smoke-gate-reference-client-path (relative-path env-var)
+  (let ((override (and env-var (uiop:getenv env-var))))
+    (if (and override (plusp (length override)))
+        (uiop:ensure-directory-pathname
+         (merge-pathnames override (devnet-smoke-gate-root-directory)))
+        (devnet-smoke-gate-reference-path relative-path))))
+
+(defun devnet-smoke-gate-reference-client-object
+    (name env-var relative-path)
+  (let ((path (devnet-smoke-gate-reference-client-path
+               relative-path
+               env-var)))
     (cond
       ((not (probe-file path))
        (list
@@ -460,9 +470,12 @@
 
 (defun devnet-smoke-gate-reference-clients ()
   (list
-   (devnet-smoke-gate-reference-client-object "geth" "references/go-ethereum/")
-   (devnet-smoke-gate-reference-client-object "nethermind" "references/nethermind/")
-   (devnet-smoke-gate-reference-client-object "reth" "references/reth/")))
+   (devnet-smoke-gate-reference-client-object
+    "geth" "ETHEREUM_LISP_GETH_ROOT" "references/go-ethereum/")
+   (devnet-smoke-gate-reference-client-object
+    "nethermind" "ETHEREUM_LISP_NETHERMIND_ROOT" "references/nethermind/")
+   (devnet-smoke-gate-reference-client-object
+    "reth" "ETHEREUM_LISP_RETH_ROOT" "references/reth/")))
 
 (defun devnet-smoke-gate-execution-spec-tests-source ()
   (list
