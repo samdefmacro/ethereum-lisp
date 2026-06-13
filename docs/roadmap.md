@@ -891,7 +891,9 @@ first pass, but interfaces must not block that path.
   regression suite now also covers retained-state contract-creation
   simulations, fork-specific contract-creation estimate lower bounds, and
   value-bearing retained-state calls without committing sender, recipient, or
-  created-contract balance changes.
+  created-contract balance changes. Txpool queued views now expose blob-subpool
+  transactions through `txpool_content`, `txpool_contentFrom`, and
+  `txpool_inspect` consistently with `txpool_status` queued counts.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

@@ -6942,25 +6942,29 @@
         (is (string= (hash32-to-hex
                       (transaction-hash basefee-transaction))
                      (field (field queued "2") "hash")))
-        (is (null (field queued "3")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash blob-transaction))
+                     (field (field queued "3") "hash")))
         (is (null (field queued "4")))
-        (is (equal '("1" "2" "10") (mapcar #'car queued)))
+        (is (equal '("1" "2" "3" "10") (mapcar #'car queued)))
         (is (string= (hash32-to-hex
                       (transaction-hash queued-transaction))
                      (field (field content-queued "1") "hash")))
         (is (string= (hash32-to-hex
                       (transaction-hash basefee-transaction))
                      (field (field content-queued "2") "hash")))
-        (is (null (field content-queued "3")))
+        (is (string= (hash32-to-hex
+                      (transaction-hash blob-transaction))
+                     (field (field content-queued "3") "hash")))
         (is (string= (hash32-to-hex
                       (transaction-hash queued-high-nonce-transaction))
                      (field (field content-queued "10") "hash")))
-        (is (equal '("1" "2" "10") (mapcar #'car content-queued)))
+        (is (equal '("1" "2" "3" "10") (mapcar #'car content-queued)))
         (is (search "110 wei" (field inspect-queued "1")))
         (is (search "120 wei" (field inspect-queued "2")))
-        (is (null (field inspect-queued "3")))
+        (is (search "130 wei" (field inspect-queued "3")))
         (is (search "150 wei" (field inspect-queued "10")))
-        (is (equal '("1" "2" "10") (mapcar #'car inspect-queued)))
+        (is (equal '("1" "2" "3" "10") (mapcar #'car inspect-queued)))
         (is (string= (hash32-to-hex
                       (transaction-hash other-transaction))
                      (field (field other-queued "1") "hash")))))))
@@ -16916,9 +16920,11 @@
       (is (string= (quantity-to-hex 0) (field status "pending")))
       (is (string= (quantity-to-hex 1) (field status "queued")))
       (is (null (field content "pending")))
-      (is (null queued))
-      (is (null queued-from))
-      (is (null inspect-queued))
+      (is (string= transaction-hash (field (field queued "0") "hash")))
+      (is (string= transaction-hash (field queued-from "hash")))
+      (is (search (format nil "~A wei"
+                          (transaction-value transaction))
+                  (field inspect-queued "0")))
       (is (string= transaction-hash (field pooled-transaction "hash")))
       (is (null (field pooled-transaction "blockHash")))
       (is (= 0 (length (field filter-changes "result")))))))
