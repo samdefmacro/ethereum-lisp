@@ -4393,8 +4393,9 @@ splits can land after the Phase A smoke path closes.
     used by `engine_getPayload*`. Records are keyed by the 8-byte payload id,
     store the prepared payload version, block RLP, and blob bundle byte lists,
     prune stale KV entries on export, validate key/id consistency on import,
-    and reject malformed records during staging without replacing existing
-    prepared payloads.
+    require the stored version to match the payload-id version byte, and reject
+    malformed records during staging without replacing existing prepared
+    payloads.
   - Result: the standalone devnet smoke gate now exercises that prepared
     payload persistence across the process boundary. Each database-backed
     pinned Shanghai devnet run prepares a V2 payload through authenticated

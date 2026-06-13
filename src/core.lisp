@@ -1776,6 +1776,28 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   block
   blobs-bundle)
 
+(defun validate-engine-prepared-payload (prepared-payload)
+  (unless (typep prepared-payload 'engine-prepared-payload)
+    (block-validation-fail
+     "Engine prepared payload must be an engine-prepared-payload"))
+  (let ((payload-id
+          (validate-sized-byte-vector
+           (engine-prepared-payload-payload-id prepared-payload)
+           8
+           "Engine prepared payload id"))
+        (version (engine-prepared-payload-version prepared-payload)))
+    (unless (and (integerp version) (<= 1 version 6))
+      (block-validation-fail
+       "Engine prepared payload version must be between 1 and 6"))
+    (unless (= version (aref payload-id 0))
+      (block-validation-fail
+       "Engine prepared payload id version does not match payload version"))
+    (unless (typep (engine-prepared-payload-block prepared-payload)
+                   'ethereum-block)
+      (block-validation-fail
+       "Engine prepared payload block must be an ethereum-block"))
+    prepared-payload))
+
 (defun maybe-copy-bytes (bytes)
   (when bytes
     (copy-seq (ensure-byte-vector bytes))))
@@ -4283,6 +4305,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((prepared-payload
           (chain-store-prepared-payload-from-rlp
            payload-id-identifier record)))
+    (validate-engine-prepared-payload prepared-payload)
     (setf (gethash
            (engine-payload-id-key
             (engine-prepared-payload-payload-id prepared-payload))
@@ -5820,9 +5843,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (store prepared-payload)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
-  (unless (typep prepared-payload 'engine-prepared-payload)
-    (block-validation-fail
-     "Engine prepared payload must be an engine-prepared-payload"))
+  (validate-engine-prepared-payload prepared-payload)
   (setf (gethash
          (engine-payload-id-key
           (engine-prepared-payload-payload-id prepared-payload))

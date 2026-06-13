@@ -3174,7 +3174,7 @@
 
 (deftest chain-store-interface-wraps-memory-payload-store
   (let* ((store (make-engine-payload-memory-store))
-         (payload-id #(1 2 3 4 5 6 7 8))
+         (payload-id #(3 2 3 4 5 6 7 8))
          (address
            (address-from-hex "0x0000000000000000000000000000000000000001"))
          (storage-slot
@@ -5033,6 +5033,33 @@
         (when (probe-file path)
           (delete-file path))))))
 
+(deftest chain-store-put-prepared-payload-rejects-version-id-mismatch
+  (let* ((store (make-engine-payload-memory-store))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (valid-payload
+           (make-engine-prepared-payload
+            :payload-id #(3 0 0 0 0 0 0 1)
+            :version 3
+            :block block))
+         (mismatched-payload
+           (make-engine-prepared-payload
+            :payload-id #(5 0 0 0 0 0 0 2)
+            :version 3
+            :block block)))
+    (is (eq valid-payload
+            (chain-store-put-prepared-payload store valid-payload)))
+    (signals block-validation-error
+      (chain-store-put-prepared-payload store mismatched-payload))
+    (is (chain-store-prepared-payload store #(3 0 0 0 0 0 0 1)))
+    (is (not (chain-store-prepared-payload store #(5 0 0 0 0 0 0 2))))))
+
 (deftest chain-store-import-from-kv-rejects-corrupt-prepared-payload-record
   (let* ((path
            (merge-pathnames
@@ -5098,6 +5125,42 @@
                 (chain-store-prepared-payload target source-payload-id))))
       (when (probe-file path)
         (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-prepared-payload-version-id-mismatch
+  (let* ((database (make-memory-key-value-database))
+         (target (make-engine-payload-memory-store))
+         (target-payload-id #(5 0 0 0 0 0 0 3))
+         (mismatched-payload-id #(5 0 0 0 0 0 0 4))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (target-payload
+           (make-engine-prepared-payload
+            :payload-id target-payload-id
+            :version 5
+            :block block))
+         (mismatched-payload
+           (make-engine-prepared-payload
+            :payload-id mismatched-payload-id
+            :version 3
+            :block block)))
+    (chain-store-put-prepared-payload target target-payload)
+    (kv-put-chain-record
+     database
+     :prepared-payload
+     (ensure-byte-vector mismatched-payload-id)
+     (ethereum-lisp.core::chain-store-prepared-payload-record-rlp
+      mismatched-payload))
+    (signals block-validation-error
+      (chain-store-import-from-kv target database))
+    (is (chain-store-prepared-payload target target-payload-id))
+    (is (not
+         (chain-store-prepared-payload target mismatched-payload-id)))))
 
 (deftest chain-store-import-from-kv-rejects-state-root-mismatch
   (let* ((path
@@ -6165,7 +6228,7 @@
             :receipts (list receipt)))
          (block-hash (block-hash block))
          (transaction-hash (transaction-hash transaction))
-         (payload-id #(9 0 0 0 0 0 0 1))
+         (payload-id #(3 0 0 0 0 0 0 1))
          (blob #(#xaa #xbb))
          (commitment (make-byte-vector +kzg-commitment-size+
                                        :initial-element 0))
