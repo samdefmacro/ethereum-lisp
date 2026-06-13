@@ -4759,6 +4759,112 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-export-to-kv-prunes-known-invalid-tipset-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-invalid-known-export-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (store (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 1
+             :gas-limit 50000
+             :timestamp 10)))
+         (block-id (hash32-bytes (block-hash block))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block store block)
+           (ethereum-lisp.core::engine-payload-store-mark-invalid store block)
+           (let ((database (make-file-key-value-database path)))
+             (kv-put-chain-record
+              database
+              :invalid-tipset
+              block-id
+              (block-rlp block))
+             (chain-store-export-to-kv store database))
+           (let ((database (make-file-key-value-database path)))
+             (multiple-value-bind (record present-p)
+                 (kv-get-chain-record
+                  database :invalid-tipset block-id :missing)
+               (is (eq :missing record))
+               (is (not present-p)))
+             (multiple-value-bind (record present-p)
+                 (kv-get-chain-record database :block block-id)
+               (is present-p)
+               (is (bytes= (block-rlp block) record)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-known-invalid-tipset-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-invalid-known-import-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (known-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 1
+             :gas-limit 50000
+             :timestamp 10)))
+         (target-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 2
+             :gas-limit 50000
+             :timestamp 11)))
+         (known-id (hash32-bytes (block-hash known-block))))
+    (unwind-protect
+         (progn
+           (chain-store-put-block source known-block)
+           (chain-store-put-block target target-block)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :invalid-tipset
+              known-id
+              (block-rlp known-block)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (chain-store-known-block target (block-hash target-block)))
+           (is (not (chain-store-known-block target (block-hash known-block))))
+           (is (not
+                (ethereum-lisp.core::engine-payload-store-invalid-block
+                 target
+                 (block-hash known-block)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-rejects-invalid-tipset-key-mismatch
   (let* ((path
            (merge-pathnames

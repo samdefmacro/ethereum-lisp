@@ -4406,6 +4406,10 @@ splits can land after the Phase A smoke path closes.
     recomputed on demand instead of persisted, export prunes stale aliases, and
     malformed or key-mismatched invalid-tipset records reject during staging
     without replacing the existing cache.
+  - Progress: invalid-tipset KV export now also prunes stale direct markers
+    whose block has since become known, and import rejects snapshots that mark
+    the same block as both known and invalid instead of publishing a
+    contradictory restored cache.
   - Result: the standalone devnet smoke gate now exercises invalid-tipset
     persistence across the process boundary. Each database-backed pinned
     Shanghai run submits a known-parent invalid `engine_newPayloadV2`, verifies

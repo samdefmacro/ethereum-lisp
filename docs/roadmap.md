@@ -825,7 +825,9 @@ first pass, but interfaces must not block that path.
   basefee/queued entries so restart state matches canonical-head update
   policy. Remote-block import also drops stale cache records that duplicate
   restored known blocks or invalid tipsets, matching export cleanup while
-  preserving strict rejection for malformed remote-cache data.
+  preserving strict rejection for malformed remote-cache data. Invalid-tipset
+  KV export/import now similarly prevents a block from being restored as both
+  known and invalid.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, fuller sync-stage persistence, and durable trie-node storage remain
   later work.
