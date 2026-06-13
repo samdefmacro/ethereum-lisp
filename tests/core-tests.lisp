@@ -5387,6 +5387,64 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest engine-payload-store-copies-blob-sidecar-lookups
+  (let* ((store (make-engine-payload-memory-store))
+         (blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proofs
+           (loop for index below +cell-proofs-per-blob+
+                 collect
+                 (let ((proof (make-byte-vector +kzg-proof-size+)))
+                   (setf (aref proof 0) index)
+                   proof)))
+         (sidecar nil)
+         (versioned-hash nil))
+    (setf (aref blob 0) #xaa
+          (aref commitment 0) #xbb
+          sidecar (make-blob-sidecar
+                   :blobs (list blob)
+                   :commitments (list commitment)
+                   :proofs proofs)
+          versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
+    (ethereum-lisp.core::engine-payload-store-put-blob-sidecar store sidecar)
+    (let ((lookup
+            (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v2
+             store
+             versioned-hash)))
+      (setf (aref (ethereum-lisp.core::engine-blob-and-proofs-blob lookup) 0)
+            #x11)
+      (setf (aref (ethereum-lisp.core::engine-blob-and-proofs-commitment
+                   lookup)
+                  0)
+            #x22)
+      (setf (aref (ethereum-lisp.core::engine-blob-and-proofs-proof lookup)
+                  0)
+            #x33)
+      (setf (aref
+             (first
+              (ethereum-lisp.core::engine-blob-and-proofs-cell-proofs lookup))
+             0)
+            #x44))
+    (let ((lookup
+            (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v2
+             store
+             versioned-hash)))
+      (is (= #xaa
+             (aref (ethereum-lisp.core::engine-blob-and-proofs-blob lookup)
+                   0)))
+      (is (= #xbb
+             (aref (ethereum-lisp.core::engine-blob-and-proofs-commitment
+                    lookup)
+                   0)))
+      (is (= 0
+             (aref (ethereum-lisp.core::engine-blob-and-proofs-proof lookup)
+                   0)))
+      (is (= 0
+             (aref
+              (first
+               (ethereum-lisp.core::engine-blob-and-proofs-cell-proofs lookup))
+              0))))))
+
 (deftest chain-store-import-from-kv-rejects-corrupt-blob-sidecar-record
   (let* ((path
            (merge-pathnames

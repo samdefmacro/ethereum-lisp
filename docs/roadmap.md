@@ -833,6 +833,9 @@ first pass, but interfaces must not block that path.
   shape before cache publication. Prepared payload insertion also copies the
   stored wrapper, block, payload id, and blob bundle bytes so caller-side
   mutation cannot change later Engine payload responses or KV exports.
+  Blob sidecar cache lookups likewise return copied blob/proof records, so
+  Engine `getBlobs` response construction and direct store reads cannot mutate
+  cached sidecar bytes after lookup.
   Remote-block and invalid-tipset cache insertion likewise copies parked block
   records before publishing them to sync-cache lookups or KV export. Txpool
   snapshot copies now also copy transaction objects by canonical encoding while

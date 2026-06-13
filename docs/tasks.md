@@ -4437,6 +4437,9 @@ splits can land after the Phase A smoke path closes.
     memory store, validate that the key matches the encoded commitment on
     import, prune stale KV entries on export, and reject malformed records
     during staging without replacing an existing blob cache.
+  - Progress: blob sidecar cache lookups now return copied blob/proof records.
+    Direct callers and Engine `getBlobs` response construction can no longer
+    mutate the cached sidecar bytes after reading them from the store.
   - Result: KV export/import now persists prepared Engine payload cache entries
     used by `engine_getPayload*`. Records are keyed by the 8-byte payload id,
     store the prepared payload version, block RLP, and blob bundle byte lists,

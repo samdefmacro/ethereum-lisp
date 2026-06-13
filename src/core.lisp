@@ -6241,8 +6241,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-blob-and-proofs-v1
     (store versioned-hash)
-  (gethash (engine-payload-store-key versioned-hash)
-           (engine-payload-memory-store-blob-sidecars store)))
+  (engine-payload-store-copy-blob-and-proofs
+   (gethash (engine-payload-store-key versioned-hash)
+            (engine-payload-memory-store-blob-sidecars store))))
 
 (defun engine-payload-store-blob-and-proofs-v2
     (store versioned-hash)
