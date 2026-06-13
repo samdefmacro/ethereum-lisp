@@ -5735,6 +5735,55 @@
     (is (chain-store-prepared-payload store #(3 0 0 0 0 0 0 1)))
     (is (not (chain-store-prepared-payload store #(5 0 0 0 0 0 0 2))))))
 
+(deftest chain-store-put-prepared-payload-validates-blobs-bundle
+  (let* ((store (make-engine-payload-memory-store))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (valid-payload-id #(5 0 0 0 0 0 0 1))
+         (non-sidecar-payload-id #(5 0 0 0 0 0 0 2))
+         (non-byte-payload-id #(5 0 0 0 0 0 0 3))
+         (valid-payload
+           (make-engine-prepared-payload
+            :payload-id valid-payload-id
+            :version 5
+            :block block
+            :blobs-bundle
+            (make-blob-sidecar
+             :blobs (list #(#x01 #x02))
+             :commitments (list #(#x03))
+             :proofs (list #(#x04)))))
+         (non-sidecar-payload
+           (make-engine-prepared-payload
+            :payload-id non-sidecar-payload-id
+            :version 5
+            :block block
+            :blobs-bundle "not-a-sidecar"))
+         (non-byte-payload
+           (make-engine-prepared-payload
+            :payload-id non-byte-payload-id
+            :version 5
+            :block block
+            :blobs-bundle
+            (make-blob-sidecar
+             :blobs (list (vector :not-a-byte))
+             :commitments '()
+             :proofs '()))))
+    (is (eq valid-payload
+            (chain-store-put-prepared-payload store valid-payload)))
+    (signals block-validation-error
+      (chain-store-put-prepared-payload store non-sidecar-payload))
+    (signals block-validation-error
+      (chain-store-put-prepared-payload store non-byte-payload))
+    (is (chain-store-prepared-payload store valid-payload-id))
+    (is (not (chain-store-prepared-payload store non-sidecar-payload-id)))
+    (is (not (chain-store-prepared-payload store non-byte-payload-id)))))
+
 (deftest chain-store-import-from-kv-rejects-corrupt-prepared-payload-record
   (let* ((path
            (merge-pathnames

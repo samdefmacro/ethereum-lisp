@@ -1776,6 +1776,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   block
   blobs-bundle)
 
+(defun validate-engine-prepared-payload-blobs-bundle (bundle)
+  (when bundle
+    (unless (typep bundle 'blob-sidecar)
+      (block-validation-fail
+       "Engine prepared payload blobs bundle must be a blob-sidecar"))
+    (handler-case
+        (progn
+          (mapcar #'ensure-byte-vector (blob-sidecar-blobs bundle))
+          (mapcar #'ensure-byte-vector (blob-sidecar-commitments bundle))
+          (mapcar #'ensure-byte-vector (blob-sidecar-proofs bundle)))
+      (error ()
+        (block-validation-fail
+         "Engine prepared payload blobs bundle entries must be byte vectors"))))
+  bundle)
+
 (defun validate-engine-prepared-payload (prepared-payload)
   (unless (typep prepared-payload 'engine-prepared-payload)
     (block-validation-fail
@@ -1796,6 +1811,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    'ethereum-block)
       (block-validation-fail
        "Engine prepared payload block must be an ethereum-block"))
+    (validate-engine-prepared-payload-blobs-bundle
+     (engine-prepared-payload-blobs-bundle prepared-payload))
     prepared-payload))
 
 (defun maybe-copy-bytes (bytes)

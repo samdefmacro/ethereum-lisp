@@ -4436,6 +4436,11 @@ splits can land after the Phase A smoke path closes.
     require the stored version to match the payload-id version byte, and reject
     malformed records during staging without replacing existing prepared
     payloads.
+  - Progress: prepared-payload cache insertion now validates optional blob
+    bundle records before publication. Invalid bundle types or non-byte blob,
+    commitment, and proof entries are rejected at the same store/import
+    boundary as payload-id and version mismatches, while compact synthetic byte
+    lists used by the Phase A smoke fixtures remain valid.
   - Progress: prepared-payload KV export now treats known or invalid blocks as
     authoritative and prunes prepared cache entries for those blocks. Import
     mirrors the cleanup by dropping stale prepared-payload records whose block
