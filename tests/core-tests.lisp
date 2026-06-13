@@ -8174,7 +8174,8 @@
                 (zero-address))))
          (nonce-key (write-to-string
                      (transaction-nonce transaction)
-                     :base 10)))
+                     :base 10))
+         (original-encoding (transaction-encoding transaction)))
     (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
      txpool
      transaction)
@@ -8188,7 +8189,13 @@
              (gethash
               sender-key
               (ethereum-lisp.core::engine-pending-txpool-transactions-by-sender
-               copy))))
+               copy)))
+           (copy-indexed-transaction
+             (gethash nonce-key copy-sender-transactions))
+           (copy-pending-transaction
+             (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+              copy
+              (transaction-hash transaction))))
       (is (not (eq txpool copy)))
       (is (not (eq
                 (ethereum-lisp.core::engine-pending-txpool-transactions
@@ -8207,7 +8214,15 @@
              (hash-table-count
               (ethereum-lisp.core::engine-pending-txpool-transactions
                copy))))
-      (is (eq transaction (gethash nonce-key copy-sender-transactions))))))
+      (is (not (eq transaction copy-indexed-transaction)))
+      (is (eq copy-pending-transaction copy-indexed-transaction))
+      (is (bytes= original-encoding
+                  (transaction-encoding copy-indexed-transaction)))
+      (setf (legacy-transaction-gas-price transaction) 999)
+      (is (bytes= original-encoding
+                  (transaction-encoding copy-indexed-transaction)))
+      (is (not (bytes= original-encoding
+                       (transaction-encoding transaction)))))))
 
 (deftest execute-and-commit-block-stores-only-after-execution-success
   (let* ((store (make-engine-payload-memory-store))

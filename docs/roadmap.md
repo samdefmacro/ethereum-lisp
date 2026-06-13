@@ -834,7 +834,10 @@ first pass, but interfaces must not block that path.
   stored wrapper, block, payload id, and blob bundle bytes so caller-side
   mutation cannot change later Engine payload responses or KV exports.
   Remote-block and invalid-tipset cache insertion likewise copies parked block
-  records before publishing them to sync-cache lookups or KV export.
+  records before publishing them to sync-cache lookups or KV export. Txpool
+  snapshot copies now also copy transaction objects by canonical encoding while
+  preserving table/index identity inside the copied txpool, preventing rollback
+  snapshots from sharing caller-mutated transaction instances.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, fuller sync-stage persistence, and durable trie-node storage remain
   later work.

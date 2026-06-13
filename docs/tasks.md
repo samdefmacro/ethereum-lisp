@@ -3919,6 +3919,10 @@ splits can land after the Phase A smoke path closes.
     `engine-pending-txpool-copy` helper, including deep copies of nested
     sender/nonce indexes. Atomic store snapshots now call the txpool copy
     boundary instead of rebuilding txpool internals themselves.
+  - Progress: hardened txpool snapshot copies so pending, queued, basefee, and
+    blob subpools copy transaction objects by canonical encoding while sharing
+    the same copied instance between each subpool table and sender/nonce index.
+    Rollback snapshots no longer alias caller-mutated transaction instances.
   - Progress: moved pending transaction lookup, sorted listing, and pending /
     queued / basefee / blob count helpers onto the `engine-pending-txpool`
     boundary. Store-level txpool RPC helpers now read through txpool accessors
