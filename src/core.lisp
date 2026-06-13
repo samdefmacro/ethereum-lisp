@@ -3491,13 +3491,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (hex-to-bytes block-key)
    (block-rlp block)))
 
+(defun chain-store-remote-block-exportable-p (store block-key block)
+  (let ((block-hash (block-hash block)))
+    (and (string= block-key (engine-payload-store-key block-hash))
+         (not (chain-store-known-block store block-hash))
+         (not (engine-payload-store-invalid-block store block-hash)))))
+
 (defun chain-store-populate-remote-block-export-batch
     (store database batch)
   (let ((current-block-keys (make-hash-table :test 'equal)))
     (maphash
      (lambda (block-key block)
-       (setf (gethash block-key current-block-keys) t)
-       (chain-store-export-remote-block-to-kv batch block-key block))
+       (when (chain-store-remote-block-exportable-p store block-key block)
+         (setf (gethash block-key current-block-keys) t)
+         (chain-store-export-remote-block-to-kv batch block-key block)))
      (engine-payload-memory-store-remote-blocks store))
     (dolist (entry (kv-chain-record-entries database :remote-block))
       (unless (gethash (bytes-to-hex (car entry)) current-block-keys)
@@ -4184,6 +4191,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (unless (hash32= block-hash (block-hash block))
           (block-validation-fail
            "KV remote-block record key does not match encoded block hash"))
+        (when (chain-store-known-block store block-hash)
+          (block-validation-fail
+           "KV remote-block record duplicates a known block"))
+        (when (engine-payload-store-invalid-block store block-hash)
+          (block-validation-fail
+           "KV remote-block record duplicates an invalid tipset"))
         (setf (gethash
                (engine-payload-store-key block-hash)
                (engine-payload-memory-store-remote-blocks store))

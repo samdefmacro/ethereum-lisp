@@ -4386,8 +4386,10 @@ splits can land after the Phase A smoke path closes.
   - Result: KV export/import now persists remote Engine blocks parked by
     `newPayload` when a parent block or parent state is unavailable. Records
     are keyed by block hash, validate the decoded block hash on import, and
-    publish through the existing staging boundary so corrupt sync-cache records
-    do not replace an existing remote-block cache.
+    must not duplicate a known block or invalid-tipset entry in the same
+    snapshot. Export also prunes stale remote-cache entries that no longer
+    represent a parked block. Corrupt sync-cache records reject through the
+    staging boundary without replacing an existing remote-block cache.
   - Result: KV export/import now persists Engine blob sidecar cache entries
     used by `engine_getBlobsV1`/`V2`/`V3`. Records are keyed by versioned hash,
     store the commitment plus blob/proof/cell-proof payload shape kept in the

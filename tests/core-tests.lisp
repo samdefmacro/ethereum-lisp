@@ -4884,6 +4884,130 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-rejects-known-remote-block-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-remote-known-~A" (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (target-remote
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 6
+             :gas-limit 50000
+             :timestamp 60)))
+         (known-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 7
+             :gas-limit 50000
+             :timestamp 70))))
+    (unwind-protect
+         (progn
+           (ethereum-lisp.core::engine-payload-store-put-remote-block
+            target target-remote)
+           (chain-store-put-block source known-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :remote-block
+              (hash32-bytes (block-hash known-block))
+              (block-rlp known-block)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (ethereum-lisp.core::engine-payload-store-remote-block
+                target
+                (block-hash target-remote)))
+           (is (not (chain-store-known-block target (block-hash known-block))))
+           (is (not
+                (ethereum-lisp.core::engine-payload-store-remote-block
+                 target
+                 (block-hash known-block)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-invalid-remote-block-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-remote-invalid-~A" (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (target-remote
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 8
+             :gas-limit 50000
+             :timestamp 80)))
+         (invalid-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 9
+             :gas-limit 50000
+             :timestamp 90))))
+    (unwind-protect
+         (progn
+           (ethereum-lisp.core::engine-payload-store-put-remote-block
+            target target-remote)
+           (ethereum-lisp.core::engine-payload-store-mark-invalid
+            source invalid-block)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :remote-block
+              (hash32-bytes (block-hash invalid-block))
+              (block-rlp invalid-block)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (ethereum-lisp.core::engine-payload-store-remote-block
+                target
+                (block-hash target-remote)))
+           (is (not
+                (ethereum-lisp.core::engine-payload-store-invalid-block
+                 target
+                 (block-hash invalid-block))))
+           (is (not
+                (ethereum-lisp.core::engine-payload-store-remote-block
+                 target
+                 (block-hash invalid-block)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-export-import-kv-restores-blob-sidecars
   (let* ((path
            (merge-pathnames
