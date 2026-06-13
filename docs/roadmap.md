@@ -891,7 +891,10 @@ first pass, but interfaces must not block that path.
   value-bearing retained-state calls without committing sender, recipient, or
   created-contract balance changes. Txpool queued views now expose blob-subpool
   transactions through `txpool_content`, `txpool_contentFrom`, and
-  `txpool_inspect` consistently with `txpool_status` queued counts.
+  `txpool_inspect` consistently with `txpool_status` queued counts. Txpool
+  eviction for included transactions is now tied to canonicalization, so
+  importing a sidechain block does not drop still-pending local transactions
+  until forkchoice actually makes that branch canonical.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

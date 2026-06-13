@@ -4059,6 +4059,11 @@ splits can land after the Phase A smoke path closes.
     limit. These entries are dropped from txpool counts and pooled hash
     lookups before pending revalidation or queued/basefee promotion can expose
     them again.
+  - Progress: sidechain block import no longer evicts pending txpool entries
+    merely because a non-canonical branch includes the same transaction.
+    Included transactions are removed from txpool only when their block is
+    canonical, including explicit forkchoice reorgs through
+    `chain-store-set-canonical-head`.
   - Progress: retained-state txpool balance checks now treat a missing sender
     balance entry as the known zero balance returned by retained state, rather
     than as unknown state. Raw submissions from absent senders are rejected for

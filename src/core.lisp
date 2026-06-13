@@ -2408,6 +2408,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (incf log-index-start
                      (length (receipt-logs receipt)))))))
 
+(defun engine-payload-store-remove-included-block-transactions (store block)
+  (dolist (transaction (block-transactions block))
+    (engine-payload-store-remove-included-transaction store transaction))
+  block)
+
 (defun engine-payload-store-put-block
     (store block &key (state-available-p nil))
   (unless (typep store 'engine-payload-memory-store)
@@ -2451,12 +2456,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 transaction
                 receipt
                 log-index-start)
-               (engine-payload-store-remove-included-transaction
-                store
-                transaction)
                (when receipt
                  (incf log-index-start
                        (length (receipt-logs receipt))))))
+    (when (engine-payload-store-canonical-block-p store block)
+      (engine-payload-store-remove-included-block-transactions store block))
     (if state-available-p
         (setf (gethash key
                        (engine-payload-memory-store-state-blocks store))
@@ -2692,7 +2696,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-payload-store-index-block-transactions
            store
            block
-           :force t)))
+           :force t)
+          (engine-payload-store-remove-included-block-transactions
+           store
+           block)))
       (let ((new-head-number
               (block-header-number (block-header head-block)))
             (stale-numbers '()))

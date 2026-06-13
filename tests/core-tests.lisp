@@ -8054,6 +8054,71 @@
           (is (eq shared-transaction
                   (engine-transaction-location-transaction location))))))))
 
+(deftest chain-store-keeps-pending-transaction-when-sidechain-block-includes-it
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 2
+             :gas-limit 21000
+             :to recipient
+             :value 3)
+            1
+            1))
+         (transaction-hash (transaction-hash transaction))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :extra-data #(0))))
+         (canonical-child
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :extra-data #(1))))
+         (sidechain-child
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :extra-data #(2))
+            :transactions (list transaction)
+            :receipts (list (make-receipt :status 1
+                                          :cumulative-gas-used 21000)))))
+    (chain-store-put-block store genesis)
+    (chain-store-put-block store canonical-child)
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store
+     transaction)
+    (chain-store-put-block store sidechain-child)
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (eq transaction
+            (ethereum-lisp.core::engine-payload-store-pending-transaction
+             store
+             transaction-hash)))
+    (is (null (chain-store-transaction-location store transaction-hash)))
+    (chain-store-set-canonical-head store (block-hash sidechain-child))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (null
+         (ethereum-lisp.core::engine-payload-store-pending-transaction
+          store
+          transaction-hash)))
+    (let ((location
+            (chain-store-transaction-location store transaction-hash)))
+      (is (typep location 'engine-transaction-location))
+      (is (eq sidechain-child (engine-transaction-location-block location)))
+      (is (eq transaction
+              (engine-transaction-location-transaction location))))))
+
 (deftest engine-new-payload-memory-status-caches-invalid-ancestors
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :london-block 0))
