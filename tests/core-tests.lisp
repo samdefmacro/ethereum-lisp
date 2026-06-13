@@ -20029,11 +20029,23 @@
                 store
                 config))
              (filter-id (field filter-response "result"))
-             (initial-response
+             (future-filter-response
                (request
                 (concatenate
                  'string
                  "{\"jsonrpc\":\"2.0\",\"id\":90,"
+                 "\"method\":\"eth_newFilter\","
+                 "\"params\":[{\"fromBlock\":\"0x2\","
+                 "\"address\":\"" (address-to-hex log-address) "\","
+                 "\"topics\":[\"" (hash32-to-hex topic) "\"]}]}")
+                store
+                config))
+             (future-filter-id (field future-filter-response "result"))
+             (initial-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":91,"
                  "\"method\":\"eth_getFilterChanges\","
                  "\"params\":[\"" filter-id "\"]}")
                 store
@@ -20045,23 +20057,32 @@
         (engine-payload-store-put-block
          store new-canonical-child :state-available-p t)
         (let* ((forkchoice-response
-                 (request (forkchoice-json 91 (block-hash new-canonical-child))
+                 (request (forkchoice-json 92 (block-hash new-canonical-child))
                           store
                           config))
                (changes-response
                  (request
                   (concatenate
                    'string
-                   "{\"jsonrpc\":\"2.0\",\"id\":92,"
+                   "{\"jsonrpc\":\"2.0\",\"id\":93,"
                    "\"method\":\"eth_getFilterChanges\","
                    "\"params\":[\"" filter-id "\"]}")
+                  store
+                  config))
+               (future-changes-response
+                 (request
+                  (concatenate
+                   'string
+                   "{\"jsonrpc\":\"2.0\",\"id\":94,"
+                   "\"method\":\"eth_getFilterChanges\","
+                   "\"params\":[\"" future-filter-id "\"]}")
                   store
                   config))
                (empty-changes-json
                  (engine-rpc-handle-request-json
                   (concatenate
                    'string
-                   "{\"jsonrpc\":\"2.0\",\"id\":93,"
+                   "{\"jsonrpc\":\"2.0\",\"id\":95,"
                    "\"method\":\"eth_getFilterChanges\","
                    "\"params\":[\"" filter-id "\"]}")
                   store
@@ -20070,6 +20091,7 @@
                  (field (field forkchoice-response "result")
                         "payloadStatus"))
                (logs (field changes-response "result"))
+               (future-logs (field future-changes-response "result"))
                (removed-log (first logs))
                (added-log (second logs)))
           (is (string= +payload-status-valid+
@@ -20083,6 +20105,7 @@
           (is (null (field added-log "removed")))
           (is (string= (hash32-to-hex (block-hash new-canonical-child))
                        (field added-log "blockHash")))
+          (is (null future-logs))
           (is (search "\"result\":[]" empty-changes-json)))))))
 
 (deftest eth-rpc-block-filter

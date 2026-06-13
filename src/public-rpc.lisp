@@ -2155,6 +2155,12 @@
   (engine-payload-store-key
    (block-hash (engine-log-filter-change-block change))))
 
+(defun eth-rpc-log-filter-change-in-range-p (change from-number to-number)
+  (let ((number
+          (block-header-number
+           (block-header (engine-log-filter-change-block change)))))
+    (<= from-number number to-number)))
+
 (defun eth-rpc-log-filter-change-logs
     (changes criteria method)
   (let ((addresses (eth-rpc-log-filter-addresses criteria method))
@@ -2197,7 +2203,16 @@
               (setf (engine-log-filter-block-hash-consumed-p log-filter) t)))
         (multiple-value-bind (from-number to-number)
             (eth-rpc-log-filter-range-bounds criteria store method)
-          (let* ((changes (engine-log-filter-pending-changes log-filter))
+          (let* ((pending-changes
+                   (engine-log-filter-pending-changes log-filter))
+                 (changes
+                   (remove-if-not
+                    (lambda (change)
+                      (eth-rpc-log-filter-change-in-range-p
+                       change
+                       from-number
+                       to-number))
+                    pending-changes))
                  (change-block-keys (make-hash-table :test 'equal))
                  (cursor (engine-log-filter-last-block-number log-filter))
                  (change-from (if cursor
