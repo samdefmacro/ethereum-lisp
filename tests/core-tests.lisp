@@ -4852,6 +4852,9 @@
              (is (bytes= blob
                          (ethereum-lisp.core::engine-blob-and-proofs-blob
                           restored-blob)))
+             (is (bytes= commitment
+                         (ethereum-lisp.core::engine-blob-and-proofs-commitment
+                          restored-blob)))
              (is (bytes= (first proofs)
                          (ethereum-lisp.core::engine-blob-and-proofs-proof
                           restored-blob)))
@@ -4945,6 +4948,65 @@
                  source-versioned-hash))))
       (when (probe-file path)
         (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-blob-sidecar-key-mismatch
+  (let* ((database (make-memory-key-value-database))
+         (target (make-engine-payload-memory-store))
+         (target-blob (make-byte-vector +blob-byte-size+))
+         (target-commitment (make-byte-vector +kzg-commitment-size+))
+         (target-proof (make-byte-vector +kzg-proof-size+))
+         (source-blob (make-byte-vector +blob-byte-size+))
+         (source-commitment (make-byte-vector +kzg-commitment-size+))
+         (source-proof (make-byte-vector +kzg-proof-size+))
+         target-sidecar
+         target-versioned-hash
+         source-sidecar
+         source-versioned-hash)
+    (setf (aref target-blob 0) #x11
+          (aref target-commitment 0) #x22
+          (aref target-proof 0) #x33
+          (aref source-blob 0) #x44
+          (aref source-commitment 0) #x55
+          (aref source-proof 0) #x66
+          target-sidecar (make-blob-sidecar
+                          :blobs (list target-blob)
+                          :commitments (list target-commitment)
+                          :proofs (list target-proof))
+          target-versioned-hash
+          (first (blob-sidecar-versioned-hashes target-sidecar))
+          source-sidecar (make-blob-sidecar
+                          :blobs (list source-blob)
+                          :commitments (list source-commitment)
+                          :proofs (list source-proof))
+          source-versioned-hash
+          (first (blob-sidecar-versioned-hashes source-sidecar)))
+    (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+     target target-sidecar)
+    (let ((source-cache (make-engine-payload-memory-store)))
+      (ethereum-lisp.core::engine-payload-store-put-blob-sidecar
+       source-cache source-sidecar)
+      (kv-put-chain-record
+       database
+       :blob-sidecar
+       (hash32-bytes target-versioned-hash)
+       (ethereum-lisp.core::chain-store-blob-sidecar-record-rlp
+        (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+         source-cache source-versioned-hash))))
+    (signals block-validation-error
+      (chain-store-import-from-kv target database))
+    (let ((target-cache
+            (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+             target target-versioned-hash)))
+      (is target-cache)
+      (is (bytes= target-blob
+                  (ethereum-lisp.core::engine-blob-and-proofs-blob
+                   target-cache)))
+      (is (bytes= target-commitment
+                  (ethereum-lisp.core::engine-blob-and-proofs-commitment
+                   target-cache))))
+    (is (not
+         (ethereum-lisp.core::engine-payload-store-blob-and-proofs-v1
+          target source-versioned-hash)))))
 
 (deftest chain-store-export-import-kv-restores-prepared-payloads
   (labels ((field (object name)

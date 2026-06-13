@@ -4386,9 +4386,10 @@ splits can land after the Phase A smoke path closes.
     do not replace an existing remote-block cache.
   - Result: KV export/import now persists Engine blob sidecar cache entries
     used by `engine_getBlobsV1`/`V2`/`V3`. Records are keyed by versioned hash,
-    store the blob/proof/cell-proof payload shape already kept in the memory
-    store, prune stale KV entries on export, and reject malformed records during
-    staging without replacing an existing blob cache.
+    store the commitment plus blob/proof/cell-proof payload shape kept in the
+    memory store, validate that the key matches the encoded commitment on
+    import, prune stale KV entries on export, and reject malformed records
+    during staging without replacing an existing blob cache.
   - Result: KV export/import now persists prepared Engine payload cache entries
     used by `engine_getPayload*`. Records are keyed by the 8-byte payload id,
     store the prepared payload version, block RLP, and blob bundle byte lists,

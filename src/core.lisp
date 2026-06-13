@@ -2304,8 +2304,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defstruct (engine-blob-and-proofs
             (:constructor make-engine-blob-and-proofs
-                (&key blob proof cell-proofs)))
+                (&key blob commitment proof cell-proofs)))
   blob
+  commitment
   proof
   cell-proofs)
 
@@ -2788,6 +2789,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      (make-engine-blob-and-proofs
       :blob (maybe-copy-bytes
              (engine-blob-and-proofs-blob blob-and-proofs))
+      :commitment (maybe-copy-bytes
+                   (engine-blob-and-proofs-commitment blob-and-proofs))
       :proof (maybe-copy-bytes
               (engine-blob-and-proofs-proof blob-and-proofs))
       :cell-proofs
@@ -3508,6 +3511,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (rlp-encode
    (make-rlp-list
     (engine-blob-and-proofs-blob blob-and-proofs)
+    (engine-blob-and-proofs-commitment blob-and-proofs)
     (engine-blob-and-proofs-proof blob-and-proofs)
     (apply #'make-rlp-list
            (engine-blob-and-proofs-cell-proofs blob-and-proofs)))))
@@ -4183,17 +4187,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (handler-case
       (let* ((value (rlp-decode-one record))
              (fields (rlp-list-field value "KV blob-sidecar record")))
-        (unless (= 3 (length fields))
+        (unless (= 4 (length fields))
           (block-validation-fail
-           "KV blob-sidecar record must have exactly 3 fields"))
+           "KV blob-sidecar record must have exactly 4 fields"))
         (let* ((blob
                  (validate-sized-byte-vector
                   (rlp-bytes-field (first fields) "KV blob-sidecar blob")
                   +blob-byte-size+
                   "KV blob-sidecar blob"))
+               (commitment
+                 (validate-sized-byte-vector
+                  (rlp-bytes-field (second fields) "KV blob-sidecar commitment")
+                  +kzg-commitment-size+
+                  "KV blob-sidecar commitment"))
                (proof
                  (validate-sized-byte-vector
-                  (rlp-bytes-field (second fields) "KV blob-sidecar proof")
+                  (rlp-bytes-field (third fields) "KV blob-sidecar proof")
                   +kzg-proof-size+
                   "KV blob-sidecar proof"))
                (cell-proofs
@@ -4206,7 +4215,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      +kzg-proof-size+
                      "KV blob-sidecar cell proof"))
                   (rlp-list-field
-                   (third fields)
+                   (fourth fields)
                    "KV blob-sidecar cell proofs"))))
           (unless (or (null cell-proofs)
                       (= +cell-proofs-per-blob+ (length cell-proofs)))
@@ -4215,6 +4224,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              +cell-proofs-per-blob+))
           (make-engine-blob-and-proofs
            :blob blob
+           :commitment commitment
            :proof proof
            :cell-proofs cell-proofs)))
     (rlp-error (condition)
@@ -4226,6 +4236,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let ((versioned-hash (make-hash32 versioned-hash-identifier))
         (blob-and-proofs
           (chain-store-blob-sidecar-record-from-rlp record)))
+    (unless (hash32= versioned-hash
+                     (kzg-commitment-to-versioned-hash
+                      (engine-blob-and-proofs-commitment blob-and-proofs)))
+      (block-validation-fail
+       "KV blob-sidecar record key does not match encoded commitment"))
     (setf (gethash
            (engine-payload-store-key versioned-hash)
            (engine-payload-memory-store-blob-sidecars store))
@@ -5891,6 +5906,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                     (engine-payload-memory-store-blob-sidecars store))
                    (make-engine-blob-and-proofs
                     :blob (maybe-copy-bytes blob)
+                    :commitment
+                    (maybe-copy-bytes
+                     (nth index (blob-sidecar-commitments sidecar)))
                     :proof (maybe-copy-bytes proof)
                     :cell-proofs (mapcar #'maybe-copy-bytes
                                          cell-proofs)))))
