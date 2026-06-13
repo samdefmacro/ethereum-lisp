@@ -4092,6 +4092,9 @@ splits can land after the Phase A smoke path closes.
     returned by `txpool_content`, `txpool_contentFrom`, and `txpool_inspect`,
     keeping those RPCs consistent with `txpool_status` queued counts while
     preserving the pending-view and pending-filter split.
+  - Progress: basefee/blob hash lookups now use txpool accessors instead of
+    reading placeholder subpool tables directly, keeping pooled transaction
+    lookup on the same txpool boundary as counts, lists, indexes, and removal.
   - Progress: txpool sender/nonce RPC views now sort nonce keys numerically,
     so multi-digit nonces are reported in executable nonce order instead of
     lexicographic string order.

@@ -6681,6 +6681,14 @@
     (ethereum-lisp.core::engine-pending-txpool-put-blob-transaction
      txpool
      blob-transaction)
+    (is (eq basefee-transaction
+            (ethereum-lisp.core::engine-pending-txpool-basefee-transaction
+             txpool
+             (transaction-hash basefee-transaction))))
+    (is (eq blob-transaction
+            (ethereum-lisp.core::engine-pending-txpool-blob-transaction
+             txpool
+             (transaction-hash blob-transaction))))
     (let ((basefee-by-nonce
             (gethash
              sender-key
@@ -6721,6 +6729,14 @@
     (ethereum-lisp.core::engine-pending-txpool-remove-blob-transaction
      txpool
      (transaction-hash blob-transaction))
+    (is (null
+         (ethereum-lisp.core::engine-pending-txpool-basefee-transaction
+          txpool
+          (transaction-hash replacement-basefee))))
+    (is (null
+         (ethereum-lisp.core::engine-pending-txpool-blob-transaction
+          txpool
+          (transaction-hash blob-transaction))))
     (is (= 0
            (ethereum-lisp.core::engine-pending-txpool-basefee-count
             txpool)))

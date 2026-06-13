@@ -4748,6 +4748,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (gethash (engine-pending-txpool-hash-key hash)
            (engine-pending-txpool-queued-transactions txpool)))
 
+(defun engine-pending-txpool-basefee-transaction (txpool hash)
+  (gethash (engine-pending-txpool-hash-key hash)
+           (engine-pending-txpool-basefee-transactions txpool)))
+
+(defun engine-pending-txpool-blob-transaction (txpool hash)
+  (gethash (engine-pending-txpool-hash-key hash)
+           (engine-pending-txpool-blob-transactions txpool)))
+
 (defun engine-pending-txpool-transaction-list (transactions)
   (sort
    (loop for transaction
@@ -5380,13 +5388,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (engine-payload-store-txpool store)
    hash))
 
+(defun engine-payload-store-basefee-transaction (store hash)
+  (engine-pending-txpool-basefee-transaction
+   (engine-payload-store-txpool store)
+   hash))
+
+(defun engine-payload-store-blob-transaction (store hash)
+  (engine-pending-txpool-blob-transaction
+   (engine-payload-store-txpool store)
+   hash))
+
 (defun engine-payload-store-pooled-transaction (store hash)
   (or (engine-payload-store-pending-transaction store hash)
       (engine-payload-store-queued-transaction store hash)
-      (gethash (engine-pending-txpool-hash-key hash)
-               (engine-payload-store-basefee-transaction-table store))
-      (gethash (engine-pending-txpool-hash-key hash)
-               (engine-payload-store-blob-transaction-table store))))
+      (engine-payload-store-basefee-transaction store hash)
+      (engine-payload-store-blob-transaction store hash)))
 
 (defun engine-payload-store-pending-transactions (store)
   (engine-pending-txpool-pending-transactions
