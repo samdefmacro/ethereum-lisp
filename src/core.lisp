@@ -6084,9 +6084,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-put-remote-block
     (store block)
+  (unless (typep store 'engine-payload-memory-store)
+    (block-validation-fail "Engine payload store must be a memory store"))
+  (unless (typep block 'ethereum-block)
+    (block-validation-fail "Engine remote block cache value must be a block"))
   (setf (gethash (engine-payload-store-key (block-hash block))
                  (engine-payload-memory-store-remote-blocks store))
-        block)
+        (engine-payload-store-copy-block block))
   block)
 
 (defun engine-payload-store-remove-remote-block
@@ -6104,7 +6108,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (key (engine-payload-store-key (or head-hash invalid-hash))))
     (engine-payload-store-remove-remote-block store invalid-hash)
     (setf (gethash key (engine-payload-memory-store-invalid-tipsets store))
-          invalid-block)
+          (engine-payload-store-copy-block invalid-block))
     invalid-block))
 
 (defun engine-payload-store-invalid-block

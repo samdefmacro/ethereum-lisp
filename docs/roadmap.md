@@ -833,6 +833,8 @@ first pass, but interfaces must not block that path.
   shape before cache publication. Prepared payload insertion also copies the
   stored wrapper, block, payload id, and blob bundle bytes so caller-side
   mutation cannot change later Engine payload responses or KV exports.
+  Remote-block and invalid-tipset cache insertion likewise copies parked block
+  records before publishing them to sync-cache lookups or KV export.
 - *Partial:* production database layout, freezer/history retention, pruning
   modes, fuller sync-stage persistence, and durable trie-node storage remain
   later work.

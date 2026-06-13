@@ -5058,6 +5058,57 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest engine-payload-store-copies-sync-cache-blocks
+  (let* ((store (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (remote
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 7
+             :gas-limit 50000
+             :gas-used 0
+             :timestamp 70)))
+         (invalid
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 8
+             :gas-limit 50000
+             :gas-used 0
+             :timestamp 80)))
+         (remote-hash (block-hash remote))
+         (invalid-hash (block-hash invalid)))
+    (is (eq remote
+            (ethereum-lisp.core::engine-payload-store-put-remote-block
+             store remote)))
+    (is (eq invalid
+            (ethereum-lisp.core::engine-payload-store-mark-invalid
+             store invalid)))
+    (setf (block-header-gas-used (block-header remote)) 77
+          (block-header-gas-used (block-header invalid)) 88)
+    (let ((cached-remote
+            (ethereum-lisp.core::engine-payload-store-remote-block
+             store remote-hash))
+          (cached-invalid
+            (ethereum-lisp.core::engine-payload-store-invalid-block
+             store invalid-hash)))
+      (is cached-remote)
+      (is cached-invalid)
+      (is (not (eq remote cached-remote)))
+      (is (not (eq invalid cached-invalid)))
+      (is (= 0 (block-header-gas-used (block-header cached-remote))))
+      (is (= 0 (block-header-gas-used (block-header cached-invalid)))))))
+
 (deftest chain-store-import-from-kv-rejects-corrupt-remote-block-record
   (let* ((path
            (merge-pathnames

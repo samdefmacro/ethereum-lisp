@@ -1395,6 +1395,10 @@ splits can land after the Phase A smoke path closes.
       tipsets as authoritative over stale remote-block cache records, dropping
       duplicate remote-cache entries instead of rejecting the snapshot while
       still rejecting corrupt or key-mismatched remote records.
+    - Remote-block and invalid-tipset cache insertion now copies cached block
+      records before publication. Caller-side mutation of parked or invalid
+      block objects can no longer change later sync-cache lookups or KV export
+      records.
   - Follow-up:
     - Pending txpool and filter cursors remain in the in-memory store because
       they are pool/filter concerns rather than chain-store block/state indexes.
