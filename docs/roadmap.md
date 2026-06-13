@@ -166,13 +166,11 @@ fixes in those areas are allowed; expansion is not.
   nonces are already pending. Blob transactions that pass Cancun/type/sender
   admission now route into the blob subpool, remain counted by
   `txpool_status`, and remain visible through hash lookup without pending-filter
-  notification, while `txpool_content`, `txpool_contentFrom`, and
-  `txpool_inspect` omit blob details to match geth `BlobPool.Content` and
-  Nethermind txpool RPC behavior. Real sidecar/KZG-backed executable blob
-  promotion remains outside the Shanghai Phase A gate. `txpool_content`,
-  `txpool_contentFrom`, and `txpool_inspect` now read queued/basefee views from
-  sender/nonce indexes instead of rebuilding sender groupings from concatenated
-  subpool lists. A standalone
+  notification. `txpool_content`, `txpool_contentFrom`, and `txpool_inspect`
+  now expose queued/basefee/blob queued-view entries from sender/nonce indexes
+  instead of rebuilding sender groupings from concatenated subpool lists. Real
+  sidecar/KZG-backed executable blob promotion remains outside the Shanghai
+  Phase A gate. A standalone
   `scripts/devnet-smoke-gate.lisp` now exercises the local split
   Engine/public listener boundary with authenticated payload import,
   forkchoice, public retained-state reads, and ready/shutdown telemetry for

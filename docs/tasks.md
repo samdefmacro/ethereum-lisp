@@ -4062,11 +4062,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: blob raw transactions that pass Cancun/type/sender admission now
     route into the blob subpool instead of pending. `txpool_status` counts
     them and `eth_getTransactionByHash` can observe them, while
-    `txpool_content`, `txpool_contentFrom`, `txpool_inspect`,
-    `eth_pendingTransactions`, and pending transaction filters omit blob
-    details, matching geth `BlobPool.Content` at reference commit `8a0223e`
-    and Nethermind `TxPoolInfoProvider` at reference commit `1c72a72`.
-    Sidecar/KZG-backed blob execution remains out of the Shanghai Phase A gate.
+    `eth_pendingTransactions` and pending transaction filters omit blob
+    details. Sidecar/KZG-backed blob execution remains out of the Shanghai
+    Phase A gate.
   - Progress: basefee and blob placeholder subpools now maintain sender/nonce
     indexes like pending and queued transactions. Replacement, included-tx
     removal, cross-subpool conflict checks, and txpool snapshot copying no
@@ -4089,8 +4087,11 @@ splits can land after the Phase A smoke path closes.
   - Progress: `txpool_content` and `txpool_inspect` queued views now merge the
     queued/basefee sender indexes directly instead of rebuilding sender /
     nonce groupings from concatenated transaction lists. This keeps all txpool
-    read RPCs on the indexed subpool boundary without exposing blob pool
-    contents.
+    read RPCs on the indexed subpool boundary.
+  - Progress: blob-subpool transactions are now included in the queued views
+    returned by `txpool_content`, `txpool_contentFrom`, and `txpool_inspect`,
+    keeping those RPCs consistent with `txpool_status` queued counts while
+    preserving the pending-view and pending-filter split.
   - Progress: txpool sender/nonce RPC views now sort nonce keys numerically,
     so multi-digit nonces are reported in executable nonce order instead of
     lexicographic string order.
