@@ -894,7 +894,10 @@ first pass, but interfaces must not block that path.
   `txpool_inspect` consistently with `txpool_status` queued counts. Txpool
   eviction for included transactions is now tied to canonicalization, so
   importing a sidechain block does not drop still-pending local transactions
-  until forkchoice actually makes that branch canonical.
+  until forkchoice actually makes that branch canonical. Forkchoice reorgs now
+  also reinsert executable transactions from displaced old-canonical blocks
+  into the local txpool as pending or queued entries while keeping receipts and
+  canonical transaction locations bound to the new canonical branch.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive

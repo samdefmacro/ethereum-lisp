@@ -4064,6 +4064,11 @@ splits can land after the Phase A smoke path closes.
     Included transactions are removed from txpool only when their block is
     canonical, including explicit forkchoice reorgs through
     `chain-store-set-canonical-head`.
+  - Progress: canonical reorgs now conservatively reinsert transactions from
+    displaced old-canonical blocks into the local txpool when they are no
+    longer canonical, still have recoverable senders, do not conflict with
+    already pooled same-sender/same-nonce transactions, and pass retained
+    state gas-limit, sender-code, balance, nonce, and base-fee checks.
   - Progress: retained-state txpool balance checks now treat a missing sender
     balance entry as the known zero balance returned by retained state, rather
     than as unknown state. Raw submissions from absent senders are rejected for

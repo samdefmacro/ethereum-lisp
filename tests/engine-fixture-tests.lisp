@@ -1942,12 +1942,15 @@
                      store config)
                     "result")))
         (dolist (tx-hash transaction-hashes)
-          (is (null
-               (field (engine-rpc-handle-request
-                       (engine-fixture-transaction-by-hash-request
-                        252 tx-hash)
-                       store config)
-                      "result")))
+          (let ((transaction-by-hash
+                  (field (engine-rpc-handle-request
+                          (engine-fixture-transaction-by-hash-request
+                           252 tx-hash)
+                          store config)
+                         "result")))
+            (is (string= (hash32-to-hex tx-hash)
+                         (field transaction-by-hash "hash")))
+            (is (null (field transaction-by-hash "blockHash"))))
           (is (null
                (field (engine-rpc-handle-request
                        (engine-fixture-receipt-request 253 tx-hash)
@@ -2560,7 +2563,13 @@
             (is (string= (quantity-to-hex 0)
                          (field side-latest-count-response "result")))
             (is (null (field side-latest-raw-response "result")))
-            (is (null (field side-transaction-by-hash-response "result")))
+            (is (string= (hash32-to-hex transaction-hash)
+                         (field (field side-transaction-by-hash-response
+                                       "result")
+                                "hash")))
+            (is (null (field (field side-transaction-by-hash-response
+                                    "result")
+                             "blockHash")))
             (is (null (field side-receipt-response "result")))
             (is (string= (quantity-to-hex
                           (state-proof-result-balance side-expected-proof))

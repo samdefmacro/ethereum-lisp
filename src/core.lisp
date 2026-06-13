@@ -2413,6 +2413,77 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (engine-payload-store-remove-included-transaction store transaction))
   block)
 
+(defun engine-payload-store-transaction-basefee-ineligible-p
+    (store transaction)
+  (let* ((head (chain-store-latest-block store))
+         (header (and head (block-header head)))
+         (base-fee (and header
+                        (block-header-base-fee-per-gas header))))
+    (and base-fee
+         (< (transaction-max-fee-per-gas transaction) base-fee))))
+
+(defun engine-payload-store-sender-code-admissible-p
+    (store head sender)
+  (or (null head)
+      (not (chain-store-state-available-p store (block-hash head)))
+      (let ((code (chain-store-account-code store (block-hash head) sender)))
+        (or (zerop (length code))
+            (set-code-delegation-target code)))))
+
+(defun engine-payload-store-txpool-conflict-p (store transaction)
+  (let ((txpool (engine-payload-store-txpool store)))
+    (or (engine-pending-txpool-pending-conflict txpool transaction)
+        (engine-pending-txpool-queued-conflict txpool transaction)
+        (engine-pending-txpool-basefee-conflict txpool transaction)
+        (engine-pending-txpool-blob-conflict txpool transaction))))
+
+(defun engine-payload-store-reinsert-displaced-transaction
+    (store transaction)
+  (let* ((hash (transaction-hash transaction))
+         (head (chain-store-latest-block store))
+         (sender (transaction-sender transaction)))
+    (when (and sender
+               (not (chain-store-transaction-location store hash))
+               (not (engine-payload-store-pooled-transaction store hash))
+               (not (engine-payload-store-txpool-conflict-p
+                     store transaction))
+               (or (null head)
+                   (not (engine-payload-store-over-gas-limit-txpool-transaction-p
+                         head transaction)))
+               (engine-payload-store-sender-code-admissible-p
+                store head sender)
+               (engine-payload-store-transaction-funded-p store transaction))
+      (cond
+        ((typep transaction 'blob-transaction)
+         (engine-payload-store-put-blob-transaction store transaction))
+        ((engine-payload-store-transaction-basefee-ineligible-p
+          store transaction)
+         (engine-payload-store-put-basefee-transaction store transaction))
+        ((not (engine-payload-store-transaction-executable-nonce-p
+               store transaction))
+         (engine-payload-store-put-queued-transaction store transaction))
+        (t
+         (engine-payload-store-put-pending-transaction store transaction))))))
+
+(defun engine-payload-store-reinsert-displaced-block-transactions
+    (store blocks)
+  (let ((seen-transactions (make-hash-table :test 'equal))
+        (reinserted-transactions nil))
+    (dolist (block (sort (copy-list blocks)
+                         #'<
+                         :key (lambda (block)
+                                (block-header-number
+                                 (block-header block)))))
+      (dolist (transaction (block-transactions block))
+        (let ((key (engine-payload-store-key
+                    (transaction-hash transaction))))
+          (unless (gethash key seen-transactions)
+            (setf (gethash key seen-transactions) t)
+            (when (engine-payload-store-reinsert-displaced-transaction
+                   store transaction)
+              (push transaction reinserted-transactions))))))
+    (nreverse reinserted-transactions)))
+
 (defun engine-payload-store-put-block
     (store block &key (state-available-p nil))
   (unless (typep store 'engine-payload-memory-store)
@@ -2683,37 +2754,55 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      (block-validation-fail
                       "Canonical head ancestry must be fully known"))
                    (setf current parent-block))))
-      (dolist (block path)
-        (let* ((header (block-header block))
-               (number (block-header-number header))
-               (key (engine-payload-store-key (block-hash block))))
-          (setf (gethash number
-                         (engine-payload-memory-store-canonical-hashes store))
-                key
-                (gethash number
-                         (engine-payload-memory-store-number-blocks store))
-                block)
-          (engine-payload-store-index-block-transactions
-           store
-           block
-           :force t)
-          (engine-payload-store-remove-included-block-transactions
-           store
-           block)))
-      (let ((new-head-number
-              (block-header-number (block-header head-block)))
-            (stale-numbers '()))
-        (maphash (lambda (number key)
-                   (declare (ignore key))
-                   (when (> number new-head-number)
-                     (push number stale-numbers)))
-                 (engine-payload-memory-store-canonical-hashes store))
-        (dolist (number stale-numbers)
-          (remhash number
-                   (engine-payload-memory-store-canonical-hashes store)))
-        (setf (engine-payload-memory-store-head-number store) new-head-number
-              (engine-payload-memory-store-head-checkpoint store)
-              (make-chain-store-checkpoint :label :head :block-hash hash)))
+      (let ((displaced-blocks '()))
+        (dolist (block path)
+          (let* ((header (block-header block))
+                 (number (block-header-number header))
+                 (old-block (engine-payload-store-block-by-number
+                             store number)))
+            (when (and old-block
+                       (not (hash32= (block-hash old-block)
+                                     (block-hash block))))
+              (push old-block displaced-blocks))))
+        (dolist (block path)
+          (let* ((header (block-header block))
+                 (number (block-header-number header))
+                 (key (engine-payload-store-key (block-hash block))))
+            (setf (gethash number
+                           (engine-payload-memory-store-canonical-hashes store))
+                  key
+                  (gethash number
+                           (engine-payload-memory-store-number-blocks store))
+                  block)
+            (engine-payload-store-index-block-transactions
+             store
+             block
+             :force t)
+            (engine-payload-store-remove-included-block-transactions
+             store
+             block)))
+        (let ((new-head-number
+                (block-header-number (block-header head-block)))
+              (stale-numbers '()))
+          (maphash (lambda (number key)
+                     (declare (ignore key))
+                     (when (> number new-head-number)
+                       (let ((old-block
+                               (engine-payload-store-block-by-number
+                                store number)))
+                         (when old-block
+                           (push old-block displaced-blocks)))
+                       (push number stale-numbers)))
+                   (engine-payload-memory-store-canonical-hashes store))
+          (dolist (number stale-numbers)
+            (remhash number
+                     (engine-payload-memory-store-canonical-hashes store)))
+          (setf (engine-payload-memory-store-head-number store) new-head-number
+                (engine-payload-memory-store-head-checkpoint store)
+                (make-chain-store-checkpoint :label :head :block-hash hash)))
+        (engine-payload-store-reinsert-displaced-block-transactions
+         store
+         displaced-blocks))
       (engine-payload-store-remove-stale-txpool-transactions store)
       (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
       (engine-payload-store-revalidate-pending-transactions store)
