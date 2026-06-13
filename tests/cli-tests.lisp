@@ -1504,7 +1504,10 @@
     (is (search "--log-file PATH" stdout))
     (is (search "--pid-file PATH" stdout))
     (is (search "--database PATH" stdout))
-    (is (search "--prune-state-before NUMBER" stdout))))
+    (is (search "--prune-state-before NUMBER" stdout))
+    (is (search "ETHEREUM_LISP_GETH_ROOT" stdout))
+    (is (search "ETHEREUM_LISP_NETHERMIND_ROOT" stdout))
+    (is (search "ETHEREUM_LISP_RETH_ROOT" stdout))))
 
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
   #-sbcl
@@ -2442,7 +2445,37 @@
     (is (search "--root PATH" stdout))
     (is (search "--pinned-v5.4.0" stdout))
     (is (search "--json" stdout))
-    (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" stdout))))
+    (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" stdout))
+    (is (search "ETHEREUM_LISP_GETH_ROOT" stdout))
+    (is (search "ETHEREUM_LISP_NETHERMIND_ROOT" stdout))
+    (is (search "ETHEREUM_LISP_RETH_ROOT" stdout))))
+
+(deftest phase-a-smoke-gate-help-prints-reference-root-env
+  #-sbcl
+  (skip-test "Phase A smoke gate script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-smoke-gate.lisp"
+             "--"
+             "--help"
+             "--unsupported-option")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (is (search "Usage: sbcl --script scripts/phase-a-smoke-gate.lisp"
+                stdout))
+    (is (search "--root PATH" stdout))
+    (is (search "--pinned-v5.4.0" stdout))
+    (is (search "--devnet" stdout))
+    (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" stdout))
+    (is (search "ETHEREUM_LISP_GETH_ROOT" stdout))
+    (is (search "ETHEREUM_LISP_NETHERMIND_ROOT" stdout))
+    (is (search "ETHEREUM_LISP_RETH_ROOT" stdout))))
 
 (deftest phase-a-fixture-report-pinned-mode-requires-root
   #-sbcl

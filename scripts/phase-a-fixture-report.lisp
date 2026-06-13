@@ -97,7 +97,10 @@
   (format t "Default ROOT: ~A when set; otherwise no external root is assumed.~%"
           +fixture-report-eest-root-env+)
   (format t "Pinned mode requires ROOT or ~A when ROOT is omitted.~%"
-          +fixture-report-eest-root-env+))
+          +fixture-report-eest-root-env+)
+  (format t "Reference client roots: ETHEREUM_LISP_GETH_ROOT, ~
+ETHEREUM_LISP_NETHERMIND_ROOT, ETHEREUM_LISP_RETH_ROOT override ~
+references/ checkouts.~%"))
 
 (defun fixture-report-pinned-default-root ()
   (let ((root (uiop:getenv +fixture-report-eest-root-env+)))

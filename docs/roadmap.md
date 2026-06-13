@@ -933,8 +933,10 @@ Detailed historical implementation notes for this section now live in
   paths can be overridden with `ETHEREUM_LISP_GETH_ROOT`,
   `ETHEREUM_LISP_NETHERMIND_ROOT`, and `ETHEREUM_LISP_RETH_ROOT`, allowing
   automation to pin external local clones without repository-local checkouts.
-  They also expose the pinned `ethereum/execution-spec-tests` source metadata
-  at top level: release `v5.4.0`, tag target `88e9fb8`, and
+  The fixture report, Phase A smoke gate, and standalone devnet smoke gate
+  help output all document those override variables. They also expose the
+  pinned `ethereum/execution-spec-tests` source metadata at top level:
+  release `v5.4.0`, tag target `88e9fb8`, and
   `fixtures_stable.tar.gz`. In pinned
   mode the fixture report and smoke gate require an explicit suite root or
   `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, matching the optional fixture

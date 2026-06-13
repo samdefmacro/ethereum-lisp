@@ -28,6 +28,10 @@
   (format t "                       Prune retained state before NUMBER when exporting --database.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
+  (format t "~%")
+  (format t "Reference client roots: ETHEREUM_LISP_GETH_ROOT, ~
+ETHEREUM_LISP_NETHERMIND_ROOT, ETHEREUM_LISP_RETH_ROOT override ~
+references/ checkouts.~%")
   (format t "~%"))
 
 #+sbcl
@@ -229,6 +233,9 @@
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
+  (format t "Reference client roots: ETHEREUM_LISP_GETH_ROOT, ~
+ETHEREUM_LISP_NETHERMIND_ROOT, ETHEREUM_LISP_RETH_ROOT override ~
+references/ checkouts.~%")
   (format t "Default fixture case: ~A~%"
           +devnet-smoke-gate-default-fixture-case+))
 

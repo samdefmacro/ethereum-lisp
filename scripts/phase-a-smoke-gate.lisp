@@ -86,7 +86,10 @@
   (format t "~%")
   (format t "Default ROOT: ~A~%" +smoke-gate-default-root+)
   (format t "Pinned mode requires ROOT or ~A when ROOT is omitted.~%"
-          +smoke-gate-eest-root-env+))
+          +smoke-gate-eest-root-env+)
+  (format t "Reference client roots: ETHEREUM_LISP_GETH_ROOT, ~
+ETHEREUM_LISP_NETHERMIND_ROOT, ETHEREUM_LISP_RETH_ROOT override ~
+references/ checkouts.~%"))
 
 (defun smoke-gate-call (name &rest args)
   (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))
@@ -624,14 +627,13 @@
 
 (defun smoke-gate-main ()
   (let* ((args (smoke-gate-arguments))
-         (help-p (smoke-gate-help-p args))
-         (pinned-p (smoke-gate-pinned-v5.4.0-p args))
-         (devnet-p (smoke-gate-devnet-p args))
-         (json-p (smoke-gate-json-p args))
-         (root-argument (smoke-gate-argument-root args)))
+         (help-p (smoke-gate-help-p args)))
     (if help-p
         (smoke-gate-print-help)
-        (progn
+        (let* ((pinned-p (smoke-gate-pinned-v5.4.0-p args))
+               (devnet-p (smoke-gate-devnet-p args))
+               (json-p (smoke-gate-json-p args))
+               (root-argument (smoke-gate-argument-root args)))
           (load (merge-pathnames "tests/load-tests.lisp"
                                  *ethereum-lisp-smoke-gate-root*))
           (let* ((suite-root (smoke-gate-suite-root root-argument pinned-p))

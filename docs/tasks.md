@@ -464,6 +464,10 @@ ones.
     `ETHEREUM_LISP_NETHERMIND_ROOT`, and `ETHEREUM_LISP_RETH_ROOT`, so
     automation can pin commits from external local clones instead of requiring
     every upstream checkout to live under `references/`.
+  - Result: the fixture report, Phase A smoke gate, and standalone devnet smoke
+    gate `--help` output now documents those reference-client root environment
+    variables, making the external-clone pinning path discoverable from each
+    script entry point.
   - Result: Phase A smoke-gate `--devnet` mode is now independent of the
     caller's current working directory. The parent gate launches the devnet
     child script through the repository-root path, and the devnet gate resolves
