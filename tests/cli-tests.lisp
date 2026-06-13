@@ -112,6 +112,9 @@
                (fixture-object-field report "databaseRpcTxpoolSender")))
   (is (string= (fixture-object-field report "txpoolPendingNonce")
                (fixture-object-field report "databaseRpcTxpoolNonce")))
+  (is (string= (fixture-object-field report "txpoolPendingInspectSummary")
+               (fixture-object-field
+                report "databaseRpcTxpoolInspectSummary")))
   (is (string= (fixture-object-field report "txpoolBasefeeTransactionHash")
                (fixture-object-field report "databaseRpcTxpoolBasefeeHash")))
   (is (string= (fixture-object-field report "txpoolBasefeeTransactionRaw")
@@ -119,6 +122,9 @@
                 report "databaseRpcTxpoolBasefeeRawTransaction")))
   (is (string= (fixture-object-field report "txpoolBasefeeNonce")
                (fixture-object-field report "databaseRpcTxpoolBasefeeNonce")))
+  (is (string= (fixture-object-field report "txpoolBasefeeInspectSummary")
+               (fixture-object-field
+                report "databaseRpcTxpoolBasefeeInspectSummary")))
   (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
                (fixture-object-field report "databaseRpcTxpoolQueuedHash")))
   (is (string= (fixture-object-field report "txpoolQueuedTransactionRaw")
@@ -126,6 +132,9 @@
                 report "databaseRpcTxpoolQueuedRawTransaction")))
   (is (string= (fixture-object-field report "txpoolQueuedNonce")
                (fixture-object-field report "databaseRpcTxpoolQueuedNonce")))
+  (is (string= (fixture-object-field report "txpoolQueuedInspectSummary")
+               (fixture-object-field
+                report "databaseRpcTxpoolQueuedInspectSummary")))
   (is (string= "0x1"
                (fixture-object-field report "databaseRpcTxpoolStatusPending")))
   (is (string= "0x2"
@@ -147,7 +156,7 @@
   (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
                (fixture-object-field
                 report "databaseRpcTxpoolQueuedContentFromHash")))
-  (is (= 7
+  (is (= 8
          (fixture-object-field report "databaseRpcTxpoolPublicConnections"))))
 
 (defun devnet-cli-assert-side-reorg-persistence (report)
@@ -2050,9 +2059,9 @@
                 report cases prune-boundary)
                (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 18 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 19 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
                (dolist (case cases)
@@ -2067,7 +2076,7 @@
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
                    (is (= 5 (fixture-object-field case "engineConnections")))
-                   (is (= 13 (fixture-object-field case "publicConnections")))
+                   (is (= 14 (fixture-object-field case "publicConnections")))
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")
@@ -2748,9 +2757,9 @@
          devnet cases prune-boundary)
         (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 18 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 19 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")

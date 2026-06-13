@@ -259,7 +259,8 @@ fixes in those areas are allowed; expansion is not.
   basefee-ineligible, and nonce-gap queued transactions through public
   `eth_sendRawTransaction`, exports them with the KV snapshot, and verifies
   restored public txpool views (`eth_pendingTransactions`, `txpool_status`,
-  `txpool_content`, `txpool_contentFrom`, and `eth_getRawTransactionByHash`)
+  `txpool_content`, `txpool_contentFrom`, `txpool_inspect`, and
+  `eth_getRawTransactionByHash`)
   still expose the same pending and queued-view subpool contents. The same
   restored database gate now imports an executed empty sibling through
   authenticated Engine RPC, switches forkchoice to that sibling, verifies
