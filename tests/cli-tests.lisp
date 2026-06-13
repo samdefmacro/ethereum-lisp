@@ -1517,11 +1517,20 @@
         (pid-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-smoke" "pid"))
         (database-path
-          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-chain" "sexp")))
+          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-chain" "sexp"))
+        (reference-token
+          (format nil "~A-~A" (sb-unix:unix-getpid) (gensym))))
     (unwind-protect
          (multiple-value-bind (stdout stderr status)
              (uiop:run-program
-              (list "sbcl"
+              (list "env"
+                    (format nil "ETHEREUM_LISP_GETH_ROOT=/private/tmp/ethereum-lisp-devnet-geth-root-~A/"
+                            reference-token)
+                    (format nil "ETHEREUM_LISP_NETHERMIND_ROOT=/private/tmp/ethereum-lisp-devnet-nethermind-root-~A/"
+                            reference-token)
+                    (format nil "ETHEREUM_LISP_RETH_ROOT=/private/tmp/ethereum-lisp-devnet-reth-root-~A/"
+                            reference-token)
+                    "sbcl"
                     "--script"
                     "scripts/devnet-smoke-gate.lisp"
                     "--"
@@ -1559,6 +1568,21 @@
                 reference-clients "nethermind")
                (phase-a-smoke-gate-assert-reference-client
                 reference-clients "reth")
+               (phase-a-smoke-gate-assert-reference-client-path
+                reference-clients
+                "geth"
+                (format nil "/private/tmp/ethereum-lisp-devnet-geth-root-~A/"
+                        reference-token))
+               (phase-a-smoke-gate-assert-reference-client-path
+                reference-clients
+                "nethermind"
+                (format nil "/private/tmp/ethereum-lisp-devnet-nethermind-root-~A/"
+                        reference-token))
+               (phase-a-smoke-gate-assert-reference-client-path
+                reference-clients
+                "reth"
+                (format nil "/private/tmp/ethereum-lisp-devnet-reth-root-~A/"
+                        reference-token))
                (is (string= (namestring ready-path)
                             (fixture-object-field report "readyFile")))
                (is (string= (namestring log-path)
