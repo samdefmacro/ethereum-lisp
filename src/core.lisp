@@ -3450,14 +3450,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    (hex-to-bytes tipset-key)
    (block-rlp invalid-block)))
 
+(defun chain-store-invalid-tipset-direct-key-p
+    (tipset-key invalid-block)
+  (string= tipset-key
+           (engine-payload-store-key (block-hash invalid-block))))
+
 (defun chain-store-populate-invalid-tipset-export-batch
     (store database batch)
   (let ((current-tipset-keys (make-hash-table :test 'equal)))
     (maphash
      (lambda (tipset-key invalid-block)
-       (setf (gethash tipset-key current-tipset-keys) t)
-       (chain-store-export-invalid-tipset-to-kv
-        batch tipset-key invalid-block))
+       (when (chain-store-invalid-tipset-direct-key-p
+              tipset-key
+              invalid-block)
+         (setf (gethash tipset-key current-tipset-keys) t)
+         (chain-store-export-invalid-tipset-to-kv
+          batch tipset-key invalid-block)))
      (engine-payload-memory-store-invalid-tipsets store))
     (dolist (entry (kv-chain-record-entries database :invalid-tipset))
       (unless (gethash (bytes-to-hex (car entry)) current-tipset-keys)
@@ -4152,6 +4160,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (handler-case
       (let ((tipset-hash (make-hash32 tipset-identifier))
             (invalid-block (block-from-rlp record)))
+        (unless (hash32= tipset-hash (block-hash invalid-block))
+          (block-validation-fail
+           "KV invalid-tipset record key does not match encoded block hash"))
         (setf (gethash
                (engine-payload-store-key tipset-hash)
                (engine-payload-memory-store-invalid-tipsets store))

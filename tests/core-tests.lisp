@@ -4550,7 +4550,8 @@
              :number 3
              :gas-limit 50000
              :timestamp 12)))
-         (invalid-id (hash32-bytes (block-hash invalid-child))))
+         (invalid-id (hash32-bytes (block-hash invalid-child)))
+         (propagated-id (hash32-bytes (block-hash propagated-head))))
     (unwind-protect
          (progn
            (ethereum-lisp.core::engine-payload-store-mark-invalid
@@ -4564,7 +4565,12 @@
              (multiple-value-bind (record present-p)
                  (kv-get-chain-record database :invalid-tipset invalid-id)
                (is present-p)
-               (is (bytes= (block-rlp invalid-child) record))))
+               (is (bytes= (block-rlp invalid-child) record)))
+             (multiple-value-bind (record present-p)
+                 (kv-get-chain-record
+                  database :invalid-tipset propagated-id :missing)
+               (is (eq :missing record))
+               (is (not present-p))))
            (let ((database (make-file-key-value-database path)))
              (is (eq restored
                      (chain-store-import-from-kv restored database))))
@@ -4577,15 +4583,13 @@
                     restored
                     (block-hash propagated-head))))
              (is direct)
-             (is propagated)
+             (is (not propagated))
              (is (bytes= (block-rlp invalid-child)
-                         (block-rlp direct)))
-             (is (bytes= (block-rlp invalid-child)
-                         (block-rlp propagated))))
+                         (block-rlp direct))))
            (let ((status
                    (ethereum-lisp.core::engine-payload-store-invalid-ancestor-status
                     restored
-                    (block-hash propagated-head)
+                    (block-hash invalid-child)
                     (block-hash propagated-head))))
              (is (string= +payload-status-invalid+
                           (payload-status-status status)))
@@ -4593,7 +4597,14 @@
                           (payload-status-validation-error status)))
              (is (bytes= (hash32-bytes (block-hash parent))
                          (hash32-bytes
-                          (payload-status-latest-valid-hash status)))))
+                          (payload-status-latest-valid-hash status))))
+             (let ((propagated
+                     (ethereum-lisp.core::engine-payload-store-invalid-block
+                      restored
+                      (block-hash propagated-head))))
+               (is propagated)
+               (is (bytes= (block-rlp invalid-child)
+                           (block-rlp propagated)))))
            (let ((database (make-file-key-value-database path)))
              (chain-store-export-to-kv
               (make-engine-payload-memory-store)
@@ -4604,6 +4615,82 @@
                   database :invalid-tipset invalid-id :missing)
                (is (eq :missing record))
                (is (not present-p)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-invalid-tipset-key-mismatch
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-invalid-tipset-mismatch-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (target-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 1
+             :gas-limit 50000
+             :timestamp 10)))
+         (invalid-block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 2
+             :gas-limit 50000
+             :timestamp 11)))
+         (replacement
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :beneficiary address
+             :state-root +empty-trie-hash+
+             :mix-hash (zero-hash32)
+             :number 3
+             :gas-limit 50000
+             :timestamp 12))))
+    (unwind-protect
+         (progn
+           (ethereum-lisp.core::engine-payload-store-mark-invalid
+            target target-block)
+           (ethereum-lisp.core::engine-payload-store-mark-invalid
+            source invalid-block)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :invalid-tipset
+              (hash32-bytes (block-hash invalid-block))
+              (block-rlp replacement)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (ethereum-lisp.core::engine-payload-store-invalid-block
+                target
+                (block-hash target-block)))
+           (is (not
+                (ethereum-lisp.core::engine-payload-store-invalid-block
+                 target
+                 (block-hash invalid-block))))
+           (is (not
+                (ethereum-lisp.core::engine-payload-store-invalid-block
+                 target
+                 (block-hash replacement)))))
       (when (probe-file path)
         (delete-file path)))))
 

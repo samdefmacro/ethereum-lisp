@@ -4371,10 +4371,12 @@ splits can land after the Phase A smoke path closes.
     `forkchoice safe block is not an ancestor of head`; the following valid
     forkchoice must still switch to the sibling and survive KV re-export.
   - Result: KV export/import now persists invalid-tipset cache entries. Records
-    are keyed by the cached tip/head hash and store the invalid ancestor block
-    RLP, so restored stores can keep rejecting descendants of previously
-    rejected payloads after a dev database restart; malformed invalid-tipset
-    records reject during staging without replacing the existing cache.
+    are keyed by the invalid ancestor block hash and store that block's RLP,
+    so restored stores can keep rejecting descendants of previously rejected
+    payloads after a dev database restart. Runtime descendant cache aliases are
+    recomputed on demand instead of persisted, export prunes stale aliases, and
+    malformed or key-mismatched invalid-tipset records reject during staging
+    without replacing the existing cache.
   - Result: the standalone devnet smoke gate now exercises invalid-tipset
     persistence across the process boundary. Each database-backed pinned
     Shanghai run submits a known-parent invalid `engine_newPayloadV2`, verifies
