@@ -2104,7 +2104,7 @@
                 '()))))
       (let* ((from-number (eth-rpc-block-number-param
                            (list (or (genesis-object-field filter "fromBlock")
-                                     "earliest"))
+                                     "latest"))
                            store
                            method))
              (to-number (eth-rpc-block-number-param
@@ -2178,7 +2178,7 @@
   (unless (genesis-object-field-present-p filter "blockHash")
     (values
      (eth-rpc-block-number-param
-      (list (or (genesis-object-field filter "fromBlock") "earliest"))
+      (list (or (genesis-object-field filter "fromBlock") "latest"))
       store
       method)
      (eth-rpc-block-number-param

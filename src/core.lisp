@@ -5715,7 +5715,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Engine payload store must be a memory store"))
   (let ((id (engine-payload-memory-store-next-log-filter-id store)))
     (setf (gethash id (engine-payload-memory-store-log-filters store))
-          (make-engine-log-filter :criteria filter))
+          (make-engine-log-filter
+           :criteria filter
+           :last-block-number
+           (unless (genesis-object-field-present-p filter "blockHash")
+             (let ((from-block (genesis-object-field filter "fromBlock")))
+               (when (or (null from-block)
+                         (and (stringp from-block)
+                              (or (string= from-block "latest")
+                                  (string= from-block "pending"))))
+                 (engine-payload-memory-store-head-number store))))))
     (incf (engine-payload-memory-store-next-log-filter-id store))
     id))
 
