@@ -1480,6 +1480,23 @@
     (is (= (+ fixture-executed-count devnet-case-count)
            (fixture-object-field report "totalExecutedCount")))))
 
+(defun phase-a-smoke-gate-assert-in-repo-fixture-counts (report)
+  (let* ((state (fixture-object-field report "state"))
+         (transaction (fixture-object-field report "transaction"))
+         (blockchain (fixture-object-field report "blockchain"))
+         (kind-counts (fixture-object-field blockchain "kindCounts")))
+    (is (= 4 (fixture-object-field state "count")))
+    (is (= 4 (fixture-object-field state "executedCount")))
+    (is (= 25 (fixture-object-field transaction "count")))
+    (is (= 25 (fixture-object-field transaction "executedCount")))
+    (is (= 8 (fixture-object-field blockchain "count")))
+    (is (= 8 (fixture-object-field blockchain "executedCount")))
+    (is (= 1 (fixture-object-field blockchain "blockCount")))
+    (is (= 7 (fixture-object-field kind-counts "engineNewPayloadV2")))
+    (is (= 1 (fixture-object-field kind-counts "blockRlp")))
+    (is (= 37 (fixture-object-field report "fixtureCaseCount")))
+    (is (= 37 (fixture-object-field report "fixtureExecutedCount")))))
+
 (defun devnet-smoke-gate-case-files (report field)
   (loop for case-report in (or (fixture-object-field report "cases") nil)
         for path = (fixture-object-field case-report field)
@@ -2732,6 +2749,7 @@
         (is (string= "in-repo" (fixture-object-field report "mode")))
         (phase-a-smoke-gate-assert-execution-spec-tests-source report)
         (phase-a-smoke-gate-assert-counts report)
+        (phase-a-smoke-gate-assert-in-repo-fixture-counts report)
         (is (= 3 (length reference-clients)))
         (phase-a-smoke-gate-assert-reference-client
          reference-clients "geth")
@@ -3046,7 +3064,13 @@
     (is (search "fixtureCaseCount=" stdout))
     (is (search "fixtureExecutedCount=" stdout))
     (is (search "totalCaseCount=" stdout))
-    (is (search "totalExecutedCount=" stdout))))
+    (is (search "totalExecutedCount=" stdout))
+    (is (search "blockchainCount=8" stdout))
+    (is (search "blockchainExecuted=8" stdout))
+    (is (search "(\"engineNewPayloadV2\" . 7)" stdout))
+    (is (search "(\"blockRlp\" . 1)" stdout))
+    (is (search "fixtureCaseCount=37" stdout))
+    (is (search "fixtureExecutedCount=37" stdout))))
 
 (deftest phase-a-smoke-gate-pinned-mode-defaults-to-eest-root-env
   #-sbcl

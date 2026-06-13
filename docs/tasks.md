@@ -497,6 +497,12 @@ ones.
     Empty partial extractions are reported as configured fixture-root errors,
     so automation does not misclassify a broken pinned extraction as selector
     drift or materializer failure.
+  - Progress: locked the in-repo Phase A smoke-gate cardinalities in the CLI
+    regression suite. The gate now has explicit JSON/text assertions for 4
+    state cases, 25 transaction vectors, 8 blockchain replay cases, and the
+    7 `engineNewPayloadV2` / 1 `blockRlp` materialization split, so replay-table
+    drift fails at the executable acceptance boundary instead of only in lower
+    fixture-loader tests.
 
 - [x] `HARNESS-TX-VECTORS`: Add fixture-driven transaction encoding/hash
   vectors.
