@@ -4076,6 +4076,11 @@ splits can land after the Phase A smoke path closes.
     expenditure cumulatively, matching geth's pending-list `totalcost`
     validation shape. A new submission that would overdraft the account after
     already-pending transactions is rejected before entering the pool.
+  - Progress: retained-balance admission now extends that expenditure check to
+    already accepted same-sender queued, basefee, and blob-subpool
+    transactions, while preserving same-nonce replacement cost subtraction.
+    Parked local transactions can no longer reserve no balance until later
+    promotion.
   - Progress: nonce-gap routing now compares new submissions against the
     pending-contiguous nonce, not only retained chain state. A transaction that
     immediately follows already-pending same-sender transactions stays in the

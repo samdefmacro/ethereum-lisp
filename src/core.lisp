@@ -5441,6 +5441,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (loop for transaction being the hash-values of sender-transactions
             collect transaction))))
 
+(defun engine-payload-store-sender-pooled-transactions (store sender)
+  (loop for sender-index in
+          (list (engine-payload-store-pending-sender-index store)
+                (engine-payload-store-queued-sender-index store)
+                (engine-payload-store-basefee-sender-index store)
+                (engine-payload-store-blob-sender-index store))
+        append (engine-payload-store-indexed-sender-transactions
+                sender-index
+                sender)))
+
 (defun engine-payload-store-indexed-senders (sender-index)
   (loop for sender-key being the hash-keys of sender-index
         collect (address-from-hex sender-key)))
@@ -5474,6 +5484,25 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (dolist (pooled
              (engine-payload-store-indexed-sender-transactions
               (engine-payload-store-pending-sender-index store)
+              sender))
+      (let ((pooled-cost
+              (engine-payload-store-txpool-upfront-cost pooled)))
+        (incf existing-cost pooled-cost)
+        (when (= (transaction-nonce pooled)
+                 (transaction-nonce transaction))
+          (setf replacement-cost pooled-cost))))
+    (if replacement-cost
+        (+ existing-cost (- new-cost replacement-cost))
+        (+ existing-cost new-cost))))
+
+(defun engine-payload-store-sender-admission-expenditure
+    (store sender transaction)
+  (let ((new-cost (engine-payload-store-txpool-upfront-cost transaction))
+        (existing-cost 0)
+        (replacement-cost nil))
+    (dolist (pooled
+             (engine-payload-store-sender-pooled-transactions
+              store
               sender))
       (let ((pooled-cost
               (engine-payload-store-txpool-upfront-cost pooled)))

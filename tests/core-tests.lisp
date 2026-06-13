@@ -18018,6 +18018,171 @@
         (is (null (field content "queued")))
         (is (null (field second-lookup-response "result")))))))
 
+(deftest eth-rpc-send-raw-transaction-enforces-pooled-balance-expenditure
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw (transaction id store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding transaction))
+                "\"]}")
+               store
+               config)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (first-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (second-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 2
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (first-hash (hash32-to-hex (transaction-hash first-transaction)))
+           (second-hash (hash32-to-hex (transaction-hash second-transaction)))
+           (sender (transaction-sender first-transaction :expected-chain-id 1))
+           (head-block
+             (make-block
+              :header (make-block-header :number 0
+                                         :timestamp 0
+                                         :gas-limit 30000000))))
+      (chain-store-put-block store head-block :state-available-p t)
+      (chain-store-put-account-nonce store (block-hash head-block) sender 0)
+      (chain-store-put-account-balance
+       store (block-hash head-block) sender 30000)
+      (let* ((first-response (send-raw first-transaction 127 store config))
+             (second-response (send-raw second-transaction 128 store config))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":129,\"method\":\"txpool_status\",\"params\":[]}"
+                store
+                config))
+             (content-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":130,\"method\":\"txpool_content\",\"params\":[]}"
+                store
+                config))
+             (second-lookup-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":131,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" second-hash "\"]}")
+                store
+                config))
+             (status (field status-response "result"))
+             (content (field content-response "result"))
+             (queued
+               (field (field content "queued") (address-to-hex sender)))
+             (second-error (field second-response "error")))
+        (is (string= first-hash (field first-response "result")))
+        (is (= -32602 (field second-error "code")))
+        (is (string= "eth_sendRawTransaction insufficient sender balance"
+                     (field second-error "message")))
+        (is (string= (quantity-to-hex 0) (field status "pending")))
+        (is (string= (quantity-to-hex 1) (field status "queued")))
+        (is (string= first-hash (field (field queued "1") "hash")))
+        (is (null (field queued "2")))
+        (is (null (field second-lookup-response "result")))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (basefee-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 4
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (second-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (basefee-hash
+             (hash32-to-hex (transaction-hash basefee-transaction)))
+           (second-hash (hash32-to-hex (transaction-hash second-transaction)))
+           (sender (transaction-sender basefee-transaction
+                                       :expected-chain-id 1))
+           (head-block
+             (make-block
+              :header (make-block-header :number 0
+                                         :timestamp 0
+                                         :gas-limit 30000000
+                                         :base-fee-per-gas 5))))
+      (chain-store-put-block store head-block :state-available-p t)
+      (chain-store-put-account-nonce store (block-hash head-block) sender 0)
+      (chain-store-put-account-balance
+       store (block-hash head-block) sender 100000)
+      (let* ((basefee-response
+               (send-raw basefee-transaction 132 store config))
+             (second-response (send-raw second-transaction 133 store config))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":134,\"method\":\"txpool_status\",\"params\":[]}"
+                store
+                config))
+             (content-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":135,\"method\":\"txpool_content\",\"params\":[]}"
+                store
+                config))
+             (second-lookup-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":136,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" second-hash "\"]}")
+                store
+                config))
+             (status (field status-response "result"))
+             (content (field content-response "result"))
+             (queued
+               (field (field content "queued") (address-to-hex sender)))
+             (second-error (field second-response "error")))
+        (is (string= basefee-hash (field basefee-response "result")))
+        (is (= -32602 (field second-error "code")))
+        (is (string= "eth_sendRawTransaction insufficient sender balance"
+                     (field second-error "message")))
+        (is (string= (quantity-to-hex 0) (field status "pending")))
+        (is (string= (quantity-to-hex 1) (field status "queued")))
+        (is (string= basefee-hash (field (field queued "0") "hash")))
+        (is (null (field queued "1")))
+        (is (null (field second-lookup-response "result")))))))
+
 (deftest eth-rpc-send-raw-transaction-queues-retained-state-nonce-gaps
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
@@ -19333,245 +19498,122 @@
                (transaction-hash sender-a-nonce-three)))))))
 
 (deftest txpool-queued-promotion-rechecks-pending-balance
-  (labels ((field (object name)
-             (cdr (assoc name object :test #'string=)))
-           (send-raw (transaction id store config)
-             (parse-json
-              (engine-rpc-handle-request-json
-               (concatenate
-                'string
-                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
-                ",\"method\":\"eth_sendRawTransaction\","
-                "\"params\":[\""
-                (bytes-to-hex (transaction-encoding transaction))
-                "\"]}")
-               store
-               config)))
-           (request (json store config)
-             (parse-json
-              (engine-rpc-handle-request-json json store config))))
-    (let* ((store (make-engine-payload-memory-store))
-           (config (make-chain-config :chain-id 1))
-           (recipient
-             (address-from-hex "0x3535353535353535353535353535353535353535"))
-           (gap-transaction
-             (fixture-sign-legacy-transaction
-              (make-legacy-transaction
-               :nonce 1
-               :gas-price 1
-               :gas-limit 21000
-               :to recipient
-               :value 0)
-              1
-              1))
-           (gap-hash (hash32-to-hex (transaction-hash gap-transaction)))
-           (closing-transaction
-             (fixture-sign-legacy-transaction
-              (make-legacy-transaction
-               :nonce 0
-               :gas-price 1
-               :gas-limit 21000
-               :to recipient
-               :value 0)
-              1
-              1))
-           (closing-hash
-             (hash32-to-hex (transaction-hash closing-transaction)))
-           (sender (transaction-sender gap-transaction :expected-chain-id 1))
-           (head-block
-             (make-block
-              :header (make-block-header :number 0
-                                         :timestamp 0
-                                         :gas-limit 30000000))))
-      (chain-store-put-block store head-block :state-available-p t)
-      (chain-store-put-account-nonce store (block-hash head-block) sender 0)
-      (chain-store-put-account-balance
-       store (block-hash head-block) sender 21000)
-      (let* ((filter-response
-               (request
-                "{\"jsonrpc\":\"2.0\",\"id\":200,\"method\":\"eth_newPendingTransactionFilter\"}"
-                store
-                config))
-             (filter-id (field filter-response "result"))
-             (gap-response (send-raw gap-transaction 201 store config))
-             (closing-response (send-raw closing-transaction 202 store config))
-             (status-response
-               (request
-                "{\"jsonrpc\":\"2.0\",\"id\":203,\"method\":\"txpool_status\",\"params\":[]}"
-                store
-                config))
-             (content-response
-               (request
-                "{\"jsonrpc\":\"2.0\",\"id\":204,\"method\":\"txpool_content\",\"params\":[]}"
-                store
-                config))
-             (filter-changes
-               (request
-                (concatenate
-                 'string
-                 "{\"jsonrpc\":\"2.0\",\"id\":205,"
-                 "\"method\":\"eth_getFilterChanges\","
-                 "\"params\":[\"" filter-id "\"]}")
-                store
-                config))
-             (transaction-count-response
-               (request
-                (concatenate
-                 'string
-                 "{\"jsonrpc\":\"2.0\",\"id\":206,"
-                 "\"method\":\"eth_getTransactionCount\","
-                 "\"params\":[\""
-                 (address-to-hex sender)
-                 "\",\"pending\"]}")
-                store
-                config))
-             (status (field status-response "result"))
-             (content (field content-response "result"))
-             (pending
-               (field (field content "pending") (address-to-hex sender)))
-             (queued
-               (field (field content "queued") (address-to-hex sender)))
-             (filter-hashes (field filter-changes "result")))
-        (is (string= gap-hash (field gap-response "result")))
-        (is (string= closing-hash (field closing-response "result")))
-        (is (string= (quantity-to-hex 1) (field status "pending")))
-        (is (string= (quantity-to-hex 1) (field status "queued")))
-        (is (string= closing-hash
-                     (field (field pending "0") "hash")))
-        (is (string= gap-hash
-                     (field (field queued "1") "hash")))
-        (is (string= (quantity-to-hex 1)
-                     (field transaction-count-response "result")))
-        (is (= 1 (length filter-hashes)))
-        (is (string= closing-hash (first filter-hashes)))))))
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (gap-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1
+             :gas-price 1
+             :gas-limit 21000
+             :to recipient
+             :value 0)
+            1
+            1))
+         (closing-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 1
+             :gas-limit 21000
+             :to recipient
+             :value 0)
+            1
+            1))
+         (sender (transaction-sender gap-transaction :expected-chain-id 1))
+         (head-block
+           (make-block
+            :header (make-block-header :number 0
+                                       :timestamp 0
+                                       :gas-limit 30000000))))
+    (chain-store-put-block store head-block :state-available-p t)
+    (chain-store-put-account-nonce store (block-hash head-block) sender 0)
+    (chain-store-put-account-balance
+     store (block-hash head-block) sender 21000)
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store
+     closing-transaction)
+    (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+     store
+     gap-transaction)
+    (is (null
+         (ethereum-lisp.core::engine-payload-store-promote-queued-transactions
+          store
+          sender)))
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+            store)))
+    (is (eq closing-transaction
+            (ethereum-lisp.core::engine-payload-store-pending-transaction
+             store
+             (transaction-hash closing-transaction))))
+    (is (eq gap-transaction
+            (ethereum-lisp.core::engine-payload-store-queued-transaction
+             store
+             (transaction-hash gap-transaction))))))
 
 (deftest txpool-basefee-promotion-rechecks-pending-balance
-  (labels ((field (object name)
-             (cdr (assoc name object :test #'string=)))
-           (send-raw (transaction id store config)
-             (parse-json
-              (engine-rpc-handle-request-json
-               (concatenate
-                'string
-                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
-                ",\"method\":\"eth_sendRawTransaction\","
-                "\"params\":[\""
-                (bytes-to-hex (transaction-encoding transaction))
-                "\"]}")
-               store
-               config)))
-           (request (json store config)
-             (parse-json
-              (engine-rpc-handle-request-json json store config))))
-    (let* ((store (make-engine-payload-memory-store))
-           (config (make-chain-config :chain-id 1 :london-block 0))
-           (recipient
-             (address-from-hex "0x3535353535353535353535353535353535353535"))
-           (gap-transaction
-             (fixture-sign-legacy-transaction
-              (make-legacy-transaction
-               :nonce 1
-               :gas-price 4
-               :gas-limit 21000
-               :to recipient
-               :value 0)
-              1
-              1))
-           (gap-hash (hash32-to-hex (transaction-hash gap-transaction)))
-           (closing-transaction
-             (fixture-sign-legacy-transaction
-              (make-legacy-transaction
-               :nonce 0
-               :gas-price 4
-               :gas-limit 21000
-               :to recipient
-               :value 0)
-              1
-              1))
-           (closing-hash
-             (hash32-to-hex (transaction-hash closing-transaction)))
-           (sender (transaction-sender gap-transaction :expected-chain-id 1))
-           (parent-block
-             (make-block
-              :header (make-block-header :number 0
-                                         :timestamp 0
-                                         :gas-limit 30000000
-                                         :base-fee-per-gas 5)))
-           (child-block
-             (make-block
-              :header (make-block-header :parent-hash
-                                         (block-hash parent-block)
-                                         :number 1
-                                         :timestamp 12
-                                         :gas-limit 30000000
-                                         :base-fee-per-gas 3))))
-      (chain-store-put-block store parent-block :state-available-p t)
-      (chain-store-put-account-nonce store (block-hash parent-block) sender 0)
-      (chain-store-put-account-balance
-       store (block-hash parent-block) sender 84000)
-      (let* ((filter-response
-               (request
-                "{\"jsonrpc\":\"2.0\",\"id\":207,\"method\":\"eth_newPendingTransactionFilter\"}"
-                store
-                config))
-             (filter-id (field filter-response "result"))
-             (gap-response (send-raw gap-transaction 208 store config)))
-        (is (string= gap-hash (field gap-response "result")))
-        (chain-store-put-block store child-block :state-available-p t)
-        (chain-store-put-account-nonce
-         store (block-hash child-block) sender 0)
-        (chain-store-put-account-balance
-         store (block-hash child-block) sender 84000)
-        (chain-store-set-canonical-head store (block-hash child-block))
-        (let* ((closing-response (send-raw closing-transaction 209 store config))
-               (status-response
-                 (request
-                  "{\"jsonrpc\":\"2.0\",\"id\":210,\"method\":\"txpool_status\",\"params\":[]}"
-                  store
-                  config))
-               (content-response
-                 (request
-                  "{\"jsonrpc\":\"2.0\",\"id\":211,\"method\":\"txpool_content\",\"params\":[]}"
-                  store
-                  config))
-               (filter-changes
-                 (request
-                  (concatenate
-                   'string
-                   "{\"jsonrpc\":\"2.0\",\"id\":212,"
-                   "\"method\":\"eth_getFilterChanges\","
-                   "\"params\":[\"" filter-id "\"]}")
-                  store
-                  config))
-               (transaction-count-response
-                 (request
-                  (concatenate
-                   'string
-                   "{\"jsonrpc\":\"2.0\",\"id\":213,"
-                   "\"method\":\"eth_getTransactionCount\","
-                   "\"params\":[\""
-                   (address-to-hex sender)
-                   "\",\"pending\"]}")
-                  store
-                  config))
-               (status (field status-response "result"))
-               (content (field content-response "result"))
-               (pending
-                 (field (field content "pending") (address-to-hex sender)))
-               (queued
-                 (field (field content "queued") (address-to-hex sender)))
-               (filter-hashes (field filter-changes "result")))
-          (is (string= closing-hash (field closing-response "result")))
-          (is (string= (quantity-to-hex 1) (field status "pending")))
-          (is (string= (quantity-to-hex 1) (field status "queued")))
-          (is (string= closing-hash
-                       (field (field pending "0") "hash")))
-          (is (string= gap-hash
-                       (field (field queued "1") "hash")))
-          (is (string= (quantity-to-hex 1)
-                       (field transaction-count-response "result")))
-          (is (= 1 (length filter-hashes)))
-          (is (string= closing-hash (first filter-hashes))))))))
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (gap-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1
+             :gas-price 4
+             :gas-limit 21000
+             :to recipient
+             :value 0)
+            1
+            1))
+         (closing-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 4
+             :gas-limit 21000
+             :to recipient
+             :value 0)
+            1
+            1))
+         (sender (transaction-sender gap-transaction :expected-chain-id 1))
+         (head-block
+           (make-block
+            :header (make-block-header :number 0
+                                       :timestamp 0
+                                       :gas-limit 30000000
+                                       :base-fee-per-gas 3))))
+    (chain-store-put-block store head-block :state-available-p t)
+    (chain-store-put-account-nonce store (block-hash head-block) sender 0)
+    (chain-store-put-account-balance
+     store (block-hash head-block) sender 84000)
+    (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+     store
+     closing-transaction)
+    (ethereum-lisp.core::engine-payload-store-put-basefee-transaction
+     store
+     gap-transaction)
+    (is (null
+         (ethereum-lisp.core::engine-payload-store-promote-basefee-transactions
+          store)))
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+            store)))
+    (is (eq closing-transaction
+            (ethereum-lisp.core::engine-payload-store-pending-transaction
+             store
+             (transaction-hash closing-transaction))))
+    (is (eq gap-transaction
+            (ethereum-lisp.core::engine-payload-store-basefee-transaction
+             store
+             (transaction-hash gap-transaction))))))
 
 (deftest txpool-canonical-basefee-rise-demotes-pending-transaction
   (labels ((field (object name)

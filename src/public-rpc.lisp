@@ -1651,9 +1651,9 @@
 (defun eth-rpc-txpool-upfront-cost (transaction)
   (engine-payload-store-txpool-upfront-cost transaction))
 
-(defun eth-rpc-txpool-pending-sender-expenditure
+(defun eth-rpc-txpool-sender-admission-expenditure
     (store sender transaction)
-  (engine-payload-store-pending-sender-expenditure
+  (engine-payload-store-sender-admission-expenditure
    store sender transaction))
 
 (defun eth-rpc-validate-txpool-sender-state (store head sender transaction)
@@ -1666,7 +1666,7 @@
       (when (< (transaction-nonce transaction) state-nonce)
         (block-validation-fail "eth_sendRawTransaction nonce too low"))
       (when (< state-balance
-               (eth-rpc-txpool-pending-sender-expenditure
+               (eth-rpc-txpool-sender-admission-expenditure
                 store
                 sender
                 transaction))
