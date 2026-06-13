@@ -4315,6 +4315,96 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-rejects-conflicting-txpool-records
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-txpool-conflict-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (target (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (target-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 9
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (pending
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            2
+            1))
+         (queued-conflict
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1
+             :gas-price 120
+             :gas-limit 21000
+             :to recipient)
+            2
+            1)))
+    (unwind-protect
+         (progn
+           (is (not (bytes= (hash32-bytes (transaction-hash pending))
+                            (hash32-bytes
+                             (transaction-hash queued-conflict)))))
+           (is (bytes= (address-bytes
+                        (transaction-sender pending :expected-chain-id 1))
+                       (address-bytes
+                        (transaction-sender queued-conflict
+                                            :expected-chain-id 1))))
+           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+            target target-transaction)
+           (let ((database (make-file-key-value-database path)))
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash pending))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :pending
+               pending))
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash queued-conflict))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :queued
+               queued-conflict)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 1
+                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                   target)))
+           (is (= 0
+                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                   target)))
+           (is (eq target-transaction
+                   (ethereum-lisp.core::engine-payload-store-pending-transaction
+                    target
+                    (transaction-hash target-transaction))))
+           (is (null
+                (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                 target
+                 (transaction-hash pending))))
+           (is (null
+                (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                 target
+                 (transaction-hash queued-conflict)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-export-import-kv-restores-invalid-tipsets
   (let* ((path
            (merge-pathnames
