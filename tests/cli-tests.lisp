@@ -2302,6 +2302,86 @@
         (phase-a-smoke-gate-assert-reference-client
          reference-clients "reth")))))
 
+(deftest phase-a-fixture-report-help-prints-without-loading-errors
+  #-sbcl
+  (skip-test "Phase A fixture report script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-fixture-report.lisp"
+             "--"
+             "--help"
+             "--unsupported-option")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (is (search "Usage: sbcl --script scripts/phase-a-fixture-report.lisp"
+                stdout))
+    (is (search "--root PATH" stdout))
+    (is (search "--pinned-v5.4.0" stdout))
+    (is (search "--json" stdout))
+    (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" stdout))))
+
+(deftest phase-a-fixture-report-pinned-mode-requires-root
+  #-sbcl
+  (skip-test "Phase A fixture report pinned mode requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "env"
+             "-u"
+             "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
+             "sbcl"
+             "--script"
+             "scripts/phase-a-fixture-report.lisp"
+             "--"
+             "--pinned-v5.4.0"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (not (= 0 status)))
+    (is (string= "" stdout))
+    (is (search "Pinned Phase A fixture report requires an EEST fixture root"
+                stderr))
+    (is (search "--root" stderr))
+    (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" stderr))
+    (is (not (search "do not match pinned selectors" stderr)))))
+
+(deftest phase-a-fixture-report-pinned-mode-rejects-missing-env-root
+  #-sbcl
+  (skip-test "Phase A fixture report pinned mode requires SBCL")
+  #+sbcl
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-missing-pinned-report-root-~A/"
+                    (devnet-cli-temp-token))
+            #P"/private/tmp/"))
+         (root-string (namestring root)))
+    (multiple-value-bind (stdout stderr status)
+        (uiop:run-program
+         (list "env"
+               (format nil "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=~A"
+                       root-string)
+               "sbcl"
+               "--script"
+               "scripts/phase-a-fixture-report.lisp"
+               "--"
+               "--pinned-v5.4.0"
+               "--json")
+         :output :string
+         :error-output :string
+         :ignore-error-status t)
+      (is (not (= 0 status)))
+      (is (string= "" stdout))
+      (is (search root-string stderr))
+      (is (search "Pinned Phase A fixture report root from" stderr))
+      (is (not (search "do not match pinned selectors" stderr))))))
+
 (deftest phase-a-selector-scripts-accept-root-option
   #-sbcl
   (skip-test "Phase A selector scripts require SBCL")

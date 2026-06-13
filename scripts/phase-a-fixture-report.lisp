@@ -6,6 +6,7 @@
 (defconstant +fixture-report-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +fixture-report-json-flag+ "--json")
 (defconstant +fixture-report-root-option+ "--root")
+(defconstant +fixture-report-help-flag+ "--help")
 (defconstant +fixture-report-eest-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 (defconstant +fixture-report-eest-repository+
@@ -27,6 +28,9 @@
 
 (defun fixture-report-json-p (args)
   (member +fixture-report-json-flag+ args :test #'string=))
+
+(defun fixture-report-help-p (args)
+  (member +fixture-report-help-flag+ args :test #'string=))
 
 (defun fixture-report-option-like-p (value)
   (and (stringp value)
@@ -64,6 +68,7 @@
       (cond
         ((string= arg +fixture-report-pinned-v5.4.0-flag+))
         ((string= arg +fixture-report-json-flag+))
+        ((string= arg +fixture-report-help-flag+))
         ((string= arg +fixture-report-root-option+)
          (unless args
            (error "~A requires a fixture root path"
@@ -79,6 +84,38 @@
         (t
          (setf root (fixture-report-set-argument-root root arg)))))
     root))
+
+(defun fixture-report-print-help ()
+  (format t "~&Usage: sbcl --script scripts/phase-a-fixture-report.lisp -- [options] [ROOT]~%")
+  (format t "~%")
+  (format t "Options:~%")
+  (format t "  --root PATH        Fixture suite root. Equivalent to positional ROOT.~%")
+  (format t "  --pinned-v5.4.0    Validate the pinned EEST v5.4.0 stable archive subset.~%")
+  (format t "  --json             Print machine-readable JSON output.~%")
+  (format t "  --help             Print this help without loading the test system.~%")
+  (format t "~%")
+  (format t "Default ROOT: ~A when set; otherwise no external root is assumed.~%"
+          +fixture-report-eest-root-env+)
+  (format t "Pinned mode requires ROOT or ~A when ROOT is omitted.~%"
+          +fixture-report-eest-root-env+))
+
+(defun fixture-report-pinned-default-root ()
+  (let ((root (uiop:getenv +fixture-report-eest-root-env+)))
+    (when (fixture-report-blank-string-p root)
+      (error "Pinned Phase A fixture report requires an EEST fixture root via ~A or ~A"
+             +fixture-report-root-option+
+             +fixture-report-eest-root-env+))
+    (let ((resolved-root (probe-file root)))
+      (unless resolved-root
+        (error "Pinned Phase A fixture report root from ~A does not exist: ~A"
+               +fixture-report-eest-root-env+
+               root))
+      (namestring resolved-root))))
+
+(defun fixture-report-suite-root-argument (root-argument pinned-p)
+  (or root-argument
+      (when pinned-p
+        (fixture-report-pinned-default-root))))
 
 (defun fixture-report-call (name &rest args)
   (let ((symbol (find-symbol (string-upcase name) "ETHEREUM-LISP.TEST")))
@@ -314,34 +351,44 @@
             (fixture-report-field blockchain "selectorString"))))
 
 (defun fixture-report-main ()
-  (load (merge-pathnames "tests/load-tests.lisp"
-                         *ethereum-lisp-fixture-report-root*))
   (let* ((args (fixture-report-arguments))
          (pinned-p (fixture-report-pinned-v5.4.0-p args))
          (json-p (fixture-report-json-p args))
-         (root-argument (fixture-report-argument-root args))
-         (suite-root (or root-argument "environment"))
+         (help-p (fixture-report-help-p args)))
+    (if help-p
+        (fixture-report-print-help)
+        (let* ((root-argument (fixture-report-argument-root args))
+               (selected-root
+                 (fixture-report-suite-root-argument
+                  root-argument
+                  pinned-p)))
+          (fixture-report-reject-missing-configured-root selected-root)
+          (load (merge-pathnames "tests/load-tests.lisp"
+                                 *ethereum-lisp-fixture-report-root*))
+          (fixture-report-run selected-root pinned-p json-p)))))
+
+(defun fixture-report-run (selected-root pinned-p json-p)
+  (let* ((suite-root (or selected-root "environment"))
          (mode (if pinned-p "pinned-v5.4.0" "discover"))
          (state-root
-           (if root-argument
+           (if selected-root
                (fixture-report-call "execution-spec-tests-state-test-root"
-                                    root-argument)
+                                    selected-root)
                (fixture-report-call
                 "execution-spec-tests-state-test-root")))
          (transaction-root
-           (if root-argument
+           (if selected-root
                (fixture-report-call "execution-spec-tests-transaction-test-root"
-                                    root-argument)
+                                    selected-root)
                (fixture-report-call
                 "execution-spec-tests-transaction-test-root")))
          (blockchain-root
-           (if root-argument
+           (if selected-root
                (fixture-report-call
                 "execution-spec-tests-blockchain-test-root"
-                root-argument)
+                selected-root)
                (fixture-report-call
                 "execution-spec-tests-blockchain-test-root"))))
-    (fixture-report-reject-missing-configured-root root-argument)
     (unless blockchain-root
       (error "No EEST blockchain fixture root found. Pass a root path or set ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT."))
     (fixture-report-reject-empty-selected-root state-root "state_tests")

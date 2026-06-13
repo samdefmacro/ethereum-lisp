@@ -381,6 +381,12 @@ ones.
     when `--root PATH` or `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` points to
     a nonexistent path, instead of reporting a generic missing-suite error that
     hides bad automation configuration.
+  - Progress: aligned the fixture report command-line contract with the smoke
+    gate. `scripts/phase-a-fixture-report.lisp -- --help` now prints usage
+    without loading the test system, and `--pinned-v5.4.0` now requires an
+    explicit root or `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` before selector
+    discovery so missing pinned fixture configuration remains distinct from
+    pinned selector drift.
 
 - [x] `PHASE-A-SMOKE-GATE`: Add an executable Phase A smoke acceptance gate.
   - Milestone: 8

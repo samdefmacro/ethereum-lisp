@@ -925,11 +925,12 @@ Detailed historical implementation notes for this section now live in
   the reference pinning rule without relying on PR prose. They also expose the
   pinned `ethereum/execution-spec-tests` source metadata at top level: release
   `v5.4.0`, tag target `88e9fb8`, and `fixtures_stable.tar.gz`. In pinned
-  mode the smoke gate requires an explicit suite root or
+  mode the fixture report and smoke gate require an explicit suite root or
   `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, matching the optional fixture
   runner contract while keeping missing pinned fixture configuration
-  distinguishable from selector drift. The fixture synchronization scripts,
-  fixture report, and smoke gate now also classify selected-but-empty EEST
+  distinguishable from selector drift. The fixture report also exposes
+  `--help` without loading the test system, and the fixture synchronization
+  scripts, fixture report, and smoke gate now classify selected-but-empty EEST
   suite roots as configuration errors before selector discovery or replay, so
   partial pinned extractions are not mistaken for selector drift.
   The individual state, transaction, and blockchain selector-listing scripts
