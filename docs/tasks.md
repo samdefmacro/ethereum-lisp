@@ -345,7 +345,7 @@ ones.
     the Phase A blockchain replay selector table, and prints the state /
     blockchain selector strings plus summary counts. Against the in-repo
     EEST-shaped root it reports 4 state selectors, 7 state transaction
-    combinations, 8 blockchain replay cases, one decoded block, and the
+    combinations, 9 blockchain replay cases, one decoded block, and the
     `blockRlp` / `engineNewPayloadV2` materialization split. The report also
     accepts `--json` so fixture-count and selector-table drift checks can parse
     the same contract without scraping the human-readable text output.
@@ -409,8 +409,8 @@ ones.
     present, plus `sbcl --script tests/run-tests.lisp`.
   - Result: added `scripts/phase-a-smoke-gate.lisp`. The in-repo gate now
     passes with 4 state selectors, 7 state transaction combinations, 25
-    transaction vectors, and 8 blockchain replay cases split across one
-    `blockRlp` and seven `engineNewPayloadV2` materializations. The local
+    transaction vectors, and 9 blockchain replay cases split across one
+    `blockRlp` and eight `engineNewPayloadV2` materializations. The local
     pinned v5.4.0 stable extraction passes in pinned mode with the single
     official Shanghai EIP-2930 `engineNewPayloadV2` selector while reporting
     state and transaction suites as missing, making the current bounded Phase A
@@ -499,8 +499,8 @@ ones.
     drift or materializer failure.
   - Progress: locked the in-repo Phase A smoke-gate cardinalities in the CLI
     regression suite. The gate now has explicit JSON/text assertions for 4
-    state cases, 25 transaction vectors, 8 blockchain replay cases, and the
-    7 `engineNewPayloadV2` / 1 `blockRlp` materialization split, so replay-table
+    state cases, 25 transaction vectors, 9 blockchain replay cases, and the
+    8 `engineNewPayloadV2` / 1 `blockRlp` materialization split, so replay-table
     drift fails at the executable acceptance boundary instead of only in lower
     fixture-loader tests.
 
@@ -1721,6 +1721,12 @@ splits can land after the Phase A smoke path closes.
     Engine replay import path validates contract-address derivation, nonce
     updates, code deposit, CREATE2 address derivation, and post-state account
     assertions through the same Phase A gate.
+  - Progress: added EEST-shaped multi-transaction replay coverage for a
+    Shanghai two-legacy-transfer `engineNewPayloads` case. The in-repo replay
+    selector now materializes nine source cases, and the Engine replay import
+    path validates the two-transaction payload's accumulated gas, receipts
+    root, state root, withdrawal balance, recipient balances, and sender nonce
+    through the same Phase A gate.
 
 - [x] `ENGINE-INVALID-POST-EXECUTION`: Map post-execution validation failures
   to Engine `INVALID` payload status.

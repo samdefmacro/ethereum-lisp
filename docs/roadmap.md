@@ -235,9 +235,11 @@ fixes in those areas are allowed; expansion is not.
   now includes empty Engine payload, standard block RLP, legacy transfer,
   EIP-2930 access-list transfer, EIP-1559 dynamic-fee transfer, and
   log-producing contract-call, top-level contract creation, and internal
-  CREATE2 payload coverage. Its `--devnet` mode now runs the standalone devnet
-  all-fixtures listener-boundary suite with per-case
-  readiness JSON, `devnet.ready` / `devnet.shutdown` telemetry logs, and
+  CREATE2 payload coverage, plus a two-transaction legacy transfer payload
+  that locks receipt accumulation and multi-recipient post-state checks. Its
+  `--devnet` mode now runs the standalone devnet all-fixtures
+  listener-boundary suite with per-case readiness JSON, `devnet.ready` /
+  `devnet.shutdown` telemetry logs, and
   file-backed KV database export/restore enabled for every pinned Shanghai
   case, including the multi-transaction legacy-transfer payload. Restored KV
   snapshots are also served through a fresh public RPC
@@ -779,8 +781,8 @@ Reth consensus/executor integration.
   Ethash reward hook, Merge/Paris validation, and in-repo EEST-shaped
   blockchain replay for empty Engine payloads, standard block RLP, and a
   non-empty Shanghai Engine transfer payload, typed transaction payloads,
-  log-producing contract-call payloads, and contract creation / CREATE2
-  payloads.
+  log-producing contract-call payloads, contract creation / CREATE2 payloads,
+  and a two-transaction legacy transfer payload.
 - *Partial:* EIP-7702 set-code execution beyond delegation shape, blob
   transaction semantics without KZG verification, and broader post-execution
   rollback symmetry across all failure modes.
