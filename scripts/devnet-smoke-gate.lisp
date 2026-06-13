@@ -3026,8 +3026,18 @@ references/ checkouts.~%")
                     (getf (first transaction-checks) :hash))
                   (transaction-hash-hex
                     (hash32-to-hex transaction-hash))
+                  (displaced-transaction
+                    (first (block-transactions child-block)))
                   (side-block-hash (block-hash side-block))
                   (child-block-hash (block-hash child-block))
+                  (node-chain-id
+                    (chain-config-chain-id
+                     (ethereum-lisp.cli:devnet-node-config node)))
+                  (reinsertable-transaction-p
+                    (not (null
+                          (transaction-sender
+                           displaced-transaction
+                           :expected-chain-id node-chain-id))))
                   (expected-side-block-number
                     (quantity-to-hex
                      (block-header-number (block-header side-block))))
@@ -3280,19 +3290,26 @@ references/ checkouts.~%")
               (string= (hash32-to-hex side-block-hash)
                        (fixture-object-field side-latest-block "hash"))
               "Restored side sibling latest block hash mismatch")
-             (devnet-smoke-gate-require
-              (string= transaction-hash-hex
-                       (fixture-object-field side-transaction "hash"))
-              "Restored side sibling should reinsert old canonical transaction")
-             (devnet-smoke-gate-require
-              (null (fixture-object-field side-transaction "blockHash"))
-              "Restored side sibling transaction should be pending")
-             (devnet-smoke-gate-require
-              (null (fixture-object-field side-transaction "blockNumber"))
-              "Restored side sibling transaction should not have a block number")
-             (devnet-smoke-gate-require
-              (null (fixture-object-field side-transaction "transactionIndex"))
-              "Restored side sibling transaction should not have an index")
+             (if reinsertable-transaction-p
+                 (progn
+                   (devnet-smoke-gate-require
+                    (string= transaction-hash-hex
+                             (fixture-object-field side-transaction "hash"))
+                    "Restored side sibling should reinsert old canonical transaction")
+                   (devnet-smoke-gate-require
+                    (null (fixture-object-field side-transaction "blockHash"))
+                    "Restored side sibling transaction should be pending")
+                   (devnet-smoke-gate-require
+                    (null (fixture-object-field side-transaction
+                                                "blockNumber"))
+                    "Restored side sibling transaction should not have a block number")
+                   (devnet-smoke-gate-require
+                    (null (fixture-object-field side-transaction
+                                                "transactionIndex"))
+                    "Restored side sibling transaction should not have an index"))
+               (devnet-smoke-gate-require
+                (null side-transaction)
+                "Restored side sibling should reject wrong-chain displaced transaction"))
              (devnet-smoke-gate-require
               (null (fixture-object-field side-receipt-rpc "result"))
               "Restored side sibling should hide old canonical receipt")
@@ -3340,8 +3357,10 @@ references/ checkouts.~%")
                      (fixture-object-field side-block-number-rpc "result")
                      :side-latest-block-hash
                      (fixture-object-field side-latest-block "hash")
+                     :side-transaction-reinserted-p
+                     (if reinsertable-transaction-p t :false)
                      :side-transaction-by-hash
-                     side-transaction
+                     (or side-transaction :false)
                      :side-receipt
                      (or (fixture-object-field side-receipt-rpc "result")
                          :false)
@@ -3810,6 +3829,10 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-latest-block-hash))
+                  :rpc-side-transaction-reinserted-p
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-transaction-reinserted-p))
                   :rpc-side-transaction-by-hash
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
@@ -5251,6 +5274,12 @@ references/ checkouts.~%")
                                       :rpc-side-latest-block-hash)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideTransactionReinserted"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-transaction-reinserted-p)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideTransactionByHash"
                         (if database-summary
                             (or (getf database-summary
@@ -5816,36 +5845,46 @@ references/ checkouts.~%")
                        report "databaseRpcSideLogCount"))
                "Devnet smoke gate suite side reorg kept canonical logs for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
-              (devnet-smoke-gate-require
-               (string= (devnet-smoke-gate-field
-                         report "databaseRpcReceiptTransactionHash")
-                        (fixture-object-field
-                         (devnet-smoke-gate-field
-                          report "databaseRpcSideTransactionByHash")
-                         "hash"))
-               "Devnet smoke gate suite side reorg lost pending transaction for ~A"
-               (devnet-smoke-gate-field report "fixtureCase"))
-              (devnet-smoke-gate-require
-               (null (fixture-object-field
-                      (devnet-smoke-gate-field
-                       report "databaseRpcSideTransactionByHash")
-                      "blockHash"))
-               "Devnet smoke gate suite side reorg kept old transaction block hash for ~A"
-               (devnet-smoke-gate-field report "fixtureCase"))
-              (devnet-smoke-gate-require
-               (null (fixture-object-field
-                      (devnet-smoke-gate-field
-                       report "databaseRpcSideTransactionByHash")
-                      "blockNumber"))
-               "Devnet smoke gate suite side reorg kept old transaction block number for ~A"
-               (devnet-smoke-gate-field report "fixtureCase"))
-              (devnet-smoke-gate-require
-               (null (fixture-object-field
-                      (devnet-smoke-gate-field
-                       report "databaseRpcSideTransactionByHash")
-                      "transactionIndex"))
-               "Devnet smoke gate suite side reorg kept old transaction index for ~A"
-               (devnet-smoke-gate-field report "fixtureCase"))
+              (if (not (devnet-smoke-gate-false-p
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideTransactionReinserted")))
+                  (progn
+                    (devnet-smoke-gate-require
+                     (string= (devnet-smoke-gate-field
+                               report "databaseRpcReceiptTransactionHash")
+                              (fixture-object-field
+                               (devnet-smoke-gate-field
+                                report "databaseRpcSideTransactionByHash")
+                               "hash"))
+                     "Devnet smoke gate suite side reorg lost pending transaction for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (null (fixture-object-field
+                            (devnet-smoke-gate-field
+                             report "databaseRpcSideTransactionByHash")
+                            "blockHash"))
+                     "Devnet smoke gate suite side reorg kept old transaction block hash for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (null (fixture-object-field
+                            (devnet-smoke-gate-field
+                             report "databaseRpcSideTransactionByHash")
+                            "blockNumber"))
+                     "Devnet smoke gate suite side reorg kept old transaction block number for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (null (fixture-object-field
+                            (devnet-smoke-gate-field
+                             report "databaseRpcSideTransactionByHash")
+                            "transactionIndex"))
+                     "Devnet smoke gate suite side reorg kept old transaction index for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase")))
+                  (devnet-smoke-gate-require
+                   (devnet-smoke-gate-false-p
+                    (devnet-smoke-gate-field
+                     report "databaseRpcSideTransactionByHash"))
+                   "Devnet smoke gate suite side reorg reinserted wrong-chain transaction for ~A"
+                   (devnet-smoke-gate-field report "fixtureCase")))
               (devnet-smoke-gate-require
                (devnet-smoke-gate-false-p
                 (devnet-smoke-gate-field report "databaseRpcSideReceipt"))
@@ -6332,6 +6371,9 @@ references/ checkouts.~%")
         (format t "databaseRpcSideLatestBlockHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideLatestBlockHash"))
+        (format t "databaseRpcSideTransactionReinserted=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideTransactionReinserted"))
         (format t "databaseRpcSideTransactionByHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideTransactionByHash"))

@@ -899,10 +899,11 @@ first pass, but interfaces must not block that path.
   also reinsert executable transactions from displaced old-canonical blocks
   into the local txpool as pending or queued entries while keeping receipts and
   canonical transaction locations bound to the new canonical branch. The
-  devnet database smoke path now carries that reorg reinsertion contract across
-  process restart: `eth_getTransactionByHash` must expose the displaced
-  transaction as pending, while receipts, logs, and canonical receipt indexes
-  remain absent from the new canonical head. Block polling filters now record
+  devnet database smoke path now carries that reorg policy across process
+  restart: `eth_getTransactionByHash` exposes chain-valid displaced
+  transactions as pending and leaves wrong-chain displaced transactions absent,
+  while receipts, logs, and canonical receipt indexes remain absent from the
+  new canonical head. Block polling filters now record
   canonical-head events directly, so same-height forkchoice reorgs surface the
   replacement head hash through `eth_getFilterChanges` instead of being hidden
   by number-only cursoring. Log polling filters record the same canonical
