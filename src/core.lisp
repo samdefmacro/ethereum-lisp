@@ -4129,6 +4129,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (unless (hash32= transaction-hash (transaction-hash transaction))
         (block-validation-fail
          "KV txpool record key does not match encoded transaction hash"))
+      (when (chain-store-transaction-location store transaction-hash)
+        (block-validation-fail
+         "KV txpool record duplicates an indexed transaction"))
       (when (engine-payload-store-pooled-transaction store transaction-hash)
         (block-validation-fail
          "KV txpool record duplicates a pooled transaction hash"))

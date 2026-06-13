@@ -5642,6 +5642,99 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-rejects-indexed-txpool-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-txpool-indexed-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (target (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (target-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 9
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            2
+            1))
+         (receipt
+           (make-receipt :status 1 :cumulative-gas-used 21000))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :state-root +empty-trie-hash+
+                               :gas-limit 30000000)))
+         (head
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :state-root +empty-trie-hash+
+                               :timestamp 1
+                               :gas-limit 30000000)
+            :transactions (list transaction)
+            :receipts (list receipt)))
+         (transaction-hash (transaction-hash transaction)))
+    (unwind-protect
+         (progn
+           (chain-store-put-block source genesis :state-available-p t)
+           (chain-store-put-block source head :state-available-p t)
+           (chain-store-set-canonical-head source (block-hash head))
+           (chain-store-update-forkchoice-checkpoints
+            source
+            (make-forkchoice-state
+             :head-block-hash (block-hash head)
+             :safe-block-hash (block-hash genesis)
+             :finalized-block-hash (block-hash genesis)))
+           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+            target target-transaction)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes transaction-hash)
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :pending
+               transaction)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 1
+                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                   target)))
+           (is (eq target-transaction
+                   (ethereum-lisp.core::engine-payload-store-pending-transaction
+                    target
+                    (transaction-hash target-transaction))))
+           (is (null
+                (ethereum-lisp.core::engine-payload-store-pooled-transaction
+                 target
+                 transaction-hash)))
+           (is (null (chain-store-transaction-location
+                      target
+                      transaction-hash))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-rejects-noncanonical-transaction-location
   (let* ((path
            (merge-pathnames

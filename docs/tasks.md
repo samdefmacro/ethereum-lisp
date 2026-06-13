@@ -4331,7 +4331,9 @@ splits can land after the Phase A smoke path closes.
     and store the subpool label plus canonical raw transaction encoding; import
     stages the txpool, validates hash round-trips, sender recovery, and
     sender/nonce uniqueness before publishing, preserving the existing store on
-    corrupted txpool records.
+    corrupted txpool records. Import also rejects txpool records whose hashes
+    are already indexed in the restored canonical chain view, so a corrupted
+    snapshot cannot resurrect a mined transaction as pending or queued.
   - Result: the standalone devnet smoke gate now exercises pending,
     basefee-ineligible, and nonce-gap queued txpool persistence across the
     public RPC and process/database boundary. Each database-backed pinned
