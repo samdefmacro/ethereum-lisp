@@ -3659,6 +3659,7 @@
          (progn
            (chain-store-put-block store block-a :state-available-p t)
            (chain-store-put-block store block-b :state-available-p t)
+           (chain-store-set-canonical-head store (block-hash block-b))
            (chain-store-put-account-balance store (block-hash block-a)
                                             address 11)
            (chain-store-put-account-nonce store (block-hash block-a)
@@ -3712,6 +3713,8 @@
                (declare (ignore value))
                (is present-p)))
            (is (= 0 (chain-store-prune-state-before store 2)))
+           (is (= 0 (chain-store-prune-state-before store 3)))
+           (is (chain-store-state-available-p store (block-hash block-b)))
            (signals block-validation-error
              (chain-store-prune-state-before store -1)))
       (when (probe-file path)

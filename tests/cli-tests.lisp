@@ -1202,7 +1202,7 @@
                          "--genesis" +devnet-cli-genesis-fixture+
                          "--port" "0"
                          "--database" (namestring database-path)
-                         "--prune-state-before" "1"
+                         "--prune-state-before" "2"
                          "--json"
                          "--no-serve")
                    :output-stream output

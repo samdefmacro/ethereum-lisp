@@ -3086,13 +3086,23 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (unless (and (integerp block-number) (not (minusp block-number)))
       (block-validation-fail
        "Chain state pruning block number must be a non-negative integer"))
-    (let ((block-keys '()))
+    (let ((block-keys '())
+          (head-block-key
+            (let ((checkpoint
+                    (engine-payload-memory-store-head-checkpoint store)))
+              (let ((hash (and checkpoint
+                               (chain-store-checkpoint-block-hash
+                                checkpoint))))
+                (when hash
+                  (engine-payload-store-key hash))))))
       (maphash
        (lambda (block-key state-available-p)
          (when state-available-p
            (let ((block (gethash block-key
                                   (engine-payload-memory-store-blocks store))))
              (when (and block
+                        (or (null head-block-key)
+                            (not (string= block-key head-block-key)))
                         (< (block-header-number (block-header block))
                            block-number))
                (push block-key block-keys)))))
