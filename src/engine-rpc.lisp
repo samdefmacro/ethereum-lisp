@@ -732,7 +732,7 @@
    #'engine-rpc-payload-body-v2-object))
 
 (defun engine-rpc-handle-forkchoice-updated
-    (params store method payload-version payload-attributes-parser)
+    (params store config method payload-version payload-attributes-parser)
   (unless (and (listp params) params)
     (block-validation-fail "~A params must include forkchoice state" method))
   (let ((state
@@ -768,7 +768,8 @@
            (chain-store-update-forkchoice-checkpoints store state)
            (chain-store-set-canonical-head
             store
-            (forkchoice-state-head-block-hash state)))))
+            (forkchoice-state-head-block-hash state)
+            :expected-chain-id (chain-config-chain-id config)))))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))
@@ -804,26 +805,26 @@
        status
        :payload-id payload-id))))
 
-(defun engine-rpc-handle-forkchoice-updated-v1 (params store)
+(defun engine-rpc-handle-forkchoice-updated-v1 (params store config)
   (engine-rpc-handle-forkchoice-updated
-   params store "engine_forkchoiceUpdatedV1" 1
+   params store config "engine_forkchoiceUpdatedV1" 1
    (lambda (payload-attributes)
      (engine-rpc-validate-payload-attributes-v1
       payload-attributes :method "engine_forkchoiceUpdatedV1"))))
 
-(defun engine-rpc-handle-forkchoice-updated-v2 (params store)
+(defun engine-rpc-handle-forkchoice-updated-v2 (params store config)
   (engine-rpc-handle-forkchoice-updated
-   params store "engine_forkchoiceUpdatedV2" 2
+   params store config "engine_forkchoiceUpdatedV2" 2
    #'engine-rpc-validate-payload-attributes-v2))
 
-(defun engine-rpc-handle-forkchoice-updated-v3 (params store)
+(defun engine-rpc-handle-forkchoice-updated-v3 (params store config)
   (engine-rpc-handle-forkchoice-updated
-   params store "engine_forkchoiceUpdatedV3" 3
+   params store config "engine_forkchoiceUpdatedV3" 3
    #'engine-rpc-validate-payload-attributes-v3))
 
-(defun engine-rpc-handle-forkchoice-updated-v4 (params store)
+(defun engine-rpc-handle-forkchoice-updated-v4 (params store config)
   (engine-rpc-handle-forkchoice-updated
-   params store "engine_forkchoiceUpdatedV4" 4
+   params store config "engine_forkchoiceUpdatedV4" 4
    #'engine-rpc-validate-payload-attributes-v4))
 
 (defun engine-rpc-handle-engine-method
@@ -846,22 +847,22 @@
        (engine-rpc-response
         id
         :result
-        (engine-rpc-handle-forkchoice-updated-v1 params store)))
+        (engine-rpc-handle-forkchoice-updated-v1 params store config)))
       ((string= method "engine_forkchoiceUpdatedV2")
        (engine-rpc-response
         id
         :result
-        (engine-rpc-handle-forkchoice-updated-v2 params store)))
+        (engine-rpc-handle-forkchoice-updated-v2 params store config)))
       ((string= method "engine_forkchoiceUpdatedV3")
        (engine-rpc-response
         id
         :result
-        (engine-rpc-handle-forkchoice-updated-v3 params store)))
+        (engine-rpc-handle-forkchoice-updated-v3 params store config)))
       ((string= method "engine_forkchoiceUpdatedV4")
        (engine-rpc-response
         id
         :result
-        (engine-rpc-handle-forkchoice-updated-v4 params store)))
+        (engine-rpc-handle-forkchoice-updated-v4 params store config)))
       ((string= method "engine_getPayloadV1")
        (engine-rpc-response
         id

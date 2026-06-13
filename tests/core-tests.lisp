@@ -8180,6 +8180,94 @@
              store
              transaction-hash)))))
 
+(deftest engine-rpc-forkchoice-reinsert-enforces-configured-chain-id
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (forkchoice-state-object (head)
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                   (cons "finalizedBlockHash"
+                         (hash32-to-hex (zero-hash32)))))
+           (forkchoice-request (head)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 8174)
+                   (cons "method" "engine_forkchoiceUpdatedV1")
+                   (cons "params"
+                         (list (forkchoice-state-object head))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 2 :london-block 0))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (wrong-chain-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 2
+               :gas-limit 21000
+               :to recipient
+               :value 3)
+              1
+              1))
+           (transaction-hash (transaction-hash wrong-chain-transaction))
+           (sender (transaction-sender wrong-chain-transaction
+                                       :expected-chain-id 1))
+           (genesis
+             (make-block
+              :header
+              (make-block-header :number 0
+                                 :parent-hash (zero-hash32)
+                                 :gas-limit 30000000
+                                 :timestamp 0
+                                 :extra-data #(0))))
+           (old-canonical-child
+             (make-block
+              :header
+              (make-block-header :number 1
+                                 :parent-hash (block-hash genesis)
+                                 :gas-limit 30000000
+                                 :timestamp 12
+                                 :extra-data #(1))
+              :transactions (list wrong-chain-transaction)
+              :receipts (list (make-receipt :status 1
+                                            :cumulative-gas-used 21000))))
+           (new-canonical-child
+             (make-block
+              :header
+              (make-block-header :number 1
+                                 :parent-hash (block-hash genesis)
+                                 :gas-limit 30000000
+                                 :timestamp 12
+                                 :extra-data #(2)))))
+      (chain-store-put-block store genesis :state-available-p t)
+      (chain-store-put-block store old-canonical-child :state-available-p t)
+      (chain-store-put-block store new-canonical-child :state-available-p t)
+      (chain-store-put-account-nonce
+       store (block-hash new-canonical-child) sender 0)
+      (chain-store-put-account-balance
+       store (block-hash new-canonical-child) sender 1000000)
+      (is (typep (chain-store-transaction-location
+                  store transaction-hash)
+                 'engine-transaction-location))
+      (let* ((response
+               (engine-rpc-handle-request
+                (forkchoice-request (block-hash new-canonical-child))
+                store
+                config))
+             (result (field response "result"))
+             (payload-status (field result "payloadStatus")))
+        (is (= 8174 (field response "id")))
+        (is (string= +payload-status-valid+
+                     (field payload-status "status")))
+        (is (null (chain-store-transaction-location
+                   store transaction-hash)))
+        (is (= 0
+               (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                store)))
+        (is (null
+             (ethereum-lisp.core::engine-payload-store-pending-transaction
+              store
+              transaction-hash)))))))
+
 (deftest engine-new-payload-memory-status-caches-invalid-ancestors
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (config (make-chain-config :london-block 0))
