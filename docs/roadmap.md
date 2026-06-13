@@ -193,7 +193,7 @@ fixes in those areas are allowed; expansion is not.
   through one KV batch, so encoding failures do not leave half-persisted
   indexes in the development store. The in-memory chain-store can now prune
   retained state snapshots before a block-number boundary while always
-  preserving the current head checkpoint's retained state and preserving
+  preserving the current head retained state and preserving
   block/header/receipt, canonical-index, and transaction-location records; the
   next KV export deletes the corresponding historical state records instead of
   reviving pruned history. The same readable chain view can be

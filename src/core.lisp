@@ -3093,8 +3093,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (let ((hash (and checkpoint
                                (chain-store-checkpoint-block-hash
                                 checkpoint))))
-                (when hash
-                  (engine-payload-store-key hash))))))
+                (if hash
+                    (engine-payload-store-key hash)
+                    (gethash
+                     (engine-payload-memory-store-head-number store)
+                     (engine-payload-memory-store-canonical-hashes
+                      store)))))))
       (maphash
        (lambda (block-key state-available-p)
          (when state-available-p

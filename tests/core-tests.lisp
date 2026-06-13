@@ -3720,6 +3720,39 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-prune-state-before-preserves-implicit-latest-snapshot
+  (let* ((store (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (block-a
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (zero-hash32)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (block-b
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash block-a)
+                               :timestamp 2
+                               :gas-limit 30000000))))
+    (chain-store-put-block store block-a :state-available-p t)
+    (chain-store-put-block store block-b :state-available-p t)
+    (chain-store-put-account-balance store (block-hash block-a) address 11)
+    (chain-store-put-account-balance store (block-hash block-b) address 22)
+    (is (= 2 (chain-store-head-number store)))
+    (is (null (chain-store-checkpoint-block-hash
+               (chain-store-head-checkpoint store))))
+    (is (= 1 (chain-store-prune-state-before store 3)))
+    (is (not (chain-store-state-available-p store (block-hash block-a))))
+    (is (chain-store-state-available-p store (block-hash block-b)))
+    (is (= 0 (chain-store-account-balance store (block-hash block-a)
+                                          address)))
+    (is (= 22 (chain-store-account-balance store (block-hash block-b)
+                                           address)))))
+
 (deftest chain-store-export-to-kv-syncs-readable-chain-records
   (let* ((path
            (merge-pathnames
