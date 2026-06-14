@@ -157,6 +157,9 @@ fixes in those areas are allowed; expansion is not.
   the current head block gas limit, and canonical-head updates drop already
   pooled pending/queued/basefee/blob entries that exceed the new head gas
   limit before promotion or hash lookup can expose them again.
+  Canonical-head updates and KV restore also drop already pooled entries whose
+  sender has non-delegation code in retained state, keeping sender-code
+  admission semantics consistent after reorgs and database restarts.
   Canonical-head updates prune stale txpool entries below the new retained
   sender nonce before promotion, so transactions made obsolete by another
   canonical branch disappear from txpool and hash lookups.
@@ -841,7 +844,9 @@ first pass, but interfaces must not block that path.
   available, pruning stale or over-gas entries and promoting eligible
   basefee/queued entries so restart state matches canonical-head update
   policy; it also prunes overbudget parked queued/basefee/blob entries so
-  restored txpool balance reservations match live admission semantics.
+  restored txpool balance reservations match live admission semantics and
+  removes sender-code invalid restored entries before they can reappear in
+  public txpool views.
   Remote-block import also drops stale cache records that duplicate restored
   known blocks or invalid tipsets, matching export cleanup while preserving
   strict rejection for malformed remote-cache data. Invalid-tipset

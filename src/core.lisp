@@ -2916,6 +2916,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (engine-payload-store-notify-log-filters store block))))
       (engine-payload-store-remove-stale-txpool-transactions store)
       (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
+      (engine-payload-store-remove-sender-code-invalid-txpool-transactions
+       store)
       (engine-payload-store-revalidate-pending-transactions store)
       (engine-payload-store-promote-queued-transactions store)
       (engine-payload-store-promote-basefee-and-queued-transactions store)
@@ -4499,6 +4501,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
       (when (chain-store-state-available-p store (block-hash head))
         (engine-payload-store-remove-stale-txpool-transactions store)
+        (engine-payload-store-remove-sender-code-invalid-txpool-transactions
+         store)
         (engine-payload-store-revalidate-pending-transactions store)
         (engine-payload-store-promote-queued-transactions store)
         (engine-payload-store-promote-basefee-and-queued-transactions store)
@@ -5811,6 +5815,44 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (engine-payload-store-basefee-transactions store)
          #'engine-pending-txpool-remove-basefee-transaction)
         (remove-stale
+         (engine-payload-store-blob-transactions store)
+         #'engine-pending-txpool-remove-blob-transaction)))
+    (nreverse removed-transactions)))
+
+(defun engine-payload-store-sender-code-invalid-txpool-transaction-p
+    (store head transaction)
+  (let ((sender (transaction-sender transaction)))
+    (and sender
+         (not (engine-payload-store-sender-code-admissible-p
+               store
+               head
+               sender)))))
+
+(defun engine-payload-store-remove-sender-code-invalid-txpool-transactions
+    (store)
+  (let ((head (chain-store-latest-block store))
+        (removed-transactions nil))
+    (when (and head
+               (chain-store-state-available-p store (block-hash head)))
+      (flet ((remove-sender-code-invalid
+                 (transactions remove-function)
+               (dolist (transaction transactions)
+                 (when (engine-payload-store-sender-code-invalid-txpool-transaction-p
+                        store head transaction)
+                   (funcall remove-function
+                            (engine-payload-store-txpool store)
+                            (transaction-hash transaction))
+                   (push transaction removed-transactions)))))
+        (remove-sender-code-invalid
+         (engine-payload-store-pending-transactions store)
+         #'engine-pending-txpool-remove-pending-transaction)
+        (remove-sender-code-invalid
+         (engine-payload-store-queued-transactions store)
+         #'engine-pending-txpool-remove-queued-transaction)
+        (remove-sender-code-invalid
+         (engine-payload-store-basefee-transactions store)
+         #'engine-pending-txpool-remove-basefee-transaction)
+        (remove-sender-code-invalid
          (engine-payload-store-blob-transactions store)
          #'engine-pending-txpool-remove-blob-transaction)))
     (nreverse removed-transactions)))

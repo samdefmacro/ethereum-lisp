@@ -4135,6 +4135,11 @@ splits can land after the Phase A smoke path closes.
     limit. These entries are dropped from txpool counts and pooled hash
     lookups before pending revalidation or queued/basefee promotion can expose
     them again.
+  - Progress: canonical-head updates and KV txpool restore now also remove
+    pending, queued, basefee, and blob subpool transactions whose sender has
+    non-delegation code in the restored/current retained state. This keeps
+    EIP-3607 sender-code admission semantics aligned across live submission,
+    reorg revalidation, and database restart.
   - Progress: sidechain block import no longer evicts pending txpool entries
     merely because a non-canonical branch includes the same transaction.
     Included transactions are removed from txpool only when their block is
