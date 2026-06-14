@@ -4081,6 +4081,12 @@ splits can land after the Phase A smoke path closes.
     transactions, while preserving same-nonce replacement cost subtraction.
     Parked local transactions can no longer reserve no balance until later
     promotion.
+  - Progress: duplicate raw submissions for transactions already known in the
+    local txpool or canonical transaction-location index now return the known
+    hash before retained-state admission checks. Already known transactions are
+    no longer rejected merely because the current head would make a fresh
+    submission nonce-too-low, unfunded, over the current block gas limit, or
+    inadmissible due to sender code.
   - Progress: nonce-gap routing now compares new submissions against the
     pending-contiguous nonce, not only retained chain state. A transaction that
     immediately follows already-pending same-sender transactions stays in the

@@ -17467,6 +17467,86 @@
                (field (field invalid-txpool-inspect-response "error")
                       "code")))))))
 
+(deftest eth-rpc-send-raw-transaction-returns-known-hash-before-admission
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw (transaction id store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding transaction))
+                "\"]}")
+               store
+               config))))
+    (let* ((config (make-chain-config))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (transaction-hash (hash32-to-hex (transaction-hash transaction)))
+           (sender (transaction-sender transaction :expected-chain-id 1)))
+      (let* ((store (make-engine-payload-memory-store))
+             (head-block
+               (make-block
+                :header (make-block-header :number 0
+                                           :timestamp 0
+                                           :gas-limit 30000000))))
+        (chain-store-put-block store head-block :state-available-p t)
+        (chain-store-put-account-nonce store (block-hash head-block) sender 0)
+        (chain-store-put-account-balance
+         store (block-hash head-block) sender 21000)
+        (is (string= transaction-hash
+                     (field (send-raw transaction 92 store config)
+                            "result")))
+        (chain-store-put-account-nonce store (block-hash head-block) sender 1)
+        (chain-store-put-account-balance
+         store (block-hash head-block) sender 0)
+        (let* ((resend-response (send-raw transaction 93 store config))
+               (status-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"txpool_status\",\"params\":[]}"
+                   store
+                   config))))
+          (is (string= transaction-hash (field resend-response "result")))
+          (is (null (field resend-response "error")))
+          (is (string= (quantity-to-hex 1)
+                       (field (field status-response "result") "pending")))))
+      (let* ((store (make-engine-payload-memory-store))
+             (mined-block
+               (make-block
+                :header (make-block-header :number 0
+                                           :timestamp 0
+                                           :gas-limit 30000000)
+                :transactions (list transaction))))
+        (chain-store-put-block store mined-block :state-available-p t)
+        (chain-store-put-account-nonce store (block-hash mined-block) sender 1)
+        (chain-store-put-account-balance
+         store (block-hash mined-block) sender 0)
+        (let* ((resend-response (send-raw transaction 95 store config))
+               (status-response
+                 (parse-json
+                  (engine-rpc-handle-request-json
+                   "{\"jsonrpc\":\"2.0\",\"id\":96,\"method\":\"txpool_status\",\"params\":[]}"
+                   store
+                   config))))
+          (is (string= transaction-hash (field resend-response "result")))
+          (is (null (field resend-response "error")))
+          (is (string= (quantity-to-hex 0)
+                       (field (field status-response "result") "pending"))))))))
+
 (deftest eth-rpc-send-raw-transaction-requires-recoverable-sender
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

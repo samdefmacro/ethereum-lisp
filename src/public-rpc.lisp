@@ -1876,9 +1876,9 @@
                  :expected-chain-id (chain-config-chain-id config))
                 (block-validation-fail
                  "eth_sendRawTransaction transaction sender recovery failed"))))
-      (eth-rpc-validate-txpool-admission transaction sender store config)
       (unless (or (chain-store-transaction-location store hash)
                   (engine-payload-store-pooled-transaction store hash))
+        (eth-rpc-validate-txpool-admission transaction sender store config)
         (cond
           ((typep transaction 'blob-transaction)
            (engine-payload-store-put-blob-transaction store transaction))
