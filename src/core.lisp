@@ -4501,7 +4501,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-store-remove-stale-txpool-transactions store)
         (engine-payload-store-revalidate-pending-transactions store)
         (engine-payload-store-promote-queued-transactions store)
-        (engine-payload-store-promote-basefee-and-queued-transactions store))))
+        (engine-payload-store-promote-basefee-and-queued-transactions store)
+        (engine-payload-store-prune-overbudget-parked-transactions store))))
   store)
 
 (defun chain-store-import-invalid-tipset-from-kv
@@ -5441,6 +5442,31 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (loop for transaction being the hash-values of sender-transactions
             collect transaction))))
 
+(defun engine-payload-store-indexed-sender-transactions-sorted
+    (sender-index sender)
+  (sort (engine-payload-store-indexed-sender-transactions
+         sender-index
+         sender)
+        #'<
+        :key #'transaction-nonce))
+
+(defun engine-payload-store-indexed-senders-into (sender-index senders)
+  (loop for sender-key being the hash-keys of sender-index
+        do (setf (gethash sender-key senders)
+                 (address-from-hex sender-key)))
+  senders)
+
+(defun engine-payload-store-pooled-senders (store)
+  (let ((senders (make-hash-table :test 'equal)))
+    (dolist (sender-index
+             (list (engine-payload-store-pending-sender-index store)
+                   (engine-payload-store-queued-sender-index store)
+                   (engine-payload-store-basefee-sender-index store)
+                   (engine-payload-store-blob-sender-index store)))
+      (engine-payload-store-indexed-senders-into sender-index senders))
+    (loop for sender being the hash-values of senders
+          collect sender)))
+
 (defun engine-payload-store-sender-pooled-transactions (store sender)
   (loop for sender-index in
           (list (engine-payload-store-pending-sender-index store)
@@ -5513,6 +5539,86 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (if replacement-cost
         (+ existing-cost (- new-cost replacement-cost))
         (+ existing-cost new-cost))))
+
+(defun engine-payload-store-parked-transaction-priority (entry)
+  (ecase (car entry)
+    (:queued 0)
+    (:basefee 1)
+    (:blob 2)))
+
+(defun engine-payload-store-sender-parked-transactions (store sender)
+  (sort
+   (append
+    (loop for transaction in
+            (engine-payload-store-indexed-sender-transactions
+             (engine-payload-store-queued-sender-index store)
+             sender)
+          collect (cons :queued transaction))
+    (loop for transaction in
+            (engine-payload-store-indexed-sender-transactions
+             (engine-payload-store-basefee-sender-index store)
+             sender)
+          collect (cons :basefee transaction))
+    (loop for transaction in
+            (engine-payload-store-indexed-sender-transactions
+             (engine-payload-store-blob-sender-index store)
+             sender)
+          collect (cons :blob transaction)))
+   (lambda (left right)
+     (let ((left-nonce (transaction-nonce (cdr left)))
+           (right-nonce (transaction-nonce (cdr right))))
+       (or (< left-nonce right-nonce)
+           (and (= left-nonce right-nonce)
+                (< (engine-payload-store-parked-transaction-priority left)
+                   (engine-payload-store-parked-transaction-priority
+                    right))))))))
+
+(defun engine-payload-store-remove-parked-transaction (store entry)
+  (let ((hash (transaction-hash (cdr entry)))
+        (txpool (engine-payload-store-txpool store)))
+    (ecase (car entry)
+      (:queued
+       (engine-pending-txpool-remove-queued-transaction txpool hash))
+      (:basefee
+       (engine-pending-txpool-remove-basefee-transaction txpool hash))
+      (:blob
+       (engine-pending-txpool-remove-blob-transaction txpool hash)))))
+
+(defun engine-payload-store-prune-overbudget-parked-transactions (store)
+  (let ((head (chain-store-latest-block store))
+        (removed-transactions nil))
+    (when (and head
+               (chain-store-state-available-p store (block-hash head)))
+      (dolist (sender (engine-payload-store-pooled-senders store))
+        (let ((remaining-balance
+                (chain-store-account-balance
+                 store
+                 (block-hash head)
+                 sender)))
+          (dolist (transaction
+                   (engine-payload-store-pending-sender-transactions
+                    store
+                    sender))
+            (let ((cost
+                    (engine-payload-store-txpool-upfront-cost transaction)))
+              (if (<= cost remaining-balance)
+                  (decf remaining-balance cost)
+                  (setf remaining-balance 0))))
+          (dolist (entry
+                   (engine-payload-store-sender-parked-transactions
+                    store
+                    sender))
+            (let* ((transaction (cdr entry))
+                   (cost
+                     (engine-payload-store-txpool-upfront-cost transaction)))
+              (if (<= cost remaining-balance)
+                  (decf remaining-balance cost)
+                  (progn
+                    (engine-payload-store-remove-parked-transaction
+                     store
+                     entry)
+                    (push transaction removed-transactions))))))))
+    (nreverse removed-transactions)))
 
 (defun engine-payload-store-transaction-funded-p
     (store transaction)
@@ -5748,12 +5854,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-payload-store-pending-sender-transactions
     (store sender)
-  (sort
-   (engine-payload-store-indexed-sender-transactions
-    (engine-payload-store-pending-sender-index store)
-    sender)
-   #'<
-   :key #'transaction-nonce))
+  (engine-payload-store-indexed-sender-transactions-sorted
+   (engine-payload-store-pending-sender-index store)
+   sender))
 
 (defun engine-payload-store-demote-pending-transaction
     (store transaction base-fee)

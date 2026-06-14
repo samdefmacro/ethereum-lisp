@@ -1397,6 +1397,9 @@ splits can land after the Phase A smoke path closes.
       and over-gas entries are pruned, pending entries are demoted when no
       longer executable, and basefee/queued entries are promoted when the
       restored head makes them contiguous and eligible.
+    - KV txpool restore now also prunes overbudget parked queued/basefee/blob
+      entries after pending revalidation and promotion, keeping restored
+      same-sender balance reservations aligned with live admission semantics.
     - KV chain-store import now treats restored known blocks and invalid
       tipsets as authoritative over stale remote-block cache records, dropping
       duplicate remote-cache entries instead of rejecting the snapshot while
@@ -4081,6 +4084,10 @@ splits can land after the Phase A smoke path closes.
     transactions, while preserving same-nonce replacement cost subtraction.
     Parked local transactions can no longer reserve no balance until later
     promotion.
+  - Progress: KV txpool restore now prunes overbudget parked queued, basefee,
+    and blob-subpool entries after restored pending revalidation and
+    promotion. Restored snapshots now keep the same retained-balance invariant
+    as live admission while preserving funded pending prefixes first.
   - Progress: duplicate raw submissions for transactions already known in the
     local txpool or canonical transaction-location index now return the known
     hash before retained-state admission checks. Already known transactions are

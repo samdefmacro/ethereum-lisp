@@ -145,6 +145,10 @@ fixes in those areas are allowed; expansion is not.
   transaction costs. When retained state is available, a missing sender
   balance entry is treated as the known zero balance rather than as unknown
   state, so absent senders cannot bypass txpool funding checks.
+  KV txpool restore now enforces the same pooled balance reservation for
+  parked queued/basefee/blob entries after pending revalidation and promotion,
+  so database snapshots cannot reintroduce transactions live admission would
+  reject as overbudget.
   Duplicate raw submissions for already pooled or canonical mined transactions
   now return the known hash before live admission checks, so a later retained
   nonce, balance, gas-limit, or sender-code change cannot reject a transaction
@@ -836,9 +840,11 @@ first pass, but interfaces must not block that path.
   txpool records against the restored canonical head when head state is
   available, pruning stale or over-gas entries and promoting eligible
   basefee/queued entries so restart state matches canonical-head update
-  policy. Remote-block import also drops stale cache records that duplicate
-  restored known blocks or invalid tipsets, matching export cleanup while
-  preserving strict rejection for malformed remote-cache data. Invalid-tipset
+  policy; it also prunes overbudget parked queued/basefee/blob entries so
+  restored txpool balance reservations match live admission semantics.
+  Remote-block import also drops stale cache records that duplicate restored
+  known blocks or invalid tipsets, matching export cleanup while preserving
+  strict rejection for malformed remote-cache data. Invalid-tipset
   KV export/import now similarly prevents a block from being restored as both
   known and invalid. Prepared-payload cache import/export now drops stale
   payload-id records once their block is restored as known or invalid, and the
