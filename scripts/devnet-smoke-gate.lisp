@@ -317,6 +317,28 @@ references/ checkouts.~%")
      +devnet-smoke-gate-txpool-private-key+
      (chain-config-chain-id config))))
 
+(defun devnet-smoke-gate-make-restored-node
+    (path config &key (port 0) (public-port 0) jwt-secret-path)
+  (let ((node
+          (ethereum-lisp.cli:make-devnet-node
+           :genesis-path
+           (namestring
+            (devnet-smoke-gate-reference-path
+             +devnet-cli-genesis-fixture+))
+           :port port
+           :public-port public-port
+           :jwt-secret-path jwt-secret-path)))
+    (chain-store-import-from-kv
+     (ethereum-lisp.cli:devnet-node-store node)
+     (make-file-key-value-database path)
+     :expected-chain-id (chain-config-chain-id config))
+    (devnet-cli-set-node-store-config
+     node
+     (ethereum-lisp.cli:devnet-node-store node)
+     config)
+    (setf (ethereum-lisp.cli::devnet-node-database-path node) path)
+    node))
+
 (defun devnet-smoke-gate-txpool-transactions
     (state config sender-address)
   (let* ((account (state-db-get-account state sender-address))
@@ -3001,7 +3023,7 @@ references/ checkouts.~%")
 
 (defun devnet-smoke-gate-verify-restored-side-reorg-rpc
     (path side-payload side-block child-block transaction-checks
-     expected-safe-block-hash)
+     expected-safe-block-hash config)
   #+sbcl
   (let ((jwt-path
           (devnet-cli-temp-path
@@ -3011,15 +3033,12 @@ references/ checkouts.~%")
          (progn
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
            (let* ((node
-                    (ethereum-lisp.cli:make-devnet-node
-                     :genesis-path
-                     (namestring
-                      (devnet-smoke-gate-reference-path
-                       +devnet-cli-genesis-fixture+))
+                    (devnet-smoke-gate-make-restored-node
+                     path
+                     config
                      :port 0
                      :public-port 0
-                     :jwt-secret-path (namestring jwt-path)
-                     :database-path path))
+                     :jwt-secret-path (namestring jwt-path)))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token secret 0))
                   (transaction-hash
@@ -3325,13 +3344,8 @@ references/ checkouts.~%")
 	              "Restored side sibling should have no canonical logs")
              (ethereum-lisp.cli::devnet-node-export-database node)
              (let* ((fresh-node
-                      (ethereum-lisp.cli:make-devnet-node
-                       :genesis-path
-                       (namestring
-                        (devnet-smoke-gate-reference-path
-                         +devnet-cli-genesis-fixture+))
-                       :port 0
-                       :database-path path))
+                      (devnet-smoke-gate-make-restored-node
+                       path config :port 0))
                     (fresh-summary
                       (ethereum-lisp.cli:devnet-node-summary fresh-node)))
                (devnet-smoke-gate-require
@@ -3381,7 +3395,7 @@ references/ checkouts.~%")
         (delete-file jwt-path))))
   #-sbcl
   (declare (ignore path side-payload side-block child-block transaction-checks
-                   expected-safe-block-hash))
+                   expected-safe-block-hash config))
   #-sbcl
   (error "Restored devnet side reorg RPC verification requires SBCL threads"))
 
@@ -3392,6 +3406,7 @@ references/ checkouts.~%")
      transaction-checks log-targets block-hash
      expected-safe-block-number expected-safe-block-hash
      expected-finalized-block-number expected-finalized-block-hash
+     config
      &key state-prune-before pruned-state-hash
           prepared-payload-id prepared-payload-parent-hash
           prepared-payload-block-number
@@ -3401,13 +3416,7 @@ references/ checkouts.~%")
           side-payload side-block child-block)
   (let* ((database (make-file-key-value-database path))
          (node
-           (ethereum-lisp.cli:make-devnet-node
-            :genesis-path
-            (namestring
-             (devnet-smoke-gate-reference-path
-              +devnet-cli-genesis-fixture+))
-            :port 0
-            :database-path path))
+           (devnet-smoke-gate-make-restored-node path config :port 0))
          (summary (ethereum-lisp.cli:devnet-node-summary node))
          (restored-store (ethereum-lisp.cli:devnet-node-store node))
          (pruned-state-expected-p
@@ -3485,7 +3494,8 @@ references/ checkouts.~%")
                  side-block
                  child-block
                  transaction-checks
-                 expected-safe-block-hash))))
+                 expected-safe-block-hash
+                 config))))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
      "Database export did not write block records")
@@ -4650,6 +4660,7 @@ references/ checkouts.~%")
                                expected-safe-block-hash
                                expected-finalized-block-number
                                expected-finalized-block-hash
+                               config
                                :state-prune-before state-prune-before
                                :pruned-state-hash expected-safe-block-hash
                                :prepared-payload-id prepared-payload-id

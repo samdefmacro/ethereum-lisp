@@ -4846,6 +4846,66 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-rejects-wrong-chain-txpool-record
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-txpool-chain-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (target (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (target-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 9
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            1
+            1))
+         (wrong-chain-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            2
+            2)))
+    (unwind-protect
+         (progn
+           (is (transaction-sender wrong-chain-transaction
+                                   :expected-chain-id nil))
+           (is (null (transaction-sender wrong-chain-transaction
+                                         :expected-chain-id 1)))
+           (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+            target target-transaction)
+           (let ((database (make-file-key-value-database path)))
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash wrong-chain-transaction))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :pending
+               wrong-chain-transaction)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)
+              :expected-chain-id 1))
+           (is (= 1
+                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                   target)))
+           (is (eq target-transaction
+                   (ethereum-lisp.core::engine-payload-store-pending-transaction
+                    target
+                    (transaction-hash target-transaction)))))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-rejects-corrupt-txpool-record
   (let* ((path
            (merge-pathnames

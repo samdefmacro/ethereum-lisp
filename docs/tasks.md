@@ -4140,6 +4140,16 @@ splits can land after the Phase A smoke path closes.
     non-delegation code in the restored/current retained state. This keeps
     EIP-3607 sender-code admission semantics aligned across live submission,
     reorg revalidation, and database restart.
+  - Progress: devnet KV restore now passes the configured genesis chain ID
+    into txpool sender recovery, and chain-store import rejects persisted
+    wrong-chain txpool records during staging. A database restart can no
+    longer reintroduce raw transactions that live admission would reject for
+    configured chain mismatch.
+  - Progress: the devnet smoke gate's internal restored-database probes now
+    import fixture-generated KV snapshots with the same fixture chain config
+    used for the original Engine/RPC run, so the production `--database`
+    genesis chain-ID check remains strict without making fixture txpool
+    roundtrips inconsistent.
   - Progress: sidechain block import no longer evicts pending txpool entries
     merely because a non-canonical branch includes the same transaction.
     Included transactions are removed from txpool only when their block is

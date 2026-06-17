@@ -159,7 +159,10 @@ fixes in those areas are allowed; expansion is not.
   limit before promotion or hash lookup can expose them again.
   Canonical-head updates and KV restore also drop already pooled entries whose
   sender has non-delegation code in retained state, keeping sender-code
-  admission semantics consistent after reorgs and database restarts.
+  admission semantics consistent after reorgs and database restarts. Devnet
+  KV restore also passes the configured chain ID into txpool sender recovery,
+  so wrong-chain persisted txpool records fail staging import instead of
+  reappearing after restart.
   Canonical-head updates prune stale txpool entries below the new retained
   sender nonce before promotion, so transactions made obsolete by another
   canonical branch disappear from txpool and hash lookups.
@@ -846,7 +849,13 @@ first pass, but interfaces must not block that path.
   policy; it also prunes overbudget parked queued/basefee/blob entries so
   restored txpool balance reservations match live admission semantics and
   removes sender-code invalid restored entries before they can reappear in
-  public txpool views.
+  public txpool views. Devnet restores now supply the configured chain ID to
+  that txpool sender recovery path, making wrong-chain persisted local
+  transactions a staging import error rather than restored pool content. The
+  smoke gate's fixture-only restored-database probes explicitly reuse the
+  fixture chain config when importing their generated KV snapshots, preserving
+  strict production `--database` genesis chain-ID restore behavior while
+  keeping the fixture harness internally consistent.
   Remote-block import also drops stale cache records that duplicate restored
   known blocks or invalid tipsets, matching export cleanup while preserving
   strict rejection for malformed remote-cache data. Invalid-tipset

@@ -187,7 +187,10 @@
                   (ethereum-lisp.database:make-file-key-value-database
                    existing-database-path)))
             (when (devnet-cli-kv-chain-records-present-p database)
-              (chain-store-import-from-kv store database)
+              (chain-store-import-from-kv
+               store
+               database
+               :expected-chain-id (chain-config-chain-id config))
               (devnet-cli-validate-imported-genesis
                store genesis-block existing-database-path))))))
     (%make-devnet-node
