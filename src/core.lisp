@@ -2961,7 +2961,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (engine-payload-memory-store-head-checkpoint store)
                 (make-chain-store-checkpoint :label :head :block-hash hash)))
         (engine-payload-store-remove-new-head-invalid-txpool-transactions
-         store)
+         store
+         :chain-config chain-config)
         (dolist (block displaced-blocks)
           (engine-payload-store-remove-block-transaction-locations
            store
@@ -2987,7 +2988,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                       (block-header-number
                                        (block-header block)))))
             (engine-payload-store-notify-log-filters store block))))
-      (engine-payload-store-remove-new-head-invalid-txpool-transactions store)
+      (engine-payload-store-remove-new-head-invalid-txpool-transactions
+       store
+       :chain-config chain-config)
       (engine-payload-store-revalidate-pending-transactions store)
       (engine-payload-store-promote-queued-transactions store)
       (engine-payload-store-promote-basefee-and-queued-transactions store)
@@ -4605,10 +4608,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :expected-chain-id expected-chain-id
      :chain-config chain-config)))
 
-(defun chain-store-restore-txpool-consistency (store)
+(defun chain-store-restore-txpool-consistency (store &key chain-config)
   (let ((head (chain-store-latest-block store)))
     (when head
-      (engine-payload-store-remove-new-head-invalid-txpool-transactions store)
+      (engine-payload-store-remove-new-head-invalid-txpool-transactions
+       store
+       :chain-config chain-config)
       (when (chain-store-state-available-p store (block-hash head))
         (engine-payload-store-revalidate-pending-transactions store)
         (engine-payload-store-promote-queued-transactions store)
@@ -4839,7 +4844,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-remote-blocks-from-kv staging database)
       (chain-store-import-blob-sidecars-from-kv staging database)
       (chain-store-import-prepared-payloads-from-kv staging database)
-      (chain-store-restore-txpool-consistency staging)
+      (chain-store-restore-txpool-consistency
+       staging
+       :chain-config chain-config)
       (chain-store-publish-readable-tables store staging))
     store))
 
@@ -6000,11 +6007,32 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          #'engine-pending-txpool-remove-blob-transaction)))
     (nreverse removed-transactions)))
 
+(defun engine-payload-store-remove-underpriced-blob-txpool-transactions
+    (store &key chain-config)
+  (let ((blob-base-fee
+          (engine-payload-store-current-blob-base-fee
+           store
+           chain-config))
+        (removed-transactions nil))
+    (when blob-base-fee
+      (dolist (transaction (engine-payload-store-blob-transactions store))
+        (handler-case
+            (validate-blob-transaction-fee-cap transaction blob-base-fee)
+          (block-validation-error ()
+            (engine-pending-txpool-remove-blob-transaction
+             (engine-payload-store-txpool store)
+             (transaction-hash transaction))
+            (push transaction removed-transactions)))))
+    (nreverse removed-transactions)))
+
 (defun engine-payload-store-remove-new-head-invalid-txpool-transactions
-    (store)
+    (store &key chain-config)
   (nconc
    (engine-payload-store-remove-stale-txpool-transactions store)
    (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
+   (engine-payload-store-remove-underpriced-blob-txpool-transactions
+    store
+    :chain-config chain-config)
    (engine-payload-store-remove-sender-code-invalid-txpool-transactions
     store)))
 

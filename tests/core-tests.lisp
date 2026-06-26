@@ -19788,6 +19788,77 @@
         (is (string= (quantity-to-hex 0) (field status "queued")))
         (is (null (field lookup-response "result")))))))
 
+(deftest txpool-canonical-blob-base-fee-rise-removes-underpriced-blobs
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1337
+                                    :london-block 0
+                                    :cancun-time 0))
+         (transaction
+           (transaction-from-encoding
+            (hex-to-bytes
+             "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675")))
+         (transaction-hash (transaction-hash transaction))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :gas-limit 30000000
+                               :timestamp 0
+                               :blob-gas-used 0
+                               :excess-blob-gas 0
+                               :extra-data #(0))))
+         (old-canonical-child
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :gas-limit 30000000
+                               :timestamp 12
+                               :blob-gas-used 0
+                               :excess-blob-gas 0
+                               :extra-data #(1))))
+         (new-canonical-child
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :gas-limit 30000000
+                               :timestamp 12
+                               :blob-gas-used 0
+                               :excess-blob-gas (* 64 1024 1024)
+                               :extra-data #(2)))))
+    (is (typep transaction 'blob-transaction))
+    (is (<= (block-header-blob-base-fee (block-header old-canonical-child))
+            (blob-transaction-max-fee-per-blob-gas transaction)))
+    (is (> (block-header-blob-base-fee (block-header new-canonical-child))
+           (blob-transaction-max-fee-per-blob-gas transaction)))
+    (chain-store-put-block store genesis :state-available-p t)
+    (chain-store-put-block store old-canonical-child :state-available-p t)
+    (chain-store-put-block store new-canonical-child :state-available-p t)
+    (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+     store
+     transaction)
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+            store)))
+    (is (typep
+         (ethereum-lisp.core::engine-payload-store-blob-transaction
+          store
+          transaction-hash)
+         'blob-transaction))
+    (chain-store-set-canonical-head
+     store
+     (block-hash new-canonical-child)
+     :chain-config config)
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+            store)))
+    (is (null
+         (ethereum-lisp.core::engine-payload-store-pooled-transaction
+          store
+          transaction-hash)))))
+
 (deftest eth-rpc-send-raw-transaction-replaces-basefee-conflict-with-pending
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

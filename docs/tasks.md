@@ -1413,6 +1413,9 @@ splits can land after the Phase A smoke path closes.
       validate blob transactions against the current head blob base fee, so
       underpriced `maxFeePerBlobGas` entries cannot enter or reappear in blob
       subpool views after restart or reorg.
+    - Canonical-head cleanup now also prunes blob-subpool transactions whose
+      `maxFeePerBlobGas` falls below the new head blob base fee, including
+      chain-config-specific blob schedules.
     - KV chain-store import now treats restored known blocks and invalid
       tipsets as authoritative over stale remote-block cache records, dropping
       duplicate remote-cache entries instead of rejecting the snapshot while

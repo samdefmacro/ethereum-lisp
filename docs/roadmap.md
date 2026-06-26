@@ -870,6 +870,9 @@ first pass, but interfaces must not block that path.
   reinsertion, and KV restore
   also validate `maxFeePerBlobGas` against the current head blob base fee, so
   underpriced blob transactions cannot enter or reappear in blob subpool views.
+  Canonical-head cleanup applies the same blob-fee-cap rule to existing
+  blob-subpool entries when the head blob base fee rises, using the active
+  chain config's blob schedule when one is available.
   That cleanup now runs on the staging view before
   publication, so the target store adopts already-normalized txpool tables.
   Devnet restores now supply the configured chain ID to
