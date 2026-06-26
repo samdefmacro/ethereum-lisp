@@ -4166,6 +4166,11 @@ splits can land after the Phase A smoke path closes.
     reservation used by live txpool admission, so displaced old-canonical
     transactions cannot bypass queued/basefee/blob reservations when deciding
     whether to reenter the local txpool.
+  - Progress: canonical-head updates now prune stale, over-gas, and
+    sender-code-invalid pooled transactions against the new head before
+    reinserting displaced old-canonical transactions. A stale invalid same
+    sender/nonce conflict can no longer block a valid displaced transaction
+    and then disappear from the pool.
   - Progress: retained-state txpool balance checks now treat a missing sender
     balance entry as the known zero balance returned by retained state, rather
     than as unknown state. Raw submissions from absent senders are rejected for

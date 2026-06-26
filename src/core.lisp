@@ -2906,6 +2906,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (setf (engine-payload-memory-store-head-number store) new-head-number
                 (engine-payload-memory-store-head-checkpoint store)
                 (make-chain-store-checkpoint :label :head :block-hash hash)))
+        (engine-payload-store-remove-stale-txpool-transactions store)
+        (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
+        (engine-payload-store-remove-sender-code-invalid-txpool-transactions
+         store)
         (engine-payload-store-reinsert-displaced-block-transactions
          store
          displaced-blocks

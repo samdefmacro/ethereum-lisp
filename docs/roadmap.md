@@ -970,8 +970,12 @@ first pass, but interfaces must not block that path.
   into the local txpool as pending or queued entries while keeping receipts and
   canonical transaction locations bound to the new canonical branch, and that
   reinsertion path now respects the same all-subpool retained-balance
-  reservations used by live txpool admission. The devnet database smoke path
-  now carries that reorg policy across process
+  reservations used by live txpool admission. Canonical-head updates also
+  prune txpool entries that are stale, over the new head gas limit, or invalid
+  under the new head's sender-code state before displaced-transaction
+  reinsertion, so invalid same-sender/same-nonce conflicts cannot suppress a
+  valid displaced transaction and then disappear. The devnet database smoke
+  path now carries that reorg policy across process
   restart: `eth_getTransactionByHash` exposes chain-valid displaced
   transactions as pending and leaves wrong-chain displaced transactions absent,
   while receipts, logs, and canonical receipt indexes remain absent from the
