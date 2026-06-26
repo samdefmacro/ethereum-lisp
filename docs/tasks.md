@@ -1419,6 +1419,9 @@ splits can land after the Phase A smoke path closes.
     - KV txpool import now rejects durable subpool/type mismatches, so blob
       transactions cannot be restored into pending/queued/basefee views and
       non-blob transactions cannot be restored into the blob subpool.
+    - The live chain-store blob-subpool insertion boundary now also rejects
+      non-blob transactions, preventing in-memory txpool state from producing
+      KV snapshots that later fail the restore invariant.
     - KV chain-store import now treats restored known blocks and invalid
       tipsets as authoritative over stale remote-block cache records, dropping
       duplicate remote-cache entries instead of rejecting the snapshot while

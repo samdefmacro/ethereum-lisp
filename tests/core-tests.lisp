@@ -193,6 +193,71 @@
           finally
             (error "Unable to sign legacy transaction fixture"))))
 
+(defun fixture-sign-blob-transaction (transaction private-key)
+  (let* ((n ethereum-lisp.crypto::+secp256k1-n+)
+         (half-n ethereum-lisp.crypto::+secp256k1-half-n+)
+         (generator
+           (ethereum-lisp.crypto::secp256k1-point
+            ethereum-lisp.crypto::+secp256k1-gx+
+            ethereum-lisp.crypto::+secp256k1-gy+))
+         (hash (blob-transaction-signing-hash transaction))
+         (message (bytes-to-integer (hash32-bytes hash)))
+         (chain-id (blob-transaction-chain-id transaction))
+         (expected-sender (fixture-private-key-address private-key)))
+    (loop for k from 1 below 256
+          for r-point =
+            (ethereum-lisp.crypto::secp256k1-scalar-multiply k generator)
+          for r =
+            (mod (ethereum-lisp.crypto::secp256k1-point-x r-point) n)
+          for inverse-k = (ethereum-lisp.crypto::modular-inverse k n)
+          when (and (plusp r) inverse-k)
+            do (let* ((raw-s
+                        (mod (* (+ message (* r private-key)) inverse-k) n))
+                      (s raw-s)
+                      (y-parity
+                        (if (oddp
+                             (ethereum-lisp.crypto::secp256k1-point-y
+                              r-point))
+                            1
+                            0)))
+                 (when (plusp raw-s)
+                   (when (> s half-n)
+                     (setf s (- n s)
+                           y-parity (- 1 y-parity)))
+                   (let ((signed
+                           (make-blob-transaction
+                            :chain-id chain-id
+                            :nonce (blob-transaction-nonce transaction)
+                            :max-priority-fee-per-gas
+                            (blob-transaction-max-priority-fee-per-gas
+                             transaction)
+                            :max-fee-per-gas
+                            (blob-transaction-max-fee-per-gas transaction)
+                            :gas-limit
+                            (blob-transaction-gas-limit transaction)
+                            :to (blob-transaction-to transaction)
+                            :value (blob-transaction-value transaction)
+                            :data (blob-transaction-data transaction)
+                            :access-list
+                            (blob-transaction-access-list transaction)
+                            :max-fee-per-blob-gas
+                            (blob-transaction-max-fee-per-blob-gas
+                             transaction)
+                            :blob-versioned-hashes
+                            (blob-transaction-blob-versioned-hashes
+                             transaction)
+                            :y-parity y-parity
+                            :r r
+                            :s s)))
+                     (when (bytes=
+                            (address-bytes expected-sender)
+                            (address-bytes
+                             (blob-transaction-sender
+                              signed :expected-chain-id chain-id)))
+                       (return signed)))))
+          finally
+            (error "Unable to sign blob transaction fixture"))))
+
 (deftest typed-transaction-signing-hash-vectors
   (let ((empty-access
           (make-access-list-transaction :chain-id 1 :nonce 1))
@@ -8209,14 +8274,19 @@
               private-key
               1))
            (blob-exact
-             (fixture-sign-legacy-transaction
-              (make-legacy-transaction
+             (fixture-sign-blob-transaction
+              (make-blob-transaction
+               :chain-id 1
                :nonce 7
-               :gas-price 130
+               :max-priority-fee-per-gas 1
+               :max-fee-per-gas 130
                :gas-limit 21000
-               :to recipient)
-              private-key
-              1))
+               :to recipient
+               :max-fee-per-blob-gas 1
+               :blob-versioned-hashes
+               (list (hash32-from-hex
+                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")))
+              private-key))
            (sender-key
              (ethereum-lisp.core::engine-payload-store-pending-sender-key
               queued-conflict))
@@ -8685,6 +8755,31 @@
           (ethereum-lisp.core::engine-pending-txpool-blob-transactions-by-sender
            txpool))))))
 
+(deftest engine-payload-store-rejects-non-blob-blob-subpool-insertion
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 100
+             :gas-limit 21000
+             :to recipient)
+            1
+            1)))
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-payload-store-put-blob-transaction
+       store
+       transaction))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+            store)))
+    (is (null
+         (ethereum-lisp.core::engine-payload-store-pooled-transaction
+          store
+          (transaction-hash transaction))))))
+
 (deftest engine-payload-store-uses-sender-index-for-pending-account-view
   (let* ((store (make-engine-payload-memory-store))
          (recipient
@@ -8790,13 +8885,18 @@
               1
               1))
            (blob-transaction
-             (fixture-sign-legacy-transaction
-              (make-legacy-transaction
+             (fixture-sign-blob-transaction
+              (make-blob-transaction
+               :chain-id 1
                :nonce 3
-               :gas-price 130
+               :max-priority-fee-per-gas 1
+               :max-fee-per-gas 130
                :gas-limit 21000
-               :to recipient)
-              1
+               :to recipient
+               :max-fee-per-blob-gas 1
+               :blob-versioned-hashes
+               (list (hash32-from-hex
+                      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")))
               1))
            (queued-high-nonce-transaction
              (fixture-sign-legacy-transaction
@@ -21072,13 +21172,18 @@
             1
             1))
          (blob-transaction
-           (fixture-sign-legacy-transaction
-            (make-legacy-transaction
+           (fixture-sign-blob-transaction
+            (make-blob-transaction
+             :chain-id 1
              :nonce 3
-             :gas-price 6
+             :max-priority-fee-per-gas 1
+             :max-fee-per-gas 6
              :gas-limit 21000
-             :to recipient)
-            1
+             :to recipient
+             :max-fee-per-blob-gas 1
+             :blob-versioned-hashes
+             (list (hash32-from-hex
+                    "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")))
             1))
          (sender (transaction-sender pending-transaction
                                      :expected-chain-id 1))

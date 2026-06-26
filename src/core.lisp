@@ -5533,13 +5533,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-payload-store-put-blob-transaction (store transaction)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
-  (unless (typep transaction
-                 '(or legacy-transaction
-                      access-list-transaction
-                      dynamic-fee-transaction
-                      blob-transaction
-                      set-code-transaction))
-    (block-validation-fail "Blob transaction must be a transaction"))
+  (unless (typep transaction 'blob-transaction)
+    (block-validation-fail "Blob subpool transaction must be a blob transaction"))
   (multiple-value-bind (transaction inserted-p)
       (engine-pending-txpool-put-blob-transaction
        (engine-payload-store-txpool store)
