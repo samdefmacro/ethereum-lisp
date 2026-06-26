@@ -6700,6 +6700,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :error
    (engine-rpc-error-object -32600 "Invalid Request")))
 
+(defun engine-rpc-notification-request-p (request)
+  (and (json-object-p request)
+       (not (genesis-object-field-present-p request "id"))
+       (genesis-object-field-present-p request "method")))
+
 (defun engine-rpc-string-prefix-p (prefix string)
   (and (<= (length prefix) (length string))
        (string= prefix string :end2 (length prefix))))
@@ -6723,48 +6728,60 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (request store config &key import-function
                             (allowed-method-p #'engine-rpc-any-method-p))
   (let ((id (and (listp request)
-                 (genesis-object-field request "id"))))
+                 (genesis-object-field request "id")))
+        (notification-p (engine-rpc-notification-request-p request)))
     (handler-case
-        (progn
-          (unless (listp request)
-            (block-validation-fail "JSON-RPC request must be an object"))
-          (let* ((method (engine-rpc-required-field request "method"))
-                 (params (or (genesis-object-field request "params") '())))
-            (unless (stringp method)
-              (block-validation-fail "JSON-RPC method must be a string"))
-            (unless (listp params)
-              (block-validation-fail "JSON-RPC params must be a list"))
-            (unless (functionp allowed-method-p)
-              (block-validation-fail
-               "JSON-RPC method filter must be a function"))
-            (if (not (funcall allowed-method-p method))
-                (engine-rpc-response
-                 id
-                 :error
-                 (engine-rpc-error-object -32601 "Method not found"))
-                (or
-                 (engine-rpc-handle-engine-method
-                  id method params store config
-                  :import-function import-function)
-                 (engine-rpc-handle-public-method id method params store config)
-                 (engine-rpc-response
-                  id
-                  :error
-                  (engine-rpc-error-object -32601 "Method not found"))))))
+        (let ((response
+                (progn
+                  (unless (listp request)
+                    (block-validation-fail
+                     "JSON-RPC request must be an object"))
+                  (let* ((method (engine-rpc-required-field request "method"))
+                         (params (or (genesis-object-field request "params")
+                                     '())))
+                    (unless (stringp method)
+                      (block-validation-fail
+                       "JSON-RPC method must be a string"))
+                    (unless (listp params)
+                      (block-validation-fail
+                       "JSON-RPC params must be a list"))
+                    (unless (functionp allowed-method-p)
+                      (block-validation-fail
+                       "JSON-RPC method filter must be a function"))
+                    (if (not (funcall allowed-method-p method))
+                        (engine-rpc-response
+                         id
+                         :error
+                         (engine-rpc-error-object -32601 "Method not found"))
+                        (or
+                         (engine-rpc-handle-engine-method
+                          id method params store config
+                          :import-function import-function)
+                         (engine-rpc-handle-public-method
+                          id method params store config)
+                         (engine-rpc-response
+                          id
+                          :error
+                          (engine-rpc-error-object
+                           -32601 "Method not found"))))))))
+          (unless notification-p
+            response))
       (engine-rpc-error (condition)
-        (engine-rpc-response
-         id
-         :error
-         (engine-rpc-error-object
-          (engine-rpc-error-code condition)
-          (engine-rpc-error-message condition))))
+        (unless notification-p
+          (engine-rpc-response
+           id
+           :error
+           (engine-rpc-error-object
+            (engine-rpc-error-code condition)
+            (engine-rpc-error-message condition)))))
       (block-validation-error (condition)
-        (engine-rpc-response
-         id
-         :error
-         (engine-rpc-error-object
-          -32602
-          (block-validation-error-message condition)))))))
+        (unless notification-p
+          (engine-rpc-response
+           id
+           :error
+           (engine-rpc-error-object
+            -32602
+            (block-validation-error-message condition))))))))
 
 (defun engine-rpc-handle-request-value
     (request store config &key import-function
@@ -6775,14 +6792,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                 :import-function import-function
                                 :allowed-method-p allowed-method-p))
     ((and (listp request) request)
-     (mapcar (lambda (item)
-               (if (json-object-p item)
-                   (engine-rpc-handle-request
-                    item store config
-                    :import-function import-function
-                    :allowed-method-p allowed-method-p)
-                   (engine-rpc-invalid-request-response)))
-             request))
+     (loop for item in request
+           for response = (if (json-object-p item)
+                              (engine-rpc-handle-request
+                               item store config
+                               :import-function import-function
+                               :allowed-method-p allowed-method-p)
+                              (engine-rpc-invalid-request-response))
+           when response
+             collect response))
     (t (engine-rpc-invalid-request-response))))
 
 (defun engine-rpc-handle-request-string
@@ -6798,11 +6816,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function
                                   (allowed-method-p #'engine-rpc-any-method-p))
-  (json-encode
-   (engine-rpc-handle-request-string
-    request-json store config
-    :import-function import-function
-    :allowed-method-p allowed-method-p)))
+  (let ((response
+          (engine-rpc-handle-request-string
+           request-json store config
+           :import-function import-function
+           :allowed-method-p allowed-method-p)))
+    (if response
+        (json-encode response)
+        "")))
 
 (defparameter +engine-rpc-http-accepted-content-types+
   '("application/json" "application/json-rpc" "application/jsonrequest"))

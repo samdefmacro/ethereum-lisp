@@ -9863,7 +9863,29 @@
         (is (= 10 (field (first responses) "id")))
         (is (= -32601 (field first-error "code")))
         (is (not (field (second responses) "id")))
-        (is (= -32600 (field second-error "code")))))))
+        (is (= -32600 (field second-error "code"))))
+      (let* ((notification-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config)))
+        (is (string= "" notification-json)))
+      (let* ((mixed-batch-json
+               (engine-rpc-handle-request-json
+                "[{\"jsonrpc\":\"2.0\",\"method\":\"engine_nope\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"engine_nope\",\"params\":[]}]"
+                store
+                config))
+             (responses (parse-json mixed-batch-json))
+             (error (field (first responses) "error")))
+        (is (= 1 (length responses)))
+        (is (= 11 (field (first responses) "id")))
+        (is (= -32601 (field error "code"))))
+      (let* ((notifications-json
+               (engine-rpc-handle-request-json
+                "[{\"jsonrpc\":\"2.0\",\"method\":\"engine_nope\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}]"
+                store
+                config)))
+        (is (string= "" notifications-json))))))
 
 (deftest engine-rpc-new-payload-v2-imports-one-transaction
   (labels ((field (object name)
