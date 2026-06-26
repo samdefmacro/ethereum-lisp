@@ -302,11 +302,11 @@ fixes in those areas are allowed; expansion is not.
   still expose the same pending and queued-view subpool contents. The same
   restored database gate now imports an executed empty sibling through
   authenticated Engine RPC, switches forkchoice to that sibling, verifies
-  public canonical transaction/receipt lookups plus latest block-receipt and
-  log queries follow the side head while the old child block remains
-  hash-readable, rejects a non-ancestor `safe` checkpoint update before the
-  valid switch, re-exports the database, and checks a fresh node restores the
-  sibling as canonical head.
+  displaced transaction and raw-transaction hash lookups become pending while
+  receipt, latest block-receipt, and log queries follow the side head and the
+  old child block remains hash-readable, rejects a non-ancestor `safe`
+  checkpoint update before the valid switch, re-exports the database, and
+  checks a fresh node restores the sibling as canonical head.
   Restored executable-code cases also probe an under-gassed `eth_call` and
   assert the public RPC reports the retained non-revert execution failure as a
   JSON-RPC error.

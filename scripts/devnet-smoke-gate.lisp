@@ -3090,6 +3090,8 @@ references/ checkouts.~%")
                   (token (engine-rpc-make-jwt-token secret 0))
                   (transaction-hash
                     (getf (first transaction-checks) :hash))
+                  (expected-raw-transaction
+                    (getf (first transaction-checks) :raw))
                   (transaction-hash-hex
                     (hash32-to-hex transaction-hash))
                   (displaced-transaction
@@ -3114,6 +3116,8 @@ references/ checkouts.~%")
                   (side-block-number-output (make-string-output-stream))
                   (side-latest-block-output (make-string-output-stream))
                   (side-transaction-output (make-string-output-stream))
+                  (side-raw-transaction-output
+                    (make-string-output-stream))
                   (side-receipt-output (make-string-output-stream))
                   (child-block-output (make-string-output-stream))
                   (side-block-receipts-output (make-string-output-stream))
@@ -3167,15 +3171,22 @@ references/ checkouts.~%")
                       (json-encode
                        (list (cons "jsonrpc" "2.0")
                              (cons "id" 206)
-                             (cons "method" "eth_getTransactionReceipt")
+                             (cons "method" "eth_getRawTransactionByHash")
                              (cons "params"
-                                   (list (hash32-to-hex
-                                          transaction-hash)))))
-                      side-receipt-output)
+                                   (list transaction-hash-hex))))
+                      side-raw-transaction-output)
                      (cons
                       (json-encode
                        (list (cons "jsonrpc" "2.0")
                              (cons "id" 207)
+                             (cons "method" "eth_getTransactionReceipt")
+                             (cons "params"
+                                   (list transaction-hash-hex))))
+                      side-receipt-output)
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 208)
                              (cons "method" "eth_getBlockByHash")
                              (cons "params"
                                    (list (hash32-to-hex child-block-hash)
@@ -3184,14 +3195,14 @@ references/ checkouts.~%")
                      (cons
                       (json-encode
                        (list (cons "jsonrpc" "2.0")
-                             (cons "id" 208)
+                             (cons "id" 209)
                              (cons "method" "eth_getBlockReceipts")
                              (cons "params" (list "latest"))))
                       side-block-receipts-output)
                      (cons
                       (json-encode
                        (list (cons "jsonrpc" "2.0")
-                             (cons "id" 209)
+                             (cons "id" 211)
                              (cons "method" "eth_getLogs")
                              (cons "params"
                                    (list
@@ -3241,7 +3252,7 @@ references/ checkouts.~%")
                              :output-stream output
                              :close-function (lambda () nil)))))
                       :close-function (lambda () nil))
-                     :max-connections 7))
+                     :max-connections 8))
                   (side-payload-response
                     (get-output-stream-string side-payload-output))
                   (side-rejected-forkchoice-response
@@ -3255,6 +3266,8 @@ references/ checkouts.~%")
                     (get-output-stream-string side-latest-block-output))
                   (side-transaction-response
                     (get-output-stream-string side-transaction-output))
+                  (side-raw-transaction-response
+                    (get-output-stream-string side-raw-transaction-output))
                   (side-receipt-response
                     (get-output-stream-string side-receipt-output))
                   (child-block-response
@@ -3276,6 +3289,9 @@ references/ checkouts.~%")
                     (devnet-smoke-gate-rpc-body side-latest-block-response))
                   (side-transaction-rpc
                     (devnet-smoke-gate-rpc-body side-transaction-response))
+                  (side-raw-transaction-rpc
+                    (devnet-smoke-gate-rpc-body
+                     side-raw-transaction-response))
                   (side-receipt-rpc
                     (devnet-smoke-gate-rpc-body side-receipt-response))
                   (child-block-rpc
@@ -3298,6 +3314,8 @@ references/ checkouts.~%")
                     (fixture-object-field side-latest-block-rpc "result"))
                   (side-transaction
                     (fixture-object-field side-transaction-rpc "result"))
+                  (side-raw-transaction
+                    (fixture-object-field side-raw-transaction-rpc "result"))
                   (child-block-by-hash
                     (fixture-object-field child-block-rpc "result"))
                   (side-block-receipts
@@ -3308,10 +3326,10 @@ references/ checkouts.~%")
               (= 3 (getf summary :engine-connections))
               "Expected 3 side-reorg Engine connections, got ~S"
               (getf summary :engine-connections))
-	             (devnet-smoke-gate-require
-	              (= 7 (getf summary :public-connections))
-	              "Expected 7 side-reorg public connections, got ~S"
-	              (getf summary :public-connections))
+             (devnet-smoke-gate-require
+              (= 8 (getf summary :public-connections))
+              "Expected 8 side-reorg public connections, got ~S"
+              (getf summary :public-connections))
              (dolist (response
                       (list side-payload-response
                             side-rejected-forkchoice-response
@@ -3319,6 +3337,7 @@ references/ checkouts.~%")
 	                            side-block-number-response
 	                            side-latest-block-response
 	                            side-transaction-response
+                                    side-raw-transaction-response
 	                            side-receipt-response child-block-response
                                     side-block-receipts-response
                                     side-logs-response))
@@ -3372,10 +3391,17 @@ references/ checkouts.~%")
                    (devnet-smoke-gate-require
                     (null (fixture-object-field side-transaction
                                                 "transactionIndex"))
-                    "Restored side sibling transaction should not have an index"))
-               (devnet-smoke-gate-require
-                (null side-transaction)
-                "Restored side sibling should reject wrong-chain displaced transaction"))
+                    "Restored side sibling transaction should not have an index")
+                   (devnet-smoke-gate-require
+                    (string= expected-raw-transaction side-raw-transaction)
+                    "Restored side sibling should expose pending raw transaction"))
+               (progn
+                 (devnet-smoke-gate-require
+                  (null side-transaction)
+                  "Restored side sibling should reject wrong-chain displaced transaction")
+                 (devnet-smoke-gate-require
+                  (null side-raw-transaction)
+                  "Restored side sibling should hide wrong-chain raw transaction")))
              (devnet-smoke-gate-require
               (null (fixture-object-field side-receipt-rpc "result"))
               "Restored side sibling should hide old canonical receipt")
@@ -3422,6 +3448,8 @@ references/ checkouts.~%")
                      (if reinsertable-transaction-p t :false)
                      :side-transaction-by-hash
                      (or side-transaction :false)
+                     :side-raw-transaction
+                     (or side-raw-transaction :false)
                      :side-receipt
                      (or (fixture-object-field side-receipt-rpc "result")
                          :false)
@@ -3896,6 +3924,10 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-transaction-by-hash))
+                  :rpc-side-raw-transaction
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-raw-transaction))
                   :rpc-side-receipt
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary :side-receipt))
@@ -5351,6 +5383,12 @@ references/ checkouts.~%")
                                       :rpc-side-transaction-by-hash)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideRawTransaction"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-raw-transaction)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideReceipt"
                         (if database-summary
                             (or (getf database-summary :rpc-side-receipt)
@@ -5950,13 +5988,27 @@ references/ checkouts.~%")
                              report "databaseRpcSideTransactionByHash")
                             "transactionIndex"))
                      "Devnet smoke gate suite side reorg kept old transaction index for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (string= (devnet-smoke-gate-field
+                               report "databaseRpcRawTransactionByHash")
+                              (devnet-smoke-gate-field
+                               report "databaseRpcSideRawTransaction"))
+                     "Devnet smoke gate suite side reorg lost pending raw transaction for ~A"
                      (devnet-smoke-gate-field report "fixtureCase")))
-                  (devnet-smoke-gate-require
-                   (devnet-smoke-gate-false-p
-                    (devnet-smoke-gate-field
-                     report "databaseRpcSideTransactionByHash"))
-                   "Devnet smoke gate suite side reorg reinserted wrong-chain transaction for ~A"
-                   (devnet-smoke-gate-field report "fixtureCase")))
+                  (progn
+                    (devnet-smoke-gate-require
+                     (devnet-smoke-gate-false-p
+                      (devnet-smoke-gate-field
+                       report "databaseRpcSideTransactionByHash"))
+                     "Devnet smoke gate suite side reorg reinserted wrong-chain transaction for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (devnet-smoke-gate-false-p
+                      (devnet-smoke-gate-field
+                       report "databaseRpcSideRawTransaction"))
+                     "Devnet smoke gate suite side reorg exposed wrong-chain raw transaction for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))))
               (devnet-smoke-gate-require
                (devnet-smoke-gate-false-p
                 (devnet-smoke-gate-field report "databaseRpcSideReceipt"))
@@ -5968,7 +6020,7 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side Engine connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 7 (devnet-smoke-gate-field
+               (= 8 (devnet-smoke-gate-field
                      report "databaseRpcSidePublicConnections"))
                "Devnet smoke gate suite side public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
@@ -6452,6 +6504,9 @@ references/ checkouts.~%")
         (format t "databaseRpcSideTransactionByHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideTransactionByHash"))
+        (format t "databaseRpcSideRawTransaction=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRawTransaction"))
         (format t "databaseRpcSideReceipt=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideReceipt"))

@@ -4587,6 +4587,11 @@ splits can land after the Phase A smoke path closes.
     same-height `eth_getLogs` query return empty results, so stale
     transaction-branch receipts/logs do not remain visible through restored
     public RPC after a reorg.
+  - Result: extended the same restored side-reorg smoke to pending raw
+    transaction visibility. When the displaced transaction is valid for the
+    configured chain, the restored post-reorg public RPC now verifies both
+    `eth_getTransactionByHash` and `eth_getRawTransactionByHash` expose it as
+    pending while `eth_getTransactionReceipt` remains hidden.
   - Result: extended the restored side-reorg smoke with a rejected checkpoint
     update through authenticated Engine RPC. After importing the empty sibling,
     the gate first attempts to publish the old canonical child as `safe` for
