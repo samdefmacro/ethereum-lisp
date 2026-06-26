@@ -967,7 +967,10 @@ first pass, but interfaces must not block that path.
   restart: `eth_getTransactionByHash` exposes chain-valid displaced
   transactions as pending and leaves wrong-chain displaced transactions absent,
   while receipts, logs, and canonical receipt indexes remain absent from the
-  new canonical head. Block polling filters now record
+  new canonical head. KV txpool restore now also applies the configured chain
+  fork rules while staging records, preventing persisted blob or set-code
+  transactions from bypassing the live RPC transaction-type boundary before
+  Cancun or Prague. Block polling filters now record
   canonical-head events directly, so same-height forkchoice reorgs surface the
   replacement head hash through `eth_getFilterChanges` instead of being hidden
   by number-only cursoring. Log polling filters record the same canonical

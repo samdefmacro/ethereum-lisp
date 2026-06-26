@@ -190,7 +190,8 @@
               (chain-store-import-from-kv
                store
                database
-               :expected-chain-id (chain-config-chain-id config))
+               :expected-chain-id (chain-config-chain-id config)
+               :chain-config config)
               (devnet-cli-validate-imported-genesis
                store genesis-block existing-database-path))))))
     (%make-devnet-node

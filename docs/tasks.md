@@ -4444,6 +4444,11 @@ splits can land after the Phase A smoke path closes.
     corrupted txpool records. Import also rejects txpool records whose hashes
     are already indexed in the restored canonical chain view, so a corrupted
     snapshot cannot resurrect a mined transaction as pending or queued.
+  - Progress: KV txpool import now applies the configured chain fork rules
+    while staging restored records. Devnet database restore passes the active
+    chain config, so persisted blob or set-code txpool records cannot bypass
+    the same Cancun/Prague transaction-type boundary enforced by live
+    `eth_sendRawTransaction`; the restored view remains atomic on failure.
   - Result: the standalone devnet smoke gate now exercises pending,
     basefee-ineligible, and nonce-gap queued txpool persistence across the
     public RPC and process/database boundary. Each database-backed pinned

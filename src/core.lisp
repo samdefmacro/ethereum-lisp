@@ -4468,8 +4468,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (:blob
      (engine-pending-txpool-put-blob-transaction txpool transaction))))
 
+(defun chain-store-import-txpool-transaction-rules
+    (store transaction chain-config)
+  (when chain-config
+    (let* ((head (chain-store-latest-block store))
+           (header (and head (block-header head)))
+           (number (if header (block-header-number header) 0))
+           (timestamp (if header (block-header-timestamp header) 0)))
+      (validate-transaction-type-for-config
+       transaction chain-config number timestamp))))
+
 (defun chain-store-import-txpool-transaction-from-kv
-    (store transaction-identifier record &key expected-chain-id)
+    (store transaction-identifier record &key expected-chain-id chain-config)
   (let ((transaction-hash (make-hash32 transaction-identifier))
         (txpool (engine-payload-store-txpool store)))
     (multiple-value-bind (subpool transaction)
@@ -4481,6 +4491,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   :expected-chain-id expected-chain-id)
         (block-validation-fail
          "KV txpool record sender recovery failed"))
+      (chain-store-import-txpool-transaction-rules
+       store transaction chain-config)
       (when (chain-store-transaction-location store transaction-hash)
         (block-validation-fail
          "KV txpool record duplicates an indexed transaction"))
@@ -4495,10 +4507,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        txpool subpool transaction))))
 
 (defun chain-store-import-txpool-records-from-kv
-    (store database &key expected-chain-id)
+    (store database &key expected-chain-id chain-config)
   (dolist (entry (kv-chain-record-entries database :txpool))
     (chain-store-import-txpool-transaction-from-kv
-     store (car entry) (cdr entry) :expected-chain-id expected-chain-id)))
+     store
+     (car entry)
+     (cdr entry)
+     :expected-chain-id expected-chain-id
+     :chain-config chain-config)))
 
 (defun chain-store-restore-txpool-consistency (store)
   (let ((head (chain-store-latest-block store)))
@@ -4715,7 +4731,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (chain-store-import-prepared-payload-from-kv
      store (car entry) (cdr entry))))
 
-(defun chain-store-import-from-kv (store database &key expected-chain-id)
+(defun chain-store-import-from-kv
+    (store database &key expected-chain-id chain-config)
   (let ((store (chain-store-require-memory-store store)))
     (unless (typep database 'key-value-database)
       (block-validation-fail "Chain import source must be a key-value database"))
@@ -4730,7 +4747,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-txpool-records-from-kv
        staging
        database
-       :expected-chain-id expected-chain-id)
+       :expected-chain-id expected-chain-id
+       :chain-config chain-config)
       (chain-store-import-invalid-tipsets-from-kv staging database)
       (chain-store-import-remote-blocks-from-kv staging database)
       (chain-store-import-blob-sidecars-from-kv staging database)
