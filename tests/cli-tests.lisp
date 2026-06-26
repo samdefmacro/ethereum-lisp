@@ -66,9 +66,9 @@
     path))
 
 (defun devnet-cli-restored-public-connections (report)
-  (+ 23
+  (+ 24
      (1- (fixture-object-field report "checkedBalanceCount"))
-     (* 6 (1- (fixture-object-field report "transactionCount")))
+     (* 7 (1- (fixture-object-field report "transactionCount")))
      (* 2 (fixture-object-field report "checkedLogCount"))
      (fixture-object-field report "checkedSimulationCount")
      (let ((errors
@@ -1801,6 +1801,12 @@
                              report
                              "databaseRpcRawTransactionByBlockNumberAndIndex")))
                (is (string= (fixture-object-field
+                              report
+                              "databaseRpcRawTransactionByHash")
+                            (fixture-object-field
+                             report
+                             "databaseRpcRawTransactionByBlockHashAndIndex")))
+               (is (string= (fixture-object-field
                               report "databaseRpcReceiptTransactionHash")
                             (fixture-object-field
                              report
@@ -2233,6 +2239,12 @@
                               (fixture-object-field
                                case
                                "databaseRpcRawTransactionByBlockNumberAndIndex")))
+                 (is (string= (fixture-object-field
+                                case
+                                "databaseRpcRawTransactionByHash")
+                              (fixture-object-field
+                               case
+                               "databaseRpcRawTransactionByBlockHashAndIndex")))
                  (is (string= (fixture-object-field
                                 case "databaseRpcReceiptTransactionHash")
                               (fixture-object-field
@@ -2909,6 +2921,12 @@
                        (fixture-object-field
                         case
                         "databaseRpcRawTransactionByBlockNumberAndIndex")))
+          (is (string= (fixture-object-field
+                         case
+                         "databaseRpcRawTransactionByHash")
+                       (fixture-object-field
+                        case
+                        "databaseRpcRawTransactionByBlockHashAndIndex")))
           (is (string= (fixture-object-field
                          case "databaseRpcReceiptTransactionHash")
                        (fixture-object-field

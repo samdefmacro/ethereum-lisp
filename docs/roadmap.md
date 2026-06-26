@@ -280,9 +280,9 @@ fixes in those areas are allowed; expansion is not.
   balance reads with and without `requireCanonical`,
   `eth_getTransactionReceipt` canonical receipt lookup,
   `eth_getBlockByHash` / `eth_getBlockByNumber` canonical block lookup,
-  block transaction counts, raw transaction by block/index,
-  `eth_getTransactionByHash` and transaction by block/index canonical
-  transaction lookup, safe/finalized checkpoint number/hash persistence plus
+  block transaction counts, raw transaction by transaction hash and
+  block/index, `eth_getTransactionByHash` and transaction by block/index
+  canonical transaction lookup, safe/finalized checkpoint number/hash persistence plus
   `eth_getBlockByNumber("safe"|"finalized")` checkpoint-tag reads, and
   `eth_getBlockReceipts` block-receipt lookup. The same database-backed gate
   now also prepares an Engine payload through authenticated

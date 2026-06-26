@@ -4909,6 +4909,11 @@ splits can land after the Phase A smoke path closes.
     transaction-by-block/index reads. Each database-backed devnet case now
     verifies restored canonical block bodies and transaction indexes are
     readable by both block hash and block number after KV export/import.
+  - Result: extended the restored public-RPC database check to mined
+    `eth_getRawTransactionByHash` reads. Each database-backed devnet case now
+    verifies raw transaction bytes remain readable by transaction hash after KV
+    export/import, and multi-transaction cases check the same path for every
+    imported transaction.
   - Result: extended the restored devnet database check to safe/finalized
     checkpoints. Each database-backed devnet case now verifies the exported KV
     snapshot preserves safe/finalized number/hash records and that a fresh
