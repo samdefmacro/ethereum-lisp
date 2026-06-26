@@ -9474,6 +9474,73 @@
                   store
                   transaction-hash))))))
 
+(deftest chain-store-prunes-displaced-transaction-locations-after-short-reorg
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 2
+             :gas-limit 21000
+             :to recipient
+             :value 3)
+            1
+            1))
+         (transaction-hash (transaction-hash transaction))
+         (transaction-key (hash32-to-hex transaction-hash))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :gas-limit 30000000
+                               :extra-data #(0))))
+         (old-canonical-child
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :gas-limit 30000000
+                               :extra-data #(1))))
+         (old-canonical-grandchild
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash old-canonical-child)
+                               :gas-limit 30000000
+                               :extra-data #(2))
+            :transactions (list transaction)
+            :receipts (list (make-receipt :status 1
+                                          :cumulative-gas-used 21000))))
+         (new-canonical-child
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :gas-limit 30000000
+                               :extra-data #(3)))))
+    (chain-store-put-block store genesis :state-available-p t)
+    (chain-store-put-block store old-canonical-child :state-available-p t)
+    (chain-store-put-block store old-canonical-grandchild
+                           :state-available-p t)
+    (chain-store-put-block store new-canonical-child :state-available-p t)
+    (is (typep (chain-store-transaction-location store transaction-hash)
+               'engine-transaction-location))
+    (is (typep (gethash
+                transaction-key
+                (ethereum-lisp.core::engine-payload-memory-store-transaction-locations
+                 store))
+               'engine-transaction-location))
+    (chain-store-set-canonical-head store (block-hash new-canonical-child))
+    (is (null (chain-store-transaction-location store transaction-hash)))
+    (is (null
+         (gethash
+          transaction-key
+          (ethereum-lisp.core::engine-payload-memory-store-transaction-locations
+           store))))))
+
 (deftest chain-store-reinsert-respects-pooled-balance-reservations
   (let* ((store (make-engine-payload-memory-store))
          (recipient

@@ -1433,6 +1433,10 @@ splits can land after the Phase A smoke path closes.
       snapshots. Public receipt/transaction RPC construction and direct
       chain-store reads can no longer mutate stored transaction-location or
       receipt data by changing returned objects.
+    - Canonical-head rewrites now remove transaction-location records for
+      displaced canonical blocks before reorg txpool reinsertion. Shorter
+      reorgs no longer leave stale hidden location records in the in-memory
+      index after the public accessor stops exposing them.
   - Follow-up:
     - Pending txpool and filter cursors remain in the in-memory store because
       they are pool/filter concerns rather than chain-store block/state indexes.

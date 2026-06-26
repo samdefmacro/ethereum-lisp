@@ -2446,6 +2446,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (incf log-index-start
                      (length (receipt-logs receipt)))))))
 
+(defun engine-payload-store-remove-block-transaction-locations (store block)
+  (let ((locations
+          (engine-payload-memory-store-transaction-locations store)))
+    (dolist (transaction (block-transactions block))
+      (let* ((transaction-key
+               (engine-payload-store-key (transaction-hash transaction)))
+             (location (gethash transaction-key locations)))
+        (when (and location
+                   (hash32= (block-hash block)
+                             (block-hash
+                              (engine-transaction-location-block location))))
+          (remhash transaction-key locations)))))
+  block)
+
 (defun engine-payload-store-remove-included-block-transactions (store block)
   (dolist (transaction (block-transactions block))
     (engine-payload-store-remove-included-transaction store transaction))
@@ -2948,6 +2962,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (make-chain-store-checkpoint :label :head :block-hash hash)))
         (engine-payload-store-remove-new-head-invalid-txpool-transactions
          store)
+        (dolist (block displaced-blocks)
+          (engine-payload-store-remove-block-transaction-locations
+           store
+           block))
         (engine-payload-store-reinsert-displaced-block-transactions
          store
          displaced-blocks
