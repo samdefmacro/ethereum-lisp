@@ -458,6 +458,7 @@ references/ checkouts.~%"))
     "databaseRpcSideRestoredPendingTransaction"
     "databaseRpcSideRestoredReceipt"
     "databaseRpcSideRestoredChildBlockHash"
+    "databaseRpcSideRestoredChildRequireCanonicalError"
     "databaseRpcSideRestoredBlockReceiptsCount"
     "databaseRpcSideRestoredLogCount"
     "databaseRpcSideRestoredPublicConnections"
@@ -651,6 +652,10 @@ references/ checkouts.~%"))
          "databaseRpcSideRestoredChildBlockHash"
          (smoke-gate-field case-report "databaseRpcBlockHash"))
         (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredChildRequireCanonicalError"
+         "eth_getBalance block hash is not canonical")
+        (smoke-gate-devnet-case-require-field
          case-report "databaseRpcSideRestoredBlockReceiptsCount" 0)
         (smoke-gate-devnet-case-require-field
          case-report "databaseRpcSideRestoredLogCount" 0)
@@ -659,9 +664,9 @@ references/ checkouts.~%"))
         (smoke-gate-devnet-case-require-field
          case-report "databaseRpcSidePublicConnections" 9)
         (smoke-gate-devnet-case-require-field
-         case-report "databaseRpcSideRestoredPublicConnections" 12)
+         case-report "databaseRpcSideRestoredPublicConnections" 13)
         (smoke-gate-devnet-case-require-field
-         case-report "databaseRpcSideTotalConnections" 24)
+         case-report "databaseRpcSideTotalConnections" 25)
         1)))
 
 (defun smoke-gate-validate-devnet-side-reorg-cases

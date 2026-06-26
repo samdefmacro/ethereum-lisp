@@ -193,6 +193,7 @@
                          "databaseRpcSideRestoredPendingTransaction"
                          "databaseRpcSideRestoredReceipt"
                          "databaseRpcSideRestoredChildBlockHash"
+                         "databaseRpcSideRestoredChildRequireCanonicalError"
                          "databaseRpcSideRestoredBlockReceiptsCount"
                          "databaseRpcSideRestoredLogCount"
                          "databaseRpcSideRestoredPublicConnections"
@@ -376,6 +377,10 @@
           (is (string= (fixture-object-field report "databaseRpcBlockHash")
                        (fixture-object-field
                         report "databaseRpcSideRestoredChildBlockHash")))
+          (is (string= "eth_getBalance block hash is not canonical"
+                       (fixture-object-field
+                        report
+                        "databaseRpcSideRestoredChildRequireCanonicalError")))
           (is (= 0
                  (fixture-object-field
                   report "databaseRpcSideRestoredBlockReceiptsCount")))
@@ -388,11 +393,11 @@
           (is (= 9
                  (fixture-object-field
                   report "databaseRpcSidePublicConnections")))
-          (is (= 12
+          (is (= 13
                  (fixture-object-field
                   report
                   "databaseRpcSideRestoredPublicConnections")))
-          (is (= 24
+          (is (= 25
                  (fixture-object-field
                   report "databaseRpcSideTotalConnections")))))))
 

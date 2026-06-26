@@ -3514,6 +3514,8 @@ references/ checkouts.~%")
                       (make-string-output-stream))
                     (fresh-finalized-balance-output
                       (make-string-output-stream))
+                    (fresh-child-require-canonical-balance-output
+                      (make-string-output-stream))
                     (fresh-public-requests
                       (list
                        (cons
@@ -3611,7 +3613,20 @@ references/ checkouts.~%")
                                (cons "params"
                                      (list (address-to-hex balance-address)
                                            "finalized"))))
-                        fresh-finalized-balance-output)))
+                        fresh-finalized-balance-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 225)
+                               (cons "method" "eth_getBalance")
+                               (cons "params"
+                                     (list
+                                      (address-to-hex balance-address)
+                                      (list
+                                       (cons "blockHash"
+                                             (hash32-to-hex child-block-hash))
+                                       (cons "requireCanonical" t))))))
+                        fresh-child-require-canonical-balance-output)))
                     (fresh-rpc-summary
                       (ethereum-lisp.cli:start-devnet-node-listeners
                        fresh-node
@@ -3632,8 +3647,8 @@ references/ checkouts.~%")
                                 (devnet-cli-json-rpc-http-request body))
                                :output-stream output
                                :close-function (lambda () nil)))))
-                        :close-function (lambda () nil))
-                       :max-connections 12))
+                       :close-function (lambda () nil))
+                       :max-connections 13))
                     (fresh-raw-transaction-response
                       (get-output-stream-string
                        fresh-raw-transaction-output))
@@ -3661,6 +3676,9 @@ references/ checkouts.~%")
                     (fresh-finalized-balance-response
                       (get-output-stream-string
                        fresh-finalized-balance-output))
+                    (fresh-child-require-canonical-balance-response
+                      (get-output-stream-string
+                       fresh-child-require-canonical-balance-output))
                     (fresh-raw-transaction-rpc
                       (devnet-smoke-gate-rpc-body
                        fresh-raw-transaction-response))
@@ -3695,6 +3713,9 @@ references/ checkouts.~%")
                     (fresh-finalized-balance-rpc
                       (devnet-smoke-gate-rpc-body
                        fresh-finalized-balance-response))
+                    (fresh-child-require-canonical-balance-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-child-require-canonical-balance-response))
                     (fresh-raw-transaction
                       (fixture-object-field fresh-raw-transaction-rpc
                                             "result"))
@@ -3726,7 +3747,11 @@ references/ checkouts.~%")
                                             "result"))
                     (fresh-finalized-balance
                       (fixture-object-field fresh-finalized-balance-rpc
-                                            "result")))
+                                            "result"))
+                    (fresh-child-require-canonical-balance-error
+                      (fixture-object-field
+                       fresh-child-require-canonical-balance-rpc
+                       "error")))
                (devnet-smoke-gate-require
                 (= (block-header-number (block-header side-block))
                    (getf fresh-summary :head-number))
@@ -3763,8 +3788,8 @@ references/ checkouts.~%")
                 "Fresh side-reorg restore expected 0 Engine connections, got ~S"
                 (getf fresh-rpc-summary :engine-connections))
                (devnet-smoke-gate-require
-                (= 12 (getf fresh-rpc-summary :public-connections))
-                "Fresh side-reorg restore expected 12 public connections, got ~S"
+                (= 13 (getf fresh-rpc-summary :public-connections))
+                "Fresh side-reorg restore expected 13 public connections, got ~S"
                 (getf fresh-rpc-summary :public-connections))
                (dolist (response (list fresh-raw-transaction-response
                                         fresh-pending-transactions-response
@@ -3777,7 +3802,8 @@ references/ checkouts.~%")
                                         fresh-safe-block-response
                                         fresh-finalized-block-response
                                         fresh-safe-balance-response
-                                        fresh-finalized-balance-response))
+                                        fresh-finalized-balance-response
+                                        fresh-child-require-canonical-balance-response))
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status response))
                   "Fresh side-reorg restore public RPC HTTP status mismatch"))
@@ -3831,6 +3857,17 @@ references/ checkouts.~%")
                 (string= (hash32-to-hex child-block-hash)
                          (fixture-object-field fresh-child-block "hash"))
                 "Fresh side-reorg restore lost old child block hash lookup")
+               (devnet-smoke-gate-require
+                (= -32602
+                   (fixture-object-field
+                    fresh-child-require-canonical-balance-error "code"))
+                "Fresh side-reorg restore child requireCanonical error code mismatch")
+               (devnet-smoke-gate-require
+                (string= "eth_getBalance block hash is not canonical"
+                         (fixture-object-field
+                          fresh-child-require-canonical-balance-error
+                          "message"))
+                "Fresh side-reorg restore child requireCanonical error mismatch")
                (devnet-smoke-gate-require
                 (zerop (length fresh-block-receipts))
                 "Fresh side-reorg restore kept canonical receipts")
@@ -3925,6 +3962,10 @@ references/ checkouts.~%")
                          :false)
                      :side-restored-child-block-hash
                      (fixture-object-field fresh-child-block "hash")
+                     :side-restored-child-require-canonical-error
+                     (fixture-object-field
+                      fresh-child-require-canonical-balance-error
+                      "message")
                      :side-restored-block-receipts-count
                      (length fresh-block-receipts)
                      :side-restored-log-count
@@ -4489,6 +4530,10 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-restored-child-block-hash))
+                  :rpc-side-restored-child-require-canonical-error
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-child-require-canonical-error))
                   :rpc-side-restored-block-receipts-count
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
@@ -6085,6 +6130,12 @@ references/ checkouts.~%")
                                       :rpc-side-restored-child-block-hash)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideRestoredChildRequireCanonicalError"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-child-require-canonical-error)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideRestoredBlockReceiptsCount"
                         (if database-summary
                             (or (getf database-summary
@@ -6892,6 +6943,13 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side fresh restore lost child block for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
+               (string= "eth_getBalance block hash is not canonical"
+                        (devnet-smoke-gate-field
+                         report
+                         "databaseRpcSideRestoredChildRequireCanonicalError"))
+               "Devnet smoke gate suite side fresh restore child requireCanonical error mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
                (zerop (devnet-smoke-gate-field
                        report "databaseRpcSideRestoredBlockReceiptsCount"))
                "Devnet smoke gate suite side fresh restore kept canonical receipts for ~A"
@@ -6912,12 +6970,12 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 12 (devnet-smoke-gate-field
+               (= 13 (devnet-smoke-gate-field
                      report "databaseRpcSideRestoredPublicConnections"))
                "Devnet smoke gate suite side fresh public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 24 (devnet-smoke-gate-field
+               (= 25 (devnet-smoke-gate-field
                       report "databaseRpcSideTotalConnections"))
                "Devnet smoke gate suite side total connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
@@ -7476,6 +7534,9 @@ references/ checkouts.~%")
         (format t "databaseRpcSideRestoredChildBlockHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredChildBlockHash"))
+        (format t "databaseRpcSideRestoredChildRequireCanonicalError=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredChildRequireCanonicalError"))
         (format t "databaseRpcSideRestoredBlockReceiptsCount=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredBlockReceiptsCount"))
