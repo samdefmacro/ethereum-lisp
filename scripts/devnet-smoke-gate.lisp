@@ -3069,7 +3069,7 @@ references/ checkouts.~%")
   (error "Restored devnet txpool RPC verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-verify-restored-side-reorg-rpc
-    (path side-payload side-block child-block transaction-checks
+    (path side-payload side-block child-block balance-targets transaction-checks
      expected-safe-block-hash config)
   #+sbcl
   (let ((jwt-path
@@ -3088,6 +3088,11 @@ references/ checkouts.~%")
                      :jwt-secret-path (namestring jwt-path)))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token secret 0))
+                  (primary-balance-target (first balance-targets))
+                  (balance-address
+                    (getf primary-balance-target :address))
+                  (expected-balance
+                    (getf primary-balance-target :balance))
                   (transaction-hash
                     (getf (first transaction-checks) :hash))
                   (expected-raw-transaction
@@ -3483,6 +3488,10 @@ references/ checkouts.~%")
                       (make-string-output-stream))
                     (fresh-finalized-block-output
                       (make-string-output-stream))
+                    (fresh-safe-balance-output
+                      (make-string-output-stream))
+                    (fresh-finalized-balance-output
+                      (make-string-output-stream))
                     (fresh-public-requests
                       (list
                        (cons
@@ -3519,7 +3528,25 @@ references/ checkouts.~%")
                                (cons "id" 217)
                                (cons "method" "eth_getBlockByNumber")
                                (cons "params" (list "finalized" :false))))
-                        fresh-finalized-block-output)))
+                        fresh-finalized-block-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 218)
+                               (cons "method" "eth_getBalance")
+                               (cons "params"
+                                     (list (address-to-hex balance-address)
+                                           "safe"))))
+                        fresh-safe-balance-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 219)
+                               (cons "method" "eth_getBalance")
+                               (cons "params"
+                                     (list (address-to-hex balance-address)
+                                           "finalized"))))
+                        fresh-finalized-balance-output)))
                     (fresh-rpc-summary
                       (ethereum-lisp.cli:start-devnet-node-listeners
                        fresh-node
@@ -3541,7 +3568,7 @@ references/ checkouts.~%")
                                :output-stream output
                                :close-function (lambda () nil)))))
                         :close-function (lambda () nil))
-                       :max-connections 5))
+                       :max-connections 7))
                     (fresh-raw-transaction-response
                       (get-output-stream-string
                        fresh-raw-transaction-output))
@@ -3554,6 +3581,11 @@ references/ checkouts.~%")
                       (get-output-stream-string fresh-safe-block-output))
                     (fresh-finalized-block-response
                       (get-output-stream-string fresh-finalized-block-output))
+                    (fresh-safe-balance-response
+                      (get-output-stream-string fresh-safe-balance-output))
+                    (fresh-finalized-balance-response
+                      (get-output-stream-string
+                       fresh-finalized-balance-output))
                     (fresh-raw-transaction-rpc
                       (devnet-smoke-gate-rpc-body
                        fresh-raw-transaction-response))
@@ -3568,6 +3600,12 @@ references/ checkouts.~%")
                     (fresh-finalized-block-rpc
                       (devnet-smoke-gate-rpc-body
                        fresh-finalized-block-response))
+                    (fresh-safe-balance-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-safe-balance-response))
+                    (fresh-finalized-balance-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-finalized-balance-response))
                     (fresh-raw-transaction
                       (fixture-object-field fresh-raw-transaction-rpc
                                             "result"))
@@ -3584,6 +3622,12 @@ references/ checkouts.~%")
                       (fixture-object-field fresh-safe-block-rpc "result"))
                     (fresh-finalized-block
                       (fixture-object-field fresh-finalized-block-rpc
+                                            "result"))
+                    (fresh-safe-balance
+                      (fixture-object-field fresh-safe-balance-rpc
+                                            "result"))
+                    (fresh-finalized-balance
+                      (fixture-object-field fresh-finalized-balance-rpc
                                             "result")))
                (devnet-smoke-gate-require
                 (= (block-header-number (block-header side-block))
@@ -3621,14 +3665,16 @@ references/ checkouts.~%")
                 "Fresh side-reorg restore expected 0 Engine connections, got ~S"
                 (getf fresh-rpc-summary :engine-connections))
                (devnet-smoke-gate-require
-                (= 5 (getf fresh-rpc-summary :public-connections))
-                "Fresh side-reorg restore expected 5 public connections, got ~S"
+                (= 7 (getf fresh-rpc-summary :public-connections))
+                "Fresh side-reorg restore expected 7 public connections, got ~S"
                 (getf fresh-rpc-summary :public-connections))
                (dolist (response (list fresh-raw-transaction-response
                                         fresh-pending-transactions-response
                                         fresh-receipt-response
                                         fresh-safe-block-response
-                                        fresh-finalized-block-response))
+                                        fresh-finalized-block-response
+                                        fresh-safe-balance-response
+                                        fresh-finalized-balance-response))
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status response))
                   "Fresh side-reorg restore public RPC HTTP status mismatch"))
@@ -3685,6 +3731,12 @@ references/ checkouts.~%")
                 (string= expected-safe-block-number
                          (fixture-object-field fresh-finalized-block "number"))
                 "Fresh side-reorg restore finalized block number mismatch")
+               (devnet-smoke-gate-require
+                (string= expected-balance fresh-safe-balance)
+                "Fresh side-reorg restore safe balance mismatch")
+               (devnet-smoke-gate-require
+                (string= expected-balance fresh-finalized-balance)
+                "Fresh side-reorg restore finalized balance mismatch")
                (list :side-block-hash (hash32-to-hex side-block-hash)
                      :side-forkchoice-status
                      (fixture-object-field side-forkchoice-status "status")
@@ -3733,6 +3785,10 @@ references/ checkouts.~%")
                      (fixture-object-field fresh-finalized-block "number")
                      :side-restored-rpc-finalized-hash
                      (fixture-object-field fresh-finalized-block "hash")
+                     :side-restored-safe-balance
+                     fresh-safe-balance
+                     :side-restored-finalized-balance
+                     fresh-finalized-balance
                      :side-restored-raw-transaction
                      (or fresh-raw-transaction :false)
                      :side-restored-pending-transaction
@@ -3749,7 +3805,7 @@ references/ checkouts.~%")
         (delete-file jwt-path))))
   #-sbcl
   (declare (ignore path side-payload side-block child-block transaction-checks
-                   expected-safe-block-hash config))
+                   balance-targets expected-safe-block-hash config))
   #-sbcl
   (error "Restored devnet side reorg RPC verification requires SBCL threads"))
 
@@ -3847,6 +3903,7 @@ references/ checkouts.~%")
                  side-payload
                  side-block
                  child-block
+                 balance-targets
                  transaction-checks
                  expected-safe-block-hash
                  config))))
@@ -4265,6 +4322,14 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-restored-rpc-finalized-hash))
+                  :rpc-side-restored-safe-balance
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-safe-balance))
+                  :rpc-side-restored-finalized-balance
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-finalized-balance))
                   :rpc-side-restored-raw-transaction
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
@@ -5809,6 +5874,18 @@ references/ checkouts.~%")
                                       :rpc-side-restored-rpc-finalized-hash)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideRestoredSafeBalance"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-safe-balance)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredFinalizedBalance"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-finalized-balance)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideRestoredRawTransaction"
                         (if database-summary
                             (or (getf database-summary
@@ -6392,6 +6469,18 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side restored public finalized number mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "checkedBalance")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredSafeBalance"))
+               "Devnet smoke gate suite side restored safe balance mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "checkedBalance")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredFinalizedBalance"))
+               "Devnet smoke gate suite side restored finalized balance mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
                (not (string= (devnet-smoke-gate-field
                               report "databaseRpcBlockHash")
                              (devnet-smoke-gate-field
@@ -6579,7 +6668,7 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 5 (devnet-smoke-gate-field
+               (= 7 (devnet-smoke-gate-field
                      report "databaseRpcSideRestoredPublicConnections"))
                "Devnet smoke gate suite side fresh public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
@@ -7111,6 +7200,12 @@ references/ checkouts.~%")
         (format t "databaseRpcSideRestoredRpcFinalizedHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredRpcFinalizedHash"))
+        (format t "databaseRpcSideRestoredSafeBalance=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredSafeBalance"))
+        (format t "databaseRpcSideRestoredFinalizedBalance=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredFinalizedBalance"))
         (format t "databaseRpcSideRestoredRawTransaction=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredRawTransaction"))

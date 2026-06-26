@@ -185,6 +185,8 @@
                          "databaseRpcSideRestoredRpcSafeHash"
                          "databaseRpcSideRestoredRpcFinalizedNumber"
                          "databaseRpcSideRestoredRpcFinalizedHash"
+                         "databaseRpcSideRestoredSafeBalance"
+                         "databaseRpcSideRestoredFinalizedBalance"
                          "databaseRpcSideRestoredRawTransaction"
                          "databaseRpcSideRestoredPendingTransaction"
                          "databaseRpcSideRestoredReceipt"
@@ -238,6 +240,12 @@
                        (fixture-object-field
                         report
                         "databaseRpcSideRestoredRpcFinalizedHash")))
+          (is (string= (fixture-object-field report "checkedBalance")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredSafeBalance")))
+          (is (string= (fixture-object-field report "checkedBalance")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredFinalizedBalance")))
           (is (not (string= (fixture-object-field
                              report "databaseRpcBlockHash")
                             (fixture-object-field
@@ -357,7 +365,7 @@
           (is (= 9
                  (fixture-object-field
                   report "databaseRpcSidePublicConnections")))
-          (is (= 5
+          (is (= 7
                  (fixture-object-field
                   report
                   "databaseRpcSideRestoredPublicConnections")))))))

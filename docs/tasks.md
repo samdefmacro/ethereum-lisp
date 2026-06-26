@@ -4608,6 +4608,10 @@ splits can land after the Phase A smoke path closes.
     summary and public `eth_getBlockByNumber("safe"|"finalized")` keep the
     safe/finalized checkpoints on the parent block while `latest` remains on
     the empty sibling.
+  - Result: extended that fresh post-reorg restore to retained checkpoint
+    state. The same public RPC boundary now verifies `eth_getBalance` against
+    the `safe` and `finalized` tags still reads the parent retained state after
+    the side sibling becomes canonical.
   - Result: locked the core Engine forkchoice reinsertion event boundary for
     pending filters. A JSON-RPC-created `eth_newPendingTransactionFilter` now
     has regression coverage proving a forkchoice reorg that reinserts a

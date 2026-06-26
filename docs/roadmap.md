@@ -305,9 +305,10 @@ fixes in those areas are allowed; expansion is not.
   displaced transaction, raw-transaction hash lookup, and
   `eth_pendingTransactions` visibility become pending, re-exports the side
   database, and checks a fresh node keeps those pending raw/pool views while
-  hiding the old receipt and preserving public `safe` / `finalized` tags on
-  the parent checkpoint. The core Engine forkchoice path is also covered for
-  pending-filter notification of reinserted displaced transactions, while
+  hiding the old receipt and preserving public `safe` / `finalized` tags plus
+  retained-state balance reads on the parent checkpoint. The core Engine
+  forkchoice path is also covered for pending-filter notification of reinserted
+  displaced transactions, while
   receipt, latest block-receipt, and log queries follow the side head and the
   old child block remains hash-readable, rejects a non-ancestor `safe`
   checkpoint update before the valid switch, re-exports the database, and
