@@ -6103,6 +6103,25 @@ references/ checkouts.~%")
                                       :rpc-side-restored-public-connections)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideTotalConnections"
+                        (if database-summary
+                            (let ((side-engine
+                                    (getf database-summary
+                                          :rpc-side-engine-connections))
+                                  (side-public
+                                    (getf database-summary
+                                          :rpc-side-public-connections))
+                                  (side-restored-public
+                                    (getf database-summary
+                                          :rpc-side-restored-public-connections)))
+                              (if (and side-engine
+                                       side-public
+                                       side-restored-public)
+                                  (+ side-engine
+                                     side-public
+                                     side-restored-public)
+                                  :false))
+                            :false))
                   (cons "databaseRpcSideEngineConnections"
                         (if database-summary
                             (or (getf database-summary
@@ -6896,6 +6915,11 @@ references/ checkouts.~%")
                (= 12 (devnet-smoke-gate-field
                      report "databaseRpcSideRestoredPublicConnections"))
                "Devnet smoke gate suite side fresh public connection count mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (= 24 (devnet-smoke-gate-field
+                      report "databaseRpcSideTotalConnections"))
+               "Devnet smoke gate suite side total connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
     (devnet-smoke-gate-add-run-metadata
      (list
@@ -7461,6 +7485,9 @@ references/ checkouts.~%")
         (format t "databaseRpcSideRestoredPublicConnections=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredPublicConnections"))
+        (format t "databaseRpcSideTotalConnections=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideTotalConnections"))
         (format t "databaseRpcSideEngineConnections=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideEngineConnections"))

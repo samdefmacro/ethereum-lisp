@@ -461,6 +461,7 @@ references/ checkouts.~%"))
     "databaseRpcSideRestoredBlockReceiptsCount"
     "databaseRpcSideRestoredLogCount"
     "databaseRpcSideRestoredPublicConnections"
+    "databaseRpcSideTotalConnections"
     "databaseRpcSideEngineConnections"
     "databaseRpcSidePublicConnections"))
 
@@ -659,6 +660,8 @@ references/ checkouts.~%"))
          case-report "databaseRpcSidePublicConnections" 9)
         (smoke-gate-devnet-case-require-field
          case-report "databaseRpcSideRestoredPublicConnections" 12)
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideTotalConnections" 24)
         1)))
 
 (defun smoke-gate-validate-devnet-side-reorg-cases

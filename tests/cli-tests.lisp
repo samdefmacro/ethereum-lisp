@@ -196,6 +196,7 @@
                          "databaseRpcSideRestoredBlockReceiptsCount"
                          "databaseRpcSideRestoredLogCount"
                          "databaseRpcSideRestoredPublicConnections"
+                         "databaseRpcSideTotalConnections"
                          "databaseRpcSideEngineConnections"
                          "databaseRpcSidePublicConnections"))
           (is (eq nil (fixture-object-field report field))))
@@ -390,7 +391,10 @@
           (is (= 12
                  (fixture-object-field
                   report
-                  "databaseRpcSideRestoredPublicConnections")))))))
+                  "databaseRpcSideRestoredPublicConnections")))
+          (is (= 24
+                 (fixture-object-field
+                  report "databaseRpcSideTotalConnections")))))))
 
 (defun devnet-cli-pruned-state-error-messages ()
   '("eth_getBalance state is not available"

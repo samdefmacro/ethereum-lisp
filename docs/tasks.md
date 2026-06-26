@@ -509,6 +509,11 @@ ones.
     and database counts, and the CLI gate asserts each count is one, matching
     the all-fixtures devnet suite's lifecycle artifact accounting for the
     dedicated non-pruned reorg probe.
+  - Result: tightened side-reorg RPC connection accounting. The standalone
+    devnet report now emits `databaseRpcSideTotalConnections`, summing the
+    reorg Engine, reorg public, and fresh-restore public probes; the standalone
+    suite, parent Phase A gate, and CLI assertions require the non-pruned
+    reorg path to report `24` and pruned cases to omit it.
   - Result: hardened pinned smoke-gate root handling. `--pinned-v5.4.0` now
     requires an explicit `--root PATH` or
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent

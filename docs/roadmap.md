@@ -347,7 +347,10 @@ fixes in those areas are allowed; expansion is not.
   transfer case without conflating head state with checkpoint state. The
   parent gate also exposes ready/log/pid/database single-case counts for that
   dedicated side-reorg probe, keeping its lifecycle artifact accounting aligned
-  with the all-fixtures devnet suite.
+  with the all-fixtures devnet suite. Its side-reorg RPC connection budget now
+  has an explicit `databaseRpcSideTotalConnections` field, so the reorg,
+  public-read, and fresh-restore probes are checked both individually and in
+  aggregate.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected
