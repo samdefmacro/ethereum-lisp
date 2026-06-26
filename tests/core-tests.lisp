@@ -4961,6 +4961,56 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-enforces-txpool-blob-fee-cap
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-txpool-blob-fee-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (source (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1337
+                                    :london-block 0
+                                    :cancun-time 0))
+         (head-block
+           (make-block
+            :header
+            (make-block-header
+             :number 1
+             :timestamp 12
+             :gas-limit 30000000
+             :blob-gas-used 0
+             :excess-blob-gas (* 64 1024 1024))))
+         (transaction
+           (transaction-from-encoding
+            (hex-to-bytes
+             "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675"))))
+    (unwind-protect
+         (progn
+           (is (typep transaction 'blob-transaction))
+           (is (> (block-header-blob-base-fee (block-header head-block))
+                  (blob-transaction-max-fee-per-blob-gas transaction)))
+           (is (transaction-sender transaction :expected-chain-id 1337))
+           (chain-store-put-block source head-block :state-available-p t)
+           (let ((database (make-file-key-value-database path)))
+             (chain-store-export-to-kv source database)
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash transaction))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :blob
+               transaction)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              (make-engine-payload-memory-store)
+              (make-file-key-value-database path)
+              :expected-chain-id 1337
+              :chain-config config)))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-enforces-txpool-static-fields
   (let* ((path
            (merge-pathnames
@@ -19519,6 +19569,67 @@
       (is (string= transaction-hash (field pooled-transaction "hash")))
       (is (null (field pooled-transaction "blockHash")))
       (is (= 0 (length (field filter-changes "result")))))))
+
+(deftest eth-rpc-send-raw-transaction-rejects-low-blob-fee-cap
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1337
+                                      :london-block 0
+                                      :cancun-time 0))
+           (raw-transaction
+             "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675")
+           (transaction
+             (transaction-from-encoding (hex-to-bytes raw-transaction)))
+           (transaction-hash
+             (hash32-to-hex (transaction-hash transaction)))
+           (head-block
+             (make-block
+              :header
+              (make-block-header
+               :number 1
+               :timestamp 12
+               :gas-limit 30000000
+               :blob-gas-used 0
+               :excess-blob-gas (* 64 1024 1024)))))
+      (chain-store-put-block store head-block :state-available-p t)
+      (let* ((send-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":175,"
+                 "\"method\":\"eth_sendRawTransaction\","
+                 "\"params\":[\"" raw-transaction "\"]}")
+                store
+                config))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":176,\"method\":\"txpool_status\",\"params\":[]}"
+                store
+                config))
+             (lookup-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":177,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" transaction-hash "\"]}")
+                store
+                config))
+             (error (field send-response "error"))
+             (status (field status-response "result")))
+        (is (typep transaction 'blob-transaction))
+        (is (> (block-header-blob-base-fee (block-header head-block))
+               (blob-transaction-max-fee-per-blob-gas transaction)))
+        (is (= -32602 (field error "code")))
+        (is (string= "eth_sendRawTransaction: Max fee per blob gas below blob base fee"
+                     (field error "message")))
+        (is (string= (quantity-to-hex 0) (field status "pending")))
+        (is (string= (quantity-to-hex 0) (field status "queued")))
+        (is (null (field lookup-response "result")))))))
 
 (deftest eth-rpc-send-raw-transaction-replaces-basefee-conflict-with-pending
   (labels ((field (object name)

@@ -1705,6 +1705,11 @@
       (validate-set-code-transaction-fields transaction)
       (when (typep transaction 'blob-transaction)
         (validate-blob-transaction-fields transaction))
+      (engine-payload-store-validate-txpool-blob-fee-cap
+       store
+       transaction
+       :chain-config config
+       :label "eth_sendRawTransaction")
       (let ((intrinsic-gas
               (ethereum-lisp.state:transaction-intrinsic-gas
                transaction

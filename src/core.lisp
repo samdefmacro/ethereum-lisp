@@ -2460,6 +2460,39 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (and base-fee
          (< (transaction-max-fee-per-gas transaction) base-fee))))
 
+(defun engine-payload-store-current-blob-base-fee
+    (store &optional chain-config)
+  (let* ((head (chain-store-latest-block store))
+         (header (and head (block-header head))))
+    (when (and header (block-header-excess-blob-gas header))
+      (if chain-config
+          (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+              (chain-config-blob-schedule
+               chain-config
+               (block-header-number header)
+               (block-header-timestamp header))
+            (declare (ignore target-blob-gas max-blob-gas))
+            (block-header-blob-base-fee
+             header
+             :update-fraction update-fraction))
+          (block-header-blob-base-fee header)))))
+
+(defun engine-payload-store-validate-txpool-blob-fee-cap
+    (store transaction &key chain-config label)
+  (when (typep transaction 'blob-transaction)
+    (let ((blob-base-fee
+            (engine-payload-store-current-blob-base-fee
+             store
+             chain-config)))
+      (when blob-base-fee
+        (handler-case
+            (validate-blob-transaction-fee-cap transaction blob-base-fee)
+          (block-validation-error ()
+            (block-validation-fail
+             "~@[~A: ~]Max fee per blob gas below blob base fee"
+             label))))))
+  t)
+
 (defun engine-payload-store-sender-code-admissible-p
     (store head sender)
   (or (null head)
@@ -4517,6 +4550,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          "KV txpool record sender recovery failed"))
       (chain-store-import-txpool-transaction-rules
        store transaction chain-config)
+      (engine-payload-store-validate-txpool-blob-fee-cap
+       store
+       transaction
+       :chain-config chain-config
+       :label "KV txpool record")
       (when (chain-store-transaction-location store transaction-hash)
         (block-validation-fail
          "KV txpool record duplicates an indexed transaction"))
