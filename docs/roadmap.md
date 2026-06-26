@@ -148,7 +148,10 @@ fixes in those areas are allowed; expansion is not.
   KV txpool restore now enforces the same pooled balance reservation for
   parked queued/basefee/blob entries after pending revalidation and promotion,
   so database snapshots cannot reintroduce transactions live admission would
-  reject as overbudget.
+  reject as overbudget. KV txpool restore now also reuses the core static
+  transaction field validation boundary, so malformed data, recipient, scalar,
+  signature, access-list, blob, or set-code fields fail staging import instead
+  of becoming pooled after restart.
   Duplicate raw submissions for already pooled or canonical mined transactions
   now return the known hash before live admission checks, so a later retained
   nonce, balance, gas-limit, or sender-code change cannot reject a transaction

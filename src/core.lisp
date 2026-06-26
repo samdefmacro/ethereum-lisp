@@ -4478,6 +4478,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (validate-transaction-type-for-config
        transaction chain-config number timestamp))))
 
+(defun chain-store-import-txpool-transaction-static-fields (transaction)
+  (validate-transaction-data-field transaction)
+  (validate-transaction-recipient-field transaction)
+  (validate-transaction-scalar-fields transaction)
+  (validate-transaction-signature-fields transaction)
+  (validate-access-list-fields transaction)
+  (validate-set-code-transaction-fields transaction)
+  (when (typep transaction 'blob-transaction)
+    (validate-blob-transaction-fields transaction))
+  t)
+
 (defun chain-store-import-txpool-transaction-from-kv
     (store transaction-identifier record &key expected-chain-id chain-config)
   (let ((transaction-hash (make-hash32 transaction-identifier))
@@ -4487,6 +4498,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (unless (hash32= transaction-hash (transaction-hash transaction))
         (block-validation-fail
          "KV txpool record key does not match encoded transaction hash"))
+      (chain-store-import-txpool-transaction-static-fields transaction)
       (unless (transaction-sender transaction
                                   :expected-chain-id expected-chain-id)
         (block-validation-fail

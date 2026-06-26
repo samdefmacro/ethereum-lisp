@@ -4961,6 +4961,46 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-enforces-txpool-static-fields
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :name (format nil "ethereum-lisp-chain-txpool-static-~A"
+                           (gensym))
+             :type "sexp")
+            #P"/private/tmp/"))
+         (config
+           (make-chain-config :chain-id 1337
+                              :london-block 0
+                              :cancun-time 0))
+         (transaction
+           (transaction-from-encoding
+            (hex-to-bytes
+             "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675")))
+         (malformed (ethereum-lisp.core::copy-blob-transaction transaction)))
+    (setf (blob-transaction-blob-versioned-hashes malformed) '())
+    (unwind-protect
+         (progn
+           (is (transaction-sender malformed :expected-chain-id 1337))
+           (signals block-validation-error
+             (validate-blob-transaction-fields malformed))
+           (let ((database (make-file-key-value-database path)))
+             (kv-put-chain-record
+              database
+              :txpool
+              (hash32-bytes (transaction-hash malformed))
+              (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+               :blob
+               malformed)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              (make-engine-payload-memory-store)
+              (make-file-key-value-database path)
+              :expected-chain-id 1337
+              :chain-config config)))
+      (when (probe-file path)
+        (delete-file path)))))
+
 (deftest chain-store-import-from-kv-rejects-corrupt-txpool-record
   (let* ((path
            (merge-pathnames

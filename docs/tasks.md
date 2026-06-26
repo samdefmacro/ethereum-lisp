@@ -4449,6 +4449,11 @@ splits can land after the Phase A smoke path closes.
     chain config, so persisted blob or set-code txpool records cannot bypass
     the same Cancun/Prague transaction-type boundary enforced by live
     `eth_sendRawTransaction`; the restored view remains atomic on failure.
+  - Progress: KV txpool import now also reuses the core static transaction
+    field validation boundary before publishing restored records. Corrupted
+    snapshots with malformed data, recipient, scalar, signature, access-list,
+    blob, or set-code fields are rejected during staging instead of becoming
+    locally pooled transactions after restart.
   - Result: the standalone devnet smoke gate now exercises pending,
     basefee-ineligible, and nonce-gap queued txpool persistence across the
     public RPC and process/database boundary. Each database-backed pinned
