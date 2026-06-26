@@ -22391,7 +22391,25 @@ Content-Type: application/json
                 (make-chain-config)
                 :jwt-secret secret
                 :now now)))
-        (is (= 401 (http-status expired-response)))))))
+        (is (= 401 (http-status expired-response))))
+      (let* ((duplicate-request
+               (with-output-to-string (stream)
+                 (format stream "POST / HTTP/1.1~%Host: localhost~%")
+                 (format stream "Content-Type: application/json~%")
+                 (format stream "Authorization: Bearer ~A~%" token)
+                 (format stream "Authorization: Bearer ~A~%"
+                         (engine-rpc-make-jwt-token secret (- now 61)))
+                 (format stream "Content-Length: ~D~%~%~A"
+                         (length body)
+                         body)))
+             (duplicate-response
+               (engine-rpc-handle-http-request-string
+                duplicate-request
+                (make-engine-payload-memory-store)
+                (make-chain-config)
+                :jwt-secret secret
+                :now now)))
+        (is (= 401 (http-status duplicate-response)))))))
 
 (deftest engine-rpc-http-stream-handles-single-connection
   (labels ((field (object name)

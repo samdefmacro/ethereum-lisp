@@ -194,6 +194,8 @@ fixes in those areas are allowed; expansion is not.
   Engine/public listener boundary with authenticated payload import,
   forkchoice, public retained-state reads, and ready/shutdown telemetry for
   both serving-style smoke runs and one-shot no-serve CLI runs. The development
+  Engine HTTP path rejects duplicate Authorization headers before JWT
+  validation, keeping authenticated listener behavior single-valued. The
   key-value
   database now has a stable chain-record namespace for block/header/receipt,
   canonical-hash, checkpoint, state, and transaction-location records, giving

@@ -7235,6 +7235,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         when (string= normalized header-name)
           collect value))
 
+(defun engine-rpc-http-single-header (headers name)
+  (let ((values (engine-rpc-http-header-values headers name)))
+    (when (rest values)
+      (block-validation-fail "HTTP ~A header is duplicated" name))
+    (first values)))
+
 (defun engine-rpc-http-media-type (content-type)
   (when content-type
     (string-downcase
@@ -7477,7 +7483,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (when jwt-secret
                 (handler-case
                     (engine-rpc-http-authorized-p
-                     (engine-rpc-http-header headers "authorization")
+                     (engine-rpc-http-single-header headers "authorization")
                      jwt-secret
                      (or now 0))
                   (block-validation-error (condition)

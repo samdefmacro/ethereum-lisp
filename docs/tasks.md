@@ -1574,6 +1574,9 @@ splits can land after the Phase A smoke path closes.
     values instead of accepting partially parsed or ambiguous integers.
   - Progress: tightened HTTP header parsing so empty header field names are
     rejected as malformed in both request-string and stream paths.
+  - Progress: tightened authenticated Engine HTTP handling so duplicate
+    `Authorization` headers are rejected before JWT validation instead of
+    accepting whichever header appeared first.
   - Progress: tightened HTTP request-line parsing so unsupported versions and
     extra fields are rejected before JSON-RPC dispatch.
   - Progress: lifted the one-transaction Shanghai `engine_newPayloadV2`
