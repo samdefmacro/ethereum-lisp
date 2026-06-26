@@ -6712,6 +6712,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (not (genesis-object-field-present-p request "id"))
        (stringp (genesis-object-field request "method"))))
 
+(defun engine-rpc-request-envelope-valid-p (request)
+  (and (engine-rpc-jsonrpc-version-valid-p request)
+       (genesis-object-field-present-p request "method")
+       (stringp (genesis-object-field request "method"))
+       (or (not (genesis-object-field-present-p request "params"))
+           (listp (genesis-object-field request "params")))))
+
 (defun engine-rpc-string-prefix-p (prefix string)
   (and (<= (length prefix) (length string))
        (string= prefix string :end2 (length prefix))))
@@ -6743,18 +6750,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   (unless (listp request)
                     (block-validation-fail
                      "JSON-RPC request must be an object"))
-                  (unless (engine-rpc-jsonrpc-version-valid-p request)
+                  (unless (engine-rpc-request-envelope-valid-p request)
                     (return-from engine-rpc-handle-request
                       (engine-rpc-invalid-request-response)))
                   (let* ((method (engine-rpc-required-field request "method"))
                          (params (or (genesis-object-field request "params")
                                      '())))
-                    (unless (stringp method)
-                      (block-validation-fail
-                       "JSON-RPC method must be a string"))
-                    (unless (listp params)
-                      (block-validation-fail
-                       "JSON-RPC params must be a list"))
                     (unless (functionp allowed-method-p)
                       (block-validation-fail
                        "JSON-RPC method filter must be a function"))

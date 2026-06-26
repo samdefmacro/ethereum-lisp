@@ -1332,9 +1332,10 @@ splits can land after the Phase A smoke path closes.
     split work.
   - Result: the remaining generic JSON-RPC envelope in `src/core.lisp` now
     requires the `"jsonrpc"` version field to be `"2.0"` before dispatch and
-    treats valid method requests without an `id` as notifications: they are
-    executed without response bodies, and mixed batches omit notification
-    results while all-notification batches produce no JSON body.
+    rejects malformed method / params envelope shapes as `Invalid Request`;
+    valid method requests without an `id` are notifications that execute
+    without response bodies, and mixed batches omit notification results while
+    all-notification batches produce no JSON body.
 
 - [x] `MOD-PUBLIC-RPC-TXPOOL`: Split public JSON-RPC and txpool placeholder
   handlers out of `src/core.lisp`.

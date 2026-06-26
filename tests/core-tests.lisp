@@ -9873,6 +9873,27 @@
                 config))
              (numeric-version-response (parse-json numeric-version-json))
              (numeric-version-error (field numeric-version-response "error"))
+             (missing-method-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":15,\"params\":[]}"
+                store
+                config))
+             (missing-method-response (parse-json missing-method-json))
+             (missing-method-error (field missing-method-response "error"))
+             (numeric-method-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":7,\"params\":[]}"
+                store
+                config))
+             (numeric-method-response (parse-json numeric-method-json))
+             (numeric-method-error (field numeric-method-response "error"))
+             (scalar-params-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"engine_nope\",\"params\":7}"
+                store
+                config))
+             (scalar-params-response (parse-json scalar-params-json))
+             (scalar-params-error (field scalar-params-response "error"))
              (malformed-no-id-json
                (engine-rpc-handle-request-json
                 "{\"method\":\"engine_nope\",\"params\":[]}"
@@ -9883,6 +9904,9 @@
         (is (= -32600 (field missing-version-error "code")))
         (is (= -32600 (field bad-version-error "code")))
         (is (= -32600 (field numeric-version-error "code")))
+        (is (= -32600 (field missing-method-error "code")))
+        (is (= -32600 (field numeric-method-error "code")))
+        (is (= -32600 (field scalar-params-error "code")))
         (is (= -32600 (field malformed-no-id-error "code"))))
       (let* ((batch-json
                (engine-rpc-handle-request-json
