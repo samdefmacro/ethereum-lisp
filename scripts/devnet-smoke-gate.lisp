@@ -3468,7 +3468,86 @@ references/ checkouts.~%")
                       (devnet-smoke-gate-make-restored-node
                        path config :port 0))
                     (fresh-summary
-                      (ethereum-lisp.cli:devnet-node-summary fresh-node)))
+                      (ethereum-lisp.cli:devnet-node-summary fresh-node))
+                    (fresh-raw-transaction-output
+                      (make-string-output-stream))
+                    (fresh-pending-transactions-output
+                      (make-string-output-stream))
+                    (fresh-receipt-output
+                      (make-string-output-stream))
+                    (fresh-public-requests
+                      (list
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 213)
+                               (cons "method" "eth_getRawTransactionByHash")
+                               (cons "params" (list transaction-hash-hex))))
+                        fresh-raw-transaction-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 214)
+                               (cons "method" "eth_pendingTransactions")
+                               (cons "params" '())))
+                        fresh-pending-transactions-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 215)
+                               (cons "method" "eth_getTransactionReceipt")
+                               (cons "params" (list transaction-hash-hex))))
+                        fresh-receipt-output)))
+                    (fresh-rpc-summary
+                      (ethereum-lisp.cli:start-devnet-node-listeners
+                       fresh-node
+                       (make-engine-rpc-http-listener
+                        :endpoint "engine-side-reorg-fresh-restore"
+                        :accept-function (lambda () nil)
+                        :close-function (lambda () nil))
+                       (make-engine-rpc-http-listener
+                        :endpoint "public-side-reorg-fresh-restore"
+                        :accept-function
+                        (lambda ()
+                          (when fresh-public-requests
+                            (destructuring-bind (body . output)
+                                (pop fresh-public-requests)
+                              (make-engine-rpc-http-connection
+                               :input-stream
+                               (make-string-input-stream
+                                (devnet-cli-json-rpc-http-request body))
+                               :output-stream output
+                               :close-function (lambda () nil)))))
+                        :close-function (lambda () nil))
+                       :max-connections 3))
+                    (fresh-raw-transaction-response
+                      (get-output-stream-string
+                       fresh-raw-transaction-output))
+                    (fresh-pending-transactions-response
+                      (get-output-stream-string
+                       fresh-pending-transactions-output))
+                    (fresh-receipt-response
+                      (get-output-stream-string fresh-receipt-output))
+                    (fresh-raw-transaction-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-raw-transaction-response))
+                    (fresh-pending-transactions-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-pending-transactions-response))
+                    (fresh-receipt-rpc
+                      (devnet-smoke-gate-rpc-body fresh-receipt-response))
+                    (fresh-raw-transaction
+                      (fixture-object-field fresh-raw-transaction-rpc
+                                            "result"))
+                    (fresh-pending-transactions
+                      (fixture-object-field fresh-pending-transactions-rpc
+                                            "result"))
+                    (fresh-pending-transaction
+                      (find transaction-hash-hex fresh-pending-transactions
+                            :test #'string=
+                            :key (lambda (transaction)
+                                   (fixture-object-field transaction
+                                                         "hash")))))
                (devnet-smoke-gate-require
                 (= (block-header-number (block-header side-block))
                    (getf fresh-summary :head-number))
@@ -3482,6 +3561,57 @@ references/ checkouts.~%")
                  (ethereum-lisp.cli:devnet-node-store fresh-node)
                  child-block-hash)
                 "Side-reorg database restore lost old child block")
+               (devnet-smoke-gate-require
+                (= 0 (getf fresh-rpc-summary :engine-connections))
+                "Fresh side-reorg restore expected 0 Engine connections, got ~S"
+                (getf fresh-rpc-summary :engine-connections))
+               (devnet-smoke-gate-require
+                (= 3 (getf fresh-rpc-summary :public-connections))
+                "Fresh side-reorg restore expected 3 public connections, got ~S"
+                (getf fresh-rpc-summary :public-connections))
+               (dolist (response (list fresh-raw-transaction-response
+                                        fresh-pending-transactions-response
+                                        fresh-receipt-response))
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status response))
+                  "Fresh side-reorg restore public RPC HTTP status mismatch"))
+               (if reinsertable-transaction-p
+                   (progn
+                     (devnet-smoke-gate-require
+                      (string= expected-raw-transaction
+                               fresh-raw-transaction)
+                      "Fresh side-reorg restore lost pending raw transaction")
+                     (devnet-smoke-gate-require
+                      fresh-pending-transaction
+                      "Fresh side-reorg restore lost pending transaction view")
+                     (devnet-smoke-gate-require
+                      (string= transaction-hash-hex
+                               (fixture-object-field
+                                fresh-pending-transaction
+                                "hash"))
+                      "Fresh side-reorg restore pending transaction hash mismatch")
+                     (devnet-smoke-gate-require
+                      (null (fixture-object-field fresh-pending-transaction
+                                                  "blockHash"))
+                      "Fresh side-reorg restore pending view kept old block hash")
+                     (devnet-smoke-gate-require
+                      (null (fixture-object-field fresh-pending-transaction
+                                                  "blockNumber"))
+                      "Fresh side-reorg restore pending view kept old block number")
+                     (devnet-smoke-gate-require
+                      (null (fixture-object-field fresh-pending-transaction
+                                                  "transactionIndex"))
+                      "Fresh side-reorg restore pending view kept old index"))
+                 (progn
+                   (devnet-smoke-gate-require
+                    (null fresh-raw-transaction)
+                    "Fresh side-reorg restore exposed wrong-chain raw transaction")
+                   (devnet-smoke-gate-require
+                    (null fresh-pending-transaction)
+                    "Fresh side-reorg restore exposed wrong-chain pending transaction")))
+               (devnet-smoke-gate-require
+                (null (fixture-object-field fresh-receipt-rpc "result"))
+                "Fresh side-reorg restore kept old canonical receipt")
                (list :side-block-hash (hash32-to-hex side-block-hash)
                      :side-forkchoice-status
                      (fixture-object-field side-forkchoice-status "status")
@@ -3513,6 +3643,15 @@ references/ checkouts.~%")
 	                     (quantity-to-hex (getf fresh-summary :head-number))
                      :side-restored-head-hash
                      (getf fresh-summary :head-hash)
+                     :side-restored-raw-transaction
+                     (or fresh-raw-transaction :false)
+                     :side-restored-pending-transaction
+                     (or fresh-pending-transaction :false)
+                     :side-restored-receipt
+                     (or (fixture-object-field fresh-receipt-rpc "result")
+                         :false)
+                     :side-restored-public-connections
+                     (getf fresh-rpc-summary :public-connections)
                      :engine-connections (getf summary :engine-connections)
                      :public-connections
                      (getf summary :public-connections)))))
@@ -4004,6 +4143,22 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-restored-head-hash))
+                  :rpc-side-restored-raw-transaction
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-raw-transaction))
+                  :rpc-side-restored-pending-transaction
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-pending-transaction))
+                  :rpc-side-restored-receipt
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-receipt))
+                  :rpc-side-restored-public-connections
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-public-connections))
                   :rpc-side-engine-connections
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary :engine-connections))
@@ -5484,6 +5639,30 @@ references/ checkouts.~%")
                                       :rpc-side-restored-head-hash)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideRestoredRawTransaction"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-raw-transaction)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredPendingTransaction"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-pending-transaction)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredReceipt"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-receipt)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredPublicConnections"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-public-connections)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideEngineConnections"
                         (if database-summary
                             (or (getf database-summary
@@ -6085,6 +6264,46 @@ references/ checkouts.~%")
                              report "databaseRpcSidePendingTransaction")
                             "transactionIndex"))
                      "Devnet smoke gate suite side reorg pending view kept old transaction index for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (string= (devnet-smoke-gate-field
+                               report "databaseRpcRawTransactionByHash")
+                              (devnet-smoke-gate-field
+                               report "databaseRpcSideRestoredRawTransaction"))
+                     "Devnet smoke gate suite side reorg fresh restore lost pending raw transaction for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (string= (devnet-smoke-gate-field
+                               report "databaseRpcReceiptTransactionHash")
+                              (fixture-object-field
+                               (devnet-smoke-gate-field
+                                report "databaseRpcSideRestoredPendingTransaction")
+                               "hash"))
+                     "Devnet smoke gate suite side reorg fresh restore lost pending transaction view for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (null (fixture-object-field
+                            (devnet-smoke-gate-field
+                             report
+                             "databaseRpcSideRestoredPendingTransaction")
+                            "blockHash"))
+                     "Devnet smoke gate suite side reorg fresh pending view kept old block hash for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (null (fixture-object-field
+                            (devnet-smoke-gate-field
+                             report
+                             "databaseRpcSideRestoredPendingTransaction")
+                            "blockNumber"))
+                     "Devnet smoke gate suite side reorg fresh pending view kept old block number for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (null (fixture-object-field
+                            (devnet-smoke-gate-field
+                             report
+                             "databaseRpcSideRestoredPendingTransaction")
+                            "transactionIndex"))
+                     "Devnet smoke gate suite side reorg fresh pending view kept old transaction index for ~A"
                      (devnet-smoke-gate-field report "fixtureCase")))
                   (progn
                     (devnet-smoke-gate-require
@@ -6104,11 +6323,29 @@ references/ checkouts.~%")
                       (devnet-smoke-gate-field
                        report "databaseRpcSidePendingTransaction"))
                      "Devnet smoke gate suite side reorg exposed wrong-chain pending transaction for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (devnet-smoke-gate-false-p
+                      (devnet-smoke-gate-field
+                       report "databaseRpcSideRestoredRawTransaction"))
+                     "Devnet smoke gate suite side reorg fresh restore exposed wrong-chain raw transaction for ~A"
+                     (devnet-smoke-gate-field report "fixtureCase"))
+                    (devnet-smoke-gate-require
+                     (devnet-smoke-gate-false-p
+                      (devnet-smoke-gate-field
+                       report "databaseRpcSideRestoredPendingTransaction"))
+                     "Devnet smoke gate suite side reorg fresh restore exposed wrong-chain pending transaction for ~A"
                      (devnet-smoke-gate-field report "fixtureCase"))))
               (devnet-smoke-gate-require
                (devnet-smoke-gate-false-p
                 (devnet-smoke-gate-field report "databaseRpcSideReceipt"))
                "Devnet smoke gate suite side reorg kept old receipt canonical for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (devnet-smoke-gate-false-p
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredReceipt"))
+               "Devnet smoke gate suite side reorg fresh restore kept old receipt canonical for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
                (= 3 (devnet-smoke-gate-field
@@ -6119,6 +6356,11 @@ references/ checkouts.~%")
                (= 9 (devnet-smoke-gate-field
                      report "databaseRpcSidePublicConnections"))
                "Devnet smoke gate suite side public connection count mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (= 3 (devnet-smoke-gate-field
+                     report "databaseRpcSideRestoredPublicConnections"))
+               "Devnet smoke gate suite side fresh public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
     (devnet-smoke-gate-add-run-metadata
      (list
@@ -6624,6 +6866,18 @@ references/ checkouts.~%")
         (format t "databaseRpcSideRestoredHeadHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredHeadHash"))
+        (format t "databaseRpcSideRestoredRawTransaction=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredRawTransaction"))
+        (format t "databaseRpcSideRestoredPendingTransaction=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredPendingTransaction"))
+        (format t "databaseRpcSideRestoredReceipt=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredReceipt"))
+        (format t "databaseRpcSideRestoredPublicConnections=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredPublicConnections"))
         (format t "databaseRpcSideEngineConnections=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideEngineConnections"))

@@ -177,6 +177,10 @@
                          "databaseRpcSideLogCount"
                          "databaseRpcSideRestoredHeadNumber"
                          "databaseRpcSideRestoredHeadHash"
+                         "databaseRpcSideRestoredRawTransaction"
+                         "databaseRpcSideRestoredPendingTransaction"
+                         "databaseRpcSideRestoredReceipt"
+                         "databaseRpcSideRestoredPublicConnections"
                          "databaseRpcSideEngineConnections"
                          "databaseRpcSidePublicConnections"))
           (is (eq nil (fixture-object-field report field))))
@@ -259,6 +263,36 @@
                         (fixture-object-field
                          (fixture-object-field
                           report "databaseRpcSidePendingTransaction")
+                         "transactionIndex")))
+                (is (string= (fixture-object-field
+                              report "databaseRpcRawTransactionByHash")
+                             (fixture-object-field
+                              report
+                              "databaseRpcSideRestoredRawTransaction")))
+                (is (string= (fixture-object-field
+                              report "databaseRpcReceiptTransactionHash")
+                             (fixture-object-field
+                              (fixture-object-field
+                               report
+                               "databaseRpcSideRestoredPendingTransaction")
+                              "hash")))
+                (is (eq nil
+                        (fixture-object-field
+                         (fixture-object-field
+                          report
+                          "databaseRpcSideRestoredPendingTransaction")
+                         "blockHash")))
+                (is (eq nil
+                        (fixture-object-field
+                         (fixture-object-field
+                          report
+                          "databaseRpcSideRestoredPendingTransaction")
+                         "blockNumber")))
+                (is (eq nil
+                        (fixture-object-field
+                         (fixture-object-field
+                          report
+                          "databaseRpcSideRestoredPendingTransaction")
                          "transactionIndex"))))
               (progn
                 (is (eq nil
@@ -269,15 +303,29 @@
                          report "databaseRpcSideRawTransaction")))
                 (is (eq nil
                         (fixture-object-field
-                         report "databaseRpcSidePendingTransaction")))))
+                         report "databaseRpcSidePendingTransaction")))
+                (is (eq nil
+                        (fixture-object-field
+                         report "databaseRpcSideRestoredRawTransaction")))
+                (is (eq nil
+                        (fixture-object-field
+                         report
+                         "databaseRpcSideRestoredPendingTransaction")))))
           (is (eq nil
                   (fixture-object-field report "databaseRpcSideReceipt")))
+          (is (eq nil
+                  (fixture-object-field
+                   report "databaseRpcSideRestoredReceipt")))
           (is (= 3
                  (fixture-object-field
                   report "databaseRpcSideEngineConnections")))
           (is (= 9
                  (fixture-object-field
-                  report "databaseRpcSidePublicConnections")))))))
+                  report "databaseRpcSidePublicConnections")))
+          (is (= 3
+                 (fixture-object-field
+                  report
+                  "databaseRpcSideRestoredPublicConnections")))))))
 
 (defun devnet-cli-pruned-state-error-messages ()
   '("eth_getBalance state is not available"

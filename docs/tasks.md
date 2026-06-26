@@ -4597,6 +4597,12 @@ splits can land after the Phase A smoke path closes.
     `eth_pendingTransactions` contains the displaced valid transaction as a
     pending object with no block hash, block number, or transaction index, and
     still omits wrong-chain displaced transactions.
+  - Result: extended the restored side-reorg smoke across a second KV
+    export/import boundary. After switching forkchoice to the empty sibling,
+    the gate re-exports the database, restores a fresh node, and verifies
+    `eth_getRawTransactionByHash` plus `eth_pendingTransactions` still expose
+    the displaced valid transaction as pending while
+    `eth_getTransactionReceipt` remains hidden.
   - Result: locked the core Engine forkchoice reinsertion event boundary for
     pending filters. A JSON-RPC-created `eth_newPendingTransactionFilter` now
     has regression coverage proving a forkchoice reorg that reinserts a

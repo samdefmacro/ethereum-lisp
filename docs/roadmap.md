@@ -303,12 +303,14 @@ fixes in those areas are allowed; expansion is not.
   restored database gate now imports an executed empty sibling through
   authenticated Engine RPC, switches forkchoice to that sibling, verifies
   displaced transaction, raw-transaction hash lookup, and
-  `eth_pendingTransactions` visibility become pending, with the core Engine
-  forkchoice path also covered for pending-filter notification of reinserted
-  displaced transactions, while receipt, latest block-receipt, and log queries
-  follow the side head and the old child block remains hash-readable, rejects
-  a non-ancestor `safe` checkpoint update before the valid switch, re-exports
-  the database, and checks a fresh node restores the sibling as canonical head.
+  `eth_pendingTransactions` visibility become pending, re-exports the side
+  database, and checks a fresh node keeps those pending raw/pool views while
+  hiding the old receipt. The core Engine forkchoice path is also covered for
+  pending-filter notification of reinserted displaced transactions, while
+  receipt, latest block-receipt, and log queries follow the side head and the
+  old child block remains hash-readable, rejects a non-ancestor `safe`
+  checkpoint update before the valid switch, re-exports the database, and
+  checks a fresh node restores the sibling as canonical head.
   Restored executable-code cases also probe an under-gassed `eth_call` and
   assert the public RPC reports the retained non-revert execution failure as a
   JSON-RPC error.
