@@ -1604,6 +1604,8 @@
          (transaction (fixture-object-field report "transaction"))
          (blockchain (fixture-object-field report "blockchain"))
          (devnet (fixture-object-field report "devnet"))
+         (devnet-side-reorg
+           (fixture-object-field report "devnetSideReorg"))
          (fixture-case-count
            (+ (phase-a-smoke-gate-section-count state "count")
               (phase-a-smoke-gate-section-count transaction "count")
@@ -1615,14 +1617,23 @@
          (devnet-case-count
            (if devnet
                (phase-a-smoke-gate-section-count devnet "caseCount")
+               0))
+         (devnet-side-reorg-case-count
+           (if devnet-side-reorg
+               (phase-a-smoke-gate-section-count
+                devnet-side-reorg "sideReorgCaseCount")
                0)))
     (is (= fixture-case-count
            (fixture-object-field report "fixtureCaseCount")))
     (is (= fixture-executed-count
            (fixture-object-field report "fixtureExecutedCount")))
-    (is (= (+ fixture-case-count devnet-case-count)
+    (is (= (+ fixture-case-count
+              devnet-case-count
+              devnet-side-reorg-case-count)
            (fixture-object-field report "totalCaseCount")))
-    (is (= (+ fixture-executed-count devnet-case-count)
+    (is (= (+ fixture-executed-count
+              devnet-case-count
+              devnet-side-reorg-case-count)
            (fixture-object-field report "totalExecutedCount")))))
 
 (defun phase-a-smoke-gate-assert-in-repo-fixture-counts (report)
@@ -2901,6 +2912,8 @@
                (reference-clients
                  (fixture-object-field report "referenceClients"))
                (devnet (fixture-object-field report "devnet"))
+               (devnet-side-reorg
+                 (fixture-object-field report "devnetSideReorg"))
                (cases (fixture-object-field devnet "cases")))
         (is (string= "ok" (fixture-object-field report "status")))
         (is (string= "in-repo" (fixture-object-field report "mode")))
@@ -2938,6 +2951,16 @@
         (devnet-cli-assert-pruned-state-suite
          devnet cases prune-boundary)
         (is (= 0 (fixture-object-field devnet "sideReorgCaseCount")))
+        (is (string= "ok"
+                     (fixture-object-field devnet-side-reorg "status")))
+        (is (string= "devnet-listener-boundary"
+                     (fixture-object-field devnet-side-reorg "mode")))
+        (is (string= "shanghai-dynamic-fee-transfer-with-withdrawal"
+                     (fixture-object-field
+                      devnet-side-reorg "fixtureCase")))
+        (is (= 1 (fixture-object-field
+                  devnet-side-reorg "sideReorgCaseCount")))
+        (devnet-cli-assert-side-reorg-persistence devnet-side-reorg)
         (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
@@ -3201,14 +3224,21 @@
       (is (string= "" stderr))
       (when (= 0 status)
         (let* ((report (parse-json stdout))
-               (devnet (fixture-object-field report "devnet")))
+               (devnet (fixture-object-field report "devnet"))
+               (devnet-side-reorg
+                 (fixture-object-field report "devnetSideReorg")))
           (is (string= "ok" (fixture-object-field report "status")))
           (phase-a-smoke-gate-assert-counts report)
           (is (string= "ok" (fixture-object-field devnet "status")))
           (is (string= "devnet-listener-boundary-suite"
                        (fixture-object-field devnet "mode")))
           (is (= 0 (fixture-object-field
-                    devnet "sideReorgCaseCount"))))))))
+                    devnet "sideReorgCaseCount")))
+          (is (string= "ok"
+                       (fixture-object-field
+                        devnet-side-reorg "status")))
+          (is (= 1 (fixture-object-field
+                    devnet-side-reorg "sideReorgCaseCount"))))))))
 
 (deftest phase-a-smoke-gate-text-output-includes-aggregate-counts
   #-sbcl

@@ -18,6 +18,8 @@
 (defconstant +smoke-gate-eest-tag-target+ "88e9fb8")
 (defconstant +smoke-gate-eest-archive+ "fixtures_stable.tar.gz")
 (defconstant +smoke-gate-devnet-prune-state-before+ 42)
+(defconstant +smoke-gate-devnet-side-reorg-fixture-case+
+  "shanghai-dynamic-fee-transfer-with-withdrawal")
 
 (defun smoke-gate-arguments ()
   #+sbcl
@@ -705,6 +707,25 @@ references/ checkouts.~%"))
             (smoke-gate-validate-devnet-side-reorg-cases
              report expected-count))))))
 
+(defun smoke-gate-devnet-script-json (arguments)
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (append
+        (list "sbcl"
+              "--script"
+              (namestring
+               (smoke-gate-reference-path
+                "scripts/devnet-smoke-gate.lisp"))
+              "--"
+              "--json")
+        arguments)
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (unless (= 0 status)
+      (error "Devnet smoke gate failed with status ~D: ~A" status stderr))
+    (smoke-gate-json-decode stdout)))
+
 (defun smoke-gate-devnet-summary ()
   (let ((ready-file
           (namestring
@@ -724,34 +745,22 @@ references/ checkouts.~%"))
                                  "sexp")))
         (report nil))
     (unwind-protect
-         (multiple-value-bind (stdout stderr status)
-             (uiop:run-program
-              (list "sbcl"
-                    "--script"
-                    (namestring
-                     (smoke-gate-reference-path
-                      "scripts/devnet-smoke-gate.lisp"))
-                    "--"
-                    "--json"
-                    "--all-fixtures"
-                    "--ready-file"
-                    ready-file
-                    "--log-file"
-                    log-file
-                    "--pid-file"
-                    pid-file
-                    "--database"
-                    database-file
-                    "--prune-state-before"
-                    (write-to-string
-                     +smoke-gate-devnet-prune-state-before+))
-              :output :string
-              :error-output :string
-              :ignore-error-status t)
-           (unless (= 0 status)
-             (error "Devnet smoke gate failed with status ~D: ~A"
-                    status stderr))
-           (setf report (smoke-gate-json-decode stdout))
+         (progn
+           (setf report
+                 (smoke-gate-devnet-script-json
+                  (list
+                   "--all-fixtures"
+                   "--ready-file"
+                   ready-file
+                   "--log-file"
+                   log-file
+                   "--pid-file"
+                   pid-file
+                   "--database"
+                   database-file
+                   "--prune-state-before"
+                   (write-to-string
+                    +smoke-gate-devnet-prune-state-before+))))
            (smoke-gate-validate-devnet-summary
             report
             ready-file
@@ -767,10 +776,79 @@ references/ checkouts.~%"))
       (smoke-gate-delete-file-if-present pid-file)
       (smoke-gate-delete-file-if-present database-file))))
 
+(defun smoke-gate-validate-devnet-side-reorg-summary
+    (report ready-file log-file pid-file database-file)
+  (unless (string= "ok" (smoke-gate-field report "status"))
+    (error "Devnet side-reorg smoke gate returned non-ok status: ~S"
+           report))
+  (smoke-gate-devnet-require-field
+   report "mode" "devnet-listener-boundary")
+  (smoke-gate-devnet-require-field
+   report "fixtureCase" +smoke-gate-devnet-side-reorg-fixture-case+)
+  (smoke-gate-devnet-require-field report "readyFile" ready-file)
+  (smoke-gate-devnet-require-field report "logFile" log-file)
+  (smoke-gate-devnet-require-field report "pidFile" pid-file)
+  (smoke-gate-devnet-require-field report "databaseFile" database-file)
+  (smoke-gate-devnet-case-require-false
+   report "databasePruneStateBefore")
+  (let ((side-reorg-count
+          (smoke-gate-devnet-validate-side-reorg-case report)))
+    (unless (= 1 side-reorg-count)
+      (error "Devnet side-reorg smoke gate must cover one case, got ~D"
+             side-reorg-count))
+    (append
+     report
+     (list (cons "sideReorgCaseCount" side-reorg-count)))))
+
+(defun smoke-gate-devnet-side-reorg-summary ()
+  (let ((ready-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-side-reorg-ready"
+                                 "json")))
+        (log-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-side-reorg"
+                                 "log")))
+        (pid-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-side-reorg"
+                                 "pid")))
+        (database-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-side-reorg-chain"
+                                 "sexp")))
+        (report nil))
+    (unwind-protect
+         (progn
+           (setf report
+                 (smoke-gate-devnet-script-json
+                  (list
+                   "--fixture-case"
+                   +smoke-gate-devnet-side-reorg-fixture-case+
+                   "--ready-file"
+                   ready-file
+                   "--log-file"
+                   log-file
+                   "--pid-file"
+                   pid-file
+                   "--database"
+                   database-file)))
+           (smoke-gate-validate-devnet-side-reorg-summary
+            report
+            ready-file
+            log-file
+            pid-file
+            database-file))
+      (smoke-gate-delete-file-if-present ready-file)
+      (smoke-gate-delete-file-if-present log-file)
+      (smoke-gate-delete-file-if-present pid-file)
+      (smoke-gate-delete-file-if-present database-file))))
+
 (defun smoke-gate-numeric-field (object field)
   (or (smoke-gate-field object field) 0))
 
-(defun smoke-gate-report-counts (state transaction blockchain devnet)
+(defun smoke-gate-report-counts
+    (state transaction blockchain devnet devnet-side-reorg)
   (let* ((fixture-case-count
            (+ (smoke-gate-numeric-field state "count")
               (smoke-gate-numeric-field transaction "count")
@@ -780,20 +858,32 @@ references/ checkouts.~%"))
               (smoke-gate-numeric-field transaction "executedCount")
               (smoke-gate-numeric-field blockchain "executedCount")))
          (devnet-case-count
-           (if devnet (smoke-gate-numeric-field devnet "caseCount") 0)))
+           (if devnet (smoke-gate-numeric-field devnet "caseCount") 0))
+         (devnet-side-reorg-case-count
+           (if devnet-side-reorg
+               (smoke-gate-numeric-field
+                devnet-side-reorg "sideReorgCaseCount")
+               0)))
     (list
      (cons "fixtureCaseCount" fixture-case-count)
      (cons "fixtureExecutedCount" fixture-executed-count)
-     (cons "totalCaseCount" (+ fixture-case-count devnet-case-count))
+     (cons "totalCaseCount"
+           (+ fixture-case-count
+              devnet-case-count
+              devnet-side-reorg-case-count))
      (cons "totalExecutedCount"
-           (+ fixture-executed-count devnet-case-count)))))
+           (+ fixture-executed-count
+              devnet-case-count
+              devnet-side-reorg-case-count)))))
 
 (defun smoke-gate-report (suite-root pinned-p &key devnet-p)
   (let ((state (smoke-gate-state-summary suite-root (not pinned-p)))
         (transaction
           (smoke-gate-transaction-summary suite-root (not pinned-p)))
         (blockchain (smoke-gate-blockchain-summary suite-root pinned-p))
-        (devnet (and devnet-p (smoke-gate-devnet-summary))))
+        (devnet (and devnet-p (smoke-gate-devnet-summary)))
+        (devnet-side-reorg
+          (and devnet-p (smoke-gate-devnet-side-reorg-summary))))
     (append
      (list
       (cons "suiteRoot" suite-root)
@@ -805,9 +895,12 @@ references/ checkouts.~%"))
       (cons "state" state)
       (cons "transaction" transaction)
       (cons "blockchain" blockchain))
-     (smoke-gate-report-counts state transaction blockchain devnet)
+     (smoke-gate-report-counts
+      state transaction blockchain devnet devnet-side-reorg)
      (when devnet
-       (list (cons "devnet" devnet))))))
+       (list (cons "devnet" devnet)))
+     (when devnet-side-reorg
+       (list (cons "devnetSideReorg" devnet-side-reorg))))))
 
 (defun smoke-gate-print-text (report)
   (let ((state (smoke-gate-field report "state"))
@@ -816,7 +909,8 @@ references/ checkouts.~%"))
         (execution-spec-tests
           (smoke-gate-field report "executionSpecTests"))
         (reference-clients (smoke-gate-field report "referenceClients"))
-        (devnet (smoke-gate-field report "devnet")))
+        (devnet (smoke-gate-field report "devnet"))
+        (devnet-side-reorg (smoke-gate-field report "devnetSideReorg")))
     (format t "~&status=~A~%" (smoke-gate-field report "status"))
     (format t "suiteRoot=~A~%" (smoke-gate-field report "suiteRoot"))
     (format t "mode=~A~%" (smoke-gate-field report "mode"))
@@ -877,10 +971,18 @@ references/ checkouts.~%"))
       (format t "devnetDatabaseRpcPrunedStateErrorCaseCount=~D~%"
               (smoke-gate-field
                devnet "databaseRpcPrunedStateErrorCaseCount"))
-      (format t "devnetSideReorgCaseCount=~D~%"
+      (format t "devnetSuiteSideReorgCaseCount=~D~%"
               (smoke-gate-field devnet "sideReorgCaseCount"))
       (format t "devnetTotalConnections=~D~%"
-              (smoke-gate-field devnet "totalConnections")))))
+              (smoke-gate-field devnet "totalConnections")))
+    (when devnet-side-reorg
+      (format t "devnetSideReorgStatus=~A~%"
+              (smoke-gate-field devnet-side-reorg "status"))
+      (format t "devnetSideReorgFixtureCase=~A~%"
+              (smoke-gate-field devnet-side-reorg "fixtureCase"))
+      (format t "devnetSideReorgCaseCount=~D~%"
+              (smoke-gate-field
+               devnet-side-reorg "sideReorgCaseCount")))))
 
 (defun smoke-gate-main ()
   (let* ((args (smoke-gate-arguments))

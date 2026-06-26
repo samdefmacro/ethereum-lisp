@@ -491,6 +491,11 @@ ones.
     current pruned Phase A parent run, must leave every side-reorg field empty.
     JSON/text output reports `sideReorgCaseCount` for accepted side-reorg
     evidence.
+  - Result: Phase A `--devnet` mode now runs a dedicated non-pruned
+    side-reorg devnet probe in addition to the pruned all-fixtures suite. The
+    pruned suite continues to report `sideReorgCaseCount=0`, while the new
+    top-level `devnetSideReorg` section executes one database-backed
+    side-reorg case and is included in aggregate total case/executed counts.
   - Result: hardened pinned smoke-gate root handling. `--pinned-v5.4.0` now
     requires an explicit `--root PATH` or
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent

@@ -338,7 +338,10 @@ fixes in those areas are allowed; expansion is not.
   transaction reinsertion, safe/finalized checkpoint preservation, or fresh
   restore public-read consistency. The current pruned parent run skips those
   side probes and reports `sideReorgCaseCount` as zero instead of implying
-  coverage it did not execute.
+  coverage it did not execute; a separate top-level `devnetSideReorg` section
+  now runs one non-pruned database-backed side-reorg probe so the Phase A
+  parent gate covers both pruned retained-state behavior and restored reorg
+  behavior in the same command.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected
