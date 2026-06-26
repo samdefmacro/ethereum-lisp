@@ -6700,10 +6700,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :error
    (engine-rpc-error-object -32600 "Invalid Request")))
 
+(defun engine-rpc-jsonrpc-version-valid-p (request)
+  (let ((version (genesis-object-field request "jsonrpc")))
+    (and (genesis-object-field-present-p request "jsonrpc")
+         (stringp version)
+         (string= "2.0" version))))
+
 (defun engine-rpc-notification-request-p (request)
   (and (json-object-p request)
+       (engine-rpc-jsonrpc-version-valid-p request)
        (not (genesis-object-field-present-p request "id"))
-       (genesis-object-field-present-p request "method")))
+       (stringp (genesis-object-field request "method"))))
 
 (defun engine-rpc-string-prefix-p (prefix string)
   (and (<= (length prefix) (length string))
@@ -6736,6 +6743,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   (unless (listp request)
                     (block-validation-fail
                      "JSON-RPC request must be an object"))
+                  (unless (engine-rpc-jsonrpc-version-valid-p request)
+                    (return-from engine-rpc-handle-request
+                      (engine-rpc-invalid-request-response)))
                   (let* ((method (engine-rpc-required-field request "method"))
                          (params (or (genesis-object-field request "params")
                                      '())))

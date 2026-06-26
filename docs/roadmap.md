@@ -198,9 +198,10 @@ fixes in those areas are allowed; expansion is not.
   validation, keeping authenticated listener behavior single-valued, and HTTP
   responses explicitly advertise `Connection: close` to match the current
   one-request-per-accepted-connection serving contract. The generic JSON-RPC
-  envelope now treats id-less method requests as notifications, executing them
-  without emitting singleton, mixed-batch, or all-notification batch response
-  bodies. The
+  envelope now requires the `"jsonrpc"` version field to be `"2.0"` before
+  dispatch and treats valid id-less method requests as notifications, executing
+  them without emitting singleton, mixed-batch, or all-notification batch
+  response bodies. The
   key-value
   database now has a stable chain-record namespace for block/header/receipt,
   canonical-hash, checkpoint, state, and transaction-location records, giving

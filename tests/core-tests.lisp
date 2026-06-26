@@ -9851,6 +9851,39 @@
         (is (= 9 (field response "id")))
         (is (= -32601 (field error "code")))
         (is (string= "Method not found" (field error "message"))))
+      (let* ((missing-version-json
+               (engine-rpc-handle-request-json
+                "{\"id\":12,\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config))
+             (missing-version-response (parse-json missing-version-json))
+             (missing-version-error
+               (field missing-version-response "error"))
+             (bad-version-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"1.0\",\"id\":13,\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config))
+             (bad-version-response (parse-json bad-version-json))
+             (bad-version-error (field bad-version-response "error"))
+             (numeric-version-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":2,\"id\":14,\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config))
+             (numeric-version-response (parse-json numeric-version-json))
+             (numeric-version-error (field numeric-version-response "error"))
+             (malformed-no-id-json
+               (engine-rpc-handle-request-json
+                "{\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config))
+             (malformed-no-id-response (parse-json malformed-no-id-json))
+             (malformed-no-id-error (field malformed-no-id-response "error")))
+        (is (= -32600 (field missing-version-error "code")))
+        (is (= -32600 (field bad-version-error "code")))
+        (is (= -32600 (field numeric-version-error "code")))
+        (is (= -32600 (field malformed-no-id-error "code"))))
       (let* ((batch-json
                (engine-rpc-handle-request-json
                 "[{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"engine_nope\",\"params\":[]},7]"
