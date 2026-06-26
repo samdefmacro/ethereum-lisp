@@ -4193,6 +4193,11 @@ splits can land after the Phase A smoke path closes.
     below the RPC admission boundary cannot be exposed through
     `eth_pendingTransactions`, `txpool_content`, `txpool_contentFrom`, or
     hash lookup.
+  - Progress: public txpool list/content views now filter configured-chain
+    invalid pooled entries before rendering sender/nonce buckets. Directly
+    inserted wrong-chain entries produce empty `eth_pendingTransactions`,
+    `txpool_content`, and `txpool_contentFrom` results instead of leaking
+    transaction objects, empty sender buckets, or RPC errors before cleanup.
   - Progress: `eth_getRawTransactionByHash` now applies the same configured
     chain-ID sender recovery check before returning pooled local transaction
     bytes. Wrong-chain txpool entries inserted below admission are hidden even

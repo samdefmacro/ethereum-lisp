@@ -18133,7 +18133,10 @@
 
 (deftest eth-rpc-transaction-objects-enforce-configured-chain-id
   (labels ((field (object name)
-             (cdr (assoc name object :test #'string=))))
+             (cdr (assoc name object :test #'string=)))
+           (empty-object-p (object)
+             (or (null object)
+                 (typep object 'ethereum-lisp.core::json-empty-object))))
     (let* ((store (make-engine-payload-memory-store))
            (recipient
              (address-from-hex "0x3535353535353535353535353535353535353535"))
@@ -18187,11 +18190,12 @@
                   "\"params\":[\"" transaction-hash-hex "\"]}")
                  store
                  config))))
-        (dolist (response (list pending-response
-                                content-response
-                                content-from-response
-                                by-hash-response))
-          (is (= -32602 (field (field response "error") "code"))))))))
+        (is (= 0 (length (field pending-response "result"))))
+        (dolist (response (list content-response content-from-response))
+          (let ((result (field response "result")))
+            (is (empty-object-p (field result "pending")))
+            (is (empty-object-p (field result "queued")))))
+        (is (null (field by-hash-response "result")))))))
 
 (deftest eth-rpc-send-raw-transaction
   (labels ((field (object name)
@@ -21746,6 +21750,9 @@
 (deftest txpool-promotion-drops-wrong-chain-queued-transaction
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
+           (empty-object-p (object)
+             (or (null object)
+                 (typep object 'ethereum-lisp.core::json-empty-object)))
            (send-raw (transaction id store config)
              (parse-json
               (engine-rpc-handle-request-json
@@ -21790,6 +21797,8 @@
            (wrong-chain-hash
              (hash32-to-hex (transaction-hash wrong-chain-nonce-one)))
            (sender (transaction-sender nonce-zero :expected-chain-id 1))
+           (wrong-chain-sender
+             (transaction-sender wrong-chain-nonce-one :expected-chain-id 2))
            (head-block
              (make-block
               :header (make-block-header :number 0
@@ -21813,16 +21822,36 @@
                "{\"jsonrpc\":\"2.0\",\"id\":187,\"method\":\"txpool_status\",\"params\":[]}"
                store
                config))
+            (wrong-chain-pre-cleanup-pending-response
+              (request
+               "{\"jsonrpc\":\"2.0\",\"id\":188,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+               store
+               config))
+            (wrong-chain-pre-cleanup-content-response
+              (request
+               "{\"jsonrpc\":\"2.0\",\"id\":189,\"method\":\"txpool_content\",\"params\":[]}"
+               store
+               config))
+            (wrong-chain-pre-cleanup-content-from-response
+              (request
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":190,"
+                "\"method\":\"txpool_contentFrom\",\"params\":[\""
+                (address-to-hex wrong-chain-sender)
+                "\"]}")
+               store
+               config))
             (wrong-chain-pre-cleanup-inspect-response
               (request
-               "{\"jsonrpc\":\"2.0\",\"id\":188,\"method\":\"txpool_inspect\",\"params\":[]}"
+               "{\"jsonrpc\":\"2.0\",\"id\":191,\"method\":\"txpool_inspect\",\"params\":[]}"
                store
                config))
             (wrong-chain-pre-cleanup-lookup-response
               (request
                (concatenate
                 'string
-                "{\"jsonrpc\":\"2.0\",\"id\":189,"
+                "{\"jsonrpc\":\"2.0\",\"id\":192,"
                 "\"method\":\"eth_getTransactionByHash\","
                 "\"params\":[\"" wrong-chain-hash "\"]}")
                store
@@ -21831,7 +21860,7 @@
               (request
                (concatenate
                 'string
-                "{\"jsonrpc\":\"2.0\",\"id\":190,"
+                "{\"jsonrpc\":\"2.0\",\"id\":193,"
                 "\"method\":\"eth_getRawTransactionByHash\","
                 "\"params\":[\"" wrong-chain-hash "\"]}")
                store
@@ -21840,10 +21869,14 @@
                              "result")))
           (is (string= (quantity-to-hex 0) (field status "pending")))
           (is (string= (quantity-to-hex 0) (field status "queued"))))
-        (is (= -32602
-               (field (field wrong-chain-pre-cleanup-inspect-response
-                             "error")
-                      "code")))
+        (is (= 0 (length (field wrong-chain-pre-cleanup-pending-response
+                                "result"))))
+        (dolist (response (list wrong-chain-pre-cleanup-content-response
+                                wrong-chain-pre-cleanup-content-from-response
+                                wrong-chain-pre-cleanup-inspect-response))
+          (let ((result (field response "result")))
+            (is (empty-object-p (field result "pending")))
+            (is (empty-object-p (field result "queued")))))
         (is (null (field wrong-chain-pre-cleanup-lookup-response "result")))
         (is (null (field wrong-chain-pre-cleanup-raw-response "result"))))
       (let* ((send-response (send-raw nonce-zero 189 store config))

@@ -1522,11 +1522,13 @@
 (defun eth-rpc-pending-transaction-objects
     (transactions &key expected-chain-id)
   (eth-rpc-json-array
-   (mapcar (lambda (transaction)
-             (eth-rpc-pending-transaction-object
-              transaction
-              :expected-chain-id expected-chain-id))
-           transactions)))
+   (loop for transaction in transactions
+         when (transaction-sender
+               transaction
+               :expected-chain-id expected-chain-id)
+           collect (eth-rpc-pending-transaction-object
+                    transaction
+                    :expected-chain-id expected-chain-id))))
 
 (defun eth-rpc-hash-table-object (table)
   (if (zerop (hash-table-count table))
@@ -1542,17 +1544,18 @@
 
 (defun txpool-rpc-indexed-nonce-transactions
     (sender-transactions value-function)
-  (if (or (null sender-transactions)
-          (zerop (hash-table-count sender-transactions)))
-      +json-empty-object+
-      (loop for nonce in (sort (loop for nonce being the hash-keys
-                                       of sender-transactions
-                                     collect nonce)
-                               #'txpool-rpc-nonce-key<)
-            collect
-            (cons nonce
-                  (funcall value-function
-                           (gethash nonce sender-transactions))))))
+  (let ((entries
+          (unless (or (null sender-transactions)
+                      (zerop (hash-table-count sender-transactions)))
+            (loop for nonce in (sort (loop for nonce being the hash-keys
+                                             of sender-transactions
+                                           collect nonce)
+                                     #'txpool-rpc-nonce-key<)
+                  for value = (funcall value-function
+                                       (gethash nonce sender-transactions))
+                  when value
+                    collect (cons nonce value)))))
+    (or entries +json-empty-object+)))
 
 (defun txpool-rpc-indexed-nonce-transactions-from-sender-indexes
     (address value-function &rest sender-indexes)
@@ -1571,17 +1574,19 @@
 
 (defun txpool-rpc-indexed-sender-transactions
     (sender-index value-function)
-  (if (zerop (hash-table-count sender-index))
-      +json-empty-object+
-      (loop for sender in (sort (loop for sender being the hash-keys
-                                        of sender-index
-                                      collect sender)
-                                #'string<)
-            collect
-            (cons sender
-                  (txpool-rpc-indexed-nonce-transactions
-                   (gethash sender sender-index)
-                   value-function)))))
+  (let ((entries
+          (unless (zerop (hash-table-count sender-index))
+            (loop for sender in (sort (loop for sender being the hash-keys
+                                              of sender-index
+                                            collect sender)
+                                      #'string<)
+                  for transactions =
+                    (txpool-rpc-indexed-nonce-transactions
+                     (gethash sender sender-index)
+                     value-function)
+                  unless (json-empty-object-p transactions)
+                    collect (cons sender transactions)))))
+    (or entries +json-empty-object+)))
 
 (defun txpool-rpc-indexed-sender-transactions-from-indexes
     (value-function &rest sender-indexes)
@@ -1603,26 +1608,29 @@
      value-function)))
 
 (defun txpool-rpc-transaction-summary (transaction &key expected-chain-id)
-  (eth-rpc-transaction-sender
-   transaction
-   :expected-chain-id expected-chain-id)
-  (let ((to (transaction-to transaction)))
-    (format nil "~A: ~D wei + ~D gas x ~D wei"
-            (if to
-                (address-to-hex to)
-                "contract creation")
-            (transaction-value transaction)
-            (transaction-gas-limit transaction)
-            (transaction-max-fee-per-gas transaction))))
+  (when (transaction-sender
+         transaction
+         :expected-chain-id expected-chain-id)
+    (let ((to (transaction-to transaction)))
+      (format nil "~A: ~D wei + ~D gas x ~D wei"
+              (if to
+                  (address-to-hex to)
+                  "contract creation")
+              (transaction-value transaction)
+              (transaction-gas-limit transaction)
+              (transaction-max-fee-per-gas transaction)))))
 
 (defun txpool-rpc-indexed-content-transactions
     (sender-index &key expected-chain-id)
   (txpool-rpc-indexed-sender-transactions
    sender-index
    (lambda (transaction)
-     (eth-rpc-pending-transaction-object
-      transaction
-      :expected-chain-id expected-chain-id))))
+     (when (transaction-sender
+            transaction
+            :expected-chain-id expected-chain-id)
+       (eth-rpc-pending-transaction-object
+        transaction
+        :expected-chain-id expected-chain-id)))))
 
 (defun txpool-rpc-indexed-inspect-transactions
     (sender-index &key expected-chain-id)
@@ -1993,9 +2001,12 @@
      (cons "queued"
            (txpool-rpc-indexed-sender-transactions-from-indexes
             (lambda (transaction)
-              (eth-rpc-pending-transaction-object
-               transaction
-               :expected-chain-id chain-id))
+              (when (transaction-sender
+                     transaction
+                     :expected-chain-id chain-id)
+                (eth-rpc-pending-transaction-object
+                 transaction
+                 :expected-chain-id chain-id)))
             (engine-payload-store-queued-sender-index store)
             (engine-payload-store-basefee-sender-index store)
             (engine-payload-store-blob-sender-index store))))))
@@ -2014,16 +2025,22 @@
              (address-to-hex address)
              (engine-payload-store-pending-transactions-by-sender store))
             (lambda (transaction)
-              (eth-rpc-pending-transaction-object
-               transaction
-               :expected-chain-id chain-id))))
+              (when (transaction-sender
+                     transaction
+                     :expected-chain-id chain-id)
+                (eth-rpc-pending-transaction-object
+                 transaction
+                 :expected-chain-id chain-id)))))
      (cons "queued"
            (txpool-rpc-indexed-nonce-transactions-from-sender-indexes
             address
             (lambda (transaction)
-              (eth-rpc-pending-transaction-object
-               transaction
-               :expected-chain-id chain-id))
+              (when (transaction-sender
+                     transaction
+                     :expected-chain-id chain-id)
+                (eth-rpc-pending-transaction-object
+                 transaction
+                 :expected-chain-id chain-id)))
             (engine-payload-store-queued-sender-index store)
             (engine-payload-store-basefee-sender-index store)
             (engine-payload-store-blob-sender-index store))))))
