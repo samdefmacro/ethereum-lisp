@@ -21743,6 +21743,113 @@
           (is (= 1 (length filter-hashes)))
           (is (string= transaction-hash (first filter-hashes))))))))
 
+(deftest txpool-promotion-drops-wrong-chain-queued-transaction
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (send-raw (transaction id store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+                ",\"method\":\"eth_sendRawTransaction\","
+                "\"params\":[\""
+                (bytes-to-hex (transaction-encoding transaction))
+                "\"]}")
+               store
+               config)))
+           (request (json store config)
+             (parse-json
+              (engine-rpc-handle-request-json json store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (nonce-zero
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              1))
+           (wrong-chain-nonce-one
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              1
+              2))
+           (nonce-zero-hash
+             (hash32-to-hex (transaction-hash nonce-zero)))
+           (wrong-chain-hash
+             (hash32-to-hex (transaction-hash wrong-chain-nonce-one)))
+           (sender (transaction-sender nonce-zero :expected-chain-id 1))
+           (head-block
+             (make-block
+              :header (make-block-header :number 0
+                                         :timestamp 0
+                                         :gas-limit 30000000))))
+      (is (null (transaction-sender
+                 wrong-chain-nonce-one
+                 :expected-chain-id 1)))
+      (chain-store-put-block store head-block :state-available-p t)
+      (chain-store-put-account-nonce store (block-hash head-block) sender 0)
+      (chain-store-put-account-balance
+       store (block-hash head-block) sender 1000000)
+      (ethereum-lisp.core::engine-payload-store-put-queued-transaction
+       store
+       wrong-chain-nonce-one)
+      (is (= 1
+             (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+              store)))
+      (let* ((send-response (send-raw nonce-zero 189 store config))
+             (status-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":190,\"method\":\"txpool_status\",\"params\":[]}"
+                store
+                config))
+             (content-response
+               (request
+                "{\"jsonrpc\":\"2.0\",\"id\":191,\"method\":\"txpool_content\",\"params\":[]}"
+                store
+                config))
+             (wrong-chain-lookup-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":192,"
+                 "\"method\":\"eth_getTransactionByHash\","
+                 "\"params\":[\"" wrong-chain-hash "\"]}")
+                store
+                config))
+             (wrong-chain-raw-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":193,"
+                 "\"method\":\"eth_getRawTransactionByHash\","
+                 "\"params\":[\"" wrong-chain-hash "\"]}")
+                store
+                config))
+             (status (field status-response "result"))
+             (content (field content-response "result"))
+             (pending
+               (field (field content "pending") (address-to-hex sender))))
+        (is (string= nonce-zero-hash (field send-response "result")))
+        (is (string= (quantity-to-hex 1) (field status "pending")))
+        (is (string= (quantity-to-hex 0) (field status "queued")))
+        (is (string= nonce-zero-hash
+                     (field (field pending "0") "hash")))
+        (is (null (field content "queued")))
+        (is (null (field wrong-chain-lookup-response "result")))
+        (is (null (field wrong-chain-raw-response "result")))))))
+
 (deftest eth-rpc-get-transaction-receipt
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

@@ -1915,9 +1915,11 @@
           (t
            (engine-payload-store-put-pending-transaction store transaction)
            (engine-payload-store-promote-queued-transactions
-            store sender)
+            store sender
+            :expected-chain-id (chain-config-chain-id config))
            (engine-payload-store-promote-basefee-and-queued-transactions
-            store)))))
+            store
+            :expected-chain-id (chain-config-chain-id config))))))
     (hash32-to-hex hash)))
 
 (defun eth-rpc-txpool-queued-view-transactions (store)

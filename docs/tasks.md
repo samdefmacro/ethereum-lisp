@@ -4193,6 +4193,11 @@ splits can land after the Phase A smoke path closes.
     below the RPC admission boundary cannot be exposed through
     `eth_pendingTransactions`, `txpool_content`, `txpool_contentFrom`, or
     hash lookup.
+  - Progress: txpool maintenance and promotion paths now carry the configured
+    chain ID through canonical-head cleanup, KV restore consistency,
+    displaced-transaction reinsertion, and RPC-triggered queued/basefee
+    promotion. Wrong-chain entries inserted below admission are dropped before
+    they can be promoted or retained by maintenance.
   - Progress: the devnet smoke gate's internal restored-database probes now
     import fixture-generated KV snapshots with the same fixture chain config
     used for the original Engine/RPC run, so the production `--database`

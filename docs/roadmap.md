@@ -890,7 +890,11 @@ first pass, but interfaces must not block that path.
   public transaction-object RPC path now also recovers senders with the
   configured chain ID, preventing wrong-chain local txpool entries inserted
   below RPC admission from being exposed through pending, txpool content, or
-  hash lookup views.
+  hash lookup views. Txpool maintenance and promotion now carry the configured
+  chain ID through canonical-head cleanup, KV restore consistency,
+  displaced-transaction reinsertion, and RPC-triggered queued/basefee
+  promotion, dropping wrong-chain local entries before they can be retained or
+  promoted.
   The smoke gate's fixture-only restored-database probes explicitly reuse the
   fixture chain config when importing their generated KV snapshots, preserving
   strict production `--database` genesis chain-ID restore behavior while

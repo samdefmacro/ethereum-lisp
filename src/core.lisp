@@ -2564,7 +2564,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           store transaction)
          (engine-payload-store-put-basefee-transaction store transaction))
         ((not (engine-payload-store-transaction-executable-nonce-p
-               store transaction))
+               store transaction
+               :expected-chain-id expected-chain-id))
          (engine-payload-store-put-queued-transaction store transaction))
         (t
          (engine-payload-store-put-pending-transaction store transaction))))))
@@ -2991,9 +2992,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (engine-payload-store-remove-new-head-invalid-txpool-transactions
        store
        :chain-config chain-config)
-      (engine-payload-store-revalidate-pending-transactions store)
-      (engine-payload-store-promote-queued-transactions store)
-      (engine-payload-store-promote-basefee-and-queued-transactions store)
+      (engine-payload-store-revalidate-pending-transactions
+       store
+       :expected-chain-id expected-chain-id)
+      (engine-payload-store-promote-queued-transactions
+       store
+       nil
+       :expected-chain-id expected-chain-id)
+      (engine-payload-store-promote-basefee-and-queued-transactions
+       store
+       :expected-chain-id expected-chain-id)
       (when head-changed-p
         (engine-payload-store-notify-block-filters store head-block))
       head-block)))
@@ -4621,16 +4629,25 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :expected-chain-id expected-chain-id
      :chain-config chain-config)))
 
-(defun chain-store-restore-txpool-consistency (store &key chain-config)
+(defun chain-store-restore-txpool-consistency
+    (store &key expected-chain-id chain-config)
   (let ((head (chain-store-latest-block store)))
     (when head
       (engine-payload-store-remove-new-head-invalid-txpool-transactions
        store
+       :expected-chain-id expected-chain-id
        :chain-config chain-config)
       (when (chain-store-state-available-p store (block-hash head))
-        (engine-payload-store-revalidate-pending-transactions store)
-        (engine-payload-store-promote-queued-transactions store)
-        (engine-payload-store-promote-basefee-and-queued-transactions store)
+        (engine-payload-store-revalidate-pending-transactions
+         store
+         :expected-chain-id expected-chain-id)
+        (engine-payload-store-promote-queued-transactions
+         store
+         nil
+         :expected-chain-id expected-chain-id)
+        (engine-payload-store-promote-basefee-and-queued-transactions
+         store
+         :expected-chain-id expected-chain-id)
         (engine-payload-store-prune-overbudget-parked-transactions store))))
   store)
 
@@ -4859,6 +4876,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-prepared-payloads-from-kv staging database)
       (chain-store-restore-txpool-consistency
        staging
+       :expected-chain-id expected-chain-id
        :chain-config chain-config)
       (chain-store-publish-readable-tables store staging))
     store))
@@ -5552,11 +5570,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     transaction))
 
 (defun engine-payload-store-basefee-promotable-transaction-p
-    (store transaction base-fee)
+    (store transaction base-fee &key expected-chain-id)
   (and (or (null base-fee)
            (>= (transaction-max-fee-per-gas transaction) base-fee))
-       (engine-payload-store-transaction-executable-nonce-p store transaction)
-       (engine-payload-store-transaction-funded-p store transaction)
+       (engine-payload-store-transaction-executable-nonce-p
+        store transaction
+        :expected-chain-id expected-chain-id)
+       (engine-payload-store-transaction-funded-p
+        store transaction
+        :expected-chain-id expected-chain-id)
        (not (engine-pending-txpool-pending-conflict
              (engine-payload-store-txpool store)
              transaction))
@@ -5761,9 +5783,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (nreverse removed-transactions)))
 
 (defun engine-payload-store-transaction-funded-p
-    (store transaction)
+    (store transaction &key expected-chain-id)
   (let ((head (chain-store-latest-block store))
-        (sender (transaction-sender transaction)))
+        (sender (transaction-sender
+                 transaction
+                 :expected-chain-id expected-chain-id)))
     (or (null head)
         (null sender)
         (not (chain-store-state-available-p store (block-hash head)))
@@ -5773,9 +5797,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                store sender transaction))))))
 
 (defun engine-payload-store-transaction-executable-nonce-p
-    (store transaction)
+    (store transaction &key expected-chain-id)
   (let ((head (chain-store-latest-block store))
-        (sender (transaction-sender transaction)))
+        (sender (transaction-sender
+                 transaction
+                 :expected-chain-id expected-chain-id)))
     (or (null head)
         (not (chain-store-state-available-p store (block-hash head)))
         (and sender
@@ -5797,7 +5823,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             collect (address-from-hex sender-key))))
 
 (defun engine-payload-store-promote-queued-sender-transactions
-    (store sender head base-fee)
+    (store sender head base-fee &key expected-chain-id)
   (let ((promoted-transactions nil))
     (when (and head
                (chain-store-state-available-p store (block-hash head)))
@@ -5816,27 +5842,30 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    (engine-payload-store-remove-queued-transaction
                     store
                     (transaction-hash transaction))
-                   (if (and base-fee
-                            (< (transaction-max-fee-per-gas transaction)
-                               base-fee))
-                       (progn
-                         (engine-payload-store-put-basefee-transaction
-                          store transaction)
-                         (return))
-                       (if (engine-payload-store-transaction-funded-p
-                            store transaction)
-                           (progn
-                             (engine-payload-store-put-pending-transaction
-                              store transaction)
-                             (push transaction promoted-transactions))
-                           (progn
-                             (engine-payload-store-put-queued-transaction
-                              store transaction)
-                             (return))))))))
+                   (cond
+                     ((null (transaction-sender
+                             transaction
+                             :expected-chain-id expected-chain-id)))
+                     ((and base-fee
+                           (< (transaction-max-fee-per-gas transaction)
+                              base-fee))
+                      (engine-payload-store-put-basefee-transaction
+                       store transaction)
+                      (return))
+                     ((engine-payload-store-transaction-funded-p
+                       store transaction
+                       :expected-chain-id expected-chain-id)
+                      (engine-payload-store-put-pending-transaction
+                       store transaction)
+                      (push transaction promoted-transactions))
+                     (t
+                      (engine-payload-store-put-queued-transaction
+                       store transaction)
+                      (return)))))))
     (nreverse promoted-transactions)))
 
 (defun engine-payload-store-promote-queued-transactions
-    (store &optional sender)
+    (store &optional sender &key expected-chain-id)
   (let* ((head (chain-store-latest-block store))
          (header (and head (block-header head)))
          (base-fee (and header (block-header-base-fee-per-gas header)))
@@ -5846,10 +5875,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (setf promoted-transactions
             (nconc promoted-transactions
                    (engine-payload-store-promote-queued-sender-transactions
-                    store candidate-sender head base-fee))))
+                    store candidate-sender head base-fee
+                    :expected-chain-id expected-chain-id))))
     promoted-transactions))
 
-(defun engine-payload-store-promote-basefee-transactions (store)
+(defun engine-payload-store-promote-basefee-transactions
+    (store &key expected-chain-id)
   (let* ((head (chain-store-latest-block store))
          (header (and head (block-header head)))
          (base-fee (and header (block-header-base-fee-per-gas header)))
@@ -5873,39 +5904,62 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    sender
                    next-nonce)
                 while transaction
-                do (if (engine-payload-store-basefee-promotable-transaction-p
-                        store transaction base-fee)
-                       (progn
-                         (engine-pending-txpool-remove-basefee-transaction
-                          (engine-payload-store-txpool store)
-                          (transaction-hash transaction))
-                         (engine-payload-store-put-pending-transaction
-                          store transaction)
-                         (push transaction promoted-transactions))
-                       (return))))
+                do (cond
+                     ((null (transaction-sender
+                             transaction
+                             :expected-chain-id expected-chain-id))
+                      (engine-pending-txpool-remove-basefee-transaction
+                       (engine-payload-store-txpool store)
+                       (transaction-hash transaction)))
+                     ((engine-payload-store-basefee-promotable-transaction-p
+                       store transaction base-fee
+                       :expected-chain-id expected-chain-id)
+                      (engine-pending-txpool-remove-basefee-transaction
+                       (engine-payload-store-txpool store)
+                       (transaction-hash transaction))
+                      (engine-payload-store-put-pending-transaction
+                       store transaction)
+                      (push transaction promoted-transactions))
+                     (t
+                      (return)))))
         (loop for transaction =
                 (find-if
                  (lambda (transaction)
-                   (engine-payload-store-basefee-promotable-transaction-p
-                    store transaction base-fee))
+                   (or (null (transaction-sender
+                              transaction
+                              :expected-chain-id expected-chain-id))
+                       (engine-payload-store-basefee-promotable-transaction-p
+                        store transaction base-fee
+                        :expected-chain-id expected-chain-id)))
                  (engine-payload-store-basefee-transactions store))
               while transaction
-              do (progn
-                   (engine-pending-txpool-remove-basefee-transaction
-                    (engine-payload-store-txpool store)
-                    (transaction-hash transaction))
-                   (engine-payload-store-put-pending-transaction
-                    store transaction)
-                   (push transaction promoted-transactions))))
+              do (if (null (transaction-sender
+                            transaction
+                            :expected-chain-id expected-chain-id))
+                     (engine-pending-txpool-remove-basefee-transaction
+                      (engine-payload-store-txpool store)
+                      (transaction-hash transaction))
+                     (progn
+                       (engine-pending-txpool-remove-basefee-transaction
+                        (engine-payload-store-txpool store)
+                        (transaction-hash transaction))
+                       (engine-payload-store-put-pending-transaction
+                        store transaction)
+                       (push transaction promoted-transactions)))))
     (nreverse promoted-transactions)))
 
-(defun engine-payload-store-promote-basefee-and-queued-transactions (store)
+(defun engine-payload-store-promote-basefee-and-queued-transactions
+    (store &key expected-chain-id)
   (let ((basefee-promoted
-          (engine-payload-store-promote-basefee-transactions store))
+          (engine-payload-store-promote-basefee-transactions
+           store
+           :expected-chain-id expected-chain-id))
         (queued-promoted nil)
         (seen-senders (make-hash-table :test 'equal)))
     (dolist (transaction basefee-promoted)
-      (let ((sender (transaction-sender transaction)))
+      (let ((sender (transaction-sender
+                     transaction
+                     :expected-chain-id expected-chain-id)))
         (when sender
           (let ((sender-key (address-to-hex sender)))
             (unless (gethash sender-key seen-senders)
@@ -5914,12 +5968,15 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                     (nconc queued-promoted
                            (engine-payload-store-promote-queued-transactions
                             store
-                            sender))))))))
+                            sender
+                            :expected-chain-id expected-chain-id))))))))
     (values basefee-promoted queued-promoted)))
 
 (defun engine-payload-store-stale-txpool-transaction-p
-    (store head transaction)
-  (let ((sender (transaction-sender transaction)))
+    (store head transaction &key expected-chain-id)
+  (let ((sender (transaction-sender
+                 transaction
+                 :expected-chain-id expected-chain-id)))
     (and sender
          (chain-store-state-available-p store (block-hash head))
          (< (transaction-nonce transaction)
@@ -5928,7 +5985,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (block-hash head)
              sender)))))
 
-(defun engine-payload-store-remove-stale-txpool-transactions (store)
+(defun engine-payload-store-remove-stale-txpool-transactions
+    (store &key expected-chain-id)
   (let ((head (chain-store-latest-block store))
         (removed-transactions nil))
     (when (and head
@@ -5936,7 +5994,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (flet ((remove-stale (transactions remove-function)
                (dolist (transaction transactions)
                  (when (engine-payload-store-stale-txpool-transaction-p
-                        store head transaction)
+                        store head transaction
+                        :expected-chain-id expected-chain-id)
                    (funcall remove-function
                             (engine-payload-store-txpool store)
                             (transaction-hash transaction))
@@ -5956,8 +6015,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (nreverse removed-transactions)))
 
 (defun engine-payload-store-sender-code-invalid-txpool-transaction-p
-    (store head transaction)
-  (let ((sender (transaction-sender transaction)))
+    (store head transaction &key expected-chain-id)
+  (let ((sender (transaction-sender
+                 transaction
+                 :expected-chain-id expected-chain-id)))
     (and sender
          (not (engine-payload-store-sender-code-admissible-p
                store
@@ -5965,7 +6026,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                sender)))))
 
 (defun engine-payload-store-remove-sender-code-invalid-txpool-transactions
-    (store)
+    (store &key expected-chain-id)
   (let ((head (chain-store-latest-block store))
         (removed-transactions nil))
     (when (and head
@@ -5974,7 +6035,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  (transactions remove-function)
                (dolist (transaction transactions)
                  (when (engine-payload-store-sender-code-invalid-txpool-transaction-p
-                        store head transaction)
+                        store head transaction
+                        :expected-chain-id expected-chain-id)
                    (funcall remove-function
                             (engine-payload-store-txpool store)
                             (transaction-hash transaction))
@@ -6042,16 +6104,60 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (push transaction removed-transactions)))))
     (nreverse removed-transactions)))
 
+(defun engine-payload-store-remove-invalid-sender-txpool-transactions
+    (store &key expected-chain-id)
+  (let ((removed-transactions nil))
+    (when expected-chain-id
+      (flet ((remove-invalid-sender
+                 (transactions remove-function)
+               (dolist (transaction transactions)
+                 (when (null (transaction-sender
+                              transaction
+                              :expected-chain-id expected-chain-id))
+                   (funcall remove-function
+                            (engine-payload-store-txpool store)
+                            (transaction-hash transaction))
+                   (push transaction removed-transactions)))))
+        (remove-invalid-sender
+         (engine-payload-store-pending-transactions store)
+         #'engine-pending-txpool-remove-pending-transaction)
+        (remove-invalid-sender
+         (engine-payload-store-queued-transactions store)
+         #'engine-pending-txpool-remove-queued-transaction)
+        (remove-invalid-sender
+         (engine-payload-store-basefee-transactions store)
+         #'engine-pending-txpool-remove-basefee-transaction)
+        (remove-invalid-sender
+         (engine-payload-store-blob-transactions store)
+         #'engine-pending-txpool-remove-blob-transaction)))
+    (nreverse removed-transactions)))
+
+(defun engine-payload-store-chain-config-expected-chain-id
+    (expected-chain-id chain-config)
+  (or expected-chain-id
+      (and chain-config
+           (chain-config-chain-id chain-config))))
+
 (defun engine-payload-store-remove-new-head-invalid-txpool-transactions
-    (store &key chain-config)
-  (nconc
-   (engine-payload-store-remove-stale-txpool-transactions store)
-   (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
-   (engine-payload-store-remove-underpriced-blob-txpool-transactions
-    store
-    :chain-config chain-config)
-   (engine-payload-store-remove-sender-code-invalid-txpool-transactions
-    store)))
+    (store &key expected-chain-id chain-config)
+  (let ((txpool-chain-id
+          (engine-payload-store-chain-config-expected-chain-id
+           expected-chain-id
+           chain-config)))
+    (nconc
+     (engine-payload-store-remove-invalid-sender-txpool-transactions
+      store
+      :expected-chain-id txpool-chain-id)
+     (engine-payload-store-remove-stale-txpool-transactions
+      store
+      :expected-chain-id txpool-chain-id)
+     (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
+     (engine-payload-store-remove-underpriced-blob-txpool-transactions
+      store
+      :chain-config chain-config)
+     (engine-payload-store-remove-sender-code-invalid-txpool-transactions
+      store
+      :expected-chain-id txpool-chain-id))))
 
 (defun engine-payload-store-pending-revalidation-senders (store)
   (loop for sender-key
@@ -6113,9 +6219,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (incf next-nonce))))
     (nreverse demoted-transactions)))
 
-(defun engine-payload-store-revalidate-pending-transactions (store)
+(defun engine-payload-store-revalidate-pending-transactions
+    (store &key expected-chain-id)
   (let ((head (chain-store-latest-block store))
         (demoted-transactions nil))
+    (engine-payload-store-remove-invalid-sender-txpool-transactions
+     store
+     :expected-chain-id expected-chain-id)
     (when (and head
                (chain-store-state-available-p store (block-hash head)))
       (let* ((header (block-header head))
