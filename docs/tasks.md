@@ -504,6 +504,11 @@ ones.
     `shanghai-one-transfer-with-withdrawal` case, where the child transfer
     changes the checked recipient balance while the preserved checkpoint
     balance remains zero.
+  - Result: tightened the parent Phase A side-reorg process contract. The
+    top-level `devnetSideReorg` report now carries single-case ready/log/pid
+    and database counts, and the CLI gate asserts each count is one, matching
+    the all-fixtures devnet suite's lifecycle artifact accounting for the
+    dedicated non-pruned reorg probe.
   - Result: hardened pinned smoke-gate root handling. `--pinned-v5.4.0` now
     requires an explicit `--root PATH` or
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent

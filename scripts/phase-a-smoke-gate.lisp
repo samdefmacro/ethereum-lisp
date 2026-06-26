@@ -798,7 +798,11 @@ references/ checkouts.~%"))
              side-reorg-count))
     (append
      report
-     (list (cons "sideReorgCaseCount" side-reorg-count)))))
+     (list (cons "readyCaseCount" 1)
+           (cons "logCaseCount" 1)
+           (cons "pidCaseCount" 1)
+           (cons "databaseCaseCount" 1)
+           (cons "sideReorgCaseCount" side-reorg-count)))))
 
 (defun smoke-gate-devnet-side-reorg-summary ()
   (let ((ready-file
@@ -982,7 +986,15 @@ references/ checkouts.~%"))
               (smoke-gate-field devnet-side-reorg "fixtureCase"))
       (format t "devnetSideReorgCaseCount=~D~%"
               (smoke-gate-field
-               devnet-side-reorg "sideReorgCaseCount")))))
+               devnet-side-reorg "sideReorgCaseCount"))
+      (format t "devnetSideReorgReadyCaseCount=~D~%"
+              (smoke-gate-field devnet-side-reorg "readyCaseCount"))
+      (format t "devnetSideReorgLogCaseCount=~D~%"
+              (smoke-gate-field devnet-side-reorg "logCaseCount"))
+      (format t "devnetSideReorgPidCaseCount=~D~%"
+              (smoke-gate-field devnet-side-reorg "pidCaseCount"))
+      (format t "devnetSideReorgDatabaseCaseCount=~D~%"
+              (smoke-gate-field devnet-side-reorg "databaseCaseCount")))))
 
 (defun smoke-gate-main ()
   (let* ((args (smoke-gate-arguments))

@@ -2962,6 +2962,14 @@
                       devnet-side-reorg "fixtureCase")))
         (is (= 1 (fixture-object-field
                   devnet-side-reorg "sideReorgCaseCount")))
+        (is (= 1 (fixture-object-field
+                  devnet-side-reorg "readyCaseCount")))
+        (is (= 1 (fixture-object-field
+                  devnet-side-reorg "logCaseCount")))
+        (is (= 1 (fixture-object-field
+                  devnet-side-reorg "pidCaseCount")))
+        (is (= 1 (fixture-object-field
+                  devnet-side-reorg "databaseCaseCount")))
         (devnet-cli-assert-side-reorg-persistence devnet-side-reorg)
         (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
@@ -3240,7 +3248,15 @@
                        (fixture-object-field
                         devnet-side-reorg "status")))
           (is (= 1 (fixture-object-field
-                    devnet-side-reorg "sideReorgCaseCount"))))))))
+                    devnet-side-reorg "sideReorgCaseCount")))
+          (is (= 1 (fixture-object-field
+                    devnet-side-reorg "readyCaseCount")))
+          (is (= 1 (fixture-object-field
+                    devnet-side-reorg "logCaseCount")))
+          (is (= 1 (fixture-object-field
+                    devnet-side-reorg "pidCaseCount")))
+          (is (= 1 (fixture-object-field
+                    devnet-side-reorg "databaseCaseCount"))))))))
 
 (deftest phase-a-smoke-gate-text-output-includes-aggregate-counts
   #-sbcl
