@@ -4485,6 +4485,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (validate-transaction-signature-fields transaction)
   (validate-access-list-fields transaction)
   (validate-set-code-transaction-fields transaction)
+  (validate-set-code-authorization-signatures transaction)
   (when (typep transaction 'blob-transaction)
     (validate-blob-transaction-fields transaction))
   t)
@@ -8490,6 +8491,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        "Set-code transaction requires an authorization list"))
     (dolist (authorization (transaction-authorization-list transaction))
       (validate-set-code-authorization-fields authorization)))
+  t)
+
+(defun validate-set-code-authorization-signatures (transaction)
+  (when (typep transaction 'set-code-transaction)
+    (dolist (authorization (set-code-transaction-authorization-list transaction))
+      (unless (secp256k1-valid-signature-values-p
+               (set-code-authorization-y-parity authorization)
+               (set-code-authorization-r authorization)
+               (set-code-authorization-s authorization)
+               :low-s-p t)
+        (block-validation-fail
+         "Authorization signature values are invalid"))))
   t)
 
 (defun validate-sized-byte-vector (value size label)

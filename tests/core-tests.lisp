@@ -5001,6 +5001,48 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest chain-store-import-from-kv-enforces-set-code-authorization-signatures
+  (labels ((first-authorization (transaction)
+             (first (set-code-transaction-authorization-list transaction))))
+    (let* ((path
+             (merge-pathnames
+              (make-pathname
+               :name (format nil "ethereum-lisp-chain-txpool-auth-~A"
+                             (gensym))
+               :type "sexp")
+              #P"/private/tmp/"))
+           (config (make-chain-config :chain-id 1337))
+           (transaction
+             (transaction-from-encoding
+              (hex-to-bytes
+               "0x04f90126820539800285012a05f2008307a1209471562b71999873db5b286df957af199ec94617f78080c0f8baf85c82053994000000000000000000000000000000000000aaaa0101a07ed17af7d2d2b9ba7d797a202125bf505b9a0f962a67b3b61b56783d8faf7461a001b73b6e586edc706dce6c074eaec28692fa6359fb3446a2442f36777e1c0669f85a8094000000000000000000000000000000000000bbbb8001a05011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98a056c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf6101a0167b0ecfc343a497095c22ee4270d3cc3b971cc3599fc73bbff727e0d2ed432da01c003c72306807492bf1150e39b2f79da23b49a4e83eb6e9209ae30d3572368f")))
+           (malformed (ethereum-lisp.core::copy-set-code-transaction
+                       transaction)))
+      (setf (set-code-authorization-s (first-authorization malformed))
+            #x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1)
+      (unwind-protect
+           (progn
+             (is (transaction-sender malformed :expected-chain-id 1337))
+             (signals block-validation-error
+               (ethereum-lisp.core::validate-set-code-authorization-signatures
+                malformed))
+             (let ((database (make-file-key-value-database path)))
+               (kv-put-chain-record
+                database
+                :txpool
+                (hash32-bytes (transaction-hash malformed))
+                (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+                 :pending
+                 malformed)))
+             (signals block-validation-error
+               (chain-store-import-from-kv
+                (make-engine-payload-memory-store)
+                (make-file-key-value-database path)
+                :expected-chain-id 1337
+                :chain-config config)))
+        (when (probe-file path)
+          (delete-file path))))))
+
 (deftest chain-store-import-from-kv-rejects-corrupt-txpool-record
   (let* ((path
            (merge-pathnames

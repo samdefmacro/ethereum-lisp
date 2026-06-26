@@ -1621,16 +1621,7 @@
       (make-address bytes))))
 
 (defun eth-rpc-validate-set-code-authorization-signatures (transaction)
-  (when (typep transaction 'set-code-transaction)
-    (dolist (authorization (set-code-transaction-authorization-list transaction))
-      (unless (secp256k1-valid-signature-values-p
-               (set-code-authorization-y-parity authorization)
-               (set-code-authorization-r authorization)
-               (set-code-authorization-s authorization)
-               :low-s-p t)
-        (block-validation-fail
-         "Authorization signature values are invalid"))))
-  t)
+  (validate-set-code-authorization-signatures transaction))
 
 (defun eth-rpc-txpool-admission-head-context (store)
   (let* ((head (chain-store-latest-block store))

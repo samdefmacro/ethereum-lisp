@@ -150,8 +150,9 @@ fixes in those areas are allowed; expansion is not.
   so database snapshots cannot reintroduce transactions live admission would
   reject as overbudget. KV txpool restore now also reuses the core static
   transaction field validation boundary, so malformed data, recipient, scalar,
-  signature, access-list, blob, or set-code fields fail staging import instead
-  of becoming pooled after restart.
+  signature, access-list, blob fields, set-code fields, or set-code
+  authorization signature values fail staging import instead of becoming pooled
+  after restart.
   Duplicate raw submissions for already pooled or canonical mined transactions
   now return the known hash before live admission checks, so a later retained
   nonce, balance, gas-limit, or sender-code change cannot reject a transaction
@@ -973,8 +974,9 @@ first pass, but interfaces must not block that path.
   new canonical head. KV txpool restore now also applies the configured chain
   fork rules while staging records, preventing persisted blob or set-code
   transactions from bypassing the live RPC transaction-type boundary before
-  Cancun or Prague. Block polling filters now record
-  canonical-head events directly, so same-height forkchoice reorgs surface the
+  Cancun or Prague, and rejects malformed set-code authorization signature
+  values before publishing restored txpool contents. Block polling filters now
+  record canonical-head events directly, so same-height forkchoice reorgs surface the
   replacement head hash through `eth_getFilterChanges` instead of being hidden
   by number-only cursoring. Log polling filters record the same canonical
   reorg events, returning displaced old-canonical logs with `removed=true` and

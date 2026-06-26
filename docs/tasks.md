@@ -4454,6 +4454,11 @@ splits can land after the Phase A smoke path closes.
     snapshots with malformed data, recipient, scalar, signature, access-list,
     blob, or set-code fields are rejected during staging instead of becoming
     locally pooled transactions after restart.
+  - Progress: KV txpool import now also validates EIP-7702 set-code
+    authorization signature values through the same core helper used by live
+    RPC admission. Persisted high-s or malformed authorization tuples are
+    rejected atomically during staging instead of bypassing
+    `eth_sendRawTransaction` after restart.
   - Result: the standalone devnet smoke gate now exercises pending,
     basefee-ineligible, and nonce-gap queued txpool persistence across the
     public RPC and process/database boundary. Each database-backed pinned
