@@ -18131,6 +18131,68 @@
         (is (= -32602 (field receipt-error "code")))
         (is (= -32602 (field block-receipts-error "code")))))))
 
+(deftest eth-rpc-transaction-objects-enforce-configured-chain-id
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 100
+               :gas-limit 21000
+               :to recipient)
+              1
+              2))
+           (sender (transaction-sender transaction :expected-chain-id 2))
+           (transaction-hash-hex (hash32-to-hex (transaction-hash transaction)))
+           (config (make-chain-config :chain-id 1)))
+      (is sender)
+      (is (null (transaction-sender transaction :expected-chain-id 1)))
+      (ethereum-lisp.core::engine-payload-store-put-pending-transaction
+       store
+       transaction)
+      (let* ((pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":102,\"method\":\"eth_pendingTransactions\",\"params\":[]}"
+                 store
+                 config)))
+             (content-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":103,\"method\":\"txpool_content\",\"params\":[]}"
+                 store
+                 config)))
+             (content-from-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":104,"
+                  "\"method\":\"txpool_contentFrom\",\"params\":[\""
+                  (address-to-hex sender)
+                  "\"]}")
+                 store
+                 config)))
+             (by-hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":105,"
+                  "\"method\":\"eth_getTransactionByHash\","
+                  "\"params\":[\"" transaction-hash-hex "\"]}")
+                 store
+                 config))))
+        (dolist (response (list pending-response
+                                content-response
+                                content-from-response
+                                by-hash-response))
+          (is (= -32602 (field (field response "error") "code"))))))))
+
 (deftest eth-rpc-send-raw-transaction
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

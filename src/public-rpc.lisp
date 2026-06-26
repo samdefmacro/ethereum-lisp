@@ -1131,16 +1131,19 @@
        "~A full transaction flag must be a boolean" method))
     full-transactions-p))
 
-(defun eth-rpc-block-transactions-object (block full-transactions-p)
+(defun eth-rpc-block-transactions-object
+    (block full-transactions-p &key expected-chain-id)
   (if full-transactions-p
       (loop for transaction in (block-transactions block)
             for index from 0
-            collect (eth-rpc-transaction-object transaction block index))
+            collect (eth-rpc-transaction-object
+                     transaction block index
+                     :expected-chain-id expected-chain-id))
       (mapcar (lambda (transaction)
                 (hash32-to-hex (transaction-hash transaction)))
               (block-transactions block))))
 
-(defun eth-rpc-block-object (block full-transactions-p)
+(defun eth-rpc-block-object (block full-transactions-p &key expected-chain-id)
   (unless (typep block 'ethereum-block)
     (block-validation-fail "eth block result must be a block"))
   (append
@@ -1148,7 +1151,9 @@
    (list
     (cons "size" (quantity-to-hex (length (eth-rpc-block-rlp block))))
     (cons "transactions"
-          (eth-rpc-block-transactions-object block full-transactions-p))
+          (eth-rpc-block-transactions-object
+           block full-transactions-p
+           :expected-chain-id expected-chain-id))
     (cons "uncles"
           (mapcar (lambda (ommer)
                     (hash32-to-hex (block-header-hash ommer)))
@@ -1159,23 +1164,27 @@
             (mapcar #'engine-rpc-withdrawal-object
                     (block-withdrawals block)))))))
 
-(defun engine-rpc-handle-eth-get-block-by-number (params store)
+(defun engine-rpc-handle-eth-get-block-by-number (params store config)
   (let* ((full-transactions-p
            (eth-rpc-block-full-transactions-param params "eth_getBlockByNumber"))
          (number (eth-rpc-block-number-param
                   (list (first params)) store "eth_getBlockByNumber"))
          (block (chain-store-block-by-number store number)))
     (when block
-      (eth-rpc-block-object block full-transactions-p))))
+      (eth-rpc-block-object
+       block full-transactions-p
+       :expected-chain-id (chain-config-chain-id config)))))
 
-(defun engine-rpc-handle-eth-get-block-by-hash (params store)
+(defun engine-rpc-handle-eth-get-block-by-hash (params store config)
   (let* ((full-transactions-p
            (eth-rpc-block-full-transactions-param params "eth_getBlockByHash"))
          (hash (eth-rpc-hash-param
                 (list (first params)) "eth_getBlockByHash" "block hash"))
          (block (chain-store-known-block store hash)))
     (when block
-      (eth-rpc-block-object block full-transactions-p))))
+      (eth-rpc-block-object
+       block full-transactions-p
+       :expected-chain-id (chain-config-chain-id config)))))
 
 (defun eth-rpc-block-transaction-count (block)
   (when block
@@ -1360,8 +1369,9 @@
       (transaction-effective-gas-price
        transaction :base-fee (block-header-base-fee-per-gas header))))
 
-(defun eth-rpc-transaction-sender (transaction)
-  (or (transaction-sender transaction)
+(defun eth-rpc-transaction-sender (transaction &key expected-chain-id)
+  (or (transaction-sender transaction
+                          :expected-chain-id expected-chain-id)
       (block-validation-fail
        "eth transaction sender recovery failed")))
 
@@ -1445,7 +1455,8 @@
                     (set-code-transaction-authorization-list
                      transaction)))))))
 
-(defun eth-rpc-transaction-object (transaction block index)
+(defun eth-rpc-transaction-object
+    (transaction block index &key expected-chain-id)
   (let ((header (when block
                   (block-header block))))
     (multiple-value-bind (nonce gas-price gas-limit to value data v r s)
@@ -1462,7 +1473,9 @@
                 (quantity-to-hex (block-header-timestamp header))))
         (cons "from"
               (address-to-hex
-               (eth-rpc-transaction-sender transaction)))
+               (eth-rpc-transaction-sender
+                transaction
+                :expected-chain-id expected-chain-id)))
         (cons "gas" (quantity-to-hex gas-limit))
         (cons "gasPrice"
               (quantity-to-hex
@@ -1481,30 +1494,39 @@
         (cons "r" (quantity-to-hex r))
         (cons "s" (quantity-to-hex s)))))))
 
-(defun eth-rpc-transaction-by-index (block index)
+(defun eth-rpc-transaction-by-index (block index &key expected-chain-id)
   (when (and block (< index (length (block-transactions block))))
     (eth-rpc-transaction-object
-     (nth index (block-transactions block)) block index)))
+     (nth index (block-transactions block)) block index
+     :expected-chain-id expected-chain-id)))
 
-(defun eth-rpc-transaction-from-location (location)
+(defun eth-rpc-transaction-from-location (location &key expected-chain-id)
   (when location
     (eth-rpc-transaction-object
      (engine-transaction-location-transaction location)
      (engine-transaction-location-block location)
-     (engine-transaction-location-index location))))
+     (engine-transaction-location-index location)
+     :expected-chain-id expected-chain-id)))
 
-(defun eth-rpc-pending-transaction-object (transaction)
+(defun eth-rpc-pending-transaction-object (transaction &key expected-chain-id)
   (when transaction
-    (eth-rpc-transaction-object transaction nil nil)))
+    (eth-rpc-transaction-object
+     transaction nil nil
+     :expected-chain-id expected-chain-id)))
 
 (defun eth-rpc-json-array (items)
   (if items
       items
       (make-array 0)))
 
-(defun eth-rpc-pending-transaction-objects (transactions)
+(defun eth-rpc-pending-transaction-objects
+    (transactions &key expected-chain-id)
   (eth-rpc-json-array
-   (mapcar #'eth-rpc-pending-transaction-object transactions)))
+   (mapcar (lambda (transaction)
+             (eth-rpc-pending-transaction-object
+              transaction
+              :expected-chain-id expected-chain-id))
+           transactions)))
 
 (defun eth-rpc-hash-table-object (table)
   (if (zerop (hash-table-count table))
@@ -1590,10 +1612,14 @@
             (transaction-gas-limit transaction)
             (transaction-max-fee-per-gas transaction))))
 
-(defun txpool-rpc-indexed-content-transactions (sender-index)
+(defun txpool-rpc-indexed-content-transactions
+    (sender-index &key expected-chain-id)
   (txpool-rpc-indexed-sender-transactions
    sender-index
-   #'eth-rpc-pending-transaction-object))
+   (lambda (transaction)
+     (eth-rpc-pending-transaction-object
+      transaction
+      :expected-chain-id expected-chain-id))))
 
 (defun txpool-rpc-indexed-inspect-transactions (sender-index)
   (txpool-rpc-indexed-sender-transactions
@@ -1751,7 +1777,7 @@
      (cons "logIndex" (quantity-to-hex log-index))
      (cons "removed" (if removed-p t :false)))))
 
-(defun eth-rpc-receipt-object (location)
+(defun eth-rpc-receipt-object (location &key expected-chain-id)
   (let* ((receipt (engine-transaction-location-receipt location))
          (block (engine-transaction-location-block location))
          (transaction (engine-transaction-location-transaction location))
@@ -1761,7 +1787,9 @@
              (previous-receipt
                (when (plusp index)
                  (nth (1- index) (block-receipts block))))
-             (from (eth-rpc-transaction-sender transaction))
+             (from (eth-rpc-transaction-sender
+                    transaction
+                    :expected-chain-id expected-chain-id))
              (logs
                (loop for log in (receipt-logs receipt)
                      for log-index
@@ -1807,7 +1835,7 @@
              (list (cons "status"
                          (quantity-to-hex (receipt-status receipt))))))))))
 
-(defun eth-rpc-block-receipts-object (block)
+(defun eth-rpc-block-receipts-object (block &key expected-chain-id)
   (when (and block
              (= (length (block-transactions block))
                 (length (block-receipts block))))
@@ -1821,7 +1849,9 @@
                           :transaction transaction
                           :receipt receipt
                           :log-index-start log-index-start)
-          collect (prog1 (eth-rpc-receipt-object location)
+          collect (prog1 (eth-rpc-receipt-object
+                          location
+                          :expected-chain-id expected-chain-id)
                     (incf log-index-start
                           (length (receipt-logs receipt)))))))
 
@@ -1900,11 +1930,12 @@
      (engine-payload-store-basefee-transaction-count store)
      (engine-payload-store-blob-transaction-count store)))
 
-(defun engine-rpc-handle-eth-pending-transactions (params store)
+(defun engine-rpc-handle-eth-pending-transactions (params store config)
   (when params
     (block-validation-fail "eth_pendingTransactions params must be empty"))
   (eth-rpc-pending-transaction-objects
-   (engine-payload-store-pending-transactions store)))
+   (engine-payload-store-pending-transactions store)
+   :expected-chain-id (chain-config-chain-id config)))
 
 (defun engine-rpc-handle-txpool-status (params store)
   (when params
@@ -1917,37 +1948,49 @@
          (quantity-to-hex
           (eth-rpc-txpool-queued-view-count store)))))
 
-(defun engine-rpc-handle-txpool-content (params store)
+(defun engine-rpc-handle-txpool-content (params store config)
   (when params
     (block-validation-fail "txpool_content params must be empty"))
-  (list
-   (cons "pending"
-         (txpool-rpc-indexed-content-transactions
-          (engine-payload-store-pending-transactions-by-sender store)))
-   (cons "queued"
-         (txpool-rpc-indexed-sender-transactions-from-indexes
-          #'eth-rpc-pending-transaction-object
-          (engine-payload-store-queued-sender-index store)
-          (engine-payload-store-basefee-sender-index store)
-          (engine-payload-store-blob-sender-index store)))))
+  (let ((chain-id (chain-config-chain-id config)))
+    (list
+     (cons "pending"
+           (txpool-rpc-indexed-content-transactions
+            (engine-payload-store-pending-transactions-by-sender store)
+            :expected-chain-id chain-id))
+     (cons "queued"
+           (txpool-rpc-indexed-sender-transactions-from-indexes
+            (lambda (transaction)
+              (eth-rpc-pending-transaction-object
+               transaction
+               :expected-chain-id chain-id))
+            (engine-payload-store-queued-sender-index store)
+            (engine-payload-store-basefee-sender-index store)
+            (engine-payload-store-blob-sender-index store))))))
 
-(defun engine-rpc-handle-txpool-content-from (params store)
+(defun engine-rpc-handle-txpool-content-from (params store config)
   (unless (= 1 (length params))
     (block-validation-fail
      "txpool_contentFrom params must contain exactly one address"))
   (let ((address (eth-rpc-address-param
-                  (first params) "txpool_contentFrom" "address")))
+                  (first params) "txpool_contentFrom" "address"))
+        (chain-id (chain-config-chain-id config)))
     (list
      (cons "pending"
            (txpool-rpc-indexed-nonce-transactions
             (gethash
              (address-to-hex address)
              (engine-payload-store-pending-transactions-by-sender store))
-            #'eth-rpc-pending-transaction-object))
+            (lambda (transaction)
+              (eth-rpc-pending-transaction-object
+               transaction
+               :expected-chain-id chain-id))))
      (cons "queued"
            (txpool-rpc-indexed-nonce-transactions-from-sender-indexes
             address
-            #'eth-rpc-pending-transaction-object
+            (lambda (transaction)
+              (eth-rpc-pending-transaction-object
+               transaction
+               :expected-chain-id chain-id))
             (engine-payload-store-queued-sender-index store)
             (engine-payload-store-basefee-sender-index store)
             (engine-payload-store-blob-sender-index store))))))
@@ -1967,17 +2010,19 @@
           (engine-payload-store-blob-sender-index store)))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
-    (params store)
+    (params store config)
   (let* ((number (eth-rpc-block-number-param
                   (list (first params)) store
                   "eth_getTransactionByBlockNumberAndIndex"))
          (index (eth-rpc-transaction-index-param
                  params "eth_getTransactionByBlockNumberAndIndex"))
          (block (chain-store-block-by-number store number)))
-    (eth-rpc-transaction-by-index block index)))
+    (eth-rpc-transaction-by-index
+     block index
+     :expected-chain-id (chain-config-chain-id config))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-hash-and-index
-    (params store)
+    (params store config)
   (let* ((hash (eth-rpc-hash-param
                 (list (first params))
                 "eth_getTransactionByBlockHashAndIndex"
@@ -1985,26 +2030,35 @@
          (index (eth-rpc-transaction-index-param
                  params "eth_getTransactionByBlockHashAndIndex"))
          (block (chain-store-known-block store hash)))
-    (eth-rpc-transaction-by-index block index)))
+    (eth-rpc-transaction-by-index
+     block index
+     :expected-chain-id (chain-config-chain-id config))))
 
-(defun engine-rpc-handle-eth-get-transaction-by-hash (params store)
+(defun engine-rpc-handle-eth-get-transaction-by-hash (params store config)
   (let* ((hash (eth-rpc-hash-param
                 params "eth_getTransactionByHash" "transaction hash"))
          (location (chain-store-transaction-location store hash)))
-    (or (eth-rpc-transaction-from-location location)
+    (or (eth-rpc-transaction-from-location
+         location
+         :expected-chain-id (chain-config-chain-id config))
         (eth-rpc-pending-transaction-object
-         (engine-payload-store-pooled-transaction store hash)))))
+         (engine-payload-store-pooled-transaction store hash)
+         :expected-chain-id (chain-config-chain-id config)))))
 
-(defun engine-rpc-handle-eth-get-transaction-receipt (params store)
+(defun engine-rpc-handle-eth-get-transaction-receipt (params store config)
   (let* ((hash (eth-rpc-hash-param
                 params "eth_getTransactionReceipt" "transaction hash"))
          (location (chain-store-transaction-location store hash)))
     (when location
-      (eth-rpc-receipt-object location))))
+      (eth-rpc-receipt-object
+       location
+       :expected-chain-id (chain-config-chain-id config)))))
 
-(defun engine-rpc-handle-eth-get-block-receipts (params store)
+(defun engine-rpc-handle-eth-get-block-receipts (params store config)
   (let ((block (eth-rpc-block-param params store "eth_getBlockReceipts")))
-    (eth-rpc-block-receipts-object block)))
+    (eth-rpc-block-receipts-object
+     block
+     :expected-chain-id (chain-config-chain-id config))))
 
 (defun eth-rpc-address= (left right)
   (and left
@@ -2436,10 +2490,12 @@
       id :result (engine-rpc-handle-eth-get-header-by-hash params store)))
     ((string= method "eth_getBlockByNumber")
      (engine-rpc-response
-      id :result (engine-rpc-handle-eth-get-block-by-number params store)))
+      id :result
+      (engine-rpc-handle-eth-get-block-by-number params store config)))
     ((string= method "eth_getBlockByHash")
      (engine-rpc-response
-      id :result (engine-rpc-handle-eth-get-block-by-hash params store)))
+      id :result
+      (engine-rpc-handle-eth-get-block-by-hash params store config)))
     ((string= method "eth_getBlockTransactionCountByNumber")
      (engine-rpc-response
       id
@@ -2479,28 +2535,28 @@
       id
       :result
       (engine-rpc-handle-eth-get-transaction-by-block-number-and-index
-       params store)))
+       params store config)))
     ((string= method "eth_getTransactionByBlockHashAndIndex")
      (engine-rpc-response
       id
       :result
       (engine-rpc-handle-eth-get-transaction-by-block-hash-and-index
-       params store)))
+       params store config)))
     ((string= method "eth_getTransactionByHash")
      (engine-rpc-response
       id
       :result
-      (engine-rpc-handle-eth-get-transaction-by-hash params store)))
+      (engine-rpc-handle-eth-get-transaction-by-hash params store config)))
     ((string= method "eth_getTransactionReceipt")
      (engine-rpc-response
       id
       :result
-      (engine-rpc-handle-eth-get-transaction-receipt params store)))
+      (engine-rpc-handle-eth-get-transaction-receipt params store config)))
     ((string= method "eth_getBlockReceipts")
      (engine-rpc-response
       id
       :result
-      (engine-rpc-handle-eth-get-block-receipts params store)))
+      (engine-rpc-handle-eth-get-block-receipts params store config)))
     ((string= method "eth_getLogs")
      (engine-rpc-response
       id :result (engine-rpc-handle-eth-get-logs params store)))
@@ -2550,16 +2606,16 @@
      (engine-rpc-response
       id
       :result
-      (engine-rpc-handle-eth-pending-transactions params store)))
+      (engine-rpc-handle-eth-pending-transactions params store config)))
     ((string= method "txpool_status")
      (engine-rpc-response
       id :result (engine-rpc-handle-txpool-status params store)))
     ((string= method "txpool_content")
      (engine-rpc-response
-      id :result (engine-rpc-handle-txpool-content params store)))
+      id :result (engine-rpc-handle-txpool-content params store config)))
     ((string= method "txpool_contentFrom")
      (engine-rpc-response
-      id :result (engine-rpc-handle-txpool-content-from params store)))
+      id :result (engine-rpc-handle-txpool-content-from params store config)))
     ((string= method "txpool_inspect")
      (engine-rpc-response
       id :result (engine-rpc-handle-txpool-inspect params store)))))

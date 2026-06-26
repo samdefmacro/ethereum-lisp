@@ -4188,6 +4188,11 @@ splits can land after the Phase A smoke path closes.
     wrong-chain txpool records during staging. A database restart can no
     longer reintroduce raw transactions that live admission would reject for
     configured chain mismatch.
+  - Progress: public transaction-object RPC rendering now recovers senders
+    with the configured chain ID, so wrong-chain local txpool entries inserted
+    below the RPC admission boundary cannot be exposed through
+    `eth_pendingTransactions`, `txpool_content`, `txpool_contentFrom`, or
+    hash lookup.
   - Progress: the devnet smoke gate's internal restored-database probes now
     import fixture-generated KV snapshots with the same fixture chain config
     used for the original Engine/RPC run, so the production `--database`

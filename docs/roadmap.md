@@ -887,7 +887,11 @@ first pass, but interfaces must not block that path.
   Devnet restores now supply the configured chain ID to
   that txpool sender recovery path, making wrong-chain persisted local
   transactions a staging import error rather than restored pool content. The
-  smoke gate's fixture-only restored-database probes explicitly reuse the
+  public transaction-object RPC path now also recovers senders with the
+  configured chain ID, preventing wrong-chain local txpool entries inserted
+  below RPC admission from being exposed through pending, txpool content, or
+  hash lookup views.
+  The smoke gate's fixture-only restored-database probes explicitly reuse the
   fixture chain config when importing their generated KV snapshots, preserving
   strict production `--database` genesis chain-ID restore behavior while
   keeping the fixture harness internally consistent.
