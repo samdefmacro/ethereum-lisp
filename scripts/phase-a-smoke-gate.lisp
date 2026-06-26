@@ -147,6 +147,9 @@ references/ checkouts.~%"))
 (defun smoke-gate-field (object name)
   (cdr (assoc name object :test #'string=)))
 
+(defun smoke-gate-false-p (value)
+  (or (null value) (eq value :false)))
+
 (defun smoke-gate-root-directory ()
   (make-pathname :name nil
                  :type nil
@@ -421,6 +424,253 @@ references/ checkouts.~%"))
              field expected-count (length files)))
     files))
 
+(defparameter +smoke-gate-devnet-side-reorg-pruned-fields+
+  '("databaseRpcSideBlockHash"
+    "databaseRpcSideForkchoiceStatus"
+    "databaseRpcSideRejectedCheckpointError"
+    "databaseRpcSideBlockNumber"
+    "databaseRpcSideLatestBlockHash"
+    "databaseRpcSideTransactionReinserted"
+    "databaseRpcSideTransactionByHash"
+    "databaseRpcSideRawTransaction"
+    "databaseRpcSidePendingTransaction"
+    "databaseRpcSideReceipt"
+    "databaseRpcSideChildBlockHash"
+    "databaseRpcSideBlockReceiptsCount"
+    "databaseRpcSideLogCount"
+    "databaseRpcSideRestoredHeadNumber"
+    "databaseRpcSideRestoredHeadHash"
+    "databaseRpcSideRestoredRpcBlockNumber"
+    "databaseRpcSideRestoredRpcLatestBlockHash"
+    "databaseRpcSideRestoredSafeNumber"
+    "databaseRpcSideRestoredSafeHash"
+    "databaseRpcSideRestoredFinalizedNumber"
+    "databaseRpcSideRestoredFinalizedHash"
+    "databaseRpcSideRestoredRpcSafeNumber"
+    "databaseRpcSideRestoredRpcSafeHash"
+    "databaseRpcSideRestoredRpcFinalizedNumber"
+    "databaseRpcSideRestoredRpcFinalizedHash"
+    "databaseRpcSideRestoredSafeBalance"
+    "databaseRpcSideRestoredFinalizedBalance"
+    "databaseRpcSideRestoredRawTransaction"
+    "databaseRpcSideRestoredPendingTransaction"
+    "databaseRpcSideRestoredReceipt"
+    "databaseRpcSideRestoredChildBlockHash"
+    "databaseRpcSideRestoredBlockReceiptsCount"
+    "databaseRpcSideRestoredLogCount"
+    "databaseRpcSideRestoredPublicConnections"
+    "databaseRpcSideEngineConnections"
+    "databaseRpcSidePublicConnections"))
+
+(defun smoke-gate-devnet-case-label (case-report)
+  (or (smoke-gate-field case-report "fixtureCase") "<unknown>"))
+
+(defun smoke-gate-devnet-case-require-field
+    (case-report field expected)
+  (let ((actual (smoke-gate-field case-report field)))
+    (unless (equal actual expected)
+      (error "Devnet smoke gate case ~A field ~A must be ~S, got ~S"
+             (smoke-gate-devnet-case-label case-report)
+             field
+             expected
+             actual))
+    actual))
+
+(defun smoke-gate-devnet-case-require-false (case-report field)
+  (let ((actual (smoke-gate-field case-report field)))
+    (unless (smoke-gate-false-p actual)
+      (error "Devnet smoke gate case ~A field ~A must be false/null, got ~S"
+             (smoke-gate-devnet-case-label case-report)
+             field
+             actual))))
+
+(defun smoke-gate-devnet-case-require-not-equal
+    (case-report field other-field)
+  (let ((actual (smoke-gate-field case-report field))
+        (other (smoke-gate-field case-report other-field)))
+    (unless (and actual other (not (equal actual other)))
+      (error "Devnet smoke gate case ~A fields ~A and ~A must differ, got ~S"
+             (smoke-gate-devnet-case-label case-report)
+             field
+             other-field
+             actual))))
+
+(defun smoke-gate-devnet-nested-field (object field)
+  (when (listp object)
+    (smoke-gate-field object field)))
+
+(defun smoke-gate-devnet-case-require-nested-field
+    (case-report object-field nested-field expected)
+  (let* ((object (smoke-gate-field case-report object-field))
+         (actual (smoke-gate-devnet-nested-field object nested-field)))
+    (unless (equal actual expected)
+      (error "Devnet smoke gate case ~A field ~A.~A must be ~S, got ~S"
+             (smoke-gate-devnet-case-label case-report)
+             object-field
+             nested-field
+             expected
+             actual))
+    actual))
+
+(defun smoke-gate-devnet-case-require-side-pending-object
+    (case-report object-field)
+  (smoke-gate-devnet-case-require-nested-field
+   case-report
+   object-field
+   "hash"
+   (smoke-gate-field case-report "databaseRpcReceiptTransactionHash"))
+  (dolist (field '("blockHash" "blockNumber" "transactionIndex"))
+    (smoke-gate-devnet-case-require-nested-field
+     case-report object-field field nil)))
+
+(defun smoke-gate-devnet-validate-side-reorg-transaction
+    (case-report)
+  (if (not (smoke-gate-false-p
+            (smoke-gate-field
+             case-report "databaseRpcSideTransactionReinserted")))
+      (progn
+        (smoke-gate-devnet-case-require-side-pending-object
+         case-report "databaseRpcSideTransactionByHash")
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRawTransaction"
+         (smoke-gate-field case-report "databaseRpcRawTransactionByHash"))
+        (smoke-gate-devnet-case-require-side-pending-object
+         case-report "databaseRpcSidePendingTransaction")
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredRawTransaction"
+         (smoke-gate-field case-report "databaseRpcRawTransactionByHash"))
+        (smoke-gate-devnet-case-require-side-pending-object
+         case-report "databaseRpcSideRestoredPendingTransaction"))
+      (dolist (field '("databaseRpcSideTransactionByHash"
+                       "databaseRpcSideRawTransaction"
+                       "databaseRpcSidePendingTransaction"
+                       "databaseRpcSideRestoredRawTransaction"
+                       "databaseRpcSideRestoredPendingTransaction"))
+        (smoke-gate-devnet-case-require-false case-report field))))
+
+(defun smoke-gate-devnet-validate-side-reorg-case (case-report)
+  (if (smoke-gate-false-p
+       (smoke-gate-field case-report "databaseRpcSideBlockHash"))
+      (progn
+        (dolist (field +smoke-gate-devnet-side-reorg-pruned-fields+)
+          (smoke-gate-devnet-case-require-false case-report field))
+        0)
+      (progn
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideForkchoiceStatus" "VALID")
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRejectedCheckpointError"
+         "forkchoice safe block is not an ancestor of head")
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideBlockNumber"
+         (smoke-gate-field case-report "blockNumber"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideLatestBlockHash"
+         (smoke-gate-field case-report "databaseRpcSideBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredHeadHash"
+         (smoke-gate-field case-report "databaseRpcSideBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredHeadNumber"
+         (smoke-gate-field case-report "blockNumber"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredRpcBlockNumber"
+         (smoke-gate-field case-report "blockNumber"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredRpcLatestBlockHash"
+         (smoke-gate-field case-report "databaseRpcSideBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredSafeNumber"
+         (smoke-gate-field case-report "safeBlockNumber"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredSafeHash"
+         (smoke-gate-field case-report "safeBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredFinalizedNumber"
+         (smoke-gate-field case-report "finalizedBlockNumber"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredFinalizedHash"
+         (smoke-gate-field case-report "finalizedBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredRpcSafeNumber"
+         (smoke-gate-field case-report "safeBlockNumber"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredRpcSafeHash"
+         (smoke-gate-field case-report "safeBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredRpcFinalizedNumber"
+         (smoke-gate-field case-report "finalizedBlockNumber"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredRpcFinalizedHash"
+         (smoke-gate-field case-report "finalizedBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredSafeBalance"
+         (smoke-gate-field case-report "checkedBalance"))
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredFinalizedBalance"
+         (smoke-gate-field case-report "checkedBalance"))
+        (smoke-gate-devnet-case-require-not-equal
+         case-report "databaseRpcBlockHash" "databaseRpcSideBlockHash")
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideChildBlockHash"
+         (smoke-gate-field case-report "databaseRpcBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideBlockReceiptsCount" 0)
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideLogCount" 0)
+        (smoke-gate-devnet-validate-side-reorg-transaction case-report)
+        (smoke-gate-devnet-case-require-false
+         case-report "databaseRpcSideReceipt")
+        (smoke-gate-devnet-case-require-false
+         case-report "databaseRpcSideRestoredReceipt")
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredChildBlockHash"
+         (smoke-gate-field case-report "databaseRpcBlockHash"))
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideRestoredBlockReceiptsCount" 0)
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideRestoredLogCount" 0)
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideEngineConnections" 3)
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSidePublicConnections" 9)
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideRestoredPublicConnections" 12)
+        1)))
+
+(defun smoke-gate-validate-devnet-side-reorg-cases
+    (report expected-count)
+  (let ((cases (smoke-gate-field report "cases"))
+        (side-reorg-count 0))
+    (unless (and (listp cases) (= expected-count (length cases)))
+      (error "Devnet smoke gate cases must have count ~D, got ~S"
+             expected-count
+             (and (listp cases) (length cases))))
+    (dolist (case-report cases side-reorg-count)
+      (incf side-reorg-count
+            (smoke-gate-devnet-validate-side-reorg-case case-report)))))
+
 (defun smoke-gate-validate-devnet-summary
     (report ready-file log-file pid-file database-file)
   (let ((expected-count
@@ -448,7 +698,12 @@ references/ checkouts.~%"))
      report "pidFile" "pidCaseCount" expected-count)
     (smoke-gate-devnet-require-case-files
      report "databaseFile" "databaseCaseCount" expected-count)
-    report))
+    (append
+     report
+     (list
+      (cons "sideReorgCaseCount"
+            (smoke-gate-validate-devnet-side-reorg-cases
+             report expected-count))))))
 
 (defun smoke-gate-devnet-summary ()
   (let ((ready-file
@@ -622,6 +877,8 @@ references/ checkouts.~%"))
       (format t "devnetDatabaseRpcPrunedStateErrorCaseCount=~D~%"
               (smoke-gate-field
                devnet "databaseRpcPrunedStateErrorCaseCount"))
+      (format t "devnetSideReorgCaseCount=~D~%"
+              (smoke-gate-field devnet "sideReorgCaseCount"))
       (format t "devnetTotalConnections=~D~%"
               (smoke-gate-field devnet "totalConnections")))))
 

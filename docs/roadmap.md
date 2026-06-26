@@ -332,7 +332,13 @@ fixes in those areas are allowed; expansion is not.
   runs that pruning contract across the pinned Shanghai all-fixtures set,
   reports covered pruned cases and pruned-error cases, and distinguishes
   fixtures whose checkpoint state is not covered by the selected pruning
-  boundary.
+  boundary. The same parent gate also validates any side-reorg evidence carried
+  by the child report, rejecting mismatched restored side-head publication,
+  old-child hash availability, canonical receipt/log hiding, pending
+  transaction reinsertion, safe/finalized checkpoint preservation, or fresh
+  restore public-read consistency. The current pruned parent run skips those
+  side probes and reports `sideReorgCaseCount` as zero instead of implying
+  coverage it did not execute.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

@@ -2937,6 +2937,7 @@
                (length (devnet-smoke-gate-case-database-files devnet))))
         (devnet-cli-assert-pruned-state-suite
          devnet cases prune-boundary)
+        (is (= 0 (fixture-object-field devnet "sideReorgCaseCount")))
         (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
@@ -3205,7 +3206,9 @@
           (phase-a-smoke-gate-assert-counts report)
           (is (string= "ok" (fixture-object-field devnet "status")))
           (is (string= "devnet-listener-boundary-suite"
-                       (fixture-object-field devnet "mode"))))))))
+                       (fixture-object-field devnet "mode")))
+          (is (= 0 (fixture-object-field
+                    devnet "sideReorgCaseCount"))))))))
 
 (deftest phase-a-smoke-gate-text-output-includes-aggregate-counts
   #-sbcl

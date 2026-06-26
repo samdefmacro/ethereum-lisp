@@ -481,6 +481,16 @@ ones.
     Phase A JSON/text report includes the child pruning boundary, covered
     pruned-case count, and pruned-state RPC error count, and CLI tests assert
     the same retained-state unavailable contract through the parent gate.
+  - Result: the Phase A `--devnet` parent gate now validates each child
+    devnet case's side-reorg fields before accepting the child report. Cases
+    that provide side-reorg evidence must prove the side sibling became
+    canonical, old child receipts/logs were hidden, displaced transactions
+    returned to pending visibility when eligible, safe/finalized checkpoint
+    reads survived restore, and a fresh restore kept the side head plus old
+    child hash-readable. Cases that skip side-reorg probing, including the
+    current pruned Phase A parent run, must leave every side-reorg field empty.
+    JSON/text output reports `sideReorgCaseCount` for accepted side-reorg
+    evidence.
   - Result: hardened pinned smoke-gate root handling. `--pinned-v5.4.0` now
     requires an explicit `--root PATH` or
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent
