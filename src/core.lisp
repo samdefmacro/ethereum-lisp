@@ -4552,6 +4552,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (validate-transaction-type-for-config
        transaction chain-config number timestamp))))
 
+(defun chain-store-import-txpool-subpool-compatible-p
+    (subpool transaction)
+  (cond
+    ((eq subpool :blob)
+     (unless (typep transaction 'blob-transaction)
+       (block-validation-fail
+        "KV txpool blob subpool record must contain a blob transaction")))
+    ((typep transaction 'blob-transaction)
+     (block-validation-fail
+      "KV txpool blob transaction must restore to the blob subpool")))
+  t)
+
 (defun chain-store-import-txpool-transaction-static-fields (transaction)
   (validate-transaction-data-field transaction)
   (validate-transaction-recipient-field transaction)
@@ -4578,6 +4590,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   :expected-chain-id expected-chain-id)
         (block-validation-fail
          "KV txpool record sender recovery failed"))
+      (chain-store-import-txpool-subpool-compatible-p subpool transaction)
       (chain-store-import-txpool-transaction-rules
        store transaction chain-config)
       (engine-payload-store-validate-txpool-blob-fee-cap

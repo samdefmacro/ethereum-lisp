@@ -877,6 +877,9 @@ first pass, but interfaces must not block that path.
   Canonical-head cleanup applies the same blob-fee-cap rule to existing
   blob-subpool entries when the head blob base fee rises, using the active
   chain config's blob schedule when one is available.
+  KV txpool import also rejects durable subpool/type mismatches, keeping blob
+  transactions out of pending/queued/basefee restored views and keeping
+  non-blob transactions out of the restored blob subpool.
   That cleanup now runs on the staging view before
   publication, so the target store adopts already-normalized txpool tables.
   Devnet restores now supply the configured chain ID to

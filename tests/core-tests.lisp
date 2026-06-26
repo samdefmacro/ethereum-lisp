@@ -4411,14 +4411,9 @@
             2
             1))
          (blob
-           (fixture-sign-legacy-transaction
-            (make-legacy-transaction
-             :nonce 0
-             :gas-price 130
-             :gas-limit 21000
-             :to recipient)
-            3
-            1))
+           (transaction-from-encoding
+            (hex-to-bytes
+             "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675")))
          (pending-hash (transaction-hash pending))
          (pending-id (hash32-bytes pending-hash))
          (pending-sender
@@ -4474,6 +4469,7 @@
                         (ethereum-lisp.core::engine-payload-store-pooled-transaction
                          restored
                          (transaction-hash basefee)))))
+           (is (typep blob 'blob-transaction))
            (is (bytes= (transaction-encoding blob)
                        (transaction-encoding
                         (ethereum-lisp.core::engine-payload-store-pooled-transaction
@@ -5160,6 +5156,74 @@
                     (transaction-hash target-transaction)))))
       (when (probe-file path)
         (delete-file path)))))
+
+(deftest chain-store-import-from-kv-rejects-txpool-subpool-type-mismatch
+  (labels ((with-database-record (subpool transaction thunk)
+             (let ((path
+                     (merge-pathnames
+                      (make-pathname
+                       :name
+                       (format nil "ethereum-lisp-chain-txpool-subpool-~A"
+                               (gensym))
+                       :type "sexp")
+                      #P"/private/tmp/")))
+               (unwind-protect
+                    (progn
+                      (let ((database (make-file-key-value-database path)))
+                        (kv-put-chain-record
+                         database
+                         :txpool
+                         (hash32-bytes (transaction-hash transaction))
+                         (ethereum-lisp.core::chain-store-txpool-transaction-record-rlp
+                          subpool
+                          transaction)))
+                      (funcall thunk path))
+                 (when (probe-file path)
+                   (delete-file path))))))
+    (let* ((recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (legacy-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1
+               :gas-price 100
+               :gas-limit 21000
+               :to recipient)
+              1
+              1))
+           (blob-transaction
+             (transaction-from-encoding
+              (hex-to-bytes
+               "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675")))
+           (config (make-chain-config :chain-id 1337
+                                      :london-block 0
+                                      :cancun-time 0)))
+      (with-database-record
+       :blob
+       legacy-transaction
+       (lambda (path)
+         (let ((target (make-engine-payload-memory-store)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)))
+           (is (= 0
+                  (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+                   target))))))
+      (with-database-record
+       :pending
+       blob-transaction
+       (lambda (path)
+         (let ((target (make-engine-payload-memory-store)))
+           (signals block-validation-error
+             (chain-store-import-from-kv
+              target
+              (make-file-key-value-database path)
+              :expected-chain-id 1337
+              :chain-config config))
+           (is (= 0
+                  (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                   target)))))))))
 
 (deftest chain-store-import-from-kv-rejects-conflicting-txpool-records
   (let* ((path
