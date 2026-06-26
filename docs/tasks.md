@@ -4202,6 +4202,12 @@ splits can land after the Phase A smoke path closes.
     chain-ID visibility boundary when a recorded hash still resolves to a
     local txpool transaction. Wrong-chain entries inserted below admission no
     longer leak through `eth_getFilterChanges`.
+  - Progress: pending-contiguous nonce calculation now accepts the configured
+    chain ID and stops at the first pending entry whose sender cannot recover
+    for that chain. `eth_getTransactionCount(..., "pending")`, nonce-gap
+    routing, queued promotion, and basefee promotion no longer treat a
+    wrong-chain pending entry inserted below admission as executable nonce
+    continuity.
   - Progress: `eth_getRawTransactionByHash` now applies the same configured
     chain-ID sender recovery check before returning pooled local transaction
     bytes. Wrong-chain txpool entries inserted below admission are hidden even

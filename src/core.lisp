@@ -5644,14 +5644,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         collect (address-from-hex sender-key)))
 
 (defun engine-payload-store-pending-contiguous-nonce
-    (store sender state-nonce)
+    (store sender state-nonce &key expected-chain-id)
   (loop with next-nonce = state-nonce
         for transaction =
           (engine-payload-store-indexed-sender-nonce-transaction
            (engine-payload-store-pending-sender-index store)
            sender
            next-nonce)
-        while transaction
+        while (and transaction
+                   (or (null expected-chain-id)
+                       (transaction-sender
+                        transaction
+                        :expected-chain-id expected-chain-id)))
           do (incf next-nonce)
         finally (return next-nonce)))
 
@@ -5812,7 +5816,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  (chain-store-account-nonce
                   store
                   (block-hash head)
-                  sender)))))))
+                  sender)
+                 :expected-chain-id expected-chain-id))))))
 
 (defun engine-payload-store-queued-promotion-senders (store sender)
   (if sender
@@ -5831,7 +5836,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (chain-store-account-nonce store (block-hash head) sender)))
         (loop for next-nonce =
                 (engine-payload-store-pending-contiguous-nonce
-                 store sender state-nonce)
+                 store sender state-nonce
+                 :expected-chain-id expected-chain-id)
               for transaction =
                 (engine-payload-store-indexed-sender-nonce-transaction
                  (engine-payload-store-queued-sender-index store)
@@ -5897,7 +5903,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    (chain-store-account-nonce
                     store
                     (block-hash head)
-                    sender))
+                    sender)
+                   :expected-chain-id expected-chain-id)
                 for transaction =
                   (engine-payload-store-indexed-sender-nonce-transaction
                    (engine-payload-store-basefee-sender-index store)

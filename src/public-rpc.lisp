@@ -473,13 +473,15 @@
      (chain-store-account-balance
       store (block-hash block) address))))
 
-(defun eth-rpc-pending-account-nonce (store address state-nonce)
+(defun eth-rpc-pending-account-nonce
+    (store address state-nonce &key expected-chain-id)
   (engine-payload-store-pending-contiguous-nonce
    store
    address
-   state-nonce))
+   state-nonce
+   :expected-chain-id expected-chain-id))
 
-(defun engine-rpc-handle-eth-get-transaction-count (params store)
+(defun engine-rpc-handle-eth-get-transaction-count (params store config)
   (unless (= 2 (length params))
     (block-validation-fail
      "eth_getTransactionCount params must contain address and block id"))
@@ -493,7 +495,11 @@
              store (block-hash block) address)))
       (quantity-to-hex
        (if (and (stringp block-id) (string= block-id "pending"))
-           (eth-rpc-pending-account-nonce store address state-nonce)
+           (eth-rpc-pending-account-nonce
+            store
+            address
+            state-nonce
+            :expected-chain-id (chain-config-chain-id config))
            state-nonce)))))
 
 (defun engine-rpc-handle-eth-get-code (params store)
@@ -1718,7 +1724,8 @@
          "eth_sendRawTransaction insufficient sender balance"))))
   t)
 
-(defun eth-rpc-txpool-queued-nonce-gap-p (store sender transaction)
+(defun eth-rpc-txpool-queued-nonce-gap-p
+    (store sender transaction &key expected-chain-id)
   (multiple-value-bind (head block-number timestamp)
       (eth-rpc-txpool-admission-head-context store)
     (declare (ignore block-number timestamp))
@@ -1731,7 +1738,8 @@
              (chain-store-account-nonce
               store
               (block-hash head)
-              sender))))))
+              sender)
+             :expected-chain-id expected-chain-id)))))
 
 (defun eth-rpc-txpool-basefee-ineligible-p (store transaction)
   (multiple-value-bind (head block-number timestamp)
@@ -1947,7 +1955,11 @@
            (engine-payload-store-put-blob-transaction store transaction))
           ((eth-rpc-txpool-basefee-ineligible-p store transaction)
            (engine-payload-store-put-basefee-transaction store transaction))
-          ((eth-rpc-txpool-queued-nonce-gap-p store sender transaction)
+          ((eth-rpc-txpool-queued-nonce-gap-p
+            store
+            sender
+            transaction
+            :expected-chain-id (chain-config-chain-id config))
            (engine-payload-store-put-queued-transaction store transaction))
           (t
            (engine-payload-store-put-pending-transaction store transaction)
@@ -2545,7 +2557,9 @@
       id :result (engine-rpc-handle-eth-get-balance params store)))
     ((string= method "eth_getTransactionCount")
      (engine-rpc-response
-      id :result (engine-rpc-handle-eth-get-transaction-count params store)))
+      id
+      :result
+      (engine-rpc-handle-eth-get-transaction-count params store config)))
     ((string= method "eth_getCode")
      (engine-rpc-response
       id :result (engine-rpc-handle-eth-get-code params store)))

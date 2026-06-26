@@ -894,7 +894,10 @@ first pass, but interfaces must not block that path.
   `txpool_content`, and `txpool_contentFrom` skip configured-chain-invalid
   pooled entries while preserving empty public buckets before cleanup, and
   pending-transaction filter changes drop recorded hashes that still resolve to
-  configured-chain-invalid local txpool entries. Raw pooled transaction lookup
+  configured-chain-invalid local txpool entries. Pending-contiguous nonce
+  calculation now also uses the configured chain ID, so wrong-chain pending
+  entries inserted below admission cannot inflate pending account nonces or
+  make later nonce-gap transactions executable. Raw pooled transaction lookup
   now uses the same configured chain-ID sender check before returning local
   txpool bytes, so wrong-chain entries stay hidden even before maintenance
   cleanup removes them. Mined raw transaction lookup by hash or block/index now
