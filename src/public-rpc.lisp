@@ -2387,9 +2387,22 @@
       (setf (engine-block-filter-last-block-number block-filter) latest
             (engine-block-filter-hashes block-filter) nil))))
 
-(defun engine-pending-transaction-filter-changes (pending-filter)
+(defun engine-pending-transaction-filter-visible-hash-p
+    (hash store expected-chain-id)
+  (let ((transaction (engine-payload-store-pooled-transaction store hash)))
+    (or (null transaction)
+        (transaction-sender
+         transaction
+         :expected-chain-id expected-chain-id))))
+
+(defun engine-pending-transaction-filter-changes
+    (pending-filter store expected-chain-id)
   (let ((hashes (engine-pending-transaction-filter-hashes pending-filter)))
-    (prog1 (eth-rpc-json-array (mapcar #'hash32-to-hex hashes))
+    (prog1 (eth-rpc-json-array
+            (loop for hash in hashes
+                  when (engine-pending-transaction-filter-visible-hash-p
+                        hash store expected-chain-id)
+                    collect (hash32-to-hex hash)))
       (setf (engine-pending-transaction-filter-hashes pending-filter) nil))))
 
 (defun engine-rpc-handle-eth-get-logs (params store)
@@ -2434,7 +2447,7 @@
     (eth-rpc-filter-logs
      (engine-log-filter-criteria log-filter) store method)))
 
-(defun engine-rpc-handle-eth-get-filter-changes (params store)
+(defun engine-rpc-handle-eth-get-filter-changes (params store config)
   (let* ((method "eth_getFilterChanges")
          (id (eth-rpc-filter-id-param params method))
          (filter (engine-payload-store-log-filter store id)))
@@ -2444,7 +2457,8 @@
       ((typep filter 'engine-block-filter)
        (engine-block-filter-changes filter store))
       ((typep filter 'engine-pending-transaction-filter)
-       (engine-pending-transaction-filter-changes filter))
+       (engine-pending-transaction-filter-changes
+        filter store (chain-config-chain-id config)))
       (t
        (block-validation-fail "~A filter not found" method)))))
 
@@ -2631,7 +2645,8 @@
       id :result (engine-rpc-handle-eth-get-filter-logs params store)))
     ((string= method "eth_getFilterChanges")
      (engine-rpc-response
-      id :result (engine-rpc-handle-eth-get-filter-changes params store)))
+      id :result (engine-rpc-handle-eth-get-filter-changes
+                  params store config)))
     ((string= method "eth_uninstallFilter")
      (engine-rpc-response
       id :result (engine-rpc-handle-eth-uninstall-filter params store)))

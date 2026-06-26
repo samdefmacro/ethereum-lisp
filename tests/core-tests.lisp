@@ -18151,7 +18151,14 @@
               2))
            (sender (transaction-sender transaction :expected-chain-id 2))
            (transaction-hash-hex (hash32-to-hex (transaction-hash transaction)))
-           (config (make-chain-config :chain-id 1)))
+           (config (make-chain-config :chain-id 1))
+           (pending-filter-response
+             (parse-json
+              (engine-rpc-handle-request-json
+               "{\"jsonrpc\":\"2.0\",\"id\":101,\"method\":\"eth_newPendingTransactionFilter\"}"
+               store
+               config)))
+           (pending-filter-id (field pending-filter-response "result")))
       (is sender)
       (is (null (transaction-sender transaction :expected-chain-id 1)))
       (ethereum-lisp.core::engine-payload-store-put-pending-transaction
@@ -18189,12 +18196,23 @@
                   "\"method\":\"eth_getTransactionByHash\","
                   "\"params\":[\"" transaction-hash-hex "\"]}")
                  store
+                 config)))
+             (pending-filter-changes-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":106,"
+                  "\"method\":\"eth_getFilterChanges\","
+                  "\"params\":[\"" pending-filter-id "\"]}")
+                 store
                  config))))
         (is (= 0 (length (field pending-response "result"))))
         (dolist (response (list content-response content-from-response))
           (let ((result (field response "result")))
             (is (empty-object-p (field result "pending")))
             (is (empty-object-p (field result "queued")))))
+        (is (= 0 (length (field pending-filter-changes-response "result"))))
         (is (null (field by-hash-response "result")))))))
 
 (deftest eth-rpc-send-raw-transaction

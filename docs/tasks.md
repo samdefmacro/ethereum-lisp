@@ -4198,6 +4198,10 @@ splits can land after the Phase A smoke path closes.
     inserted wrong-chain entries produce empty `eth_pendingTransactions`,
     `txpool_content`, and `txpool_contentFrom` results instead of leaking
     transaction objects, empty sender buckets, or RPC errors before cleanup.
+  - Progress: pending-transaction filter changes now apply the same configured
+    chain-ID visibility boundary when a recorded hash still resolves to a
+    local txpool transaction. Wrong-chain entries inserted below admission no
+    longer leak through `eth_getFilterChanges`.
   - Progress: `eth_getRawTransactionByHash` now applies the same configured
     chain-ID sender recovery check before returning pooled local transaction
     bytes. Wrong-chain txpool entries inserted below admission are hidden even
