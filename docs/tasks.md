@@ -6,7 +6,9 @@ queue for small, testable slices.
 
 Automation should pick the highest-priority unchecked task whose dependencies
 are done, implement only one coherent slice, run the listed validation, update
-this file when status changes, then commit and push green work.
+this file when status changes, then commit green work. Push only when the
+current automation policy or the user explicitly requests it; unavailable remote
+push is not a development blocker while local commits are being recorded.
 
 Priority guide:
 
