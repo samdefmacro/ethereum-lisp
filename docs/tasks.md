@@ -4592,6 +4592,11 @@ splits can land after the Phase A smoke path closes.
     configured chain, the restored post-reorg public RPC now verifies both
     `eth_getTransactionByHash` and `eth_getRawTransactionByHash` expose it as
     pending while `eth_getTransactionReceipt` remains hidden.
+  - Result: extended the restored side-reorg smoke to pending txpool view
+    visibility. The same post-reorg public RPC now verifies
+    `eth_pendingTransactions` contains the displaced valid transaction as a
+    pending object with no block hash, block number, or transaction index, and
+    still omits wrong-chain displaced transactions.
   - Result: extended the restored side-reorg smoke with a rejected checkpoint
     update through authenticated Engine RPC. After importing the empty sibling,
     the gate first attempts to publish the old canonical child as `safe` for

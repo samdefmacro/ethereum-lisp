@@ -170,6 +170,7 @@
                          "databaseRpcSideTransactionReinserted"
                          "databaseRpcSideTransactionByHash"
                          "databaseRpcSideRawTransaction"
+                         "databaseRpcSidePendingTransaction"
                          "databaseRpcSideReceipt"
                          "databaseRpcSideChildBlockHash"
                          "databaseRpcSideBlockReceiptsCount"
@@ -234,23 +235,47 @@
                          (fixture-object-field
                           report "databaseRpcSideTransactionByHash")
                          "transactionIndex")))
-              (is (string= (fixture-object-field
+                (is (string= (fixture-object-field
                               report "databaseRpcRawTransactionByHash")
                              (fixture-object-field
-                              report "databaseRpcSideRawTransaction"))))
+                              report "databaseRpcSideRawTransaction")))
+                (is (string= (fixture-object-field
+                              report "databaseRpcReceiptTransactionHash")
+                             (fixture-object-field
+                              (fixture-object-field
+                               report "databaseRpcSidePendingTransaction")
+                              "hash")))
+                (is (eq nil
+                        (fixture-object-field
+                         (fixture-object-field
+                          report "databaseRpcSidePendingTransaction")
+                         "blockHash")))
+                (is (eq nil
+                        (fixture-object-field
+                         (fixture-object-field
+                          report "databaseRpcSidePendingTransaction")
+                         "blockNumber")))
+                (is (eq nil
+                        (fixture-object-field
+                         (fixture-object-field
+                          report "databaseRpcSidePendingTransaction")
+                         "transactionIndex"))))
               (progn
                 (is (eq nil
                         (fixture-object-field
                          report "databaseRpcSideTransactionByHash")))
                 (is (eq nil
                         (fixture-object-field
-                         report "databaseRpcSideRawTransaction")))))
+                         report "databaseRpcSideRawTransaction")))
+                (is (eq nil
+                        (fixture-object-field
+                         report "databaseRpcSidePendingTransaction")))))
           (is (eq nil
                   (fixture-object-field report "databaseRpcSideReceipt")))
           (is (= 3
                  (fixture-object-field
                   report "databaseRpcSideEngineConnections")))
-          (is (= 8
+          (is (= 9
                  (fixture-object-field
                   report "databaseRpcSidePublicConnections")))))))
 
