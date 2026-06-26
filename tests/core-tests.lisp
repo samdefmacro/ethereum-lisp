@@ -9851,6 +9851,16 @@
         (is (= 9 (field response "id")))
         (is (= -32601 (field error "code")))
         (is (string= "Method not found" (field error "message"))))
+      (let* ((parse-error-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":9,"
+                store
+                config))
+             (parse-error-response (parse-json parse-error-json))
+             (parse-error (field parse-error-response "error")))
+        (is (not (field parse-error-response "id")))
+        (is (= -32700 (field parse-error "code")))
+        (is (string= "Parse error" (field parse-error "message"))))
       (let* ((missing-version-json
                (engine-rpc-handle-request-json
                 "{\"id\":12,\"method\":\"engine_nope\",\"params\":[]}"
@@ -22311,6 +22321,22 @@
       (is (search "Connection: close" http-response))
       (is (= 17 (field rpc-response "id")))
       (is (string= "ethereum-lisp" (field local "name"))))
+    (let* ((body "{\"jsonrpc\":\"2.0\",\"id\":18,")
+           (request
+             (format nil
+                     "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (http-response
+             (engine-rpc-handle-http-request-string
+              request
+              (make-engine-payload-memory-store)
+              (make-chain-config)))
+           (rpc-response (parse-json (http-body http-response)))
+           (error (field rpc-response "error")))
+      (is (= 200 (http-status http-response)))
+      (is (not (field rpc-response "id")))
+      (is (= -32700 (field error "code"))))
     (let* ((response
              (engine-rpc-handle-http-request-string
               "POST / HTTP/1.1

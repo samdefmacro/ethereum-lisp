@@ -6700,6 +6700,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :error
    (engine-rpc-error-object -32600 "Invalid Request")))
 
+(defun engine-rpc-parse-error-response ()
+  (engine-rpc-response
+   nil
+   :error
+   (engine-rpc-error-object -32700 "Parse error")))
+
 (defun engine-rpc-jsonrpc-version-valid-p (request)
   (let ((version (genesis-object-field request "jsonrpc")))
     (and (genesis-object-field-present-p request "jsonrpc")
@@ -6817,12 +6823,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-request-string
     (request-json store config &key import-function
                                   (allowed-method-p #'engine-rpc-any-method-p))
-  (engine-rpc-handle-request-value
-   (parse-json request-json)
-   store
-   config
-   :import-function import-function
-   :allowed-method-p allowed-method-p))
+  (let ((request
+          (handler-case
+              (parse-json request-json)
+            (block-validation-error ()
+              (return-from engine-rpc-handle-request-string
+                (engine-rpc-parse-error-response))))))
+    (engine-rpc-handle-request-value
+     request
+     store
+     config
+     :import-function import-function
+     :allowed-method-p allowed-method-p)))
 
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function

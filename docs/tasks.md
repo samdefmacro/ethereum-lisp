@@ -1331,7 +1331,8 @@ splits can land after the Phase A smoke path closes.
     envelope/HTTP serving and public RPC handlers remain follow-up module
     split work.
   - Result: the remaining generic JSON-RPC envelope in `src/core.lisp` now
-    requires the `"jsonrpc"` version field to be `"2.0"` before dispatch and
+    reports malformed JSON bodies as JSON-RPC `Parse error` responses,
+    requires the `"jsonrpc"` version field to be `"2.0"` before dispatch, and
     rejects malformed method / params envelope shapes as `Invalid Request`;
     valid method requests without an `id` are notifications that execute
     without response bodies, and mixed batches omit notification results while
