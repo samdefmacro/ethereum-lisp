@@ -2906,9 +2906,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (setf (engine-payload-memory-store-head-number store) new-head-number
                 (engine-payload-memory-store-head-checkpoint store)
                 (make-chain-store-checkpoint :label :head :block-hash hash)))
-        (engine-payload-store-remove-stale-txpool-transactions store)
-        (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
-        (engine-payload-store-remove-sender-code-invalid-txpool-transactions
+        (engine-payload-store-remove-new-head-invalid-txpool-transactions
          store)
         (engine-payload-store-reinsert-displaced-block-transactions
          store
@@ -2930,10 +2928,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                       (block-header-number
                                        (block-header block)))))
             (engine-payload-store-notify-log-filters store block))))
-      (engine-payload-store-remove-stale-txpool-transactions store)
-      (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
-      (engine-payload-store-remove-sender-code-invalid-txpool-transactions
-       store)
+      (engine-payload-store-remove-new-head-invalid-txpool-transactions store)
       (engine-payload-store-revalidate-pending-transactions store)
       (engine-payload-store-promote-queued-transactions store)
       (engine-payload-store-promote-basefee-and-queued-transactions store)
@@ -4548,11 +4543,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun chain-store-restore-txpool-consistency (store)
   (let ((head (chain-store-latest-block store)))
     (when head
-      (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
+      (engine-payload-store-remove-new-head-invalid-txpool-transactions store)
       (when (chain-store-state-available-p store (block-hash head))
-        (engine-payload-store-remove-stale-txpool-transactions store)
-        (engine-payload-store-remove-sender-code-invalid-txpool-transactions
-         store)
         (engine-payload-store-revalidate-pending-transactions store)
         (engine-payload-store-promote-queued-transactions store)
         (engine-payload-store-promote-basefee-and-queued-transactions store)
@@ -5942,6 +5934,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (engine-payload-store-blob-transactions store)
          #'engine-pending-txpool-remove-blob-transaction)))
     (nreverse removed-transactions)))
+
+(defun engine-payload-store-remove-new-head-invalid-txpool-transactions
+    (store)
+  (nconc
+   (engine-payload-store-remove-stale-txpool-transactions store)
+   (engine-payload-store-remove-over-gas-limit-txpool-transactions store)
+   (engine-payload-store-remove-sender-code-invalid-txpool-transactions
+    store)))
 
 (defun engine-payload-store-pending-revalidation-senders (store)
   (loop for sender-key
