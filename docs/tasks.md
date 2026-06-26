@@ -1668,6 +1668,9 @@ splits can land after the Phase A smoke path closes.
     requires the selected smoke cases to include legacy transfer, dynamic-fee
     typed transfer, and contract-creation families, and rejects duplicate or
     missing smoke case selectors before replay.
+  - Progress: tightened the Engine smoke coverage guard so internal CREATE2
+    calls are an explicit required family instead of being covered only as a
+    generic transaction to an existing recipient.
   - Progress: expanded the Engine `newPayloadV2` fixture smoke with a
     Shanghai EIP-2930 access-list transfer. The fixture coverage guard now
     requires legacy, access-list, dynamic-fee, and contract-creation

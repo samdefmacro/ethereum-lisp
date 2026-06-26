@@ -256,6 +256,9 @@ fixes in those areas are allowed; expansion is not.
   log-producing contract-call, top-level contract creation, and internal
   CREATE2 payload coverage, plus a two-transaction legacy transfer payload
   that locks receipt accumulation and multi-recipient post-state checks. Its
+  smoke coverage validator now requires the internal CREATE2 family
+  explicitly, so that path cannot be dropped while still satisfying generic
+  transfer coverage.
   `--devnet` mode now runs the standalone devnet all-fixtures
   listener-boundary suite with per-case readiness JSON, `devnet.ready` /
   `devnet.shutdown` telemetry logs, and

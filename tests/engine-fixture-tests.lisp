@@ -17,7 +17,8 @@
 
 (defparameter +engine-newpayload-v2-smoke-coverage-families+
   '(:legacy-transfer :access-list-transfer :dynamic-fee-transfer
-    :contract-creation :multi-legacy-transfer :log-producing-call))
+    :contract-creation :multi-legacy-transfer :log-producing-call
+    :internal-create2-call))
 
 (defparameter +engine-newpayload-v2-fixture-top-level-fields+
   '("format" "source" "executionSpecTests" "referenceClients" "cases"))
@@ -826,6 +827,9 @@
               (fixture-required-field case "expect")
               "logAddress")
              :log-producing-call)
+            ((string= (fixture-required-field case "name")
+                      "shanghai-internal-create2-with-withdrawal")
+             :internal-create2-call)
             ((null (transaction-to transaction))
              :contract-creation)
             ((zerop (transaction-type transaction))
