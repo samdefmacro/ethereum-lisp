@@ -190,6 +190,9 @@
                          "databaseRpcSideRestoredRawTransaction"
                          "databaseRpcSideRestoredPendingTransaction"
                          "databaseRpcSideRestoredReceipt"
+                         "databaseRpcSideRestoredChildBlockHash"
+                         "databaseRpcSideRestoredBlockReceiptsCount"
+                         "databaseRpcSideRestoredLogCount"
                          "databaseRpcSideRestoredPublicConnections"
                          "databaseRpcSideEngineConnections"
                          "databaseRpcSidePublicConnections"))
@@ -359,13 +362,22 @@
           (is (eq nil
                   (fixture-object-field
                    report "databaseRpcSideRestoredReceipt")))
+          (is (string= (fixture-object-field report "databaseRpcBlockHash")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredChildBlockHash")))
+          (is (= 0
+                 (fixture-object-field
+                  report "databaseRpcSideRestoredBlockReceiptsCount")))
+          (is (= 0
+                 (fixture-object-field
+                  report "databaseRpcSideRestoredLogCount")))
           (is (= 3
                  (fixture-object-field
                   report "databaseRpcSideEngineConnections")))
           (is (= 9
                  (fixture-object-field
                   report "databaseRpcSidePublicConnections")))
-          (is (= 7
+          (is (= 10
                  (fixture-object-field
                   report
                   "databaseRpcSideRestoredPublicConnections")))))))

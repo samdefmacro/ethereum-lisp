@@ -4612,6 +4612,11 @@ splits can land after the Phase A smoke path closes.
     state. The same public RPC boundary now verifies `eth_getBalance` against
     the `safe` and `finalized` tags still reads the parent retained state after
     the side sibling becomes canonical.
+  - Result: extended the fresh post-reorg restore to block/receipt/log
+    visibility. After the second KV export/import, the public RPC boundary now
+    verifies the old transaction-bearing child remains hash-readable while
+    `eth_getBlockReceipts("latest")` and a same-height `eth_getLogs` query
+    still return empty results on the canonical empty sibling.
   - Result: locked the core Engine forkchoice reinsertion event boundary for
     pending filters. A JSON-RPC-created `eth_newPendingTransactionFilter` now
     has regression coverage proving a forkchoice reorg that reinserts a
