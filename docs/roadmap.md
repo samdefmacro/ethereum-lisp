@@ -341,7 +341,10 @@ fixes in those areas are allowed; expansion is not.
   coverage it did not execute; a separate top-level `devnetSideReorg` section
   now runs one non-pruned database-backed side-reorg probe so the Phase A
   parent gate covers both pruned retained-state behavior and restored reorg
-  behavior in the same command.
+  behavior in the same command. The side-reorg report distinguishes child-head
+  `checkedBalance` from checkpoint-state `checkedCheckpointBalance`, so
+  restored `safe` / `finalized` balance checks can cover a balance-changing
+  transfer case without conflating head state with checkpoint state.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

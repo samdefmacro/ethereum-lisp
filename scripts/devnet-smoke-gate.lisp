@@ -554,6 +554,15 @@ references/ checkouts.~%")
          (devnet-smoke-gate-balance-target expect)
        (list (list :address address :balance balance :field field))))))
 
+(defun devnet-smoke-gate-checkpoint-balance-targets
+    (state balance-targets)
+  (loop for target in balance-targets
+        for address = (getf target :address)
+        collect (list :address address
+                      :balance (quantity-to-hex
+                                (fixture-account-balance state address))
+                      :field (getf target :field))))
+
 (defun devnet-smoke-gate-transaction-checks (block)
   (loop for transaction in (block-transactions block)
         collect (list :hash (transaction-hash transaction)
@@ -3069,8 +3078,9 @@ references/ checkouts.~%")
   (error "Restored devnet txpool RPC verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-verify-restored-side-reorg-rpc
-    (path side-payload side-block child-block balance-targets transaction-checks
-     expected-safe-block-hash config)
+    (path side-payload side-block child-block balance-targets
+     checkpoint-balance-targets transaction-checks expected-safe-block-hash
+     config)
   #+sbcl
   (let ((jwt-path
           (devnet-cli-temp-path
@@ -3091,8 +3101,10 @@ references/ checkouts.~%")
                   (primary-balance-target (first balance-targets))
                   (balance-address
                     (getf primary-balance-target :address))
-                  (expected-balance
-                    (getf primary-balance-target :balance))
+                  (primary-checkpoint-balance-target
+                    (first checkpoint-balance-targets))
+                  (expected-checkpoint-balance
+                    (getf primary-checkpoint-balance-target :balance))
                   (transaction-hash
                     (getf (first transaction-checks) :hash))
                   (expected-raw-transaction
@@ -3842,10 +3854,11 @@ references/ checkouts.~%")
                          (fixture-object-field fresh-finalized-block "number"))
                 "Fresh side-reorg restore finalized block number mismatch")
                (devnet-smoke-gate-require
-                (string= expected-balance fresh-safe-balance)
+                (string= expected-checkpoint-balance fresh-safe-balance)
                 "Fresh side-reorg restore safe balance mismatch")
                (devnet-smoke-gate-require
-                (string= expected-balance fresh-finalized-balance)
+                (string= expected-checkpoint-balance
+                         fresh-finalized-balance)
                 "Fresh side-reorg restore finalized balance mismatch")
                (list :side-block-hash (hash32-to-hex side-block-hash)
                      :side-forkchoice-status
@@ -3938,6 +3951,7 @@ references/ checkouts.~%")
      expected-finalized-block-number expected-finalized-block-hash
      config
      &key state-prune-before pruned-state-hash
+          checkpoint-balance-targets
           prepared-payload-id prepared-payload-parent-hash
           prepared-payload-block-number
           remote-payload remote-block
@@ -4024,6 +4038,7 @@ references/ checkouts.~%")
                  side-block
                  child-block
                  balance-targets
+                 checkpoint-balance-targets
                  transaction-checks
                  expected-safe-block-hash
                  config))))
@@ -4592,6 +4607,10 @@ references/ checkouts.~%")
                   (txpool-inspect-output (make-string-output-stream))
                   (balance-targets
                     (devnet-smoke-gate-balance-targets expect))
+                  (checkpoint-balance-targets
+                    (devnet-smoke-gate-checkpoint-balance-targets
+                     parent-state
+                     balance-targets))
                   (transaction-checks
                     (devnet-smoke-gate-transaction-checks child-block))
                   (log-targets
@@ -5280,6 +5299,8 @@ references/ checkouts.~%")
                                config
                                :state-prune-before state-prune-before
                                :pruned-state-hash expected-safe-block-hash
+                               :checkpoint-balance-targets
+                               checkpoint-balance-targets
                                :prepared-payload-id prepared-payload-id
                                :prepared-payload-parent-hash
                                (block-hash child-block)
@@ -5367,6 +5388,8 @@ references/ checkouts.~%")
                         (address-to-hex balance-address))
                   (cons "checkedBalanceField" balance-field)
                   (cons "checkedBalance" actual-balance)
+                  (cons "checkedCheckpointBalance"
+                        (getf (first checkpoint-balance-targets) :balance))
                   (cons "recipientBalance" actual-balance)
                   (cons "checkedBalanceCount" (length balance-targets))
                   (cons "transactionCount" (length transaction-checks))
@@ -6652,13 +6675,15 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side restored public finalized number mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (string= (devnet-smoke-gate-field report "checkedBalance")
+               (string= (devnet-smoke-gate-field
+                         report "checkedCheckpointBalance")
                         (devnet-smoke-gate-field
                          report "databaseRpcSideRestoredSafeBalance"))
                "Devnet smoke gate suite side restored safe balance mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (string= (devnet-smoke-gate-field report "checkedBalance")
+               (string= (devnet-smoke-gate-field
+                         report "checkedCheckpointBalance")
                         (devnet-smoke-gate-field
                          report "databaseRpcSideRestoredFinalizedBalance"))
                "Devnet smoke gate suite side restored finalized balance mismatch for ~A"
@@ -7035,6 +7060,9 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field report "checkedBalanceField"))
         (format t "checkedBalance=~A~%"
                 (devnet-smoke-gate-field report "checkedBalance"))
+        (format t "checkedCheckpointBalance=~A~%"
+                (devnet-smoke-gate-field
+                 report "checkedCheckpointBalance"))
         (format t "recipientBalance=~A~%"
                 (devnet-smoke-gate-field report "recipientBalance"))
         (format t "checkedNonceAddress=~A~%"

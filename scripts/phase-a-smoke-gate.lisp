@@ -19,7 +19,7 @@
 (defconstant +smoke-gate-eest-archive+ "fixtures_stable.tar.gz")
 (defconstant +smoke-gate-devnet-prune-state-before+ 42)
 (defconstant +smoke-gate-devnet-side-reorg-fixture-case+
-  "shanghai-dynamic-fee-transfer-with-withdrawal")
+  "shanghai-one-transfer-with-withdrawal")
 
 (defun smoke-gate-arguments ()
   #+sbcl
@@ -625,11 +625,11 @@ references/ checkouts.~%"))
         (smoke-gate-devnet-case-require-field
          case-report
          "databaseRpcSideRestoredSafeBalance"
-         (smoke-gate-field case-report "checkedBalance"))
+         (smoke-gate-field case-report "checkedCheckpointBalance"))
         (smoke-gate-devnet-case-require-field
          case-report
          "databaseRpcSideRestoredFinalizedBalance"
-         (smoke-gate-field case-report "checkedBalance"))
+         (smoke-gate-field case-report "checkedCheckpointBalance"))
         (smoke-gate-devnet-case-require-not-equal
          case-report "databaseRpcBlockHash" "databaseRpcSideBlockHash")
         (smoke-gate-devnet-case-require-field

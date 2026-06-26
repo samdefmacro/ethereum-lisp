@@ -496,6 +496,14 @@ ones.
     pruned suite continues to report `sideReorgCaseCount=0`, while the new
     top-level `devnetSideReorg` section executes one database-backed
     side-reorg case and is included in aggregate total case/executed counts.
+  - Result: fixed the side-reorg restored checkpoint balance oracle. Devnet
+    reports now distinguish child-head `checkedBalance` from
+    `checkedCheckpointBalance`, and both standalone plus parent Phase A gates
+    validate restored `safe`/`finalized` balances against the checkpoint state.
+    This lets the dedicated side-reorg probe use the default
+    `shanghai-one-transfer-with-withdrawal` case, where the child transfer
+    changes the checked recipient balance while the preserved checkpoint
+    balance remains zero.
   - Result: hardened pinned smoke-gate root handling. `--pinned-v5.4.0` now
     requires an explicit `--root PATH` or
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent

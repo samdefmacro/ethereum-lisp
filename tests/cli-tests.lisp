@@ -251,10 +251,12 @@
                        (fixture-object-field
                         report
                         "databaseRpcSideRestoredRpcFinalizedHash")))
-          (is (string= (fixture-object-field report "checkedBalance")
+          (is (string= (fixture-object-field
+                        report "checkedCheckpointBalance")
                        (fixture-object-field
                         report "databaseRpcSideRestoredSafeBalance")))
-          (is (string= (fixture-object-field report "checkedBalance")
+          (is (string= (fixture-object-field
+                        report "checkedCheckpointBalance")
                        (fixture-object-field
                         report "databaseRpcSideRestoredFinalizedBalance")))
           (is (not (string= (fixture-object-field
@@ -2955,7 +2957,7 @@
                      (fixture-object-field devnet-side-reorg "status")))
         (is (string= "devnet-listener-boundary"
                      (fixture-object-field devnet-side-reorg "mode")))
-        (is (string= "shanghai-dynamic-fee-transfer-with-withdrawal"
+        (is (string= "shanghai-one-transfer-with-withdrawal"
                      (fixture-object-field
                       devnet-side-reorg "fixtureCase")))
         (is (= 1 (fixture-object-field
