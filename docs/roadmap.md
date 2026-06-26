@@ -968,8 +968,10 @@ first pass, but interfaces must not block that path.
   until forkchoice actually makes that branch canonical. Forkchoice reorgs now
   also reinsert executable transactions from displaced old-canonical blocks
   into the local txpool as pending or queued entries while keeping receipts and
-  canonical transaction locations bound to the new canonical branch. The
-  devnet database smoke path now carries that reorg policy across process
+  canonical transaction locations bound to the new canonical branch, and that
+  reinsertion path now respects the same all-subpool retained-balance
+  reservations used by live txpool admission. The devnet database smoke path
+  now carries that reorg policy across process
   restart: `eth_getTransactionByHash` exposes chain-valid displaced
   transactions as pending and leaves wrong-chain displaced transactions absent,
   while receipts, logs, and canonical receipt indexes remain absent from the

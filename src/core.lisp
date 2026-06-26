@@ -2475,6 +2475,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-pending-txpool-basefee-conflict txpool transaction)
         (engine-pending-txpool-blob-conflict txpool transaction))))
 
+(defun engine-payload-store-transaction-admission-funded-p
+    (store sender transaction)
+  (let ((head (chain-store-latest-block store)))
+    (or (null head)
+        (not (chain-store-state-available-p store (block-hash head)))
+        (>= (chain-store-account-balance store (block-hash head) sender)
+            (engine-payload-store-sender-admission-expenditure
+             store
+             sender
+             transaction)))))
+
 (defun engine-payload-store-reinsert-displaced-transaction
     (store transaction &key expected-chain-id)
   (let* ((hash (transaction-hash transaction))
@@ -2491,7 +2502,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                          head transaction)))
                (engine-payload-store-sender-code-admissible-p
                 store head sender)
-               (engine-payload-store-transaction-funded-p store transaction))
+               (engine-payload-store-transaction-admission-funded-p
+                store sender transaction))
       (cond
         ((typep transaction 'blob-transaction)
          (engine-payload-store-put-blob-transaction store transaction))

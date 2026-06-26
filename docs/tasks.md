@@ -4162,6 +4162,10 @@ splits can land after the Phase A smoke path closes.
     longer canonical, still have recoverable senders, do not conflict with
     already pooled same-sender/same-nonce transactions, and pass retained
     state gas-limit, sender-code, balance, nonce, and base-fee checks.
+  - Progress: reorg reinsertion now uses the same all-subpool retained-balance
+    reservation used by live txpool admission, so displaced old-canonical
+    transactions cannot bypass queued/basefee/blob reservations when deciding
+    whether to reenter the local txpool.
   - Progress: retained-state txpool balance checks now treat a missing sender
     balance entry as the known zero balance returned by retained state, rather
     than as unknown state. Raw submissions from absent senders are rejected for
