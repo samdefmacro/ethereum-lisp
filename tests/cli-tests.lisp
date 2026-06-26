@@ -177,6 +177,8 @@
                          "databaseRpcSideLogCount"
                          "databaseRpcSideRestoredHeadNumber"
                          "databaseRpcSideRestoredHeadHash"
+                         "databaseRpcSideRestoredRpcBlockNumber"
+                         "databaseRpcSideRestoredRpcLatestBlockHash"
                          "databaseRpcSideRestoredSafeNumber"
                          "databaseRpcSideRestoredSafeHash"
                          "databaseRpcSideRestoredFinalizedNumber"
@@ -216,6 +218,12 @@
           (is (string= (fixture-object-field report "blockNumber")
                        (fixture-object-field
                         report "databaseRpcSideRestoredHeadNumber")))
+          (is (string= (fixture-object-field report "blockNumber")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredRpcBlockNumber")))
+          (is (string= (fixture-object-field report "databaseRpcSideBlockHash")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredRpcLatestBlockHash")))
           (is (string= (fixture-object-field report "safeBlockNumber")
                        (fixture-object-field
                         report "databaseRpcSideRestoredSafeNumber")))
@@ -377,7 +385,7 @@
           (is (= 9
                  (fixture-object-field
                   report "databaseRpcSidePublicConnections")))
-          (is (= 10
+          (is (= 12
                  (fixture-object-field
                   report
                   "databaseRpcSideRestoredPublicConnections")))))))

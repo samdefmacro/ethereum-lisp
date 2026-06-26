@@ -4617,6 +4617,11 @@ splits can land after the Phase A smoke path closes.
     verifies the old transaction-bearing child remains hash-readable while
     `eth_getBlockReceipts("latest")` and a same-height `eth_getLogs` query
     still return empty results on the canonical empty sibling.
+  - Result: extended the fresh post-reorg restore to public canonical-head
+    reads. After the second KV export/import, the fresh public RPC listener now
+    verifies `eth_blockNumber` and `eth_getBlockByNumber("latest")` expose the
+    empty side sibling as the restored canonical head, matching the restored
+    chain-store summary.
   - Result: locked the core Engine forkchoice reinsertion event boundary for
     pending filters. A JSON-RPC-created `eth_newPendingTransactionFilter` now
     has regression coverage proving a forkchoice reorg that reinserts a

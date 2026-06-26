@@ -3484,6 +3484,10 @@ references/ checkouts.~%")
                       (make-string-output-stream))
                     (fresh-receipt-output
                       (make-string-output-stream))
+                    (fresh-block-number-output
+                      (make-string-output-stream))
+                    (fresh-latest-block-output
+                      (make-string-output-stream))
                     (fresh-child-block-output
                       (make-string-output-stream))
                     (fresh-block-receipts-output
@@ -3525,6 +3529,20 @@ references/ checkouts.~%")
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 216)
+                               (cons "method" "eth_blockNumber")
+                               (cons "params" '())))
+                        fresh-block-number-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 217)
+                               (cons "method" "eth_getBlockByNumber")
+                               (cons "params" (list "latest" :false))))
+                        fresh-latest-block-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 218)
                                (cons "method" "eth_getBlockByHash")
                                (cons "params"
                                      (list (hash32-to-hex child-block-hash)
@@ -3533,14 +3551,14 @@ references/ checkouts.~%")
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
-                               (cons "id" 217)
+                               (cons "id" 219)
                                (cons "method" "eth_getBlockReceipts")
                                (cons "params" (list "latest"))))
                         fresh-block-receipts-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
-                               (cons "id" 218)
+                               (cons "id" 220)
                                (cons "method" "eth_getLogs")
                                (cons "params"
                                      (list
@@ -3553,21 +3571,21 @@ references/ checkouts.~%")
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
-                               (cons "id" 219)
+                               (cons "id" 221)
                                (cons "method" "eth_getBlockByNumber")
                                (cons "params" (list "safe" :false))))
                         fresh-safe-block-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
-                               (cons "id" 220)
+                               (cons "id" 222)
                                (cons "method" "eth_getBlockByNumber")
                                (cons "params" (list "finalized" :false))))
                         fresh-finalized-block-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
-                               (cons "id" 221)
+                               (cons "id" 223)
                                (cons "method" "eth_getBalance")
                                (cons "params"
                                      (list (address-to-hex balance-address)
@@ -3576,7 +3594,7 @@ references/ checkouts.~%")
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
-                               (cons "id" 222)
+                               (cons "id" 224)
                                (cons "method" "eth_getBalance")
                                (cons "params"
                                      (list (address-to-hex balance-address)
@@ -3603,7 +3621,7 @@ references/ checkouts.~%")
                                :output-stream output
                                :close-function (lambda () nil)))))
                         :close-function (lambda () nil))
-                       :max-connections 10))
+                       :max-connections 12))
                     (fresh-raw-transaction-response
                       (get-output-stream-string
                        fresh-raw-transaction-output))
@@ -3612,6 +3630,10 @@ references/ checkouts.~%")
                        fresh-pending-transactions-output))
                     (fresh-receipt-response
                       (get-output-stream-string fresh-receipt-output))
+                    (fresh-block-number-response
+                      (get-output-stream-string fresh-block-number-output))
+                    (fresh-latest-block-response
+                      (get-output-stream-string fresh-latest-block-output))
                     (fresh-child-block-response
                       (get-output-stream-string fresh-child-block-output))
                     (fresh-block-receipts-response
@@ -3635,6 +3657,12 @@ references/ checkouts.~%")
                        fresh-pending-transactions-response))
                     (fresh-receipt-rpc
                       (devnet-smoke-gate-rpc-body fresh-receipt-response))
+                    (fresh-block-number-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-block-number-response))
+                    (fresh-latest-block-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-latest-block-response))
                     (fresh-child-block-rpc
                       (devnet-smoke-gate-rpc-body
                        fresh-child-block-response))
@@ -3667,6 +3695,8 @@ references/ checkouts.~%")
                             :key (lambda (transaction)
                                    (fixture-object-field transaction
                                                          "hash"))))
+                    (fresh-latest-block
+                      (fixture-object-field fresh-latest-block-rpc "result"))
                     (fresh-child-block
                       (fixture-object-field fresh-child-block-rpc "result"))
                     (fresh-block-receipts
@@ -3721,12 +3751,14 @@ references/ checkouts.~%")
                 "Fresh side-reorg restore expected 0 Engine connections, got ~S"
                 (getf fresh-rpc-summary :engine-connections))
                (devnet-smoke-gate-require
-                (= 10 (getf fresh-rpc-summary :public-connections))
-                "Fresh side-reorg restore expected 10 public connections, got ~S"
+                (= 12 (getf fresh-rpc-summary :public-connections))
+                "Fresh side-reorg restore expected 12 public connections, got ~S"
                 (getf fresh-rpc-summary :public-connections))
                (dolist (response (list fresh-raw-transaction-response
                                         fresh-pending-transactions-response
                                         fresh-receipt-response
+                                        fresh-block-number-response
+                                        fresh-latest-block-response
                                         fresh-child-block-response
                                         fresh-block-receipts-response
                                         fresh-logs-response
@@ -3774,6 +3806,15 @@ references/ checkouts.~%")
                (devnet-smoke-gate-require
                 (null (fixture-object-field fresh-receipt-rpc "result"))
                 "Fresh side-reorg restore kept old canonical receipt")
+               (devnet-smoke-gate-require
+                (string= expected-side-block-number
+                         (fixture-object-field fresh-block-number-rpc
+                                               "result"))
+                "Fresh side-reorg restore public block number mismatch")
+               (devnet-smoke-gate-require
+                (string= (hash32-to-hex side-block-hash)
+                         (fixture-object-field fresh-latest-block "hash"))
+                "Fresh side-reorg restore latest block hash mismatch")
                (devnet-smoke-gate-require
                 (string= (hash32-to-hex child-block-hash)
                          (fixture-object-field fresh-child-block "hash"))
@@ -3834,9 +3875,13 @@ references/ checkouts.~%")
                              :side-log-count
                              (length side-logs)
 	                     :side-restored-head-number
-	                     (quantity-to-hex (getf fresh-summary :head-number))
+                     (quantity-to-hex (getf fresh-summary :head-number))
                      :side-restored-head-hash
                      (getf fresh-summary :head-hash)
+                     :side-restored-rpc-block-number
+                     (fixture-object-field fresh-block-number-rpc "result")
+                     :side-restored-rpc-latest-block-hash
+                     (fixture-object-field fresh-latest-block "hash")
                      :side-restored-safe-number
                      (quantity-to-hex (getf fresh-summary :safe-number))
                      :side-restored-safe-hash
@@ -4365,6 +4410,14 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-restored-head-hash))
+                  :rpc-side-restored-rpc-block-number
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-rpc-block-number))
+                  :rpc-side-restored-rpc-latest-block-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-rpc-latest-block-hash))
                   :rpc-side-restored-safe-number
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
@@ -5913,6 +5966,18 @@ references/ checkouts.~%")
                                       :rpc-side-restored-head-hash)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideRestoredRpcBlockNumber"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-rpc-block-number)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredRpcLatestBlockHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-rpc-latest-block-hash)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideRestoredSafeNumber"
                         (if database-summary
                             (or (getf database-summary
@@ -6523,6 +6588,19 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side restored head number mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "blockNumber")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredRpcBlockNumber"))
+               "Devnet smoke gate suite side fresh public block number mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field
+                         report "databaseRpcSideBlockHash")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredRpcLatestBlockHash"))
+               "Devnet smoke gate suite side fresh latest hash mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
                (string= (devnet-smoke-gate-field report "safeBlockHash")
                         (devnet-smoke-gate-field
                          report "databaseRpcSideRestoredSafeHash"))
@@ -6790,7 +6868,7 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 10 (devnet-smoke-gate-field
+               (= 12 (devnet-smoke-gate-field
                      report "databaseRpcSideRestoredPublicConnections"))
                "Devnet smoke gate suite side fresh public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
@@ -7298,6 +7376,12 @@ references/ checkouts.~%")
         (format t "databaseRpcSideRestoredHeadHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredHeadHash"))
+        (format t "databaseRpcSideRestoredRpcBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredRpcBlockNumber"))
+        (format t "databaseRpcSideRestoredRpcLatestBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredRpcLatestBlockHash"))
         (format t "databaseRpcSideRestoredSafeNumber=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredSafeNumber"))
