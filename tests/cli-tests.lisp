@@ -177,6 +177,14 @@
                          "databaseRpcSideLogCount"
                          "databaseRpcSideRestoredHeadNumber"
                          "databaseRpcSideRestoredHeadHash"
+                         "databaseRpcSideRestoredSafeNumber"
+                         "databaseRpcSideRestoredSafeHash"
+                         "databaseRpcSideRestoredFinalizedNumber"
+                         "databaseRpcSideRestoredFinalizedHash"
+                         "databaseRpcSideRestoredRpcSafeNumber"
+                         "databaseRpcSideRestoredRpcSafeHash"
+                         "databaseRpcSideRestoredRpcFinalizedNumber"
+                         "databaseRpcSideRestoredRpcFinalizedHash"
                          "databaseRpcSideRestoredRawTransaction"
                          "databaseRpcSideRestoredPendingTransaction"
                          "databaseRpcSideRestoredReceipt"
@@ -203,6 +211,33 @@
           (is (string= (fixture-object-field report "blockNumber")
                        (fixture-object-field
                         report "databaseRpcSideRestoredHeadNumber")))
+          (is (string= (fixture-object-field report "safeBlockNumber")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredSafeNumber")))
+          (is (string= (fixture-object-field report "safeBlockHash")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredSafeHash")))
+          (is (string= (fixture-object-field report "finalizedBlockNumber")
+                       (fixture-object-field
+                        report
+                        "databaseRpcSideRestoredFinalizedNumber")))
+          (is (string= (fixture-object-field report "finalizedBlockHash")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredFinalizedHash")))
+          (is (string= (fixture-object-field report "safeBlockNumber")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredRpcSafeNumber")))
+          (is (string= (fixture-object-field report "safeBlockHash")
+                       (fixture-object-field
+                        report "databaseRpcSideRestoredRpcSafeHash")))
+          (is (string= (fixture-object-field report "finalizedBlockNumber")
+                       (fixture-object-field
+                        report
+                        "databaseRpcSideRestoredRpcFinalizedNumber")))
+          (is (string= (fixture-object-field report "finalizedBlockHash")
+                       (fixture-object-field
+                        report
+                        "databaseRpcSideRestoredRpcFinalizedHash")))
           (is (not (string= (fixture-object-field
                              report "databaseRpcBlockHash")
                             (fixture-object-field
@@ -322,7 +357,7 @@
           (is (= 9
                  (fixture-object-field
                   report "databaseRpcSidePublicConnections")))
-          (is (= 3
+          (is (= 5
                  (fixture-object-field
                   report
                   "databaseRpcSideRestoredPublicConnections")))))))

@@ -4603,6 +4603,11 @@ splits can land after the Phase A smoke path closes.
     `eth_getRawTransactionByHash` plus `eth_pendingTransactions` still expose
     the displaced valid transaction as pending while
     `eth_getTransactionReceipt` remains hidden.
+  - Result: extended the same second KV restore boundary to forkchoice
+    checkpoint tags. The fresh post-reorg node now verifies both its restored
+    summary and public `eth_getBlockByNumber("safe"|"finalized")` keep the
+    safe/finalized checkpoints on the parent block while `latest` remains on
+    the empty sibling.
   - Result: locked the core Engine forkchoice reinsertion event boundary for
     pending filters. A JSON-RPC-created `eth_newPendingTransactionFilter` now
     has regression coverage proving a forkchoice reorg that reinserts a

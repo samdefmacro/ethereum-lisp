@@ -3106,6 +3106,10 @@ references/ checkouts.~%")
                           (transaction-sender
                            displaced-transaction
                            :expected-chain-id node-chain-id))))
+                  (expected-safe-block-number
+                    (quantity-to-hex
+                     (1- (block-header-number
+                          (block-header child-block)))))
                   (expected-side-block-number
                     (quantity-to-hex
                      (block-header-number (block-header side-block))))
@@ -3475,6 +3479,10 @@ references/ checkouts.~%")
                       (make-string-output-stream))
                     (fresh-receipt-output
                       (make-string-output-stream))
+                    (fresh-safe-block-output
+                      (make-string-output-stream))
+                    (fresh-finalized-block-output
+                      (make-string-output-stream))
                     (fresh-public-requests
                       (list
                        (cons
@@ -3497,7 +3505,21 @@ references/ checkouts.~%")
                                (cons "id" 215)
                                (cons "method" "eth_getTransactionReceipt")
                                (cons "params" (list transaction-hash-hex))))
-                        fresh-receipt-output)))
+                        fresh-receipt-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 216)
+                               (cons "method" "eth_getBlockByNumber")
+                               (cons "params" (list "safe" :false))))
+                        fresh-safe-block-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 217)
+                               (cons "method" "eth_getBlockByNumber")
+                               (cons "params" (list "finalized" :false))))
+                        fresh-finalized-block-output)))
                     (fresh-rpc-summary
                       (ethereum-lisp.cli:start-devnet-node-listeners
                        fresh-node
@@ -3519,7 +3541,7 @@ references/ checkouts.~%")
                                :output-stream output
                                :close-function (lambda () nil)))))
                         :close-function (lambda () nil))
-                       :max-connections 3))
+                       :max-connections 5))
                     (fresh-raw-transaction-response
                       (get-output-stream-string
                        fresh-raw-transaction-output))
@@ -3528,6 +3550,10 @@ references/ checkouts.~%")
                        fresh-pending-transactions-output))
                     (fresh-receipt-response
                       (get-output-stream-string fresh-receipt-output))
+                    (fresh-safe-block-response
+                      (get-output-stream-string fresh-safe-block-output))
+                    (fresh-finalized-block-response
+                      (get-output-stream-string fresh-finalized-block-output))
                     (fresh-raw-transaction-rpc
                       (devnet-smoke-gate-rpc-body
                        fresh-raw-transaction-response))
@@ -3536,6 +3562,12 @@ references/ checkouts.~%")
                        fresh-pending-transactions-response))
                     (fresh-receipt-rpc
                       (devnet-smoke-gate-rpc-body fresh-receipt-response))
+                    (fresh-safe-block-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-safe-block-response))
+                    (fresh-finalized-block-rpc
+                      (devnet-smoke-gate-rpc-body
+                       fresh-finalized-block-response))
                     (fresh-raw-transaction
                       (fixture-object-field fresh-raw-transaction-rpc
                                             "result"))
@@ -3547,7 +3579,12 @@ references/ checkouts.~%")
                             :test #'string=
                             :key (lambda (transaction)
                                    (fixture-object-field transaction
-                                                         "hash")))))
+                                                         "hash"))))
+                    (fresh-safe-block
+                      (fixture-object-field fresh-safe-block-rpc "result"))
+                    (fresh-finalized-block
+                      (fixture-object-field fresh-finalized-block-rpc
+                                            "result")))
                (devnet-smoke-gate-require
                 (= (block-header-number (block-header side-block))
                    (getf fresh-summary :head-number))
@@ -3556,6 +3593,24 @@ references/ checkouts.~%")
                 (string= (hash32-to-hex side-block-hash)
                          (getf fresh-summary :head-hash))
                 "Side-reorg database restore head hash mismatch")
+               (devnet-smoke-gate-require
+                (string= (hash32-to-hex expected-safe-block-hash)
+                         (getf fresh-summary :safe-hash))
+                "Side-reorg database restore safe hash mismatch")
+               (devnet-smoke-gate-require
+                (string= expected-safe-block-number
+                         (quantity-to-hex
+                          (getf fresh-summary :safe-number)))
+                "Side-reorg database restore safe number mismatch")
+               (devnet-smoke-gate-require
+                (string= (hash32-to-hex expected-safe-block-hash)
+                         (getf fresh-summary :finalized-hash))
+                "Side-reorg database restore finalized hash mismatch")
+               (devnet-smoke-gate-require
+                (string= expected-safe-block-number
+                         (quantity-to-hex
+                          (getf fresh-summary :finalized-number)))
+                "Side-reorg database restore finalized number mismatch")
                (devnet-smoke-gate-require
                 (chain-store-known-block
                  (ethereum-lisp.cli:devnet-node-store fresh-node)
@@ -3566,12 +3621,14 @@ references/ checkouts.~%")
                 "Fresh side-reorg restore expected 0 Engine connections, got ~S"
                 (getf fresh-rpc-summary :engine-connections))
                (devnet-smoke-gate-require
-                (= 3 (getf fresh-rpc-summary :public-connections))
-                "Fresh side-reorg restore expected 3 public connections, got ~S"
+                (= 5 (getf fresh-rpc-summary :public-connections))
+                "Fresh side-reorg restore expected 5 public connections, got ~S"
                 (getf fresh-rpc-summary :public-connections))
                (dolist (response (list fresh-raw-transaction-response
                                         fresh-pending-transactions-response
-                                        fresh-receipt-response))
+                                        fresh-receipt-response
+                                        fresh-safe-block-response
+                                        fresh-finalized-block-response))
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status response))
                   "Fresh side-reorg restore public RPC HTTP status mismatch"))
@@ -3612,6 +3669,22 @@ references/ checkouts.~%")
                (devnet-smoke-gate-require
                 (null (fixture-object-field fresh-receipt-rpc "result"))
                 "Fresh side-reorg restore kept old canonical receipt")
+               (devnet-smoke-gate-require
+                (string= (hash32-to-hex expected-safe-block-hash)
+                         (fixture-object-field fresh-safe-block "hash"))
+                "Fresh side-reorg restore safe block hash mismatch")
+               (devnet-smoke-gate-require
+                (string= expected-safe-block-number
+                         (fixture-object-field fresh-safe-block "number"))
+                "Fresh side-reorg restore safe block number mismatch")
+               (devnet-smoke-gate-require
+                (string= (hash32-to-hex expected-safe-block-hash)
+                         (fixture-object-field fresh-finalized-block "hash"))
+                "Fresh side-reorg restore finalized block hash mismatch")
+               (devnet-smoke-gate-require
+                (string= expected-safe-block-number
+                         (fixture-object-field fresh-finalized-block "number"))
+                "Fresh side-reorg restore finalized block number mismatch")
                (list :side-block-hash (hash32-to-hex side-block-hash)
                      :side-forkchoice-status
                      (fixture-object-field side-forkchoice-status "status")
@@ -3643,6 +3716,23 @@ references/ checkouts.~%")
 	                     (quantity-to-hex (getf fresh-summary :head-number))
                      :side-restored-head-hash
                      (getf fresh-summary :head-hash)
+                     :side-restored-safe-number
+                     (quantity-to-hex (getf fresh-summary :safe-number))
+                     :side-restored-safe-hash
+                     (getf fresh-summary :safe-hash)
+                     :side-restored-finalized-number
+                     (quantity-to-hex
+                      (getf fresh-summary :finalized-number))
+                     :side-restored-finalized-hash
+                     (getf fresh-summary :finalized-hash)
+                     :side-restored-rpc-safe-number
+                     (fixture-object-field fresh-safe-block "number")
+                     :side-restored-rpc-safe-hash
+                     (fixture-object-field fresh-safe-block "hash")
+                     :side-restored-rpc-finalized-number
+                     (fixture-object-field fresh-finalized-block "number")
+                     :side-restored-rpc-finalized-hash
+                     (fixture-object-field fresh-finalized-block "hash")
                      :side-restored-raw-transaction
                      (or fresh-raw-transaction :false)
                      :side-restored-pending-transaction
@@ -4143,6 +4233,38 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-restored-head-hash))
+                  :rpc-side-restored-safe-number
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-safe-number))
+                  :rpc-side-restored-safe-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-safe-hash))
+                  :rpc-side-restored-finalized-number
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-finalized-number))
+                  :rpc-side-restored-finalized-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-finalized-hash))
+                  :rpc-side-restored-rpc-safe-number
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-rpc-safe-number))
+                  :rpc-side-restored-rpc-safe-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-rpc-safe-hash))
+                  :rpc-side-restored-rpc-finalized-number
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-rpc-finalized-number))
+                  :rpc-side-restored-rpc-finalized-hash
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-rpc-finalized-hash))
                   :rpc-side-restored-raw-transaction
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
@@ -5639,6 +5761,54 @@ references/ checkouts.~%")
                                       :rpc-side-restored-head-hash)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideRestoredSafeNumber"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-safe-number)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredSafeHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-safe-hash)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredFinalizedNumber"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-finalized-number)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredFinalizedHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-finalized-hash)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredRpcSafeNumber"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-rpc-safe-number)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredRpcSafeHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-rpc-safe-hash)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredRpcFinalizedNumber"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-rpc-finalized-number)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredRpcFinalizedHash"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-rpc-finalized-hash)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideRestoredRawTransaction"
                         (if database-summary
                             (or (getf database-summary
@@ -6171,6 +6341,57 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side restored head number mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "safeBlockHash")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredSafeHash"))
+               "Devnet smoke gate suite side restored safe hash mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "safeBlockNumber")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredSafeNumber"))
+               "Devnet smoke gate suite side restored safe number mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "finalizedBlockHash")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredFinalizedHash"))
+               "Devnet smoke gate suite side restored finalized hash mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report
+                                                 "finalizedBlockNumber")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredFinalizedNumber"))
+               "Devnet smoke gate suite side restored finalized number mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "safeBlockHash")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredRpcSafeHash"))
+               "Devnet smoke gate suite side restored public safe hash mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "safeBlockNumber")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredRpcSafeNumber"))
+               "Devnet smoke gate suite side restored public safe number mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report "finalizedBlockHash")
+                        (devnet-smoke-gate-field
+                         report "databaseRpcSideRestoredRpcFinalizedHash"))
+               "Devnet smoke gate suite side restored public finalized hash mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
+               (string= (devnet-smoke-gate-field report
+                                                 "finalizedBlockNumber")
+                        (devnet-smoke-gate-field
+                         report
+                         "databaseRpcSideRestoredRpcFinalizedNumber"))
+               "Devnet smoke gate suite side restored public finalized number mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
                (not (string= (devnet-smoke-gate-field
                               report "databaseRpcBlockHash")
                              (devnet-smoke-gate-field
@@ -6358,7 +6579,7 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 3 (devnet-smoke-gate-field
+               (= 5 (devnet-smoke-gate-field
                      report "databaseRpcSideRestoredPublicConnections"))
                "Devnet smoke gate suite side fresh public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
@@ -6866,6 +7087,30 @@ references/ checkouts.~%")
         (format t "databaseRpcSideRestoredHeadHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredHeadHash"))
+        (format t "databaseRpcSideRestoredSafeNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredSafeNumber"))
+        (format t "databaseRpcSideRestoredSafeHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredSafeHash"))
+        (format t "databaseRpcSideRestoredFinalizedNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredFinalizedNumber"))
+        (format t "databaseRpcSideRestoredFinalizedHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredFinalizedHash"))
+        (format t "databaseRpcSideRestoredRpcSafeNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredRpcSafeNumber"))
+        (format t "databaseRpcSideRestoredRpcSafeHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredRpcSafeHash"))
+        (format t "databaseRpcSideRestoredRpcFinalizedNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredRpcFinalizedNumber"))
+        (format t "databaseRpcSideRestoredRpcFinalizedHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredRpcFinalizedHash"))
         (format t "databaseRpcSideRestoredRawTransaction=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredRawTransaction"))
