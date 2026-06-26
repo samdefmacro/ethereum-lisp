@@ -7457,6 +7457,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             #\Return #\Newline)
     (when content-type
       (format stream "Content-Type: ~A~C~C" content-type #\Return #\Newline))
+    (format stream "Connection: close~C~C" #\Return #\Newline)
     (format stream "Content-Length: ~D~C~C" (length body) #\Return #\Newline)
     (format stream "~C~C" #\Return #\Newline)
     (write-string body stream)))

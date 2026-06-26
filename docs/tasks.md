@@ -1577,6 +1577,9 @@ splits can land after the Phase A smoke path closes.
   - Progress: tightened authenticated Engine HTTP handling so duplicate
     `Authorization` headers are rejected before JWT validation instead of
     accepting whichever header appeared first.
+  - Progress: made Engine/public HTTP responses advertise `Connection: close`,
+    matching the current one-request-per-accepted-connection serving model used
+    by the socket listener and devnet process boundary.
   - Progress: tightened HTTP request-line parsing so unsupported versions and
     extra fields are rejected before JSON-RPC dispatch.
   - Progress: lifted the one-transaction Shanghai `engine_newPayloadV2`

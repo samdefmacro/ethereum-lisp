@@ -195,7 +195,9 @@ fixes in those areas are allowed; expansion is not.
   forkchoice, public retained-state reads, and ready/shutdown telemetry for
   both serving-style smoke runs and one-shot no-serve CLI runs. The development
   Engine HTTP path rejects duplicate Authorization headers before JWT
-  validation, keeping authenticated listener behavior single-valued. The
+  validation, keeping authenticated listener behavior single-valued, and HTTP
+  responses explicitly advertise `Connection: close` to match the current
+  one-request-per-accepted-connection serving contract. The
   key-value
   database now has a stable chain-record namespace for block/header/receipt,
   canonical-hash, checkpoint, state, and transaction-location records, giving

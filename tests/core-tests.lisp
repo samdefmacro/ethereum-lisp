@@ -22229,6 +22229,7 @@
            (rpc-response (parse-json (http-body http-response)))
            (local (first (field rpc-response "result"))))
       (is (= 200 (http-status http-response)))
+      (is (search "Connection: close" http-response))
       (is (= 17 (field rpc-response "id")))
       (is (string= "ethereum-lisp" (field local "name"))))
     (let* ((response
@@ -22455,6 +22456,7 @@ Content-Type: application/json
            (local (first (field rpc-response "result"))))
       (is (string= returned-response written-response))
       (is (= 200 (http-status written-response)))
+      (is (search "Connection: close" written-response))
       (is (= 19 (field rpc-response "id")))
       (is (string= "ethereum-lisp" (field local "name"))))
     (let* ((input
@@ -22902,6 +22904,7 @@ Content-Type: application/json
                            (rpc-response (parse-json (http-body response)))
                            (local (first (field rpc-response "result"))))
                       (is (= 200 (http-status response)))
+                      (is (search "Connection: close" response))
                       (is (= 23 (field rpc-response "id")))
                       (is (string= "ethereum-lisp"
                                    (field local "name")))))
