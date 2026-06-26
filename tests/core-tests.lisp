@@ -17751,25 +17751,44 @@
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
-           (tx-1 (make-legacy-transaction :nonce 1
-                                          :gas-price 7
-                                          :gas-limit 21000
-                                          :value 3))
-           (tx-2 (make-dynamic-fee-transaction
-                  :chain-id 1
-                  :nonce 2
-                  :max-priority-fee-per-gas 1
-                  :max-fee-per-gas 9
-                  :gas-limit 21000
-                  :value 4))
+           (tx-1
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 1
+                                       :gas-price 7
+                                       :gas-limit 21000
+                                       :value 3)
+              1
+              1))
+           (tx-2
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 2
+                                       :gas-price 9
+                                       :gas-limit 21000
+                                       :value 4)
+              1
+              1))
+           (wrong-chain-tx
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 3
+                                       :gas-price 11
+                                       :gas-limit 21000
+                                       :value 5)
+              1
+              2))
            (block
              (make-block
               :header (make-block-header :number 12
                                          :timestamp 120
                                          :gas-limit 30000000)
-              :transactions (list tx-1 tx-2)))
+              :transactions (list tx-1 tx-2 wrong-chain-tx)))
            (hash-hex (hash32-to-hex (block-hash block)))
+           (wrong-chain-hash-hex
+             (hash32-to-hex (transaction-hash wrong-chain-tx)))
            (config (make-chain-config)))
+      (is (transaction-sender tx-1 :expected-chain-id 1))
+      (is (transaction-sender tx-2 :expected-chain-id 1))
+      (is (transaction-sender wrong-chain-tx :expected-chain-id 2))
+      (is (null (transaction-sender wrong-chain-tx :expected-chain-id 1)))
       (engine-payload-store-put-block store block :state-available-p t)
       (let* ((number-response
                (parse-json
@@ -17796,13 +17815,39 @@
              (out-of-range-response
                (parse-json
                 (engine-rpc-handle-request-json
-                 "{\"jsonrpc\":\"2.0\",\"id\":47,\"method\":\"eth_getRawTransactionByBlockNumberAndIndex\",\"params\":[\"0xc\",\"0x2\"]}"
+                 "{\"jsonrpc\":\"2.0\",\"id\":47,\"method\":\"eth_getRawTransactionByBlockNumberAndIndex\",\"params\":[\"0xc\",\"0x3\"]}"
                  store
                  config)))
              (invalid-response
                (parse-json
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"eth_getRawTransactionByBlockHashAndIndex\",\"params\":[\"0x1234\",\"0x0\"]}"
+                 store
+                 config)))
+             (wrong-chain-number-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":49,\"method\":\"eth_getRawTransactionByBlockNumberAndIndex\",\"params\":[\"0xc\",\"0x2\"]}"
+                 store
+                 config)))
+             (wrong-chain-index-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":50,"
+                  "\"method\":\"eth_getRawTransactionByBlockHashAndIndex\","
+                  "\"params\":[\"" hash-hex "\",\"0x2\"]}")
+                 store
+                 config)))
+             (wrong-chain-hash-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":51,"
+                  "\"method\":\"eth_getRawTransactionByHash\","
+                  "\"params\":[\"" wrong-chain-hash-hex "\"]}")
                  store
                  config)))
              (invalid-error (field invalid-response "error")))
@@ -17812,6 +17857,9 @@
                      (field hash-response "result")))
         (is (null (field missing-response "result")))
         (is (null (field out-of-range-response "result")))
+        (is (null (field wrong-chain-number-response "result")))
+        (is (null (field wrong-chain-index-response "result")))
+        (is (null (field wrong-chain-hash-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
 (deftest eth-rpc-get-transaction-by-block-and-index

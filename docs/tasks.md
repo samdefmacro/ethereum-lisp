@@ -4206,6 +4206,13 @@ splits can land after the Phase A smoke path closes.
     chain-ID sender recovery check before returning pooled local transaction
     bytes. Wrong-chain txpool entries inserted below admission are hidden even
     before maintenance cleanup removes them.
+  - Progress: mined raw transaction lookup now applies the configured chain-ID
+    sender recovery check before returning bytes from
+    `eth_getRawTransactionByHash`,
+    `eth_getRawTransactionByBlockHashAndIndex`, or
+    `eth_getRawTransactionByBlockNumberAndIndex`. Wrong-chain mined
+    transactions remain hidden through raw lookup paths instead of leaking
+    their signed encoding.
   - Progress: `txpool_status` now counts only transactions whose sender
     recovers under the configured chain ID, and `txpool_inspect` uses the same
     configured sender recovery before rendering summaries. Wrong-chain entries

@@ -897,7 +897,9 @@ first pass, but interfaces must not block that path.
   configured-chain-invalid local txpool entries. Raw pooled transaction lookup
   now uses the same configured chain-ID sender check before returning local
   txpool bytes, so wrong-chain entries stay hidden even before maintenance
-  cleanup removes them. `txpool_status` also counts only configured-chain-valid
+  cleanup removes them. Mined raw transaction lookup by hash or block/index now
+  also requires sender recovery under the configured chain before returning
+  bytes. `txpool_status` also counts only configured-chain-valid
   pooled transactions, and `txpool_inspect` enforces the same sender recovery
   before rendering summaries, so wrong-chain local entries cannot inflate
   public counts or produce inspect output. Txpool maintenance and promotion now
