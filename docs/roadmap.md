@@ -671,7 +671,11 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   low-`s` sender-recovery helper, and EIP-4844 commitment versioned-hash
   helpers.
 - *Partial:* KZG proof verification remains a stubbed boundary; callers that
-  require trusted-setup-backed proof verification fail explicitly.
+  require trusted-setup-backed proof verification fail explicitly. The concrete
+  blocker is external: the repository still needs a pinned c-kzg or equivalent
+  verifier binding, a pinned trusted-setup artifact path plus checksum, and a
+  canonical KZG vector source before the existing verifier hooks can be treated
+  as consensus proof verification.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* wire a trusted KZG backend before treating Cancun blob payloads as

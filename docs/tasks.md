@@ -3919,6 +3919,14 @@ splits can land after the Phase A smoke path closes.
     values before an injected verifier can accept them. This matches the
     reference-client behavior where geth/Nethermind pass those values into KZG
     libraries that reject non-canonical field elements.
+  - Blocker: real verification is waiting on an explicitly pinned backend and
+    setup source, not another local validation wrapper. The repository has no
+    c-kzg/FFI dependency, no pinned trusted-setup artifact path or checksum,
+    and no canonical KZG vector source recorded for replay. Until those three
+    inputs are added together, the current verifier hooks are the correct
+    boundary: Cancun blob sidecars and the point-evaluation precompile may be
+    shape/versioned-hash checked, but cannot be claimed as consensus-valid KZG
+    executions.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4
