@@ -769,7 +769,8 @@
            (chain-store-set-canonical-head
             store
             (forkchoice-state-head-block-hash state)
-            :expected-chain-id (chain-config-chain-id config)))))
+            :expected-chain-id (chain-config-chain-id config)
+            :chain-config config))))
       (when (and payload-attributes
                  (string= +payload-status-valid+
                           (payload-status-status status)))

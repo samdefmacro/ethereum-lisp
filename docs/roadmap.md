@@ -866,7 +866,8 @@ first pass, but interfaces must not block that path.
   policy; it also prunes overbudget parked queued/basefee/blob entries so
   restored txpool balance reservations match live admission semantics and
   removes sender-code invalid restored entries before they can reappear in
-  public txpool views. Blob txpool admission and KV restore
+  public txpool views. Blob txpool admission, Engine forkchoice reorg
+  reinsertion, and KV restore
   also validate `maxFeePerBlobGas` against the current head blob base fee, so
   underpriced blob transactions cannot enter or reappear in blob subpool views.
   That cleanup now runs on the staging view before

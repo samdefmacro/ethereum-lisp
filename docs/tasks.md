@@ -1409,9 +1409,10 @@ splits can land after the Phase A smoke path closes.
     - KV txpool restore now also prunes overbudget parked queued/basefee/blob
       entries after pending revalidation and promotion, keeping restored
       same-sender balance reservations aligned with live admission semantics.
-    - Txpool admission and KV restore now validate blob transactions against
-      the current head blob base fee, so underpriced `maxFeePerBlobGas` entries
-      cannot enter or reappear in blob subpool views after restart.
+    - Txpool admission, Engine forkchoice reorg reinsertion, and KV restore now
+      validate blob transactions against the current head blob base fee, so
+      underpriced `maxFeePerBlobGas` entries cannot enter or reappear in blob
+      subpool views after restart or reorg.
     - KV chain-store import now treats restored known blocks and invalid
       tipsets as authoritative over stale remote-block cache records, dropping
       duplicate remote-cache entries instead of rejecting the snapshot while

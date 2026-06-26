@@ -2520,7 +2520,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              transaction)))))
 
 (defun engine-payload-store-reinsert-displaced-transaction
-    (store transaction &key expected-chain-id)
+    (store transaction &key expected-chain-id chain-config)
   (let* ((hash (transaction-hash transaction))
          (head (chain-store-latest-block store))
          (sender (transaction-sender transaction
@@ -2533,6 +2533,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (or (null head)
                    (not (engine-payload-store-over-gas-limit-txpool-transaction-p
                          head transaction)))
+               (handler-case
+                   (engine-payload-store-validate-txpool-blob-fee-cap
+                    store
+                    transaction
+                    :chain-config chain-config)
+                 (block-validation-error () nil))
                (engine-payload-store-sender-code-admissible-p
                 store head sender)
                (engine-payload-store-transaction-admission-funded-p
@@ -2550,7 +2556,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
          (engine-payload-store-put-pending-transaction store transaction))))))
 
 (defun engine-payload-store-reinsert-displaced-block-transactions
-    (store blocks &key expected-chain-id)
+    (store blocks &key expected-chain-id chain-config)
   (let ((seen-transactions (make-hash-table :test 'equal))
         (reinserted-transactions nil))
     (dolist (block (sort (copy-list blocks)
@@ -2565,7 +2571,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (setf (gethash key seen-transactions) t)
             (when (engine-payload-store-reinsert-displaced-transaction
                    store transaction
-                   :expected-chain-id expected-chain-id)
+                   :expected-chain-id expected-chain-id
+                   :chain-config chain-config)
               (push transaction reinserted-transactions))))))
     (nreverse reinserted-transactions)))
 
@@ -2852,7 +2859,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                     (setf current parent-block))))))))))))
 
 (defun engine-payload-store-set-canonical-head
-    (store hash &key expected-chain-id)
+    (store hash &key expected-chain-id chain-config)
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (let* ((head-block (engine-payload-store-known-block store hash))
@@ -2944,7 +2951,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (engine-payload-store-reinsert-displaced-block-transactions
          store
          displaced-blocks
-         :expected-chain-id expected-chain-id)
+         :expected-chain-id expected-chain-id
+         :chain-config chain-config)
         (when head-changed-p
           (dolist (block (sort (copy-list displaced-blocks)
                                #'<
@@ -3404,11 +3412,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    number))
 
 (defun chain-store-set-canonical-head
-    (store hash &key expected-chain-id)
+    (store hash &key expected-chain-id chain-config)
   (engine-payload-store-set-canonical-head
    (chain-store-require-memory-store store)
    hash
-   :expected-chain-id expected-chain-id))
+   :expected-chain-id expected-chain-id
+   :chain-config chain-config))
 
 (defun chain-store-head-number (store)
   (engine-payload-store-head-number
