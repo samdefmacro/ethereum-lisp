@@ -4416,6 +4416,11 @@ splits can land after the Phase A smoke path closes.
     checkpoint, receipt, state, and transaction-location record validates. A
     malformed KV record no longer clears or partially overwrites an existing
     readable chain-store view.
+  - Progress: restored txpool consistency cleanup now also runs on the staged
+    KV import view before publication. Stale, over-gas, sender-code-invalid,
+    demoted/promoted, and overbudget restored txpool records are normalized
+    before the target store adopts the imported tables, keeping KV restore
+    aligned with the validate-then-publish boundary.
   - Result: KV state snapshot import now recomputes the imported account and
     storage trie commitments and rejects state records whose root does not
     match the referenced block header. The staging import boundary preserves

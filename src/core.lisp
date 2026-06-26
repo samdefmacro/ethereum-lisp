@@ -4766,8 +4766,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (chain-store-import-remote-blocks-from-kv staging database)
       (chain-store-import-blob-sidecars-from-kv staging database)
       (chain-store-import-prepared-payloads-from-kv staging database)
-      (chain-store-publish-readable-tables store staging)
-      (chain-store-restore-txpool-consistency store))
+      (chain-store-restore-txpool-consistency staging)
+      (chain-store-publish-readable-tables store staging))
     store))
 
 (defun chain-store-put-prepared-payload (store prepared-payload)

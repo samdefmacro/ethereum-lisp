@@ -853,7 +853,9 @@ first pass, but interfaces must not block that path.
   policy; it also prunes overbudget parked queued/basefee/blob entries so
   restored txpool balance reservations match live admission semantics and
   removes sender-code invalid restored entries before they can reappear in
-  public txpool views. Devnet restores now supply the configured chain ID to
+  public txpool views. That cleanup now runs on the staging view before
+  publication, so the target store adopts already-normalized txpool tables.
+  Devnet restores now supply the configured chain ID to
   that txpool sender recovery path, making wrong-chain persisted local
   transactions a staging import error rather than restored pool content. The
   smoke gate's fixture-only restored-database probes explicitly reuse the
