@@ -5486,6 +5486,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       blob-transaction
                       set-code-transaction))
     (block-validation-fail "Pending transaction must be a transaction"))
+  (when (typep transaction 'blob-transaction)
+    (block-validation-fail
+     "Pending subpool transaction must not be a blob transaction"))
   (multiple-value-bind (transaction inserted-p)
       (engine-pending-txpool-put-pending-transaction
        (engine-payload-store-txpool store)
@@ -5506,6 +5509,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       blob-transaction
                       set-code-transaction))
     (block-validation-fail "Queued transaction must be a transaction"))
+  (when (typep transaction 'blob-transaction)
+    (block-validation-fail
+     "Queued subpool transaction must not be a blob transaction"))
   (multiple-value-bind (transaction inserted-p)
       (engine-pending-txpool-put-queued-transaction
        (engine-payload-store-txpool store)
@@ -5523,6 +5529,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       blob-transaction
                       set-code-transaction))
     (block-validation-fail "Basefee transaction must be a transaction"))
+  (when (typep transaction 'blob-transaction)
+    (block-validation-fail
+     "Basefee subpool transaction must not be a blob transaction"))
   (multiple-value-bind (transaction inserted-p)
       (engine-pending-txpool-put-basefee-transaction
        (engine-payload-store-txpool store)

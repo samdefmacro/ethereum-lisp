@@ -880,8 +880,8 @@ first pass, but interfaces must not block that path.
   KV txpool import also rejects durable subpool/type mismatches, keeping blob
   transactions out of pending/queued/basefee restored views and keeping
   non-blob transactions out of the restored blob subpool.
-  The live chain-store blob-subpool insertion boundary now enforces the same
-  type invariant for non-blob transactions before they can be snapshotted.
+  The live chain-store txpool insertion boundaries now enforce the same
+  subpool/type invariants before mismatched transactions can be snapshotted.
   That cleanup now runs on the staging view before
   publication, so the target store adopts already-normalized txpool tables.
   Devnet restores now supply the configured chain ID to

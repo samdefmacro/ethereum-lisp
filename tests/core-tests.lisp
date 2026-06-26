@@ -8780,6 +8780,45 @@
           store
           (transaction-hash transaction))))))
 
+(deftest engine-payload-store-rejects-blob-nonblob-subpool-insertion
+  (let* ((recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (fixture-sign-blob-transaction
+            (make-blob-transaction
+             :chain-id 1
+             :nonce 0
+             :max-priority-fee-per-gas 1
+             :max-fee-per-gas 100
+             :gas-limit 21000
+             :to recipient
+             :max-fee-per-blob-gas 1
+             :blob-versioned-hashes
+             (list (hash32-from-hex
+                    "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")))
+            1))
+         (hash (transaction-hash transaction)))
+    (dolist (putter
+              (list #'ethereum-lisp.core::engine-payload-store-put-pending-transaction
+                    #'ethereum-lisp.core::engine-payload-store-put-queued-transaction
+                    #'ethereum-lisp.core::engine-payload-store-put-basefee-transaction))
+      (let ((store (make-engine-payload-memory-store)))
+        (signals block-validation-error
+          (funcall putter store transaction))
+        (is (= 0
+               (+ (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+                   store)
+                  (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+                   store)
+                  (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+                   store)
+                  (ethereum-lisp.core::engine-payload-store-blob-transaction-count
+                   store))))
+        (is (null
+             (ethereum-lisp.core::engine-payload-store-pooled-transaction
+              store
+              hash)))))))
+
 (deftest engine-payload-store-uses-sender-index-for-pending-account-view
   (let* ((store (make-engine-payload-memory-store))
          (recipient
