@@ -459,12 +459,23 @@ references/ checkouts.~%"))
     "databaseRpcSideRestoredReceipt"
     "databaseRpcSideRestoredChildBlockHash"
     "databaseRpcSideRestoredChildRequireCanonicalError"
+    "databaseRpcSideRestoredChildRequireCanonicalErrors"
     "databaseRpcSideRestoredBlockReceiptsCount"
     "databaseRpcSideRestoredLogCount"
     "databaseRpcSideRestoredPublicConnections"
     "databaseRpcSideTotalConnections"
     "databaseRpcSideEngineConnections"
     "databaseRpcSidePublicConnections"))
+
+(defparameter +smoke-gate-devnet-noncanonical-state-errors+
+  '("eth_getBalance block hash is not canonical"
+    "eth_getTransactionCount block hash is not canonical"
+    "eth_getCode block hash is not canonical"
+    "eth_getStorageAt block hash is not canonical"
+    "eth_getProof block hash is not canonical"
+    "eth_call block hash is not canonical"
+    "eth_estimateGas block hash is not canonical"
+    "eth_createAccessList block hash is not canonical"))
 
 (defun smoke-gate-devnet-case-label (case-report)
   (or (smoke-gate-field case-report "fixtureCase") "<unknown>"))
@@ -656,6 +667,10 @@ references/ checkouts.~%"))
          "databaseRpcSideRestoredChildRequireCanonicalError"
          "eth_getBalance block hash is not canonical")
         (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideRestoredChildRequireCanonicalErrors"
+         +smoke-gate-devnet-noncanonical-state-errors+)
+        (smoke-gate-devnet-case-require-field
          case-report "databaseRpcSideRestoredBlockReceiptsCount" 0)
         (smoke-gate-devnet-case-require-field
          case-report "databaseRpcSideRestoredLogCount" 0)
@@ -664,9 +679,9 @@ references/ checkouts.~%"))
         (smoke-gate-devnet-case-require-field
          case-report "databaseRpcSidePublicConnections" 9)
         (smoke-gate-devnet-case-require-field
-         case-report "databaseRpcSideRestoredPublicConnections" 13)
+         case-report "databaseRpcSideRestoredPublicConnections" 20)
         (smoke-gate-devnet-case-require-field
-         case-report "databaseRpcSideTotalConnections" 25)
+         case-report "databaseRpcSideTotalConnections" 32)
         1)))
 
 (defun smoke-gate-validate-devnet-side-reorg-cases

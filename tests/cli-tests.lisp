@@ -194,6 +194,7 @@
                          "databaseRpcSideRestoredReceipt"
                          "databaseRpcSideRestoredChildBlockHash"
                          "databaseRpcSideRestoredChildRequireCanonicalError"
+                         "databaseRpcSideRestoredChildRequireCanonicalErrors"
                          "databaseRpcSideRestoredBlockReceiptsCount"
                          "databaseRpcSideRestoredLogCount"
                          "databaseRpcSideRestoredPublicConnections"
@@ -381,6 +382,10 @@
                        (fixture-object-field
                         report
                         "databaseRpcSideRestoredChildRequireCanonicalError")))
+          (is (equal (devnet-cli-noncanonical-state-error-messages)
+                     (fixture-object-field
+                      report
+                      "databaseRpcSideRestoredChildRequireCanonicalErrors")))
           (is (= 0
                  (fixture-object-field
                   report "databaseRpcSideRestoredBlockReceiptsCount")))
@@ -393,11 +398,11 @@
           (is (= 9
                  (fixture-object-field
                   report "databaseRpcSidePublicConnections")))
-          (is (= 13
+          (is (= 20
                  (fixture-object-field
                   report
                   "databaseRpcSideRestoredPublicConnections")))
-          (is (= 25
+          (is (= 32
                  (fixture-object-field
                   report "databaseRpcSideTotalConnections")))))))
 
@@ -410,6 +415,16 @@
     "eth_call state is not available"
     "eth_estimateGas state is not available"
     "eth_createAccessList state is not available"))
+
+(defun devnet-cli-noncanonical-state-error-messages ()
+  '("eth_getBalance block hash is not canonical"
+    "eth_getTransactionCount block hash is not canonical"
+    "eth_getCode block hash is not canonical"
+    "eth_getStorageAt block hash is not canonical"
+    "eth_getProof block hash is not canonical"
+    "eth_call block hash is not canonical"
+    "eth_estimateGas block hash is not canonical"
+    "eth_createAccessList block hash is not canonical"))
 
 (defun devnet-cli-pruned-state-covered-p (report prune-boundary)
   (< (hex-to-quantity (fixture-object-field report "safeBlockNumber"))

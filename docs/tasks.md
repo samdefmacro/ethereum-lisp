@@ -513,15 +513,16 @@ ones.
     devnet report now emits `databaseRpcSideTotalConnections`, summing the
     reorg Engine, reorg public, and fresh-restore public probes; the standalone
     suite, parent Phase A gate, and CLI assertions require the non-pruned
-    reorg path to report `25` and pruned cases to omit it.
+    reorg path to report `32` and pruned cases to omit it.
   - Result: extended the fresh side-reorg restore probe to cover EIP-1898
-    `requireCanonical` rejection for displaced state reads. The old child
-    block remains hash-readable after the sibling becomes canonical, but
-    `eth_getBalance` by that child `blockHash` with `requireCanonical=true`
-    now has to report `eth_getBalance block hash is not canonical` through the
+    `requireCanonical` rejection across displaced state and simulation reads.
+    The old child block remains hash-readable after the sibling becomes
+    canonical, but balance, nonce, code, storage, proof, call, estimate-gas, and
+    access-list requests by that child `blockHash` with `requireCanonical=true`
+    now have to report `block hash is not canonical` method errors through the
     standalone devnet suite, parent Phase A gate, and CLI assertions. The added
-    public-RPC probe raises the non-pruned side-reorg fresh-restore connection
-    budget to `13` and total side-reorg connection budget to `25`.
+    public-RPC probes raise the non-pruned side-reorg fresh-restore connection
+    budget to `20` and total side-reorg connection budget to `32`.
   - Result: hardened pinned smoke-gate root handling. `--pinned-v5.4.0` now
     requires an explicit `--root PATH` or
     `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, and a missing/nonexistent
@@ -4625,9 +4626,11 @@ splits can land after the Phase A smoke path closes.
   - Result: extended the restored side-reorg smoke to reject stale state reads
     by old child hash when `requireCanonical=true`. The fresh restored node now
     proves the displaced child remains hash-readable for block lookup while
-    EIP-1898 state lookup returns `eth_getBalance block hash is not canonical`;
-    parent Phase A and CLI assertions validate the reported error and updated
-    13/25 fresh/total public-RPC connection budget.
+    EIP-1898 state/simulation lookups return method-specific `block hash is not
+    canonical` errors for balance, nonce, code, storage, proof, call,
+    estimate-gas, and access-list probes; parent Phase A and CLI assertions
+    validate the reported errors and updated 20/32 fresh/total public-RPC
+    connection budget.
   - Result: extended the same restored side-reorg smoke to canonical receipt
     and log visibility. After forkchoice switches to the empty sibling, the
     process/database gate now verifies `eth_getBlockReceipts("latest")` and a

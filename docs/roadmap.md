@@ -351,9 +351,10 @@ fixes in those areas are allowed; expansion is not.
   has an explicit `databaseRpcSideTotalConnections` field, so the reorg,
   public-read, and fresh-restore probes are checked both individually and in
   aggregate. The fresh-restore side-reorg probe also checks the old child hash
-  stays block-readable while `eth_getBalance` with `requireCanonical=true`
-  rejects it as non-canonical, so EIP-1898 state reads cannot silently follow a
-  displaced branch after database restore.
+  stays block-readable while balance, nonce, code, storage, proof, call,
+  estimate-gas, and access-list requests with `requireCanonical=true` reject it
+  as non-canonical, so EIP-1898 state reads cannot silently follow a displaced
+  branch after database restore.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

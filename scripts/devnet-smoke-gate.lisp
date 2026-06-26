@@ -253,6 +253,16 @@ references/ checkouts.~%")
     "eth_estimateGas state is not available"
     "eth_createAccessList state is not available"))
 
+(defun devnet-smoke-gate-noncanonical-state-error-messages ()
+  '("eth_getBalance block hash is not canonical"
+    "eth_getTransactionCount block hash is not canonical"
+    "eth_getCode block hash is not canonical"
+    "eth_getStorageAt block hash is not canonical"
+    "eth_getProof block hash is not canonical"
+    "eth_call block hash is not canonical"
+    "eth_estimateGas block hash is not canonical"
+    "eth_createAccessList block hash is not canonical"))
+
 (defun devnet-smoke-gate-false-p (value)
   (or (null value) (eq value :false)))
 
@@ -627,6 +637,97 @@ references/ checkouts.~%")
         (cons "gasPrice" "0x64")
         (cons "data" "0x")))
 
+(defun devnet-smoke-gate-state-error-probes
+    (start-id block-id expected-errors
+     balance-address sender-address code-address storage-address storage-key)
+  (labels ((request (id method params)
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" id)
+                   (cons "method" method)
+                   (cons "params" params)))
+           (probe (id method expected-error params)
+             (list :method method
+                   :expected-error expected-error
+                   :output (make-string-output-stream)
+                   :request (request id method params))))
+    (destructuring-bind
+        (balance-error nonce-error code-error storage-error proof-error
+         call-error estimate-error access-list-error)
+        expected-errors
+      (list
+       (probe start-id
+              "eth_getBalance"
+              balance-error
+              (list (address-to-hex balance-address) block-id))
+       (probe (+ start-id 1)
+              "eth_getTransactionCount"
+              nonce-error
+              (list (address-to-hex sender-address) block-id))
+       (probe (+ start-id 2)
+              "eth_getCode"
+              code-error
+              (list (address-to-hex code-address) block-id))
+       (probe (+ start-id 3)
+              "eth_getStorageAt"
+              storage-error
+              (list (address-to-hex storage-address) storage-key block-id))
+       (probe (+ start-id 4)
+              "eth_getProof"
+              proof-error
+              (list (address-to-hex storage-address)
+                    (list storage-key)
+                    block-id))
+       (probe (+ start-id 5)
+              "eth_call"
+              call-error
+              (list
+               (devnet-smoke-gate-simulation-call-object
+                sender-address code-address)
+               block-id))
+       (probe (+ start-id 6)
+              "eth_estimateGas"
+              estimate-error
+              (list
+               (devnet-smoke-gate-simulation-call-object
+                sender-address code-address)
+               block-id))
+       (probe (+ start-id 7)
+              "eth_createAccessList"
+              access-list-error
+              (list
+               (devnet-smoke-gate-simulation-call-object
+                sender-address code-address)
+               block-id))))))
+
+(defun devnet-smoke-gate-verify-state-error-probes (probes label)
+  (mapcar
+   (lambda (probe)
+     (let* ((response
+              (get-output-stream-string (getf probe :output)))
+            (rpc (devnet-smoke-gate-rpc-body response))
+            (error (fixture-object-field rpc "error"))
+            (message
+              (and error
+                   (fixture-object-field error "message"))))
+       (devnet-smoke-gate-require
+        (= 200 (devnet-cli-http-status response))
+        "Restored ~A ~A HTTP status mismatch"
+        label
+        (getf probe :method))
+       (devnet-smoke-gate-require
+        error
+        "Restored ~A ~A did not return an error"
+        label
+        (getf probe :method))
+       (devnet-smoke-gate-require
+        (string= (getf probe :expected-error) message)
+        "Restored ~A ~A error mismatch: ~A"
+        label
+        (getf probe :method)
+        message)
+       message))
+   probes))
+
 (defun devnet-smoke-gate-payload-attributes-v2
     (parent-block suggested-fee-recipient)
   (let ((parent-header (block-header parent-block)))
@@ -911,104 +1012,15 @@ references/ checkouts.~%")
         (post-call-storage-output (make-string-output-stream))
         (pruned-state-probes
           (when pruned-state-rpc-tag
-            (list
-             (list
-              :method "eth_getBalance"
-              :expected-error "eth_getBalance state is not available"
-              :output (make-string-output-stream)
-              :request
-              (list (cons "jsonrpc" "2.0")
-                    (cons "id" 154)
-                    (cons "method" "eth_getBalance")
-                    (cons "params"
-                          (list (address-to-hex balance-address)
-                                pruned-state-rpc-tag))))
-             (list
-              :method "eth_getTransactionCount"
-              :expected-error
-              "eth_getTransactionCount state is not available"
-              :output (make-string-output-stream)
-              :request
-              (list (cons "jsonrpc" "2.0")
-                    (cons "id" 155)
-                    (cons "method" "eth_getTransactionCount")
-                    (cons "params"
-                          (list (address-to-hex sender-address)
-                                pruned-state-rpc-tag))))
-             (list
-              :method "eth_getCode"
-              :expected-error "eth_getCode state is not available"
-              :output (make-string-output-stream)
-              :request
-              (list (cons "jsonrpc" "2.0")
-                    (cons "id" 156)
-                    (cons "method" "eth_getCode")
-                    (cons "params"
-                          (list (address-to-hex code-address)
-                                pruned-state-rpc-tag))))
-             (list
-              :method "eth_getStorageAt"
-              :expected-error "eth_getStorageAt state is not available"
-              :output (make-string-output-stream)
-              :request
-              (list (cons "jsonrpc" "2.0")
-                    (cons "id" 157)
-                    (cons "method" "eth_getStorageAt")
-                    (cons "params"
-                          (list (address-to-hex storage-address)
-                                storage-key
-                                pruned-state-rpc-tag))))
-             (list
-              :method "eth_getProof"
-              :expected-error "eth_getProof state is not available"
-              :output (make-string-output-stream)
-              :request
-              (list (cons "jsonrpc" "2.0")
-                    (cons "id" 158)
-                    (cons "method" "eth_getProof")
-                    (cons "params"
-                          (list (address-to-hex storage-address)
-                                (list storage-key)
-                                pruned-state-rpc-tag))))
-             (list
-              :method "eth_call"
-              :expected-error "eth_call state is not available"
-              :output (make-string-output-stream)
-              :request
-              (list (cons "jsonrpc" "2.0")
-                    (cons "id" 159)
-                    (cons "method" "eth_call")
-                    (cons "params"
-                          (list
-                           (devnet-smoke-gate-simulation-call-object
-                            sender-address code-address)
-                           pruned-state-rpc-tag))))
-             (list
-              :method "eth_estimateGas"
-              :expected-error "eth_estimateGas state is not available"
-              :output (make-string-output-stream)
-              :request
-              (list (cons "jsonrpc" "2.0")
-                    (cons "id" 160)
-                    (cons "method" "eth_estimateGas")
-                    (cons "params"
-                          (list
-                           (devnet-smoke-gate-simulation-call-object
-                            sender-address code-address)
-                           pruned-state-rpc-tag))))
-             (list
-              :method "eth_createAccessList"
-              :expected-error "eth_createAccessList state is not available"
-              :output (make-string-output-stream)
-              :request
-              (list (cons "jsonrpc" "2.0")
-                    (cons "id" 161)
-                    (cons "method" "eth_createAccessList")
-                    (cons "params"
-                          (list
-                           (devnet-smoke-gate-simulation-call-object
-                            sender-address code-address)
-                           pruned-state-rpc-tag)))))))
+            (devnet-smoke-gate-state-error-probes
+             154
+             pruned-state-rpc-tag
+             (devnet-smoke-gate-pruned-state-error-messages)
+             balance-address
+             sender-address
+             code-address
+             storage-address
+             storage-key)))
          (expected-public-connections
            (+ 22
               (length extra-balance-outputs)
@@ -1576,31 +1588,9 @@ references/ checkouts.~%")
              (post-call-storage-rpc
                (devnet-smoke-gate-rpc-body post-call-storage-response))
              (pruned-state-error-messages
-               (mapcar
-                (lambda (probe)
-                  (let* ((response
-                           (get-output-stream-string
-                            (getf probe :output)))
-                         (rpc (devnet-smoke-gate-rpc-body response))
-                         (error (fixture-object-field rpc "error"))
-                         (message
-                           (and error
-                                (fixture-object-field error "message"))))
-                    (devnet-smoke-gate-require
-                     (= 200 (devnet-cli-http-status response))
-                     "Restored pruned-state ~A HTTP status mismatch"
-                     (getf probe :method))
-                    (devnet-smoke-gate-require
-                     error
-                     "Restored pruned-state ~A did not return an error"
-                     (getf probe :method))
-                    (devnet-smoke-gate-require
-                     (string= (getf probe :expected-error) message)
-                     "Restored pruned-state ~A error mismatch: ~A"
-                     (getf probe :method)
-                     message)
-                    message))
-                pruned-state-probes))
+               (devnet-smoke-gate-verify-state-error-probes
+                pruned-state-probes
+                "pruned-state"))
              (actual-block-number
                (fixture-object-field block-number-rpc "result"))
              (actual-balance
@@ -3080,7 +3070,7 @@ references/ checkouts.~%")
 (defun devnet-smoke-gate-verify-restored-side-reorg-rpc
     (path side-payload side-block child-block balance-targets
      checkpoint-balance-targets transaction-checks expected-safe-block-hash
-     config)
+     sender-address code-address storage-address storage-key config)
   #+sbcl
   (let ((jwt-path
           (devnet-cli-temp-path
@@ -3514,119 +3504,122 @@ references/ checkouts.~%")
                       (make-string-output-stream))
                     (fresh-finalized-balance-output
                       (make-string-output-stream))
-                    (fresh-child-require-canonical-balance-output
-                      (make-string-output-stream))
+                    (fresh-child-require-canonical-state-probes
+                      (devnet-smoke-gate-state-error-probes
+                       225
+                       (list
+                        (cons "blockHash" (hash32-to-hex child-block-hash))
+                        (cons "requireCanonical" t))
+                       (devnet-smoke-gate-noncanonical-state-error-messages)
+                       balance-address
+                       sender-address
+                       code-address
+                       storage-address
+                       storage-key))
                     (fresh-public-requests
-                      (list
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 213)
-                               (cons "method" "eth_getRawTransactionByHash")
-                               (cons "params" (list transaction-hash-hex))))
-                        fresh-raw-transaction-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 214)
-                               (cons "method" "eth_pendingTransactions")
-                               (cons "params" '())))
-                        fresh-pending-transactions-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 215)
-                               (cons "method" "eth_getTransactionReceipt")
-                               (cons "params" (list transaction-hash-hex))))
-                        fresh-receipt-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 216)
-                               (cons "method" "eth_blockNumber")
-                               (cons "params" '())))
-                        fresh-block-number-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 217)
-                               (cons "method" "eth_getBlockByNumber")
-                               (cons "params" (list "latest" :false))))
-                        fresh-latest-block-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 218)
-                               (cons "method" "eth_getBlockByHash")
-                               (cons "params"
-                                     (list (hash32-to-hex child-block-hash)
-                                           :false))))
-                        fresh-child-block-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 219)
-                               (cons "method" "eth_getBlockReceipts")
-                               (cons "params" (list "latest"))))
-                        fresh-block-receipts-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 220)
-                               (cons "method" "eth_getLogs")
-                               (cons "params"
-                                     (list
+                      (append
+                       (list
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 213)
+                                (cons "method" "eth_getRawTransactionByHash")
+                                (cons "params" (list transaction-hash-hex))))
+                         fresh-raw-transaction-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 214)
+                                (cons "method" "eth_pendingTransactions")
+                                (cons "params" '())))
+                         fresh-pending-transactions-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 215)
+                                (cons "method" "eth_getTransactionReceipt")
+                                (cons "params" (list transaction-hash-hex))))
+                         fresh-receipt-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 216)
+                                (cons "method" "eth_blockNumber")
+                                (cons "params" '())))
+                         fresh-block-number-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 217)
+                                (cons "method" "eth_getBlockByNumber")
+                                (cons "params" (list "latest" :false))))
+                         fresh-latest-block-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 218)
+                                (cons "method" "eth_getBlockByHash")
+                                (cons "params"
+                                      (list (hash32-to-hex child-block-hash)
+                                            :false))))
+                         fresh-child-block-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 219)
+                                (cons "method" "eth_getBlockReceipts")
+                                (cons "params" (list "latest"))))
+                         fresh-block-receipts-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 220)
+                                (cons "method" "eth_getLogs")
+                                (cons "params"
                                       (list
-                                       (cons "fromBlock"
-                                             expected-side-block-number)
-                                       (cons "toBlock"
-                                             expected-side-block-number))))))
-                        fresh-logs-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 221)
-                               (cons "method" "eth_getBlockByNumber")
-                               (cons "params" (list "safe" :false))))
-                        fresh-safe-block-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 222)
-                               (cons "method" "eth_getBlockByNumber")
-                               (cons "params" (list "finalized" :false))))
-                        fresh-finalized-block-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 223)
-                               (cons "method" "eth_getBalance")
-                               (cons "params"
-                                     (list (address-to-hex balance-address)
-                                           "safe"))))
-                        fresh-safe-balance-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 224)
-                               (cons "method" "eth_getBalance")
-                               (cons "params"
-                                     (list (address-to-hex balance-address)
-                                           "finalized"))))
-                        fresh-finalized-balance-output)
-                       (cons
-                        (json-encode
-                         (list (cons "jsonrpc" "2.0")
-                               (cons "id" 225)
-                               (cons "method" "eth_getBalance")
-                               (cons "params"
-                                     (list
-                                      (address-to-hex balance-address)
-                                      (list
-                                       (cons "blockHash"
-                                             (hash32-to-hex child-block-hash))
-                                       (cons "requireCanonical" t))))))
-                        fresh-child-require-canonical-balance-output)))
+                                       (list
+                                        (cons "fromBlock"
+                                              expected-side-block-number)
+                                        (cons "toBlock"
+                                              expected-side-block-number))))))
+                         fresh-logs-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 221)
+                                (cons "method" "eth_getBlockByNumber")
+                                (cons "params" (list "safe" :false))))
+                         fresh-safe-block-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 222)
+                                (cons "method" "eth_getBlockByNumber")
+                                (cons "params" (list "finalized" :false))))
+                         fresh-finalized-block-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 223)
+                                (cons "method" "eth_getBalance")
+                                (cons "params"
+                                      (list (address-to-hex balance-address)
+                                            "safe"))))
+                         fresh-safe-balance-output)
+                        (cons
+                         (json-encode
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 224)
+                                (cons "method" "eth_getBalance")
+                                (cons "params"
+                                      (list (address-to-hex balance-address)
+                                            "finalized"))))
+                         fresh-finalized-balance-output))
+                       (mapcar
+                        (lambda (probe)
+                          (cons (json-encode (getf probe :request))
+                                (getf probe :output)))
+                        fresh-child-require-canonical-state-probes)))
                     (fresh-rpc-summary
                       (ethereum-lisp.cli:start-devnet-node-listeners
                        fresh-node
@@ -3648,7 +3641,7 @@ references/ checkouts.~%")
                                :output-stream output
                                :close-function (lambda () nil)))))
                        :close-function (lambda () nil))
-                       :max-connections 13))
+                       :max-connections 20))
                     (fresh-raw-transaction-response
                       (get-output-stream-string
                        fresh-raw-transaction-output))
@@ -3676,9 +3669,6 @@ references/ checkouts.~%")
                     (fresh-finalized-balance-response
                       (get-output-stream-string
                        fresh-finalized-balance-output))
-                    (fresh-child-require-canonical-balance-response
-                      (get-output-stream-string
-                       fresh-child-require-canonical-balance-output))
                     (fresh-raw-transaction-rpc
                       (devnet-smoke-gate-rpc-body
                        fresh-raw-transaction-response))
@@ -3713,9 +3703,6 @@ references/ checkouts.~%")
                     (fresh-finalized-balance-rpc
                       (devnet-smoke-gate-rpc-body
                        fresh-finalized-balance-response))
-                    (fresh-child-require-canonical-balance-rpc
-                      (devnet-smoke-gate-rpc-body
-                       fresh-child-require-canonical-balance-response))
                     (fresh-raw-transaction
                       (fixture-object-field fresh-raw-transaction-rpc
                                             "result"))
@@ -3748,10 +3735,10 @@ references/ checkouts.~%")
                     (fresh-finalized-balance
                       (fixture-object-field fresh-finalized-balance-rpc
                                             "result"))
-                    (fresh-child-require-canonical-balance-error
-                      (fixture-object-field
-                       fresh-child-require-canonical-balance-rpc
-                       "error")))
+                    (fresh-child-require-canonical-state-errors
+                      (devnet-smoke-gate-verify-state-error-probes
+                       fresh-child-require-canonical-state-probes
+                       "noncanonical-state")))
                (devnet-smoke-gate-require
                 (= (block-header-number (block-header side-block))
                    (getf fresh-summary :head-number))
@@ -3788,8 +3775,8 @@ references/ checkouts.~%")
                 "Fresh side-reorg restore expected 0 Engine connections, got ~S"
                 (getf fresh-rpc-summary :engine-connections))
                (devnet-smoke-gate-require
-                (= 13 (getf fresh-rpc-summary :public-connections))
-                "Fresh side-reorg restore expected 13 public connections, got ~S"
+                (= 20 (getf fresh-rpc-summary :public-connections))
+                "Fresh side-reorg restore expected 20 public connections, got ~S"
                 (getf fresh-rpc-summary :public-connections))
                (dolist (response (list fresh-raw-transaction-response
                                         fresh-pending-transactions-response
@@ -3802,8 +3789,7 @@ references/ checkouts.~%")
                                         fresh-safe-block-response
                                         fresh-finalized-block-response
                                         fresh-safe-balance-response
-                                        fresh-finalized-balance-response
-                                        fresh-child-require-canonical-balance-response))
+                                        fresh-finalized-balance-response))
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status response))
                   "Fresh side-reorg restore public RPC HTTP status mismatch"))
@@ -3858,16 +3844,9 @@ references/ checkouts.~%")
                          (fixture-object-field fresh-child-block "hash"))
                 "Fresh side-reorg restore lost old child block hash lookup")
                (devnet-smoke-gate-require
-                (= -32602
-                   (fixture-object-field
-                    fresh-child-require-canonical-balance-error "code"))
-                "Fresh side-reorg restore child requireCanonical error code mismatch")
-               (devnet-smoke-gate-require
-                (string= "eth_getBalance block hash is not canonical"
-                         (fixture-object-field
-                          fresh-child-require-canonical-balance-error
-                          "message"))
-                "Fresh side-reorg restore child requireCanonical error mismatch")
+                (equal (devnet-smoke-gate-noncanonical-state-error-messages)
+                       fresh-child-require-canonical-state-errors)
+                "Fresh side-reorg restore child requireCanonical state errors mismatch")
                (devnet-smoke-gate-require
                 (zerop (length fresh-block-receipts))
                 "Fresh side-reorg restore kept canonical receipts")
@@ -3963,9 +3942,9 @@ references/ checkouts.~%")
                      :side-restored-child-block-hash
                      (fixture-object-field fresh-child-block "hash")
                      :side-restored-child-require-canonical-error
-                     (fixture-object-field
-                      fresh-child-require-canonical-balance-error
-                      "message")
+                     (first fresh-child-require-canonical-state-errors)
+                     :side-restored-child-require-canonical-errors
+                     fresh-child-require-canonical-state-errors
                      :side-restored-block-receipts-count
                      (length fresh-block-receipts)
                      :side-restored-log-count
@@ -3979,7 +3958,8 @@ references/ checkouts.~%")
         (delete-file jwt-path))))
   #-sbcl
   (declare (ignore path side-payload side-block child-block transaction-checks
-                   balance-targets expected-safe-block-hash config))
+                   balance-targets expected-safe-block-hash sender-address
+                   code-address storage-address storage-key config))
   #-sbcl
   (error "Restored devnet side reorg RPC verification requires SBCL threads"))
 
@@ -4082,6 +4062,10 @@ references/ checkouts.~%")
                  checkpoint-balance-targets
                  transaction-checks
                  expected-safe-block-hash
+                 sender-address
+                 code-address
+                 storage-address
+                 storage-key
                  config))))
     (devnet-smoke-gate-require
      (< 0 (length (kv-chain-record-entries database :block)))
@@ -4534,6 +4518,10 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-restored-child-require-canonical-error))
+                  :rpc-side-restored-child-require-canonical-errors
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-child-require-canonical-errors))
                   :rpc-side-restored-block-receipts-count
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
@@ -6136,6 +6124,12 @@ references/ checkouts.~%")
                                       :rpc-side-restored-child-require-canonical-error)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideRestoredChildRequireCanonicalErrors"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-child-require-canonical-errors)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideRestoredBlockReceiptsCount"
                         (if database-summary
                             (or (getf database-summary
@@ -6950,6 +6944,13 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side fresh restore child requireCanonical error mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
+               (equal (devnet-smoke-gate-noncanonical-state-error-messages)
+                      (devnet-smoke-gate-field
+                       report
+                       "databaseRpcSideRestoredChildRequireCanonicalErrors"))
+               "Devnet smoke gate suite side fresh restore child requireCanonical state errors mismatch for ~A"
+               (devnet-smoke-gate-field report "fixtureCase"))
+              (devnet-smoke-gate-require
                (zerop (devnet-smoke-gate-field
                        report "databaseRpcSideRestoredBlockReceiptsCount"))
                "Devnet smoke gate suite side fresh restore kept canonical receipts for ~A"
@@ -6970,12 +6971,12 @@ references/ checkouts.~%")
                "Devnet smoke gate suite side public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 13 (devnet-smoke-gate-field
+               (= 20 (devnet-smoke-gate-field
                      report "databaseRpcSideRestoredPublicConnections"))
                "Devnet smoke gate suite side fresh public connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))
               (devnet-smoke-gate-require
-               (= 25 (devnet-smoke-gate-field
+               (= 32 (devnet-smoke-gate-field
                       report "databaseRpcSideTotalConnections"))
                "Devnet smoke gate suite side total connection count mismatch for ~A"
                (devnet-smoke-gate-field report "fixtureCase"))))))
@@ -7537,6 +7538,9 @@ references/ checkouts.~%")
         (format t "databaseRpcSideRestoredChildRequireCanonicalError=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredChildRequireCanonicalError"))
+        (format t "databaseRpcSideRestoredChildRequireCanonicalErrors=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcSideRestoredChildRequireCanonicalErrors"))
         (format t "databaseRpcSideRestoredBlockReceiptsCount=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcSideRestoredBlockReceiptsCount"))
