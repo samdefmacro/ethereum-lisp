@@ -1636,6 +1636,13 @@
   (when transaction
     (bytes-to-hex (transaction-encoding transaction))))
 
+(defun eth-rpc-pooled-raw-transaction (transaction expected-chain-id)
+  (when (and transaction
+             (transaction-sender
+              transaction
+              :expected-chain-id expected-chain-id))
+    (eth-rpc-raw-transaction transaction)))
+
 (defun eth-rpc-contract-creation-address (transaction sender)
   (when (and (null (transaction-to transaction)) sender)
     (let* ((hash (keccak-256
@@ -1876,13 +1883,15 @@
          (block (chain-store-known-block store hash)))
     (eth-rpc-raw-transaction-by-index block index)))
 
-(defun engine-rpc-handle-eth-get-raw-transaction-by-hash (params store)
+(defun engine-rpc-handle-eth-get-raw-transaction-by-hash
+    (params store config)
   (let* ((hash (eth-rpc-hash-param
                 params "eth_getRawTransactionByHash" "transaction hash"))
          (location (chain-store-transaction-location store hash)))
     (or (eth-rpc-raw-transaction-from-location location)
-        (eth-rpc-raw-transaction
-         (engine-payload-store-pooled-transaction store hash)))))
+        (eth-rpc-pooled-raw-transaction
+         (engine-payload-store-pooled-transaction store hash)
+         (chain-config-chain-id config)))))
 
 (defun engine-rpc-handle-eth-send-raw-transaction (params store config)
   (unless (= 1 (length params))
@@ -2598,7 +2607,8 @@
      (engine-rpc-response
       id
       :result
-      (engine-rpc-handle-eth-get-raw-transaction-by-hash params store)))
+      (engine-rpc-handle-eth-get-raw-transaction-by-hash
+       params store config)))
     ((string= method "eth_sendRawTransaction")
      (engine-rpc-response
       id

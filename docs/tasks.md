@@ -4193,6 +4193,10 @@ splits can land after the Phase A smoke path closes.
     below the RPC admission boundary cannot be exposed through
     `eth_pendingTransactions`, `txpool_content`, `txpool_contentFrom`, or
     hash lookup.
+  - Progress: `eth_getRawTransactionByHash` now applies the same configured
+    chain-ID sender recovery check before returning pooled local transaction
+    bytes. Wrong-chain txpool entries inserted below admission are hidden even
+    before maintenance cleanup removes them.
   - Progress: txpool maintenance and promotion paths now carry the configured
     chain ID through canonical-head cleanup, KV restore consistency,
     displaced-transaction reinsertion, and RPC-triggered queued/basefee

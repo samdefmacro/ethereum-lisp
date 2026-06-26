@@ -21808,6 +21808,26 @@
       (is (= 1
              (ethereum-lisp.core::engine-payload-store-queued-transaction-count
               store)))
+      (let ((wrong-chain-pre-cleanup-lookup-response
+              (request
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":188,"
+                "\"method\":\"eth_getTransactionByHash\","
+                "\"params\":[\"" wrong-chain-hash "\"]}")
+               store
+               config))
+            (wrong-chain-pre-cleanup-raw-response
+              (request
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":189,"
+                "\"method\":\"eth_getRawTransactionByHash\","
+                "\"params\":[\"" wrong-chain-hash "\"]}")
+               store
+               config)))
+        (is (null (field wrong-chain-pre-cleanup-lookup-response "result")))
+        (is (null (field wrong-chain-pre-cleanup-raw-response "result"))))
       (let* ((send-response (send-raw nonce-zero 189 store config))
              (status-response
                (request
