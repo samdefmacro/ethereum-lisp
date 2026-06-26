@@ -1602,7 +1602,10 @@
      merged-senders
      value-function)))
 
-(defun txpool-rpc-transaction-summary (transaction)
+(defun txpool-rpc-transaction-summary (transaction &key expected-chain-id)
+  (eth-rpc-transaction-sender
+   transaction
+   :expected-chain-id expected-chain-id)
   (let ((to (transaction-to transaction)))
     (format nil "~A: ~D wei + ~D gas x ~D wei"
             (if to
@@ -1621,10 +1624,14 @@
       transaction
       :expected-chain-id expected-chain-id))))
 
-(defun txpool-rpc-indexed-inspect-transactions (sender-index)
+(defun txpool-rpc-indexed-inspect-transactions
+    (sender-index &key expected-chain-id)
   (txpool-rpc-indexed-sender-transactions
    sender-index
-   #'txpool-rpc-transaction-summary))
+   (lambda (transaction)
+     (txpool-rpc-transaction-summary
+      transaction
+      :expected-chain-id expected-chain-id))))
 
 (defun eth-rpc-raw-transaction-from-location (location)
   (when location
@@ -1936,10 +1943,24 @@
           (engine-payload-store-basefee-transactions store)
           (engine-payload-store-blob-transactions store)))
 
-(defun eth-rpc-txpool-queued-view-count (store)
-  (+ (engine-payload-store-queued-transaction-count store)
-     (engine-payload-store-basefee-transaction-count store)
-     (engine-payload-store-blob-transaction-count store)))
+(defun eth-rpc-txpool-visible-transaction-count
+    (transactions expected-chain-id)
+  (count-if
+   (lambda (transaction)
+     (transaction-sender
+      transaction
+      :expected-chain-id expected-chain-id))
+   transactions))
+
+(defun eth-rpc-txpool-pending-view-count (store expected-chain-id)
+  (eth-rpc-txpool-visible-transaction-count
+   (engine-payload-store-pending-transactions store)
+   expected-chain-id))
+
+(defun eth-rpc-txpool-queued-view-count (store expected-chain-id)
+  (eth-rpc-txpool-visible-transaction-count
+   (eth-rpc-txpool-queued-view-transactions store)
+   expected-chain-id))
 
 (defun engine-rpc-handle-eth-pending-transactions (params store config)
   (when params
@@ -1948,16 +1969,17 @@
    (engine-payload-store-pending-transactions store)
    :expected-chain-id (chain-config-chain-id config)))
 
-(defun engine-rpc-handle-txpool-status (params store)
+(defun engine-rpc-handle-txpool-status (params store config)
   (when params
     (block-validation-fail "txpool_status params must be empty"))
-  (list
-   (cons "pending"
-         (quantity-to-hex
-          (engine-payload-store-pending-transaction-count store)))
-   (cons "queued"
-         (quantity-to-hex
-          (eth-rpc-txpool-queued-view-count store)))))
+  (let ((chain-id (chain-config-chain-id config)))
+    (list
+     (cons "pending"
+           (quantity-to-hex
+            (eth-rpc-txpool-pending-view-count store chain-id)))
+     (cons "queued"
+           (quantity-to-hex
+            (eth-rpc-txpool-queued-view-count store chain-id))))))
 
 (defun engine-rpc-handle-txpool-content (params store config)
   (when params
@@ -2006,19 +2028,24 @@
             (engine-payload-store-basefee-sender-index store)
             (engine-payload-store-blob-sender-index store))))))
 
-(defun engine-rpc-handle-txpool-inspect (params store)
+(defun engine-rpc-handle-txpool-inspect (params store config)
   (when params
     (block-validation-fail "txpool_inspect params must be empty"))
-  (list
-   (cons "pending"
-         (txpool-rpc-indexed-inspect-transactions
-          (engine-payload-store-pending-transactions-by-sender store)))
-   (cons "queued"
-         (txpool-rpc-indexed-sender-transactions-from-indexes
-          #'txpool-rpc-transaction-summary
-          (engine-payload-store-queued-sender-index store)
-          (engine-payload-store-basefee-sender-index store)
-          (engine-payload-store-blob-sender-index store)))))
+  (let ((chain-id (chain-config-chain-id config)))
+    (list
+     (cons "pending"
+           (txpool-rpc-indexed-inspect-transactions
+            (engine-payload-store-pending-transactions-by-sender store)
+            :expected-chain-id chain-id))
+     (cons "queued"
+           (txpool-rpc-indexed-sender-transactions-from-indexes
+            (lambda (transaction)
+              (txpool-rpc-transaction-summary
+               transaction
+               :expected-chain-id chain-id))
+            (engine-payload-store-queued-sender-index store)
+            (engine-payload-store-basefee-sender-index store)
+            (engine-payload-store-blob-sender-index store))))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store config)
@@ -2621,7 +2648,7 @@
       (engine-rpc-handle-eth-pending-transactions params store config)))
     ((string= method "txpool_status")
      (engine-rpc-response
-      id :result (engine-rpc-handle-txpool-status params store)))
+      id :result (engine-rpc-handle-txpool-status params store config)))
     ((string= method "txpool_content")
      (engine-rpc-response
       id :result (engine-rpc-handle-txpool-content params store config)))
@@ -2630,4 +2657,4 @@
       id :result (engine-rpc-handle-txpool-content-from params store config)))
     ((string= method "txpool_inspect")
      (engine-rpc-response
-      id :result (engine-rpc-handle-txpool-inspect params store)))))
+      id :result (engine-rpc-handle-txpool-inspect params store config)))))

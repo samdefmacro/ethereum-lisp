@@ -893,8 +893,11 @@ first pass, but interfaces must not block that path.
   transaction-object hash lookup views. Raw pooled transaction lookup now uses
   the same configured chain-ID sender check before returning local txpool bytes,
   so wrong-chain entries stay hidden even before maintenance cleanup removes
-  them. Txpool maintenance and promotion now carry the configured chain ID
-  through canonical-head cleanup, KV restore consistency,
+  them. `txpool_status` also counts only configured-chain-valid pooled
+  transactions, and `txpool_inspect` enforces the same sender recovery before
+  rendering summaries, so wrong-chain local entries cannot inflate public
+  counts or produce inspect output. Txpool maintenance and promotion now carry
+  the configured chain ID through canonical-head cleanup, KV restore consistency,
   displaced-transaction reinsertion, and RPC-triggered queued/basefee
   promotion, dropping wrong-chain local entries before they can be retained or
   promoted.

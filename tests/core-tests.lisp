@@ -21808,11 +21808,21 @@
       (is (= 1
              (ethereum-lisp.core::engine-payload-store-queued-transaction-count
               store)))
-      (let ((wrong-chain-pre-cleanup-lookup-response
+      (let ((wrong-chain-pre-cleanup-status-response
+              (request
+               "{\"jsonrpc\":\"2.0\",\"id\":187,\"method\":\"txpool_status\",\"params\":[]}"
+               store
+               config))
+            (wrong-chain-pre-cleanup-inspect-response
+              (request
+               "{\"jsonrpc\":\"2.0\",\"id\":188,\"method\":\"txpool_inspect\",\"params\":[]}"
+               store
+               config))
+            (wrong-chain-pre-cleanup-lookup-response
               (request
                (concatenate
                 'string
-                "{\"jsonrpc\":\"2.0\",\"id\":188,"
+                "{\"jsonrpc\":\"2.0\",\"id\":189,"
                 "\"method\":\"eth_getTransactionByHash\","
                 "\"params\":[\"" wrong-chain-hash "\"]}")
                store
@@ -21821,11 +21831,19 @@
               (request
                (concatenate
                 'string
-                "{\"jsonrpc\":\"2.0\",\"id\":189,"
+                "{\"jsonrpc\":\"2.0\",\"id\":190,"
                 "\"method\":\"eth_getRawTransactionByHash\","
                 "\"params\":[\"" wrong-chain-hash "\"]}")
                store
                config)))
+        (let ((status (field wrong-chain-pre-cleanup-status-response
+                             "result")))
+          (is (string= (quantity-to-hex 0) (field status "pending")))
+          (is (string= (quantity-to-hex 0) (field status "queued"))))
+        (is (= -32602
+               (field (field wrong-chain-pre-cleanup-inspect-response
+                             "error")
+                      "code")))
         (is (null (field wrong-chain-pre-cleanup-lookup-response "result")))
         (is (null (field wrong-chain-pre-cleanup-raw-response "result"))))
       (let* ((send-response (send-raw nonce-zero 189 store config))

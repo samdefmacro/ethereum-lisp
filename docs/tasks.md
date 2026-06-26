@@ -4197,6 +4197,11 @@ splits can land after the Phase A smoke path closes.
     chain-ID sender recovery check before returning pooled local transaction
     bytes. Wrong-chain txpool entries inserted below admission are hidden even
     before maintenance cleanup removes them.
+  - Progress: `txpool_status` now counts only transactions whose sender
+    recovers under the configured chain ID, and `txpool_inspect` uses the same
+    configured sender recovery before rendering summaries. Wrong-chain entries
+    inserted below admission no longer inflate public counts or produce
+    inspect output before cleanup.
   - Progress: txpool maintenance and promotion paths now carry the configured
     chain ID through canonical-head cleanup, KV restore consistency,
     displaced-transaction reinsertion, and RPC-triggered queued/basefee
