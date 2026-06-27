@@ -214,6 +214,20 @@ ones.
     invalid transaction cases summarized, and 44 official Shanghai
     `engineNewPayloadV2` blockchain selectors, for 191 total executed fixture
     cases.
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-SHANGHAI-BREADTH-WIDEN`: Continue explicit
+  official v5.4.0 Engine replay widening with selector-probed Shanghai cases
+  adjacent to the existing passing PUSH0, warm-coinbase, and withdrawals
+  coverage.
+  - Result (2026-06-27): added 8 official Shanghai `engineNewPayloadV2`
+    replay selectors covering the remaining passing PUSH0 contract variants
+    (`before_jumpdest`, `fill_stack`, `key_sstore`, and `stack_overflow`),
+    EIP-3651 warm-coinbase `EXTCODECOPY`, `EXTCODEHASH`, and `EXTCODESIZE`
+    gas-usage variants, plus the EIP-4895 `many_withdrawals` case. A targeted
+    probe replayed all 8 selectors through the Engine import path and verified
+    post-state. The pinned smoke gate now covers 94 official state selectors,
+    53 official Prague/EIP-7702 invalid transaction cases summarized, and 52
+    official Shanghai `engineNewPayloadV2` blockchain selectors, for 199 total
+    executed fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

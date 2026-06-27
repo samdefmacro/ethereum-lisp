@@ -186,6 +186,14 @@
      . "engineNewPayloadV2")
     ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-storage_overwrite]"
      . "engineNewPayloadV2")
+    ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-before_jumpdest]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-fill_stack]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-key_sstore]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-stack_overflow]"
+     . "engineNewPayloadV2")
     ("shanghai/eip3855_push0/test_push0_contract_during_call_contexts.json/tests/shanghai/eip3855_push0/test_push0.py::TestPush0CallContext::test_push0_contract_during_call_contexts[fork_Shanghai-blockchain_test_engine_from_state_test-call]"
      . "engineNewPayloadV2")
     ("shanghai/eip3855_push0/test_push0_contract_during_call_contexts.json/tests/shanghai/eip3855_push0/test_push0.py::TestPush0CallContext::test_push0_contract_during_call_contexts[fork_Shanghai-blockchain_test_engine_from_state_test-callcode]"
@@ -201,6 +209,12 @@
     ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-blockchain_test_engine_from_state_test-CALLCODE]"
      . "engineNewPayloadV2")
     ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-blockchain_test_engine_from_state_test-DELEGATECALL]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-blockchain_test_engine_from_state_test-EXTCODECOPY]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-blockchain_test_engine_from_state_test-EXTCODEHASH]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-blockchain_test_engine_from_state_test-EXTCODESIZE]"
      . "engineNewPayloadV2")
     ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-blockchain_test_engine_from_state_test-STATICCALL]"
      . "engineNewPayloadV2")
@@ -241,6 +255,8 @@
     ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-max_initcode-opcode_CREATE2]"
      . "engineNewPayloadV2")
     ("shanghai/eip4895_withdrawals/test_large_amount.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_large_amount[fork_Shanghai-blockchain_test_engine]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_many_withdrawals.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_many_withdrawals[fork_Shanghai-blockchain_test_engine]"
      . "engineNewPayloadV2")
     ("shanghai/eip4895_withdrawals/test_multiple_withdrawals_same_address.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::TestMultipleWithdrawalsSameAddress::test_multiple_withdrawals_same_address[fork_Shanghai-blockchain_test_engine-test_case_single_block]"
      . "engineNewPayloadV2")
