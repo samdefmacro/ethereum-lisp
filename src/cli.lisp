@@ -604,13 +604,14 @@
             (ignore-errors (delete-file temp-path))))))))
 
 (defun devnet-node-telemetry-fields
-    (node &key engine-endpoint rpc-endpoint)
+    (node &key engine-endpoint rpc-endpoint lifecycle-phase)
   (let ((summary (devnet-node-summary
                   node
                   :engine-endpoint engine-endpoint
                   :rpc-endpoint rpc-endpoint)))
     `(("engineEndpoint" . ,(getf summary :engine-endpoint))
       ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
+      ("lifecyclePhase" . ,(or lifecycle-phase ""))
       ("processId" . ,(let ((process-id (getf summary :process-id)))
                          (if process-id
                              (write-to-string process-id)
@@ -644,7 +645,12 @@
    :fields (devnet-node-telemetry-fields
             node
             :engine-endpoint engine-endpoint
-            :rpc-endpoint rpc-endpoint)))
+            :rpc-endpoint rpc-endpoint
+            :lifecycle-phase
+            (cond
+              ((string= name "devnet.ready") "ready")
+              ((string= name "devnet.shutdown") "shutdown")
+              (t "")))))
 
 (defun call-with-devnet-cli-telemetry-sink (options output-stream thunk)
   (let ((log-file (getf options :log-file)))

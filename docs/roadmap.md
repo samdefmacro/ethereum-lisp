@@ -1028,7 +1028,10 @@ first pass, but interfaces must not block that path.
   CLI accepts explicit `--engine-host` / `--engine-port` options alongside the
   public listener options, and the standalone devnet smoke gate rejects
   readiness/log output whose lifecycle `processId` fields are missing or
-  inconsistent. The CLI also supports a
+  inconsistent. Lifecycle telemetry also carries an explicit
+  `lifecyclePhase` field (`ready` or `shutdown`) so process runners do not need
+  to infer startup versus exit records solely from event names. The CLI also
+  supports a
   Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
   telemetry, and the standalone plus Phase A devnet smoke gates verify the
   pid-file process id against readiness/log metadata. The top-level Phase A

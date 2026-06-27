@@ -912,6 +912,10 @@ references/ checkouts.~%")
            (string= "public"
                     (cdr (assoc "rpcEndpoint" fields :test #'string=)))
            "Log file public RPC endpoint mismatch")
+          (devnet-smoke-gate-require
+           (string= (if ready-p "ready" "shutdown")
+                    (cdr (assoc "lifecyclePhase" fields :test #'string=)))
+           "Log file lifecycle phase mismatch")
           (when expected-process-id
             (devnet-smoke-gate-require
              (string= (write-to-string expected-process-id)

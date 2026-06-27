@@ -5135,6 +5135,11 @@ splits can land after the Phase A smoke path closes.
     and lifecycle telemetry report `pidFilePath`; the standalone devnet smoke
     gate and top-level Phase A `--devnet` gate now pass and verify pid files
     alongside ready/log/database artifacts.
+  - Result: devnet lifecycle telemetry now includes an explicit
+    `lifecyclePhase` field (`ready` or `shutdown`) in addition to the event
+    name. CLI tests and the standalone devnet smoke gate verify the field so
+    Hive-style process runners can distinguish startup and exit records without
+    inferring lifecycle state solely from telemetry event names.
   - Result: widened the top-level Phase A dedicated side-reorg process gate
     from a two-case suite to three cases. `devnetSideReorg` now also runs
     `shanghai-two-legacy-transfers-with-withdrawal`, reports reinserted

@@ -1169,6 +1169,13 @@
                  (is (string= "127.0.0.1:18545"
                               (cdr (assoc "rpcEndpoint" fields
                                           :test #'string=))))
+                 (is (string= (if (string= "devnet.ready"
+                                            (ethereum-lisp.telemetry:telemetry-event-name
+                                             event))
+                                   "ready"
+                                   "shutdown")
+                              (cdr (assoc "lifecyclePhase" fields
+                                          :test #'string=))))
                  (is (string= (devnet-cli-current-process-id-string)
                               (cdr (assoc "processId" fields
                                           :test #'string=))))))))
@@ -1637,6 +1644,12 @@
                                           :test #'string=))))
                  (is (string= "127.0.0.1:8546"
                               (cdr (assoc "rpcEndpoint" fields
+                                          :test #'string=))))
+                 (is (string= (if (string= "devnet.ready"
+                                            (getf log-record :name))
+                                   "ready"
+                                   "shutdown")
+                              (cdr (assoc "lifecyclePhase" fields
                                           :test #'string=))))
                  (is (string= (devnet-cli-current-process-id-string)
                               (cdr (assoc "processId" fields
@@ -2244,6 +2257,9 @@
                                               :test #'string=))))
                      (is (string= expected-head-hash
                                   (cdr (assoc "headHash" fields
+                                              :test #'string=))))
+                     (is (string= (if ready-p "ready" "shutdown")
+                                  (cdr (assoc "lifecyclePhase" fields
                                               :test #'string=))))
                      (is (string= (write-to-string
                                     (fixture-object-field ready-summary
