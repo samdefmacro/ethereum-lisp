@@ -250,6 +250,19 @@ ones.
     Prague/EIP-7702 invalid transaction cases summarized, and 100 official
     Shanghai `engineNewPayloadV2` blockchain selectors, for 247 total executed
     fixture cases.
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-DRIFT-CLASSIFIER`: Add a repeatable
+  classification path for the remaining official v5.4.0 blockchain replay
+  selectors so future automation can map gaps before pinning more cases.
+  - Result (2026-06-28): added
+    `scripts/classify-blockchain-replay-selectors.lisp`. The script compares
+    discovered selectors with the pinned v5.4.0 table, defaults to unpinned
+    candidates, and reports JSON/text counts plus per-selector passing/failing
+    classifications with optional `--prefix`, `--limit`, and
+    `--include-pinned` controls. A targeted run against the official v5.4.0
+    root reported 362 materializable Shanghai blockchain replay selectors,
+    100 pinned selectors, and classified the first four unpinned
+    `frontier/opcodes/test_swap.json` selectors as passing without pinning
+    them.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

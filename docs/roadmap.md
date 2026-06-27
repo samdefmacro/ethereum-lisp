@@ -1200,6 +1200,11 @@ Detailed historical implementation notes for this section now live in
   cases, and EIP-4895 withdrawal ordering/root/many-withdrawals cases; the
   pinned smoke gate executes 247 total fixture cases across state,
   transaction, and blockchain suites.
+  `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a
+  bounded way to classify remaining discovered-but-unpinned official
+  blockchain replay selectors as passing or failing before choosing whether
+  to fix implementation drift, record a blocker, or selectively widen the
+  pinned table.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
