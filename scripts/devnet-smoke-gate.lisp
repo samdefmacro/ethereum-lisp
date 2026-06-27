@@ -883,9 +883,12 @@ references/ checkouts.~%")
        "PID file process id mismatch"))
     process-id))
 
+(defun devnet-smoke-gate-connection-count-string (summary key)
+  (write-to-string (or (getf summary key) 0)))
+
 (defun devnet-smoke-gate-verify-log-file
     (path ready-head-number ready-head-hash shutdown-head-number
-     shutdown-head-hash &key expected-process-id)
+     shutdown-head-hash &key expected-process-id expected-connection-summary)
   (let* ((records (devnet-smoke-gate-file-forms path))
          (names (mapcar (lambda (record) (getf record :name)) records)))
     (devnet-smoke-gate-require
@@ -916,6 +919,30 @@ references/ checkouts.~%")
            (string= (if ready-p "ready" "shutdown")
                     (cdr (assoc "lifecyclePhase" fields :test #'string=)))
            "Log file lifecycle phase mismatch")
+          (devnet-smoke-gate-require
+           (string= (if ready-p
+                        "0"
+                        (devnet-smoke-gate-connection-count-string
+                         expected-connection-summary
+                         :engine-connections))
+                    (cdr (assoc "engineConnections" fields :test #'string=)))
+           "Log file Engine connection count mismatch")
+          (devnet-smoke-gate-require
+           (string= (if ready-p
+                        "0"
+                        (devnet-smoke-gate-connection-count-string
+                         expected-connection-summary
+                         :public-connections))
+                    (cdr (assoc "publicConnections" fields :test #'string=)))
+           "Log file public connection count mismatch")
+          (devnet-smoke-gate-require
+           (string= (if ready-p
+                        "0"
+                        (devnet-smoke-gate-connection-count-string
+                         expected-connection-summary
+                         :total-connections))
+                    (cdr (assoc "totalConnections" fields :test #'string=)))
+           "Log file total connection count mismatch")
           (when expected-process-id
             (devnet-smoke-gate-require
              (string= (write-to-string expected-process-id)
@@ -5166,7 +5193,8 @@ references/ checkouts.~%")
                   node
                   "devnet.shutdown"
                   :engine-endpoint "engine"
-                  :rpc-endpoint "public"))
+                  :rpc-endpoint "public"
+                  :connection-summary summary))
                (let* ((new-payload-response
                         (get-output-stream-string new-payload-output))
                       (forkchoice-response
@@ -6468,7 +6496,14 @@ references/ checkouts.~%")
                   (devnet-smoke-gate-field report "safeBlockHash")
                   (devnet-smoke-gate-field report "blockNumber")
                   (devnet-smoke-gate-field report "latestValidHash")
-                  :expected-process-id expected-process-id))
+                  :expected-process-id expected-process-id
+                  :expected-connection-summary
+                  (list :engine-connections
+                        (fixture-object-field report "engineConnections")
+                        :public-connections
+                        (fixture-object-field report "publicConnections")
+                        :total-connections
+                        (fixture-object-field report "totalConnections"))))
                report)))
       (when (probe-file jwt-path)
         (delete-file jwt-path))))

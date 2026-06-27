@@ -604,7 +604,8 @@
             (ignore-errors (delete-file temp-path))))))))
 
 (defun devnet-node-telemetry-fields
-    (node &key engine-endpoint rpc-endpoint lifecycle-phase)
+    (node &key engine-endpoint rpc-endpoint lifecycle-phase
+            connection-summary)
   (let ((summary (devnet-node-summary
                   node
                   :engine-endpoint engine-endpoint
@@ -612,6 +613,18 @@
     `(("engineEndpoint" . ,(getf summary :engine-endpoint))
       ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
       ("lifecyclePhase" . ,(or lifecycle-phase ""))
+      ("engineConnections" . ,(write-to-string
+                               (or (getf connection-summary
+                                         :engine-connections)
+                                   0)))
+      ("publicConnections" . ,(write-to-string
+                               (or (getf connection-summary
+                                         :public-connections)
+                                   0)))
+      ("totalConnections" . ,(write-to-string
+                              (or (getf connection-summary
+                                        :total-connections)
+                                  0)))
       ("processId" . ,(let ((process-id (getf summary :process-id)))
                          (if process-id
                              (write-to-string process-id)
@@ -637,7 +650,8 @@
       ("databasePath" . ,(or (getf summary :database-path) ""))
       ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
 
-(defun devnet-cli-log-event (node name &key engine-endpoint rpc-endpoint)
+(defun devnet-cli-log-event
+    (node name &key engine-endpoint rpc-endpoint connection-summary)
   (ethereum-lisp.telemetry:telemetry-log
    :info
    name
@@ -650,7 +664,8 @@
             (cond
               ((string= name "devnet.ready") "ready")
               ((string= name "devnet.shutdown") "shutdown")
-              (t "")))))
+              (t ""))
+            :connection-summary connection-summary)))
 
 (defun call-with-devnet-cli-telemetry-sink (options output-stream thunk)
   (let ((log-file (getf options :log-file)))
@@ -699,49 +714,54 @@
                      (devnet-cli-write-pid-file (getf options :pid-file)))
                    (if (getf options :serve-p)
                        (let ((bound-engine-endpoint nil)
-                             (bound-rpc-endpoint nil))
+                             (bound-rpc-endpoint nil)
+                             (serve-summary nil))
                          (unwind-protect
-                              (start-devnet-node
-                               node
-                               :max-connections (getf options :max-connections)
-                               :install-signal-handlers-p t
-                               :signal-stream error-stream
-                               :on-listeners-ready
-                               (lambda (engine-listener public-listener)
-                                 (setf bound-engine-endpoint
-                                       (engine-rpc-http-listener-endpoint
-                                        engine-listener)
-                                       bound-rpc-endpoint
-                                       (engine-rpc-http-listener-endpoint
-                                        public-listener))
-                                 (when (getf options :ready-file)
-                                   (devnet-cli-write-ready-file
-                                    node
-                                    (getf options :ready-file)
-                                    :engine-endpoint bound-engine-endpoint
-                                    :rpc-endpoint bound-rpc-endpoint))
-                                 (when (getf options :log-file)
-                                   (devnet-cli-log-event
-                                    node
-                                    "devnet.ready"
-                                    :engine-endpoint bound-engine-endpoint
-                                    :rpc-endpoint bound-rpc-endpoint))
-                                 (devnet-cli-print-summary
-                                  node
-                                  output-stream
-                                  :format (getf options :summary-format)
-                                  :engine-endpoint bound-engine-endpoint
-                                  :rpc-endpoint bound-rpc-endpoint)))
+                              (setf
+                               serve-summary
+                               (start-devnet-node
+                                node
+                                :max-connections
+                                (getf options :max-connections)
+                                :install-signal-handlers-p t
+                                :signal-stream error-stream
+                                :on-listeners-ready
+                                (lambda (engine-listener public-listener)
+                                  (setf bound-engine-endpoint
+                                        (engine-rpc-http-listener-endpoint
+                                         engine-listener)
+                                        bound-rpc-endpoint
+                                        (engine-rpc-http-listener-endpoint
+                                         public-listener))
+                                  (when (getf options :ready-file)
+                                    (devnet-cli-write-ready-file
+                                     node
+                                     (getf options :ready-file)
+                                     :engine-endpoint bound-engine-endpoint
+                                     :rpc-endpoint bound-rpc-endpoint))
+                                  (when (getf options :log-file)
+                                    (devnet-cli-log-event
+                                     node
+                                     "devnet.ready"
+                                     :engine-endpoint bound-engine-endpoint
+                                     :rpc-endpoint bound-rpc-endpoint))
+                                  (devnet-cli-print-summary
+                                   node
+                                   output-stream
+                                   :format (getf options :summary-format)
+                                   :engine-endpoint bound-engine-endpoint
+                                   :rpc-endpoint bound-rpc-endpoint))))
                            (devnet-node-export-database
                             node
                             :state-prune-before
                             (getf options :state-prune-before))
                            (when (getf options :log-file)
                              (devnet-cli-log-event
-                              node
-                              "devnet.shutdown"
-                              :engine-endpoint bound-engine-endpoint
-                              :rpc-endpoint bound-rpc-endpoint))))
+                             node
+                             "devnet.shutdown"
+                             :engine-endpoint bound-engine-endpoint
+                             :rpc-endpoint bound-rpc-endpoint
+                             :connection-summary serve-summary))))
                        (progn
                          (devnet-node-export-database
                           node

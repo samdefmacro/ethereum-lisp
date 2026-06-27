@@ -5140,6 +5140,12 @@ splits can land after the Phase A smoke path closes.
     name. CLI tests and the standalone devnet smoke gate verify the field so
     Hive-style process runners can distinguish startup and exit records without
     inferring lifecycle state solely from telemetry event names.
+  - Result: lifecycle telemetry now also carries `engineConnections`,
+    `publicConnections`, and `totalConnections`. Ready/no-serve events report
+    zeroes, while serve-mode shutdown logs the split listener summary returned
+    by the Engine/public serving helper. The standalone devnet smoke gate
+    verifies the shutdown counts against its JSON report, giving external
+    runners a single log-record source for served-connection accounting.
   - Result: widened the top-level Phase A dedicated side-reorg process gate
     from a two-case suite to three cases. `devnetSideReorg` now also runs
     `shanghai-two-legacy-transfers-with-withdrawal`, reports reinserted

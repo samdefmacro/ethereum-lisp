@@ -1138,7 +1138,8 @@
             :engine-endpoint
             (engine-rpc-http-listener-endpoint engine-listener)
             :rpc-endpoint
-            (engine-rpc-http-listener-endpoint public-listener))
+            (engine-rpc-http-listener-endpoint public-listener)
+            :connection-summary summary)
            (let ((ready-summary
                    (parse-json (devnet-cli-file-string ready-path))))
              (is (string= "127.0.0.1:18551"
@@ -1175,6 +1176,15 @@
                                    "ready"
                                    "shutdown")
                               (cdr (assoc "lifecyclePhase" fields
+                                          :test #'string=))))
+                 (is (string= "0"
+                              (cdr (assoc "engineConnections" fields
+                                          :test #'string=))))
+                 (is (string= "0"
+                              (cdr (assoc "publicConnections" fields
+                                          :test #'string=))))
+                 (is (string= "0"
+                              (cdr (assoc "totalConnections" fields
                                           :test #'string=))))
                  (is (string= (devnet-cli-current-process-id-string)
                               (cdr (assoc "processId" fields
@@ -1650,6 +1660,15 @@
                                    "ready"
                                    "shutdown")
                               (cdr (assoc "lifecyclePhase" fields
+                                          :test #'string=))))
+                 (is (string= "0"
+                              (cdr (assoc "engineConnections" fields
+                                          :test #'string=))))
+                 (is (string= "0"
+                              (cdr (assoc "publicConnections" fields
+                                          :test #'string=))))
+                 (is (string= "0"
+                              (cdr (assoc "totalConnections" fields
                                           :test #'string=))))
                  (is (string= (devnet-cli-current-process-id-string)
                               (cdr (assoc "processId" fields

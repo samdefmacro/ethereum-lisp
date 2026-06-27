@@ -1030,8 +1030,10 @@ first pass, but interfaces must not block that path.
   readiness/log output whose lifecycle `processId` fields are missing or
   inconsistent. Lifecycle telemetry also carries an explicit
   `lifecyclePhase` field (`ready` or `shutdown`) so process runners do not need
-  to infer startup versus exit records solely from event names. The CLI also
-  supports a
+  to infer startup versus exit records solely from event names. The same
+  lifecycle records now expose `engineConnections`, `publicConnections`, and
+  `totalConnections`, with serve-mode shutdown logs recording the actual split
+  listener summary for runner accounting. The CLI also supports a
   Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
   telemetry, and the standalone plus Phase A devnet smoke gates verify the
   pid-file process id against readiness/log metadata. The top-level Phase A
