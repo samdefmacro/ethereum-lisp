@@ -3770,6 +3770,7 @@
     (is (search "--prefix PREFIX" stdout))
     (is (search "--limit NUMBER" stdout))
     (is (search "--include-pinned" stdout))
+    (is (search "--failures-only" stdout))
     (is (search "implementation-bug-candidate" stdout))))
 
 (deftest blockchain-replay-classifier-script-json-summarizes-families
@@ -3811,6 +3812,40 @@
           (is (string= "passing"
                        (fixture-object-field result "classification")))
           (is (fixture-object-field result "family")))))))
+
+(deftest blockchain-replay-classifier-script-json-filters-passing-results
+  #-sbcl
+  (skip-test "Blockchain replay classifier script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/classify-blockchain-replay-selectors.lisp"
+             "--"
+             "--root"
+             "tests/fixtures/execution-spec-tests-root/"
+             "--prefix"
+             "shanghai/phase-a"
+             "--limit"
+             "2"
+             "--failures-only"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (results (fixture-object-field report "results"))
+             (families (fixture-object-field report "families")))
+        (is (eq t (fixture-object-field report "failuresOnly")))
+        (is (= 2 (fixture-object-field report "classifiedCount")))
+        (is (= 2 (fixture-object-field report "passingCount")))
+        (is (= 0 (fixture-object-field report "failingCount")))
+        (is (= 0 (length results)))
+        (is (plusp (length families)))))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-help
   #-sbcl

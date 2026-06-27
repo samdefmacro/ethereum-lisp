@@ -1236,7 +1236,11 @@ Detailed historical implementation notes for this section now live in
   blockchain replay selectors into passing, implementation-bug-candidate,
   fixture-harness-error, and out-of-scope buckets with per-family summaries
   before choosing whether to fix implementation drift, record a blocker, or
-  selectively widen the pinned table. The official v5.4.0 CREATE/CREATE2
+  selectively widen the pinned table. The classifier also supports
+  `--failures-only` output for drift triage: the first 128 unpinned
+  v5.4.0 candidates classify as 113 passing and 15 implementation-bug
+  candidates, clustered around CALL/value-transfer/identity-precompile gas
+  accounting. The official v5.4.0 CREATE/CREATE2
   returndata drift in
   `constantinople/eip1014_create2/test_create2_return_data.json` is closed:
   zero-length `CALLDATACOPY` / `RETURNDATACOPY` no longer expand memory for

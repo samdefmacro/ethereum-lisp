@@ -264,6 +264,23 @@ ones.
     100 pinned selectors, and classified the first four unpinned
     `frontier/opcodes/test_swap.json` selectors as passing without pinning
     them.
+  - Result (2026-06-28): added `--failures-only` so automation can preserve
+    aggregate counts and family summaries while printing only non-passing
+    selector records. A bounded run against the installed v5.4.0 root with
+    `--limit 128 --failures-only --json` reported 362 materializable
+    selectors, 124 pinned selectors, 128 classified candidates, 113 passing
+    candidates, and 15 `implementation-bug-candidate` records with no
+    harness-error or out-of-scope records. The failures cluster in
+    `berlin/eip2929_gas_cost_increases/test_call_insufficient_balance.json`,
+    `frontier/identity_precompile/test_call_identity_precompile.json`,
+    `frontier/identity_precompile/test_call_identity_precompile_large_params.json`,
+    `frontier/opcodes/test_all_opcodes.json`,
+    `frontier/opcodes/test_call_memory_expands_on_early_revert.json`, and
+    `frontier/opcodes/test_value_transfer_gas_calculation.json`. The first
+    concrete implementation target should be the CALL/value-transfer/
+    identity-precompile gas accounting cluster; the representative early
+    revert selector currently replays 2300 gas over the official expected
+    post-state gas accounting.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

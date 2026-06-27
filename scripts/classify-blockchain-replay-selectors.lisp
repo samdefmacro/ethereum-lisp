@@ -9,6 +9,7 @@
 (defconstant +classifier-script-prefix-option+ "--prefix")
 (defconstant +classifier-script-limit-option+ "--limit")
 (defconstant +classifier-script-include-pinned-flag+ "--include-pinned")
+(defconstant +classifier-script-failures-only-flag+ "--failures-only")
 (defconstant +classifier-script-eest-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 
@@ -31,6 +32,7 @@
   (format t "  --prefix PREFIX      Only classify selectors whose names start with PREFIX.~%")
   (format t "  --limit NUMBER       Classify at most NUMBER candidate selectors.~%")
   (format t "  --include-pinned     Include already pinned selectors in the candidate set.~%")
+  (format t "  --failures-only      Keep full counts but print only non-passing results.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
@@ -49,6 +51,9 @@ fixture-harness-error, out-of-scope.~%")
 
 (defun classifier-script-include-pinned-p (args)
   (member +classifier-script-include-pinned-flag+ args :test #'string=))
+
+(defun classifier-script-failures-only-p (args)
+  (member +classifier-script-failures-only-flag+ args :test #'string=))
 
 (defun classifier-script-option-like-p (value)
   (and (stringp value)
@@ -87,7 +92,8 @@ fixture-harness-error, out-of-scope.~%")
       (cond
         ((or (string= arg +classifier-script-json-flag+)
              (string= arg +classifier-script-help-flag+)
-             (string= arg +classifier-script-include-pinned-flag+)))
+             (string= arg +classifier-script-include-pinned-flag+)
+             (string= arg +classifier-script-failures-only-flag+)))
         ((or (string= arg +classifier-script-root-option+)
              (string= arg +classifier-script-prefix-option+)
              (string= arg +classifier-script-limit-option+))
@@ -275,8 +281,12 @@ fixture-harness-error, out-of-scope.~%")
      :key (lambda (entry)
             (cdr (assoc "family" entry :test #'string=))))))
 
+(defun classifier-script-passing-result-p (result)
+  (string= "passing"
+           (cdr (assoc "classification" result :test #'string=))))
+
 (defun classifier-script-report
-    (blockchain-root prefix limit include-pinned-p)
+    (blockchain-root prefix limit include-pinned-p failures-only-p)
   (let* ((discovered
            (classifier-script-call
             "discover-phase-a-eest-blockchain-replay-selectors"
@@ -297,7 +307,11 @@ fixture-harness-error, out-of-scope.~%")
                      (classifier-script-classify-selector
                       blockchain-root
                       selector))
-                   candidates)))
+                   candidates))
+         (reported-results
+           (if failures-only-p
+               (remove-if #'classifier-script-passing-result-p results)
+               results)))
     (list
      (cons "root" (namestring blockchain-root))
      (cons "mode" "unpinned-blockchain-replay-classification")
@@ -325,8 +339,9 @@ fixture-harness-error, out-of-scope.~%")
      (cons "prefix" (or prefix ""))
      (cons "limit" (or limit :false))
      (cons "includePinned" (if include-pinned-p t :false))
+     (cons "failuresOnly" (if failures-only-p t :false))
      (cons "families" (classifier-script-family-summaries results))
-     (cons "results" results))))
+     (cons "results" reported-results))))
 
 (defun classifier-script-main ()
   (load (merge-pathnames "tests/load-tests.lisp"
@@ -349,7 +364,8 @@ fixture-harness-error, out-of-scope.~%")
              blockchain-root
              (getf options :prefix)
              (getf options :limit)
-             (classifier-script-include-pinned-p args))))
+             (classifier-script-include-pinned-p args)
+             (classifier-script-failures-only-p args))))
       (if (classifier-script-json-p args)
           (format t "~&~A~%" (classifier-script-json-encode report))
           (progn
