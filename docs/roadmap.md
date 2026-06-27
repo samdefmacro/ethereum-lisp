@@ -338,23 +338,24 @@ fixes in those areas are allowed; expansion is not.
   transaction reinsertion, safe/finalized checkpoint preservation, or fresh
   restore public-read consistency. The current pruned parent run skips those
   side probes and reports `sideReorgCaseCount` as zero instead of implying
-  coverage it did not execute; a separate top-level `devnetSideReorg` section
-  now runs one non-pruned database-backed side-reorg probe so the Phase A
+  coverage it did not execute; a separate top-level `devnetSideReorg` suite
+  now runs non-pruned database-backed side-reorg probes for the balance-changing
+  transfer case and the log-producing contract-call case, so the Phase A
   parent gate covers both pruned retained-state behavior and restored reorg
-  behavior in the same command. The side-reorg report distinguishes child-head
+  behavior in the same command. Each side-reorg report distinguishes child-head
   `checkedBalance` from checkpoint-state `checkedCheckpointBalance`, so
-  restored `safe` / `finalized` balance checks can cover a balance-changing
-  transfer case without conflating head state with checkpoint state. The
-  parent gate also exposes ready/log/pid/database single-case counts for that
-  dedicated side-reorg probe, keeping its lifecycle artifact accounting aligned
-  with the all-fixtures devnet suite. Its side-reorg RPC connection budget now
-  has an explicit `databaseRpcSideTotalConnections` field, so the reorg,
+  restored `safe` / `finalized` balance checks can cover balance-changing
+  payloads without conflating head state with checkpoint state. The parent gate
+  also exposes ready/log/pid/database counts for that dedicated side-reorg
+  suite, keeping its lifecycle artifact accounting aligned with the
+  all-fixtures devnet suite. Its side-reorg RPC connection budget now has an
+  explicit `databaseRpcSideTotalConnections` field per case, so the reorg,
   public-read, and fresh-restore probes are checked both individually and in
-  aggregate. The fresh-restore side-reorg probe also checks the old child hash
-  stays block-readable while balance, nonce, code, storage, proof, call,
-  estimate-gas, and access-list requests with `requireCanonical=true` reject it
-  as non-canonical, so EIP-1898 state reads cannot silently follow a displaced
-  branch after database restore.
+  aggregate. The fresh-restore side-reorg probes also check old child hashes
+  stay block-readable while balance, nonce, code, storage, proof, call,
+  estimate-gas, and access-list requests with `requireCanonical=true` reject
+  them as non-canonical, so EIP-1898 state reads cannot silently follow a
+  displaced branch after database restore.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

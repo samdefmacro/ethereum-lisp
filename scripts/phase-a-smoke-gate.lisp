@@ -18,8 +18,9 @@
 (defconstant +smoke-gate-eest-tag-target+ "88e9fb8")
 (defconstant +smoke-gate-eest-archive+ "fixtures_stable.tar.gz")
 (defconstant +smoke-gate-devnet-prune-state-before+ 42)
-(defconstant +smoke-gate-devnet-side-reorg-fixture-case+
-  "shanghai-one-transfer-with-withdrawal")
+(defparameter +smoke-gate-devnet-side-reorg-fixture-cases+
+  '("shanghai-one-transfer-with-withdrawal"
+    "shanghai-log-contract-call-with-withdrawal"))
 
 (defun smoke-gate-arguments ()
   #+sbcl
@@ -799,15 +800,15 @@ references/ checkouts.~%"))
       (smoke-gate-delete-file-if-present pid-file)
       (smoke-gate-delete-file-if-present database-file))))
 
-(defun smoke-gate-validate-devnet-side-reorg-summary
-    (report ready-file log-file pid-file database-file)
+(defun smoke-gate-validate-devnet-side-reorg-case-summary
+    (report fixture-case ready-file log-file pid-file database-file)
   (unless (string= "ok" (smoke-gate-field report "status"))
     (error "Devnet side-reorg smoke gate returned non-ok status: ~S"
            report))
   (smoke-gate-devnet-require-field
    report "mode" "devnet-listener-boundary")
   (smoke-gate-devnet-require-field
-   report "fixtureCase" +smoke-gate-devnet-side-reorg-fixture-case+)
+   report "fixtureCase" fixture-case)
   (smoke-gate-devnet-require-field report "readyFile" ready-file)
   (smoke-gate-devnet-require-field report "logFile" log-file)
   (smoke-gate-devnet-require-field report "pidFile" pid-file)
@@ -827,7 +828,7 @@ references/ checkouts.~%"))
            (cons "databaseCaseCount" 1)
            (cons "sideReorgCaseCount" side-reorg-count)))))
 
-(defun smoke-gate-devnet-side-reorg-summary ()
+(defun smoke-gate-devnet-side-reorg-case-summary (fixture-case)
   (let ((ready-file
           (namestring
            (smoke-gate-temp-path "ethereum-lisp-phase-a-side-reorg-ready"
@@ -851,7 +852,7 @@ references/ checkouts.~%"))
                  (smoke-gate-devnet-script-json
                   (list
                    "--fixture-case"
-                   +smoke-gate-devnet-side-reorg-fixture-case+
+                   fixture-case
                    "--ready-file"
                    ready-file
                    "--log-file"
@@ -860,8 +861,9 @@ references/ checkouts.~%"))
                    pid-file
                    "--database"
                    database-file)))
-           (smoke-gate-validate-devnet-side-reorg-summary
+           (smoke-gate-validate-devnet-side-reorg-case-summary
             report
+            fixture-case
             ready-file
             log-file
             pid-file
@@ -870,6 +872,53 @@ references/ checkouts.~%"))
       (smoke-gate-delete-file-if-present log-file)
       (smoke-gate-delete-file-if-present pid-file)
       (smoke-gate-delete-file-if-present database-file))))
+
+(defun smoke-gate-devnet-side-reorg-summary ()
+  (let* ((reports
+           (mapcar #'smoke-gate-devnet-side-reorg-case-summary
+                   +smoke-gate-devnet-side-reorg-fixture-cases+))
+         (case-count (length reports)))
+    (list
+     (cons "status" "ok")
+     (cons "mode" "devnet-side-reorg-suite")
+     (cons "caseCount" case-count)
+     (cons "fixtureCases" +smoke-gate-devnet-side-reorg-fixture-cases+)
+     (cons "cases" reports)
+     (cons "readyCaseCount" case-count)
+     (cons "logCaseCount" case-count)
+     (cons "pidCaseCount" case-count)
+     (cons "databaseCaseCount" case-count)
+     (cons "sideReorgCaseCount"
+           (reduce #'+ reports
+                   :key (lambda (report)
+                          (smoke-gate-numeric-field
+                           report "sideReorgCaseCount"))
+                   :initial-value 0))
+     (cons "engineConnections"
+           (reduce #'+ reports
+                   :key (lambda (report)
+                          (smoke-gate-numeric-field
+                           report "databaseRpcSideEngineConnections"))
+                   :initial-value 0))
+     (cons "publicConnections"
+           (reduce #'+ reports
+                   :key (lambda (report)
+                          (smoke-gate-numeric-field
+                           report "databaseRpcSidePublicConnections"))
+                   :initial-value 0))
+     (cons "restoredPublicConnections"
+           (reduce #'+ reports
+                   :key (lambda (report)
+                          (smoke-gate-numeric-field
+                           report
+                           "databaseRpcSideRestoredPublicConnections"))
+                   :initial-value 0))
+     (cons "totalConnections"
+           (reduce #'+ reports
+                   :key (lambda (report)
+                          (smoke-gate-numeric-field
+                           report "databaseRpcSideTotalConnections"))
+                   :initial-value 0)))))
 
 (defun smoke-gate-numeric-field (object field)
   (or (smoke-gate-field object field) 0))
@@ -1005,8 +1054,10 @@ references/ checkouts.~%"))
     (when devnet-side-reorg
       (format t "devnetSideReorgStatus=~A~%"
               (smoke-gate-field devnet-side-reorg "status"))
-      (format t "devnetSideReorgFixtureCase=~A~%"
-              (smoke-gate-field devnet-side-reorg "fixtureCase"))
+      (format t "devnetSideReorgFixtureCaseCount=~D~%"
+              (smoke-gate-field devnet-side-reorg "caseCount"))
+      (format t "devnetSideReorgFixtureCases=~S~%"
+              (smoke-gate-field devnet-side-reorg "fixtureCases"))
       (format t "devnetSideReorgCaseCount=~D~%"
               (smoke-gate-field
                devnet-side-reorg "sideReorgCaseCount"))

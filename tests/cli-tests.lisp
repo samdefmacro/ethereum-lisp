@@ -6,6 +6,10 @@
 (defconstant +devnet-cli-jwt-secret+
   "1111111111111111111111111111111111111111111111111111111111111111")
 
+(defparameter +devnet-side-reorg-smoke-case-names+
+  '("shanghai-one-transfer-with-withdrawal"
+    "shanghai-log-contract-call-with-withdrawal"))
+
 (defvar *devnet-cli-temp-counter* 0)
 
 (defun devnet-cli-current-process-id ()
@@ -2977,24 +2981,47 @@
         (devnet-cli-assert-pruned-state-suite
          devnet cases prune-boundary)
         (is (= 0 (fixture-object-field devnet "sideReorgCaseCount")))
-        (is (string= "ok"
-                     (fixture-object-field devnet-side-reorg "status")))
-        (is (string= "devnet-listener-boundary"
-                     (fixture-object-field devnet-side-reorg "mode")))
-        (is (string= "shanghai-one-transfer-with-withdrawal"
+        (let ((side-reorg-cases
+                (fixture-object-field devnet-side-reorg "cases")))
+          (is (string= "ok"
+                       (fixture-object-field devnet-side-reorg "status")))
+          (is (string= "devnet-side-reorg-suite"
+                       (fixture-object-field devnet-side-reorg "mode")))
+          (is (equal +devnet-side-reorg-smoke-case-names+
                      (fixture-object-field
-                      devnet-side-reorg "fixtureCase")))
-        (is (= 1 (fixture-object-field
+                      devnet-side-reorg "fixtureCases")))
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field devnet-side-reorg "caseCount")))
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
                   devnet-side-reorg "sideReorgCaseCount")))
-        (is (= 1 (fixture-object-field
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
                   devnet-side-reorg "readyCaseCount")))
-        (is (= 1 (fixture-object-field
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
                   devnet-side-reorg "logCaseCount")))
-        (is (= 1 (fixture-object-field
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
                   devnet-side-reorg "pidCaseCount")))
-        (is (= 1 (fixture-object-field
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
                   devnet-side-reorg "databaseCaseCount")))
-        (devnet-cli-assert-side-reorg-persistence devnet-side-reorg)
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (length side-reorg-cases)))
+          (dolist (case side-reorg-cases)
+            (devnet-cli-assert-side-reorg-persistence case))
+          (let ((log-case
+                  (find "shanghai-log-contract-call-with-withdrawal"
+                        side-reorg-cases
+                        :key (lambda (case)
+                               (fixture-object-field case "fixtureCase"))
+                        :test #'string=)))
+            (is log-case)
+            (when log-case
+              (is (= 1 (fixture-object-field log-case "checkedLogCount")))
+              (is (= 1 (fixture-object-field
+                        log-case "databaseRpcLogCount"))))))
         (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
@@ -3271,16 +3298,24 @@
           (is (string= "ok"
                        (fixture-object-field
                         devnet-side-reorg "status")))
-          (is (= 1 (fixture-object-field
-                    devnet-side-reorg "sideReorgCaseCount")))
-          (is (= 1 (fixture-object-field
-                    devnet-side-reorg "readyCaseCount")))
-          (is (= 1 (fixture-object-field
-                    devnet-side-reorg "logCaseCount")))
-          (is (= 1 (fixture-object-field
-                    devnet-side-reorg "pidCaseCount")))
-          (is (= 1 (fixture-object-field
-                    devnet-side-reorg "databaseCaseCount"))))))))
+          (is (string= "devnet-side-reorg-suite"
+                       (fixture-object-field
+                        devnet-side-reorg "mode")))
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
+                  devnet-side-reorg "sideReorgCaseCount")))
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
+                  devnet-side-reorg "readyCaseCount")))
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
+                  devnet-side-reorg "logCaseCount")))
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
+                  devnet-side-reorg "pidCaseCount")))
+          (is (= (length +devnet-side-reorg-smoke-case-names+)
+                 (fixture-object-field
+                  devnet-side-reorg "databaseCaseCount"))))))))
 
 (deftest phase-a-smoke-gate-text-output-includes-aggregate-counts
   #-sbcl
