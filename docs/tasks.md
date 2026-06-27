@@ -128,6 +128,17 @@ ones.
     `shanghai/eip3860_initcode/test_gas_usage.json` fixture. A regression
     fixture proves unsupported far-fork JSON and oversized in-scope-fork JSON
     are not loaded by automatic discovery.
+- [x] `PINNED-V5.4.0-STATE-WIDEN`: Use the bounded official v5.4.0 state
+  discovery to widen the pinned state-transition replay table with
+  selector-probed cases that execute cleanly through the current Phase A EVM
+  path.
+  - Result (2026-06-27): added 20 official EIP-2930/access-list state
+    selectors covering London/Shanghai warm/cold account/storage access-list
+    combinations plus London intrinsic-gas boundary cases. The pinned smoke
+    gate now passes with 34 official state selectors, 53 official
+    Prague/EIP-7702 invalid transaction cases summarized, and 14 official
+    Shanghai `engineNewPayloadV2` blockchain selectors, for 101 total executed
+    fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

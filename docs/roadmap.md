@@ -1182,7 +1182,11 @@ Detailed historical implementation notes for this section now live in
   fixture-size bounds, so the official v5.4.0 root reports 945 materializable
   London/Shanghai state selectors without exhausting the default SBCL heap on
   the large `shanghai/eip3860_initcode/test_gas_usage.json` fixture; explicit
-  selectors still load named files directly.
+  selectors still load named files directly. The pinned state-transition table
+  now includes 34 official selectors after adding selector-probed EIP-2930/
+  access-list London/Shanghai warm/cold and intrinsic-gas cases; the pinned
+  smoke gate executes 101 total fixture cases across state, transaction, and
+  blockchain suites.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
