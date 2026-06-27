@@ -441,6 +441,7 @@ references/ checkouts.~%"))
     "databaseRpcSideReinsertedTransactionCount"
     "databaseRpcSideReinsertedTransactionHashes"
     "databaseRpcSideReceipt"
+    "databaseRpcSideHiddenReceiptCount"
     "databaseRpcSideChildBlockHash"
     "databaseRpcSideBlockReceiptsCount"
     "databaseRpcSideLogCount"
@@ -463,6 +464,7 @@ references/ checkouts.~%"))
     "databaseRpcSideRestoredReinsertedTransactionCount"
     "databaseRpcSideRestoredReinsertedTransactionHashes"
     "databaseRpcSideRestoredReceipt"
+    "databaseRpcSideRestoredHiddenReceiptCount"
     "databaseRpcSideRestoredChildBlockHash"
     "databaseRpcSideRestoredChildRequireCanonicalError"
     "databaseRpcSideRestoredChildRequireCanonicalErrors"
@@ -576,6 +578,11 @@ references/ checkouts.~%"))
          case-report "databaseRpcSideRestoredReinsertedTransactionCount"
          expected-count)
         (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideHiddenReceiptCount" expected-count)
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideRestoredHiddenReceiptCount"
+         expected-count)
+        (smoke-gate-devnet-case-require-field
          case-report
          "databaseRpcSideReinsertedTransactionHashes"
          (smoke-gate-field
@@ -596,10 +603,12 @@ references/ checkouts.~%"))
                        "databaseRpcSidePendingTransaction"
                        "databaseRpcSideReinsertedTransactionCount"
                        "databaseRpcSideReinsertedTransactionHashes"
+                       "databaseRpcSideHiddenReceiptCount"
                        "databaseRpcSideRestoredRawTransaction"
                        "databaseRpcSideRestoredPendingTransaction"
                        "databaseRpcSideRestoredReinsertedTransactionCount"
-                       "databaseRpcSideRestoredReinsertedTransactionHashes"))
+                       "databaseRpcSideRestoredReinsertedTransactionHashes"
+                       "databaseRpcSideRestoredHiddenReceiptCount"))
         (smoke-gate-devnet-case-require-false case-report field))))
 
 (defun smoke-gate-devnet-validate-side-reorg-case (case-report)
@@ -711,14 +720,22 @@ references/ checkouts.~%"))
          case-report "databaseRpcSideRestoredBlockReceiptsCount" 0)
         (smoke-gate-devnet-case-require-field
          case-report "databaseRpcSideRestoredLogCount" 0)
-        (smoke-gate-devnet-case-require-field
-         case-report "databaseRpcSideEngineConnections" 3)
-        (smoke-gate-devnet-case-require-field
-         case-report "databaseRpcSidePublicConnections" 9)
-        (smoke-gate-devnet-case-require-field
-         case-report "databaseRpcSideRestoredPublicConnections" 20)
-        (smoke-gate-devnet-case-require-field
-         case-report "databaseRpcSideTotalConnections" 32)
+        (let* ((transaction-count
+                 (smoke-gate-field case-report "databaseRpcTransactionCount"))
+               (extra-transaction-count (max 0 (1- transaction-count)))
+               (side-public-connections (+ 9 extra-transaction-count))
+               (restored-public-connections (+ 20 extra-transaction-count)))
+          (smoke-gate-devnet-case-require-field
+           case-report "databaseRpcSideEngineConnections" 3)
+          (smoke-gate-devnet-case-require-field
+           case-report "databaseRpcSidePublicConnections"
+           side-public-connections)
+          (smoke-gate-devnet-case-require-field
+           case-report "databaseRpcSideRestoredPublicConnections"
+           restored-public-connections)
+          (smoke-gate-devnet-case-require-field
+           case-report "databaseRpcSideTotalConnections"
+           (+ 3 side-public-connections restored-public-connections)))
         1)))
 
 (defun smoke-gate-validate-devnet-side-reorg-cases

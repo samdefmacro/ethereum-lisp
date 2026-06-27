@@ -5084,6 +5084,12 @@ splits can land after the Phase A smoke path closes.
     persistence hides displaced receipts/logs while preserving pending
     reinsertion for balance-changing, multi-transaction, and
     executable-code/log payloads.
+  - Result: tightened that multi-transaction side-reorg receipt contract. The
+    process/database gate now probes `eth_getTransactionReceipt` for every
+    transaction displaced by the old canonical child both immediately after the
+    side switch and after the second KV export/import, reports hidden receipt
+    counts for both boundaries, and makes the parent/CLI validators compute
+    side-reorg RPC connection budgets from the displaced transaction count.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

@@ -360,7 +360,11 @@ fixes in those areas are allowed; expansion is not.
   reports now also carry reinserted transaction hash arrays and counts before
   and after fresh restore, locking that every transaction displaced by the old
   canonical child re-enters pending visibility, not only the first receipt
-  sampled by legacy summary fields.
+  sampled by legacy summary fields. They now also carry hidden canonical
+  receipt counts for every displaced transaction at both the immediate side
+  switch and fresh-restore boundaries, and the parent gate derives the side
+  reorg RPC connection budget from the transaction count instead of assuming a
+  single-transaction probe.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

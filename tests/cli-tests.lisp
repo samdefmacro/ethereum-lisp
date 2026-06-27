@@ -179,6 +179,7 @@
                          "databaseRpcSideReinsertedTransactionCount"
                          "databaseRpcSideReinsertedTransactionHashes"
                          "databaseRpcSideReceipt"
+                         "databaseRpcSideHiddenReceiptCount"
                          "databaseRpcSideChildBlockHash"
                          "databaseRpcSideBlockReceiptsCount"
                          "databaseRpcSideLogCount"
@@ -201,6 +202,7 @@
                          "databaseRpcSideRestoredReinsertedTransactionCount"
                          "databaseRpcSideRestoredReinsertedTransactionHashes"
                          "databaseRpcSideRestoredReceipt"
+                         "databaseRpcSideRestoredHiddenReceiptCount"
                          "databaseRpcSideRestoredChildBlockHash"
                          "databaseRpcSideRestoredChildRequireCanonicalError"
                          "databaseRpcSideRestoredChildRequireCanonicalErrors"
@@ -388,6 +390,13 @@
                    (fixture-object-field
                     report
                     "databaseRpcSideRestoredReinsertedTransactionCount")))
+            (is (= (fixture-object-field report "databaseRpcTransactionCount")
+                   (fixture-object-field
+                    report "databaseRpcSideHiddenReceiptCount")))
+            (is (= (fixture-object-field report "databaseRpcTransactionCount")
+                   (fixture-object-field
+                    report
+                    "databaseRpcSideRestoredHiddenReceiptCount")))
             (is (equal (fixture-object-field
                         report "databaseRpcSideReinsertedTransactionHashes")
                        (fixture-object-field
@@ -421,19 +430,26 @@
           (is (= 0
                  (fixture-object-field
                   report "databaseRpcSideRestoredLogCount")))
-          (is (= 3
-                 (fixture-object-field
-                  report "databaseRpcSideEngineConnections")))
-          (is (= 9
-                 (fixture-object-field
-                  report "databaseRpcSidePublicConnections")))
-          (is (= 20
-                 (fixture-object-field
-                  report
-                  "databaseRpcSideRestoredPublicConnections")))
-          (is (= 32
-                 (fixture-object-field
-                  report "databaseRpcSideTotalConnections")))))))
+          (let* ((transaction-count
+                   (fixture-object-field report "databaseRpcTransactionCount"))
+                 (extra-transaction-count (max 0 (1- transaction-count)))
+                 (side-public-connections (+ 9 extra-transaction-count))
+                 (restored-public-connections
+                   (+ 20 extra-transaction-count)))
+            (is (= 3
+                   (fixture-object-field
+                    report "databaseRpcSideEngineConnections")))
+            (is (= side-public-connections
+                   (fixture-object-field
+                    report "databaseRpcSidePublicConnections")))
+            (is (= restored-public-connections
+                   (fixture-object-field
+                    report
+                    "databaseRpcSideRestoredPublicConnections")))
+            (is (= (+ 3 side-public-connections
+                      restored-public-connections)
+                   (fixture-object-field
+                    report "databaseRpcSideTotalConnections"))))))))
 
 (defun devnet-cli-pruned-state-error-messages ()
   '("eth_getBalance state is not available"
@@ -3061,6 +3077,12 @@
               (is (= 2 (fixture-object-field
                         two-transfer-case
                         "databaseRpcSideRestoredReinsertedTransactionCount")))
+              (is (= 2 (fixture-object-field
+                        two-transfer-case
+                        "databaseRpcSideHiddenReceiptCount")))
+              (is (= 2 (fixture-object-field
+                        two-transfer-case
+                        "databaseRpcSideRestoredHiddenReceiptCount")))
               (is (= 2 (length
                         (fixture-object-field
                          two-transfer-case
