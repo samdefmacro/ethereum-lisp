@@ -49,6 +49,14 @@
 (defparameter +phase-a-eest-state-test-supported-forks+
   '("London" "Shanghai"))
 
+(defparameter +phase-a-eest-state-test-discovery-feature-directories+
+  '("frontier" "homestead" "eip150" "eip158" "byzantium"
+    "constantinople" "constantinoplefix" "istanbul" "berlin" "london"
+    "paris" "shanghai"))
+
+(defconstant +phase-a-eest-state-test-discovery-max-file-bytes+
+  (* 2 1024 1024))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   '("berlin/eip2930_access_list/test_eip2930_tx_validity.json/tests/berlin/eip2930_access_list/test_tx_type.py::test_eip2930_tx_validity[fork_Shanghai-valid-state_test]"
     "berlin/eip2930_access_list/test_repeated_address_acl.json/tests/berlin/eip2930_access_list/test_acl.py::test_repeated_address_acl[fork_Shanghai-state_test]"
@@ -297,17 +305,31 @@
    names
    "EEST state test"))
 
-(defun phase-a-eest-blockchain-replay-discovery-path-p (root path)
+(defun execution-spec-tests-discovery-path-p
+    (root path feature-directories max-file-bytes)
   (let* ((relative (enough-namestring (truename path) (truename root)))
          (slash (position #\/ relative))
          (feature-directory (if slash
                                 (subseq relative 0 slash)
                                 relative)))
     (and (member (string-downcase feature-directory)
-                 +phase-a-eest-blockchain-replay-discovery-feature-directories+
+                 feature-directories
                  :test #'string=)
-         (<= (eest-fixture-file-byte-size path)
-             +phase-a-eest-blockchain-replay-discovery-max-file-bytes+))))
+         (<= (eest-fixture-file-byte-size path) max-file-bytes))))
+
+(defun phase-a-eest-blockchain-replay-discovery-path-p (root path)
+  (execution-spec-tests-discovery-path-p
+   root
+   path
+   +phase-a-eest-blockchain-replay-discovery-feature-directories+
+   +phase-a-eest-blockchain-replay-discovery-max-file-bytes+))
+
+(defun phase-a-eest-state-test-discovery-path-p (root path)
+  (execution-spec-tests-discovery-path-p
+   root
+   path
+   +phase-a-eest-state-test-discovery-feature-directories+
+   +phase-a-eest-state-test-discovery-max-file-bytes+))
 
 (defun eest-fixture-file-byte-size (path)
   (with-open-file (stream path :direction :input
@@ -318,6 +340,11 @@
   (loop for path in (eest-blockchain-test-root-json-paths root)
         when (phase-a-eest-blockchain-replay-discovery-path-p root path)
           append (load-eest-blockchain-test-root-file-cases root path)))
+
+(defun load-phase-a-eest-state-discovery-cases (root)
+  (loop for path in (eest-state-test-root-json-paths root)
+        when (phase-a-eest-state-test-discovery-path-p root path)
+          append (load-eest-state-test-root-file-cases root path)))
 
 (defun eest-state-test-case-fork-names (case)
   (let ((post (fixture-required-field
@@ -364,7 +391,7 @@
     (error () nil)))
 
 (defun discover-phase-a-eest-state-test-selectors (root)
-  (loop for case in (load-eest-state-test-root-cases root)
+  (loop for case in (load-phase-a-eest-state-discovery-cases root)
         when (phase-a-eest-state-materializable-case-p case)
           collect (fixture-required-field case "name")))
 
@@ -1428,6 +1455,50 @@
       (load-eest-state-test-root-file-cases
        "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/"
        "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json"))))
+
+(deftest phase-a-eest-state-discovery-skips-unsupported-and-oversized-roots
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-state-discovery-root-~A/" (gensym))
+            #P"/private/tmp/"))
+         (london-path
+           (merge-pathnames "london/phase-a-state-sample.json" root))
+         (cancun-path
+           (merge-pathnames "cancun/eip4844_blobs/invalid.json" root))
+         (oversized-shanghai-path
+           (merge-pathnames "shanghai/eip3860_initcode/test_gas_usage.json"
+                            root)))
+    (labels ((file-string (path)
+               (with-open-file (stream path :direction :input)
+                 (let ((string (make-string (file-length stream))))
+                   (read-sequence string stream)
+                   string)))
+             (write-file (path contents)
+               (ensure-directories-exist path)
+               (with-open-file (stream path
+                                       :direction :output
+                                       :if-exists :supersede
+                                       :if-does-not-exist :create)
+                 (write-string contents stream)))
+             (write-oversized-file (path)
+               (ensure-directories-exist path)
+               (with-open-file (stream path
+                                       :direction :output
+                                       :if-exists :supersede
+                                       :if-does-not-exist :create)
+                 (loop repeat (1+ +phase-a-eest-state-test-discovery-max-file-bytes+)
+                       do (write-char #\{ stream)))))
+      (write-file
+       london-path
+       (file-string
+        "tests/fixtures/execution-spec-tests-root/fixtures/state_tests/london/phase-a-state-sample.json"))
+      (write-file cancun-path "{")
+      (write-oversized-file oversized-shanghai-path)
+      (is (equal
+           '("london/phase-a-state-sample.json/phase_a_london_access_list_state_sample"
+             "london/phase-a-state-sample.json/phase_a_london_dynamic_fee_state_sample"
+             "london/phase-a-state-sample.json/phase_a_london_state_sample")
+           (discover-phase-a-eest-state-test-selectors root))))))
 
 (deftest phase-a-eest-state-test-selector-workflow
   (let ((selectors

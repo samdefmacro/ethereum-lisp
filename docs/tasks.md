@@ -115,6 +115,19 @@ ones.
     scanning Cancun/blob or oversized pre-Shanghai feature files. A regression
     fixture proves unsupported far-fork JSON is not loaded by automatic
     discovery.
+- [x] `PINNED-STATE-DISCOVERY-BOUND`: Keep official v5.4.0 state selector
+  discovery usable under the default SBCL heap while excluding
+  Phase A-out-of-scope far-fork and oversized fixture files from automatic
+  discovery. Explicit selectors must still be able to load any named fixture
+  file for targeted investigation.
+  - Result (2026-06-27): `scripts/list-state-test-selectors.lisp
+    -- --root .cache/eest-v5.4.0/root/fixtures --json` now completes against
+    the official root and the bounded automatic scan reports 945
+    materializable London/Shanghai state selectors instead of exhausting the
+    heap while scanning the large
+    `shanghai/eip3860_initcode/test_gas_usage.json` fixture. A regression
+    fixture proves unsupported far-fork JSON and oversized in-scope-fork JSON
+    are not loaded by automatic discovery.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

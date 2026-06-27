@@ -1177,7 +1177,12 @@ Detailed historical implementation notes for this section now live in
   directly. The wider pinned blockchain table now includes selector-probed
   EIP-2930, PUSH0, and warm-coinbase Engine payloads, including DELEGATECALL
   variants after the replay harness began activating Homestead/EIP150/EIP155/
-  EIP158 for derived Shanghai Engine configs.
+  EIP158 for derived Shanghai Engine configs. Automatic state selector
+  discovery now applies the same Phase A-supported feature-directory and
+  fixture-size bounds, so the official v5.4.0 root reports 945 materializable
+  London/Shanghai state selectors without exhausting the default SBCL heap on
+  the large `shanghai/eip3860_initcode/test_gas_usage.json` fixture; explicit
+  selectors still load named files directly.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
