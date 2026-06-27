@@ -256,10 +256,11 @@ ones.
   - Result (2026-06-28): added
     `scripts/classify-blockchain-replay-selectors.lisp`. The script compares
     discovered selectors with the pinned v5.4.0 table, defaults to unpinned
-    candidates, and reports JSON/text counts plus per-selector passing/failing
-    classifications with optional `--prefix`, `--limit`, and
-    `--include-pinned` controls. A targeted run against the official v5.4.0
-    root reported 362 materializable Shanghai blockchain replay selectors,
+    candidates, and reports JSON/text counts plus per-selector passing,
+    implementation-bug-candidate, fixture-harness-error, and out-of-scope
+    classifications plus per-family summaries with optional `--prefix`,
+    `--limit`, and `--include-pinned` controls. A targeted run against the
+    official v5.4.0 root reported 362 materializable Shanghai blockchain replay selectors,
     100 pinned selectors, and classified the first four unpinned
     `frontier/opcodes/test_swap.json` selectors as passing without pinning
     them.

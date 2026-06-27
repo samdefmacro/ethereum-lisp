@@ -34,6 +34,8 @@
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
+  (format t "Classifications: passing, implementation-bug-candidate, ~
+fixture-harness-error, out-of-scope.~%")
   (format t "Without --root, ~A is used when set.~%"
           +classifier-script-eest-root-env+))
 
@@ -177,6 +179,29 @@
       discovered)
      limit)))
 
+(defun classifier-script-selector-family (selector-name)
+  (let ((index (search "/tests/" selector-name)))
+    (if index
+        (subseq selector-name 0 index)
+        selector-name)))
+
+(defun classifier-script-error-classification (message)
+  (let ((lower (string-downcase message)))
+    (cond
+      ((or (search "unsupported fork" lower)
+           (search "out of phase a" lower)
+           (search "cancun" lower)
+           (search "prague" lower))
+       "out-of-scope")
+      ((or (search "does not carry" lower)
+           (search "fixture helper" lower)
+           (search "is unavailable" lower)
+           (search "requires an embedded" lower)
+           (search "malformed" lower))
+       "fixture-harness-error")
+      (t
+       "implementation-bug-candidate"))))
+
 (defun classifier-script-classify-selector (root selector)
   (handler-case
       (let ((cases
@@ -192,14 +217,20 @@
             source-case)
            :source-case source-case))
         (list (cons "name" (car selector))
+              (cons "family"
+                    (classifier-script-selector-family (car selector)))
               (cons "kind" (cdr selector))
               (cons "classification" "passing")
               (cons "error" nil)))
     (error (condition)
-      (list (cons "name" (car selector))
-            (cons "kind" (cdr selector))
-            (cons "classification" "failing")
-            (cons "error" (princ-to-string condition))))))
+      (let ((message (princ-to-string condition)))
+        (list (cons "name" (car selector))
+              (cons "family"
+                    (classifier-script-selector-family (car selector)))
+              (cons "kind" (cdr selector))
+              (cons "classification"
+                    (classifier-script-error-classification message))
+              (cons "error" message))))))
 
 (defun classifier-script-count-classification (classification results)
   (count classification
@@ -207,6 +238,42 @@
          :key (lambda (result)
                 (cdr (assoc "classification" result :test #'string=)))
          :test #'string=))
+
+(defun classifier-script-family-summaries (results)
+  (let ((families (make-hash-table :test 'equal)))
+    (dolist (result results)
+      (let* ((family (cdr (assoc "family" result :test #'string=)))
+             (classification
+               (cdr (assoc "classification" result :test #'string=)))
+             (entry (or (gethash family families)
+                        (list
+                         (cons "family" family)
+                         (cons "candidateCount" 0)
+                         (cons "passingCount" 0)
+                         (cons "implementationBugCandidateCount" 0)
+                         (cons "fixtureHarnessErrorCount" 0)
+                         (cons "outOfScopeCount" 0)))))
+        (incf (cdr (assoc "candidateCount" entry :test #'string=)))
+        (cond
+          ((string= classification "passing")
+           (incf (cdr (assoc "passingCount" entry :test #'string=))))
+          ((string= classification "implementation-bug-candidate")
+           (incf (cdr (assoc "implementationBugCandidateCount"
+                             entry
+                             :test #'string=))))
+          ((string= classification "fixture-harness-error")
+           (incf (cdr (assoc "fixtureHarnessErrorCount"
+                             entry
+                             :test #'string=))))
+          ((string= classification "out-of-scope")
+           (incf (cdr (assoc "outOfScopeCount" entry :test #'string=)))))
+        (setf (gethash family families) entry)))
+    (sort
+     (loop for entry being the hash-values of families
+           collect entry)
+     #'string<
+     :key (lambda (entry)
+            (cdr (assoc "family" entry :test #'string=))))))
 
 (defun classifier-script-report
     (blockchain-root prefix limit include-pinned-p)
@@ -241,10 +308,24 @@
      (cons "passingCount"
            (classifier-script-count-classification "passing" results))
      (cons "failingCount"
-           (classifier-script-count-classification "failing" results))
+           (- (length results)
+              (classifier-script-count-classification "passing" results)))
+     (cons "implementationBugCandidateCount"
+           (classifier-script-count-classification
+            "implementation-bug-candidate"
+            results))
+     (cons "fixtureHarnessErrorCount"
+           (classifier-script-count-classification
+            "fixture-harness-error"
+            results))
+     (cons "outOfScopeCount"
+           (classifier-script-count-classification
+            "out-of-scope"
+            results))
      (cons "prefix" (or prefix ""))
      (cons "limit" (or limit :false))
      (cons "includePinned" (if include-pinned-p t :false))
+     (cons "families" (classifier-script-family-summaries results))
      (cons "results" results))))
 
 (defun classifier-script-main ()
@@ -282,6 +363,14 @@
                     (cdr (assoc "candidateCount" report :test #'string=))
                     (cdr (assoc "classifiedCount" report :test #'string=))
                     (cdr (assoc "passingCount" report :test #'string=))
-                    (cdr (assoc "failingCount" report :test #'string=))))))))
+                    (cdr (assoc "failingCount" report :test #'string=)))
+            (format t "implementationBugCandidates=~D fixtureHarnessErrors=~D outOfScope=~D~%"
+                    (cdr (assoc "implementationBugCandidateCount"
+                                report
+                                :test #'string=))
+                    (cdr (assoc "fixtureHarnessErrorCount"
+                                report
+                                :test #'string=))
+                    (cdr (assoc "outOfScopeCount" report :test #'string=))))))))
 
 (classifier-script-main)

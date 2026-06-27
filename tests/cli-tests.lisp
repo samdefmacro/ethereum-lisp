@@ -3612,6 +3612,70 @@
       (is (search "Pinned Phase A smoke gate root from" stderr))
       (is (not (search "do not match pinned selectors" stderr))))))
 
+(deftest blockchain-replay-classifier-script-help-prints-without-loading-errors
+  #-sbcl
+  (skip-test "Blockchain replay classifier script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/classify-blockchain-replay-selectors.lisp"
+             "--"
+             "--help"
+             "--unsupported-option")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (is (search "Usage: sbcl --script scripts/classify-blockchain-replay-selectors.lisp"
+                stdout))
+    (is (search "--prefix PREFIX" stdout))
+    (is (search "--limit NUMBER" stdout))
+    (is (search "--include-pinned" stdout))
+    (is (search "implementation-bug-candidate" stdout))))
+
+(deftest blockchain-replay-classifier-script-json-summarizes-families
+  #-sbcl
+  (skip-test "Blockchain replay classifier script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/classify-blockchain-replay-selectors.lisp"
+             "--"
+             "--root"
+             "tests/fixtures/execution-spec-tests-root/"
+             "--prefix"
+             "shanghai/phase-a"
+             "--limit"
+             "2"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (results (fixture-object-field report "results"))
+             (families (fixture-object-field report "families")))
+        (is (string= "unpinned-blockchain-replay-classification"
+                     (fixture-object-field report "mode")))
+        (is (= 2 (fixture-object-field report "classifiedCount")))
+        (is (= 2 (fixture-object-field report "passingCount")))
+        (is (= 0 (fixture-object-field report "failingCount")))
+        (is (= 0 (fixture-object-field
+                  report
+                  "implementationBugCandidateCount")))
+        (is (plusp (length families)))
+        (dolist (result results)
+          (is (string= "passing"
+                       (fixture-object-field result "classification")))
+          (is (fixture-object-field result "family")))))))
+
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))
