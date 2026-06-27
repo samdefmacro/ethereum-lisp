@@ -4290,6 +4290,11 @@ splits can land after the Phase A smoke path closes.
     reservation used by live txpool admission, so displaced old-canonical
     transactions cannot bypass queued/basefee/blob reservations when deciding
     whether to reenter the local txpool.
+  - Progress: reorg reinsertion now has direct coverage for the basefee
+    queued view. When a displaced old-canonical transaction is otherwise
+    valid but its fee cap is below the new canonical head base fee, the
+    canonical-head switch hides the old canonical receipt/location and routes
+    the transaction into the basefee subpool instead of pending.
   - Progress: canonical-head updates now prune stale, over-gas, and
     sender-code-invalid pooled transactions against the new head before
     reinserting displaced old-canonical transactions. A stale invalid same

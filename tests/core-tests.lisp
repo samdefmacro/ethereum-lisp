@@ -9822,6 +9822,79 @@
                   store
                   queued-hash))))))
 
+(deftest chain-store-reinsert-routes-basefee-ineligible-transactions
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (displaced-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 0
+             :gas-price 4
+             :gas-limit 21000
+             :to recipient
+             :value 0)
+            1
+            1))
+         (displaced-hash (transaction-hash displaced-transaction))
+         (sender (transaction-sender displaced-transaction
+                                     :expected-chain-id 1))
+         (genesis
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :gas-limit 30000000
+                               :base-fee-per-gas 1
+                               :extra-data #(0))))
+         (old-canonical-child
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :gas-limit 30000000
+                               :base-fee-per-gas 1
+                               :extra-data #(1))
+            :transactions (list displaced-transaction)
+            :receipts (list (make-receipt :status 1
+                                          :cumulative-gas-used 21000))))
+         (new-canonical-child
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash genesis)
+                               :gas-limit 30000000
+                               :base-fee-per-gas 5
+                               :extra-data #(2)))))
+    (chain-store-put-block store genesis :state-available-p t)
+    (chain-store-put-block store old-canonical-child :state-available-p t)
+    (chain-store-put-block store new-canonical-child :state-available-p t)
+    (chain-store-put-account-nonce
+     store (block-hash new-canonical-child) sender 0)
+    (chain-store-put-account-balance
+     store (block-hash new-canonical-child) sender 1000000)
+    (is (typep (chain-store-transaction-location store displaced-hash)
+               'engine-transaction-location))
+    (chain-store-set-canonical-head
+     store
+     (block-hash new-canonical-child)
+     :expected-chain-id 1)
+    (is (null (chain-store-transaction-location store displaced-hash)))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-pending-transaction-count
+            store)))
+    (is (= 0
+           (ethereum-lisp.core::engine-payload-store-queued-transaction-count
+            store)))
+    (is (= 1
+           (ethereum-lisp.core::engine-payload-store-basefee-transaction-count
+            store)))
+    (is (bytes= (transaction-encoding displaced-transaction)
+                (transaction-encoding
+                 (ethereum-lisp.core::engine-payload-store-basefee-transaction
+                  store
+                  displaced-hash))))))
+
 (deftest chain-store-reinsert-prunes-overgas-conflict-before-reorg-reinsert
   (let* ((store (make-engine-payload-memory-store))
          (recipient
