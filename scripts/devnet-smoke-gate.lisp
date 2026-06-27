@@ -75,6 +75,21 @@ references/ checkouts.~%")
   "0x0000000000000000000000000000000000003001")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
+(defconstant +devnet-smoke-gate-engine-boundary-connections+ 1)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 5)
+(defconstant +devnet-smoke-gate-engine-connections+
+  (+ +devnet-smoke-gate-engine-boundary-connections+
+     +devnet-smoke-gate-engine-workflow-connections+))
+(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 5)
+(defconstant +devnet-smoke-gate-public-boundary-connections+ 1)
+(defconstant +devnet-smoke-gate-public-txpool-connections+ 9)
+(defconstant +devnet-smoke-gate-public-connections+
+  (+ +devnet-smoke-gate-public-canonical-read-connections+
+     +devnet-smoke-gate-public-boundary-connections+
+     +devnet-smoke-gate-public-txpool-connections+))
+(defconstant +devnet-smoke-gate-total-connections+
+  (+ +devnet-smoke-gate-engine-connections+
+     +devnet-smoke-gate-public-connections+))
 
 (defun devnet-smoke-gate-arguments ()
   #+sbcl
@@ -517,6 +532,26 @@ references/ checkouts.~%")
     "nethermind" "ETHEREUM_LISP_NETHERMIND_ROOT" "references/nethermind/")
    (devnet-smoke-gate-reference-client-object
     "reth" "ETHEREUM_LISP_RETH_ROOT" "references/reth/")))
+
+(defun devnet-smoke-gate-connection-contract (&optional (case-count 1))
+  (list
+   (cons "caseCount" case-count)
+   (cons "engineBoundaryConnections"
+         (* case-count +devnet-smoke-gate-engine-boundary-connections+))
+   (cons "engineWorkflowConnections"
+         (* case-count +devnet-smoke-gate-engine-workflow-connections+))
+   (cons "publicCanonicalReadConnections"
+         (* case-count +devnet-smoke-gate-public-canonical-read-connections+))
+   (cons "publicBoundaryConnections"
+         (* case-count +devnet-smoke-gate-public-boundary-connections+))
+   (cons "publicTxpoolConnections"
+         (* case-count +devnet-smoke-gate-public-txpool-connections+))
+   (cons "expectedEngineConnections"
+         (* case-count +devnet-smoke-gate-engine-connections+))
+   (cons "expectedPublicConnections"
+         (* case-count +devnet-smoke-gate-public-connections+))
+   (cons "expectedTotalConnections"
+         (* case-count +devnet-smoke-gate-total-connections+))))
 
 (defun devnet-smoke-gate-execution-spec-tests-source ()
   (list
@@ -5205,7 +5240,8 @@ references/ checkouts.~%")
                               :close-function
                               (lambda ()
                                 (incf engine-served-count)
-                                (when (= engine-served-count 6)
+                                (when (= engine-served-count
+                                         +devnet-smoke-gate-engine-connections+)
                                   (setf engine-done-p t))))))))
                        :close-function (lambda () nil))
                       (make-engine-rpc-http-listener
@@ -5225,7 +5261,8 @@ references/ checkouts.~%")
                               :close-function
                               (lambda () (incf public-served-count))))))
                       :close-function (lambda () nil))
-                      :max-connections 15
+                      :max-connections
+                      +devnet-smoke-gate-public-connections+
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
                         (let ((engine-endpoint
@@ -5244,8 +5281,20 @@ references/ checkouts.~%")
                             (ethereum-lisp.cli::devnet-cli-log-event
                              node
                              "devnet.ready"
-                             :engine-endpoint engine-endpoint
-                             :rpc-endpoint rpc-endpoint)))))))
+                            :engine-endpoint engine-endpoint
+                            :rpc-endpoint rpc-endpoint)))))))
+               (devnet-smoke-gate-require
+                (= +devnet-smoke-gate-engine-connections+
+                   (getf summary :engine-connections))
+                "Devnet smoke gate Engine connection count mismatch")
+               (devnet-smoke-gate-require
+                (= +devnet-smoke-gate-public-connections+
+                   (getf summary :public-connections))
+                "Devnet smoke gate public connection count mismatch")
+               (devnet-smoke-gate-require
+                (= +devnet-smoke-gate-total-connections+
+                   (getf summary :total-connections))
+                "Devnet smoke gate total connection count mismatch")
                (when log-file
                  (ethereum-lisp.cli::devnet-cli-log-event
                   node
@@ -5700,6 +5749,8 @@ references/ checkouts.~%")
                         (getf summary :public-connections))
                   (cons "totalConnections"
                         (getf summary :total-connections))
+                  (cons "connectionContract"
+                        (devnet-smoke-gate-connection-contract))
                   (cons "engineUnauthenticatedStatus"
                         (devnet-cli-http-status
                          unauthenticated-engine-response))
@@ -7429,6 +7480,8 @@ references/ checkouts.~%")
      (cons "engineConnections" engine-connections)
      (cons "publicConnections" public-connections)
      (cons "totalConnections" (+ engine-connections public-connections))
+     (cons "connectionContract"
+           (devnet-smoke-gate-connection-contract (length reports)))
      (cons "cases" reports)))))
 
 (defun devnet-smoke-gate-suite-report-p (report)
@@ -7492,6 +7545,17 @@ references/ checkouts.~%")
           (devnet-smoke-gate-field report "publicConnections"))
   (format t "totalConnections=~D~%"
           (devnet-smoke-gate-field report "totalConnections"))
+  (let ((connection-contract
+          (devnet-smoke-gate-field report "connectionContract")))
+    (format t "expectedEngineConnections=~D~%"
+            (devnet-smoke-gate-field connection-contract
+                                     "expectedEngineConnections"))
+    (format t "expectedPublicConnections=~D~%"
+            (devnet-smoke-gate-field connection-contract
+                                     "expectedPublicConnections"))
+    (format t "expectedTotalConnections=~D~%"
+            (devnet-smoke-gate-field connection-contract
+                                     "expectedTotalConnections")))
   (if (devnet-smoke-gate-suite-report-p report)
       (dolist (case-report (devnet-smoke-gate-field report "cases"))
         (format t "case=~A status=~A blockNumber=~A checkedBalance=~A~%"

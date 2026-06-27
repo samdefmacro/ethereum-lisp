@@ -62,6 +62,27 @@
           until (eq form :eof)
           collect form)))
 
+(defun devnet-cli-assert-connection-contract (report case-count)
+  (let ((contract (fixture-object-field report "connectionContract")))
+    (is contract)
+    (is (= case-count (fixture-object-field contract "caseCount")))
+    (is (= case-count
+           (fixture-object-field contract "engineBoundaryConnections")))
+    (is (= (* 5 case-count)
+           (fixture-object-field contract "engineWorkflowConnections")))
+    (is (= (* 5 case-count)
+           (fixture-object-field contract "publicCanonicalReadConnections")))
+    (is (= case-count
+           (fixture-object-field contract "publicBoundaryConnections")))
+    (is (= (* 9 case-count)
+           (fixture-object-field contract "publicTxpoolConnections")))
+    (is (= (fixture-object-field report "engineConnections")
+           (fixture-object-field contract "expectedEngineConnections")))
+    (is (= (fixture-object-field report "publicConnections")
+           (fixture-object-field contract "expectedPublicConnections")))
+    (is (= (fixture-object-field report "totalConnections")
+           (fixture-object-field contract "expectedTotalConnections")))))
+
 (defun devnet-cli-temp-directory (name)
   (let ((path
           (merge-pathnames
@@ -2081,6 +2102,7 @@
                       (fixture-object-field
                        report
                        "publicEngineNamespaceErrorCode")))
+               (devnet-cli-assert-connection-contract report 1)
                (is (= (fixture-object-field ready-summary "processId")
                       (devnet-cli-pid-file-process-id pid-path)))
                (is (string= (namestring database-path)
@@ -2541,6 +2563,9 @@
                       (fixture-object-field report "publicConnections")))
                (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
+               (devnet-cli-assert-connection-contract
+                report
+                (length +engine-newpayload-v2-smoke-case-names+))
                (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
                (dolist (case cases)
                  (let ((expected-block-number

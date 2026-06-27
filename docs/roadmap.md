@@ -1047,6 +1047,11 @@ first pass, but interfaces must not block that path.
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, so
   process runners can classify failures without relying only on stderr. The
+  standalone devnet smoke gate now also emits and enforces an explicit
+  `connectionContract`, breaking down expected Engine boundary/workflow probes
+  and public canonical-read/boundary/txpool probes so Hive-style runners can
+  distinguish intended listener traffic from accidental connection-count
+  drift. The
   top-level Phase A
   `--devnet` gate also validates the child report's ready/log/pid/database
   artifact paths and per-case counts before accepting the devnet suite.

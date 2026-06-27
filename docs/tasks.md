@@ -291,6 +291,15 @@ ones.
     `--log-file` without requiring a successful full option parse, so
     malformed option failures such as invalid port values also produce a
     machine-readable `devnet.error` record for process runners.
+- [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
+  gate's Engine/public listener accounting self-describing for Hive-style
+  process runners.
+  - Result (2026-06-28): the gate now declares a `connectionContract` in JSON
+    and text output, splitting expected Engine boundary/workflow probes and
+    public canonical-read/boundary/txpool probes. It also fails before
+    reporting success if actual serve-mode Engine, public, or total connection
+    counts diverge from that contract; CLI coverage checks both the single-case
+    and all-fixtures reports.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
