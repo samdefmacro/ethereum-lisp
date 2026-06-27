@@ -673,9 +673,22 @@
             :connection-summary connection-summary)))
 
 (defun devnet-cli-error-log-file (args)
-  (handler-case
-      (getf (devnet-cli-options args) :log-file)
-    (error () nil)))
+  (when (and args (string= "devnet" (first args)))
+    (setf args (rest args)))
+  (loop while args
+        for option = (pop args)
+        do (cond
+             ((string= option "--log-file")
+              (when (and args
+                         (not (devnet-cli-option-token-p (first args))))
+                (return (first args))))
+             ((member option
+                      '("--genesis" "--host" "--engine-host" "--port"
+                        "--engine-port" "--public-host" "--public-port"
+                        "--jwt-secret" "--database" "--prune-state-before"
+                        "--max-connections" "--ready-file" "--pid-file")
+                      :test #'string=)
+              (when args (pop args))))))
 
 (defun devnet-cli-log-error-event (args condition)
   (let ((log-file (devnet-cli-error-log-file args)))

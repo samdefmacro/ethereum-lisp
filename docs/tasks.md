@@ -287,6 +287,10 @@ ones.
     telemetry record with `lifecyclePhase=error`, `exitCode=1`, `processId`,
     `errorMessage`, and `logPath`. CLI coverage locks the missing-genesis
     failure path.
+  - Result (2026-06-28): the same error telemetry path now extracts
+    `--log-file` without requiring a successful full option parse, so
+    malformed option failures such as invalid port values also produce a
+    machine-readable `devnet.error` record for process runners.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
