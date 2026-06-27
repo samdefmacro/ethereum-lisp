@@ -150,6 +150,23 @@ ones.
     invalid transaction cases summarized, and 14 official Shanghai
     `engineNewPayloadV2` blockchain selectors, for 121 total executed fixture
     cases.
+- [x] `PINNED-V5.4.0-STATE-BREADTH-WIDEN`: Use the remaining selector-probed
+  official v5.4.0 state cases that already execute cleanly through the current
+  Phase A EVM path, without pinning known-drifting cases.
+  - Result (2026-06-27): added 32 more official state selectors covering the
+    rest of the currently passing Shanghai EIP-2930 intrinsic-gas combinations,
+    EIP-1559 transaction validity, Shanghai warm-coinbase out-of-gas and
+    EXTCODE cases, plus additional PUSH0 contract cases. The pinned smoke gate
+    now passes with 86 official state selectors, 53 official Prague/EIP-7702
+    invalid transaction cases summarized, and 14 official Shanghai
+    `engineNewPayloadV2` blockchain selectors, for 153 total executed fixture
+    cases.
+- [ ] `PINNED-WARM-COINBASE-LONDON-DRIFT`: Investigate the eight official
+  v5.4.0 London fork warm-coinbase gas-usage state selectors that currently
+  fail selector probing with a state-root mismatch. Determine whether the drift
+  comes from fork-rule activation, EIP-3651 warm-coinbase gating, or fixture
+  harness environment construction before adding those selectors to the pinned
+  table.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
