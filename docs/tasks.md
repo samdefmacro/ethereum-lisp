@@ -79,22 +79,20 @@ Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked. Order matters: earlier items unblock later
 ones.
 
-- [ ] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
+- [x] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
   `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
   run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and
   record any selector drift or root-layout mismatch. This is blocked when no
   local pinned fixture root is available; do not substitute local hand-written
   fixture hardening for this task.
-  - Blocker update (2026-06-27): no local official v5.4.0 fixture root is
-    currently configured. `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` is unset,
-    `/private/tmp/eest-v5.4.0-extract/fixtures` is absent, and the available
-    `/private/tmp/ethereum-lisp-*fixture*` directories are test-generated
-    scratch roots rather than an official `fixtures_stable.tar.gz` extraction.
-    Until an official root is restored, automation should report this as an
-    external fixture-root blocker and only work on another local slice when a
-    concrete project-goal task is identified independently of fixture widening.
-    To unblock, extract the v5.4.0 archive and rerun the pinned smoke gate
-    with `--root PATH`.
+  - Result (2026-06-27): official `fixtures_stable.tar.gz` is cached at
+    `.cache/eest-v5.4.0/fixtures_stable.tar.gz` with SHA256
+    `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`
+    and extracted to `.cache/eest-v5.4.0/root/fixtures`. The pinned smoke gate
+    now passes against that root with one official Shanghai state selector,
+    53 official Prague/EIP-7702 invalid transaction cases summarized, and one
+    official Shanghai `engineNewPayloadV2` blockchain selector, for 55 total
+    executed fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

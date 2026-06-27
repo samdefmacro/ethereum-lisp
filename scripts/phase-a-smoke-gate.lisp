@@ -262,16 +262,22 @@ references/ checkouts.~%"))
      :source-case source-case))
   (length cases))
 
-(defun smoke-gate-state-summary (suite-root required-p)
+(defun smoke-gate-state-summary (suite-root required-p &key pinned-p)
   (let ((root (smoke-gate-call "execution-spec-tests-state-test-root"
                                suite-root)))
     (cond
       (root
        (smoke-gate-reject-empty-selected-root root "state_tests")
        (let* ((selectors
-                (smoke-gate-call
-                 "discover-phase-a-eest-state-test-selectors"
-                 root))
+                (if pinned-p
+                    (smoke-gate-variable
+                     "+phase-a-eest-state-test-v5.4.0-case-names+")
+                    (or (smoke-gate-call
+                         "phase-a-eest-state-test-env-selectors"
+                         root)
+                        (smoke-gate-call
+                         "discover-phase-a-eest-state-test-selectors"
+                         root))))
               (cases
                 (smoke-gate-call
                  "load-eest-state-test-root-cases"
@@ -312,11 +318,32 @@ references/ checkouts.~%"))
         (cons "transactionCombinationCount" 0)
         (cons "selectorString" ""))))))
 
-(defun smoke-gate-transaction-summary (suite-root required-p)
+(defun smoke-gate-transaction-summary (suite-root required-p &key pinned-p)
   (let ((root (smoke-gate-call
                "execution-spec-tests-transaction-test-root"
                suite-root)))
     (cond
+      ((and root pinned-p)
+       (smoke-gate-reject-empty-selected-root root "transaction_tests")
+       (let* ((cases
+                (smoke-gate-call
+                 "load-eest-transaction-test-root-invalid-cases"
+                 root))
+              (summary
+                (smoke-gate-call
+                 "eest-invalid-transaction-rejection-summary"
+                 cases))
+              (count (length cases)))
+         (unless (plusp count)
+           (error "Pinned EEST transaction_tests invalid-case count must be positive"))
+         (list
+          (cons "status" "ok")
+          (cons "root" (namestring root))
+          (cons "count" count)
+          (cons "executedCount" count)
+          (cons "types" nil)
+          (cons "invalidSummary" summary)
+          (cons "selectorString" "pinned-v5.4.0-invalid"))))
       (root
        (smoke-gate-reject-empty-selected-root root "transaction_tests")
        (let* ((vectors
@@ -1006,9 +1033,11 @@ references/ checkouts.~%"))
               devnet-side-reorg-case-count)))))
 
 (defun smoke-gate-report (suite-root pinned-p &key devnet-p)
-  (let ((state (smoke-gate-state-summary suite-root (not pinned-p)))
+  (let ((state (smoke-gate-state-summary suite-root (not pinned-p)
+                                         :pinned-p pinned-p))
         (transaction
-          (smoke-gate-transaction-summary suite-root (not pinned-p)))
+          (smoke-gate-transaction-summary suite-root (not pinned-p)
+                                          :pinned-p pinned-p))
         (blockchain (smoke-gate-blockchain-summary suite-root pinned-p))
         (devnet (and devnet-p (smoke-gate-devnet-summary)))
         (devnet-side-reorg

@@ -389,6 +389,37 @@
        (hash32-from-hex (car entry))
        (hex-to-quantity (cdr entry))))))
 
+(defun eest-state-test-storage-key (value)
+  (let* ((quantity (eest-state-test-quantity-string
+                    value
+                    "EEST state test storage key"))
+         (bytes (integer-to-minimal-bytes quantity)))
+    (when (> (length bytes) 32)
+      (error "EEST state test storage key exceeds 32 bytes: ~A" value))
+    (let ((padded (make-byte-vector 32)))
+      (replace padded bytes :start1 (- 32 (length bytes)))
+      (make-hash32 padded))))
+
+(defun apply-eest-state-test-account (state address-hex account)
+  (let ((address (address-from-hex address-hex)))
+    (state-db-set-account
+     state
+     address
+     (make-state-account
+      :nonce (eest-state-test-quantity-string
+              (fixture-required-field account "nonce")
+              "EEST state test account nonce")
+      :balance (eest-state-test-quantity-string
+                (fixture-required-field account "balance")
+                "EEST state test account balance")))
+    (state-db-set-code state address (hex-to-bytes (fixture-object-field account "code")))
+    (dolist (entry (fixture-object-field account "storage"))
+      (state-db-set-storage
+       state
+       address
+       (eest-state-test-storage-key (car entry))
+       (hex-to-quantity (cdr entry))))))
+
 (defun evm-state-fixture-pre-state (case)
   (let ((state (make-state-db)))
     (dolist (entry (fixture-object-field case "pre"))
@@ -480,6 +511,11 @@
       (error "EEST state transaction index ~A is out of range" index-name))
     (nth index values)))
 
+(defun eest-state-test-quantity-string (value label)
+  (unless (stringp value)
+    (error "~A must be a hex quantity string" label))
+  (hex-to-quantity value))
+
 (defun eest-state-test-access-list-entry (entry)
   (make-access-list-entry
    :address (address-from-hex (fixture-required-field entry "address"))
@@ -489,12 +525,19 @@
 
 (defun eest-state-test-selected-access-list (transaction indexes)
   (when (fixture-field-present-p transaction "accessLists")
-    (mapcar #'eest-state-test-access-list-entry
-            (eest-state-test-indexed-transaction-value
-             transaction
-             "accessLists"
-             indexes
-             "accessList"))))
+    (let ((entries
+            (if (fixture-field-present-p indexes "accessList")
+                (eest-state-test-indexed-transaction-value
+                 transaction
+                 "accessLists"
+                 indexes
+                 "accessList")
+                (let ((access-lists
+                        (fixture-required-field transaction "accessLists")))
+                  (unless (= 1 (length access-lists))
+                    (error "EEST state transaction accessList index is required when multiple accessLists are present"))
+                  (first access-lists)))))
+      (mapcar #'eest-state-test-access-list-entry entries))))
 
 (defun eest-state-test-dynamic-fee-transaction-p (transaction)
   (or (fixture-field-present-p transaction "maxFeePerGas")
@@ -506,12 +549,12 @@
          (indexes (fixture-required-field post-entry "indexes"))
          (to (fixture-required-field transaction "to"))
          (gas-limit
-           (evm-state-fixture-quantity-string
+           (eest-state-test-quantity-string
             (eest-state-test-indexed-transaction-value
              transaction "gasLimit" indexes "gas")
             "EEST state test transaction gasLimit"))
          (value
-           (evm-state-fixture-quantity-string
+           (eest-state-test-quantity-string
             (eest-state-test-indexed-transaction-value
              transaction "value" indexes "value")
             "EEST state test transaction value"))
@@ -525,11 +568,17 @@
       ((eest-state-test-dynamic-fee-transaction-p transaction)
        (make-dynamic-fee-transaction
         :chain-id 1
-        :nonce (evm-state-fixture-quantity transaction "nonce")
+        :nonce (eest-state-test-quantity-string
+                (fixture-required-field transaction "nonce")
+                "EEST state test transaction nonce")
         :max-priority-fee-per-gas
-        (evm-state-fixture-quantity transaction "maxPriorityFeePerGas")
+        (eest-state-test-quantity-string
+         (fixture-required-field transaction "maxPriorityFeePerGas")
+         "EEST state test transaction maxPriorityFeePerGas")
         :max-fee-per-gas
-        (evm-state-fixture-quantity transaction "maxFeePerGas")
+        (eest-state-test-quantity-string
+         (fixture-required-field transaction "maxFeePerGas")
+         "EEST state test transaction maxFeePerGas")
         :gas-limit gas-limit
         :to recipient
         :value value
@@ -541,8 +590,12 @@
       ((fixture-field-present-p transaction "accessLists")
        (make-access-list-transaction
         :chain-id 1
-        :nonce (evm-state-fixture-quantity transaction "nonce")
-        :gas-price (evm-state-fixture-quantity transaction "gasPrice")
+        :nonce (eest-state-test-quantity-string
+                (fixture-required-field transaction "nonce")
+                "EEST state test transaction nonce")
+        :gas-price (eest-state-test-quantity-string
+                    (fixture-required-field transaction "gasPrice")
+                    "EEST state test transaction gasPrice")
         :gas-limit gas-limit
         :to recipient
         :value value
@@ -552,8 +605,12 @@
                       indexes)))
       (t
        (make-legacy-transaction
-        :nonce (evm-state-fixture-quantity transaction "nonce")
-        :gas-price (evm-state-fixture-quantity transaction "gasPrice")
+        :nonce (eest-state-test-quantity-string
+                (fixture-required-field transaction "nonce")
+                "EEST state test transaction nonce")
+        :gas-price (eest-state-test-quantity-string
+                    (fixture-required-field transaction "gasPrice")
+                    "EEST state test transaction gasPrice")
         :gas-limit gas-limit
         :to recipient
         :value value
@@ -635,7 +692,7 @@
          (tx (eest-state-test-transaction case post-entry))
          (rules (eest-state-test-chain-rules fork)))
     (dolist (entry (fixture-required-field fixture "pre"))
-      (apply-evm-state-fixture-account state (car entry) (cdr entry)))
+      (apply-eest-state-test-account state (car entry) (cdr entry)))
     (let ((snapshot (state-db-copy state)))
       (handler-case
           (let ((receipt

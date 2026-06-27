@@ -249,17 +249,23 @@ references/ checkouts.~%"))
        (cons "count" (fixture-report-field transaction-summary "count"))
        (cons "types" (fixture-report-field transaction-summary "types"))
        (cons "signatureVectorCount"
-             (fixture-report-field transaction-summary "signatureVectorCount"))
+             (or (fixture-report-field transaction-summary "signatureVectorCount")
+                 0))
        (cons "accessListVectorCount"
-             (fixture-report-field transaction-summary "accessListVectorCount"))
+             (or (fixture-report-field transaction-summary "accessListVectorCount")
+                 0))
        (cons "contractCreationVectorCount"
-             (fixture-report-field transaction-summary
-                                   "contractCreationVectorCount"))
+             (or (fixture-report-field transaction-summary
+                                       "contractCreationVectorCount")
+                 0))
+       (cons "invalidSummary"
+             (fixture-report-field transaction-summary "invalidSummary"))
        (cons "selectors" transaction-selectors)
        (cons "selectorString"
-             (fixture-report-call
-              "phase-a-eest-transaction-test-selector-string"
-              transaction-selectors)))
+             (or (fixture-report-field transaction-summary "selectorString")
+                 (fixture-report-call
+                  "phase-a-eest-transaction-test-selector-string"
+                  transaction-selectors))))
       (list
        (cons "status" "missing")
        (cons "root" nil)
@@ -408,9 +414,12 @@ references/ checkouts.~%"))
     (fixture-report-reject-empty-selected-root blockchain-root "blockchain")
     (let* ((state-selectors
              (when state-root
-               (fixture-report-call
-                "discover-phase-a-eest-state-test-selectors"
-                state-root)))
+               (if pinned-p
+                   (fixture-report-variable
+                    "+phase-a-eest-state-test-v5.4.0-case-names+")
+                   (fixture-report-call
+                    "discover-phase-a-eest-state-test-selectors"
+                    state-root))))
            (state-cases
              (when state-root
                (fixture-report-call
@@ -424,19 +433,37 @@ references/ checkouts.~%"))
                 state-cases
                 :expected-names state-selectors)))
            (transaction-selectors
-             (when transaction-root
+             (when (and transaction-root (not pinned-p))
                (fixture-report-variable
                 "+phase-a-eest-transaction-test-case-names+")))
            (transaction-vectors
-             (when transaction-root
+             (when (and transaction-root (not pinned-p))
                (fixture-report-call
                 "load-phase-a-eest-transaction-test-root-vectors"
                 transaction-root)))
+           (transaction-invalid-cases
+             (when (and transaction-root pinned-p)
+               (fixture-report-call
+                "load-eest-transaction-test-root-invalid-cases"
+                transaction-root)))
            (transaction-summary
              (when transaction-root
-               (fixture-report-call
-                "validate-phase-a-eest-transaction-vector-summary"
-                transaction-vectors)))
+               (if pinned-p
+                   (let ((summary
+                           (fixture-report-call
+                            "eest-invalid-transaction-rejection-summary"
+                            transaction-invalid-cases)))
+                     (list
+                      (cons "count" (length transaction-invalid-cases))
+                      (cons "types" nil)
+                      (cons "signatureVectorCount" 0)
+                      (cons "accessListVectorCount" 0)
+                      (cons "contractCreationVectorCount" 0)
+                      (cons "invalidSummary" summary)
+                      (cons "selectorString" "pinned-v5.4.0-invalid")))
+                   (fixture-report-call
+                    "validate-phase-a-eest-transaction-vector-summary"
+                    transaction-vectors))))
            (blockchain-kinds
              (if pinned-p
                  (fixture-report-call
@@ -458,7 +485,7 @@ references/ checkouts.~%"))
       (when (and state-root (not state-selectors))
         (error "No materializable Phase A state_tests selectors found under ~A"
                state-root))
-      (when (and transaction-root (not transaction-selectors))
+      (when (and transaction-root (not pinned-p) (not transaction-selectors))
         (error "No Phase A transaction_tests selectors are configured"))
       (unless blockchain-kinds
         (error "No materializable Phase A blockchain selectors found under ~A"

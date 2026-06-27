@@ -29,11 +29,11 @@
   '("rlp" "blockHeader" "expectException" "uncleHeaders"))
 
 (defparameter +eest-state-test-case-fields+
-  '("env" "pre" "transaction" "post" "_info"))
+  '("env" "pre" "transaction" "post" "config" "_info"))
 
 (defparameter +eest-state-test-transaction-fields+
   '("data" "gasLimit" "gasPrice" "nonce" "to" "value" "secretKey"
-    "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"))
+    "sender" "accessLists" "maxFeePerGas" "maxPriorityFeePerGas"))
 
 (defconstant +phase-a-eest-state-test-selectors-env+
   "ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS")
@@ -48,6 +48,9 @@
 
 (defparameter +phase-a-eest-state-test-supported-forks+
   '("London" "Shanghai"))
+
+(defparameter +phase-a-eest-state-test-v5.4.0-case-names+
+  '("berlin/eip2930_access_list/test_eip2930_tx_validity.json/tests/berlin/eip2930_access_list/test_tx_type.py::test_eip2930_tx_validity[fork_Shanghai-valid-state_test]"))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
@@ -183,6 +186,25 @@
            (normalize-eest-state-test-case source-name (cdr entry))))
        entries))))
 
+(defun eest-selector-relative-json-path (name label)
+  (let ((json-position (search ".json" name :test #'char-equal)))
+    (unless json-position
+      (error "~A selector ~A must include a JSON file" label name))
+    (subseq name 0 (+ json-position 5))))
+
+(defun eest-selector-root-paths (root names label)
+  (let ((seen (make-hash-table :test 'equal))
+        (paths nil))
+    (dolist (name names (nreverse paths))
+      (let* ((relative (eest-selector-relative-json-path name label))
+             (path (merge-pathnames relative root)))
+        (unless (probe-file path)
+          (error "~A selector ~A references missing fixture file ~A"
+                 label name relative))
+        (unless (gethash relative seen)
+          (setf (gethash relative seen) t)
+          (push path paths))))))
+
 (defun validate-eest-blockchain-selector-list (names)
   (validate-execution-spec-tests-selector-list
    names
@@ -209,7 +231,10 @@
   (when names
     (validate-eest-blockchain-selector-list names))
   (filter-execution-spec-tests-root-cases
-   (loop for path in (eest-blockchain-test-root-json-paths root)
+   (loop for path in (if names
+                         (eest-selector-root-paths
+                          root names "EEST blockchain test")
+                         (eest-blockchain-test-root-json-paths root))
          append (load-eest-blockchain-test-root-file-cases root path))
    names
    "EEST blockchain test"))
@@ -218,7 +243,9 @@
   (when names
     (validate-eest-state-selector-list names))
   (filter-execution-spec-tests-root-cases
-   (loop for path in (eest-state-test-root-json-paths root)
+   (loop for path in (if names
+                         (eest-selector-root-paths root names "EEST state test")
+                         (eest-state-test-root-json-paths root))
          append (load-eest-state-test-root-file-cases root path))
    names
    "EEST state test"))
@@ -540,9 +567,10 @@
 
 (defun phase-a-eest-blockchain-pinned-v5.4.0-replay-materialization-kinds
     (root)
-  (validate-phase-a-eest-blockchain-discovered-replay-selectors
-   root
-   +phase-a-eest-blockchain-v5.4.0-replay-materialization-kinds+))
+  (declare (ignore root))
+  (validate-eest-blockchain-selector-list
+   (mapcar #'car +phase-a-eest-blockchain-v5.4.0-replay-materialization-kinds+))
+  +phase-a-eest-blockchain-v5.4.0-replay-materialization-kinds+)
 
 (defun eest-blockchain-count-by-string (values)
   (let ((counts (make-hash-table :test 'equal)))
@@ -1227,6 +1255,44 @@
                "tests/fixtures/geth-spec-tests-root/")))
     (signals error
       (eest-state-test-root-json-paths root))))
+
+(deftest eest-state-test-file-entries-accept-optional-config
+  (is (null
+       (validate-eest-state-test-file-entries
+        '(("case_with_config"
+           ("env")
+           ("pre")
+           ("transaction")
+           ("post")
+           ("config" ("chainid" . "0x01"))))
+        "state_tests/sample.json")))
+  (signals error
+    (validate-eest-state-test-file-entries
+     '(("case_with_unknown_field"
+        ("env")
+        ("pre")
+        ("transaction")
+        ("post")
+        ("unexpected")))
+     "state_tests/sample.json")))
+
+(deftest eest-state-test-root-case-loading-honors-selector-files
+  (let* ((root (execution-spec-tests-state-test-root
+                "tests/fixtures/execution-spec-tests-root/"))
+         (cases (load-eest-state-test-root-cases
+                 root
+                 :names '("london/phase-a-state-sample.json/phase_a_london_state_sample"))))
+    (is (= 1 (length cases)))
+    (is (equal '("london/phase-a-state-sample.json/phase_a_london_state_sample")
+               (mapcar (lambda (case)
+                         (fixture-required-field case "name"))
+                       cases))))
+  (let ((root (execution-spec-tests-state-test-root
+               "tests/fixtures/execution-spec-tests-root/")))
+    (signals error
+      (load-eest-state-test-root-cases
+       root
+       :names '("london/missing-state-sample.json/missing_case")))))
 
 (deftest eest-state-test-root-case-loading
   (let* ((root (execution-spec-tests-state-test-root
