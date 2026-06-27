@@ -336,6 +336,26 @@ ones.
     on endpoints, process id, lifecycle phases, and zero connection counts. The
     default suite skips this test when local socket bind is blocked by the
     sandbox; it was also run with local socket escalation.
+- [ ] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
+  v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
+  Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
+  - Context (2026-06-28): a bounded classifier run over the first 64 unpinned
+    materializable selectors found 47 passing selectors and 17
+    implementation-bug candidates. The CREATE/CREATE2 returndata family
+    currently classifies as 8 passing / 16 failing. A representative failing
+    selector,
+    `test_create2_return_data[fork_Shanghai-blockchain_test_engine_from_state_test-return_type_in_create_RETURN-return_type_RETURN-create_type_CREATE-call_return_size_0]`,
+    reaches post-state account code/storage matching the official fixture, but
+    the Engine replay state root still drifts because transaction gas used is
+    `97748` instead of the expected `97788`. Raw EVM gas is under by 40 before
+    the 24000 SSTORE clear refund is applied. The CREATE/CREATE2 success path
+    correctly clears the parent returndata buffer for this fixture; do not
+    reintroduce initcode-return-data retention as the fix.
+  - Acceptance: identify and fix the 40-gas undercharge, add a focused
+    regression, then verify the CREATE/CREATE2 returndata family classifies
+    green with
+    `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root .cache/eest-v5.4.0/root/fixtures --prefix constantinople/eip1014_create2/test_create2_return_data.json`
+    and the full test suite.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
