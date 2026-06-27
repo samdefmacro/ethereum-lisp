@@ -1054,7 +1054,11 @@ first pass, but interfaces must not block that path.
   drift. A runner-facing `scripts/ethereum-lisp.lisp` script now provides a
   stable `sbcl --script` process entrypoint for the devnet CLI without writing
   ASDF fasl cache files, and subprocess coverage verifies both help discovery
-  and `devnet --json --no-serve` execution through that entrypoint. The
+  and `devnet --json --no-serve` execution through that entrypoint. The same
+  script entrypoint is now covered from a non-repository working directory
+  with absolute script/genesis paths and runner artifacts, proving stdout JSON,
+  ready-file JSON, log-file lifecycle records, and pid-file output agree for
+  Hive-style temporary-directory invocation. The
   top-level Phase A
   `--devnet` gate also validates the child report's ready/log/pid/database
   artifact paths and per-case counts before accepting the devnet suite.

@@ -307,6 +307,15 @@ ones.
     `ethereum-lisp.cli:main`. CLI tests cover subprocess help discovery and
     `devnet --json --no-serve` execution through the script, giving external
     runners a stable `sbcl --script` entrypoint.
+- [x] `DEVNET-RUNNER-SCRIPT-ARTIFACTS`: Lock the runner-facing script
+  artifact contract from outside the repository working directory.
+  - Result (2026-06-28): added subprocess coverage that invokes
+    `scripts/ethereum-lisp.lisp` by absolute path from `/private/tmp` with an
+    absolute genesis path, then verifies `--ready-file`, `--log-file`, and
+    `--pid-file` artifacts plus stdout JSON agree on process id, endpoints,
+    paths, lifecycle phases, and retained-state availability. This protects
+    Hive-style runners that launch the devnet entrypoint from temporary
+    working directories.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
