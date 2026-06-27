@@ -271,6 +271,14 @@ ones.
     `engineEndpoint` / `rpcEndpoint` as HTTP loopback endpoints, validates the
     same values in ready files and lifecycle telemetry, and the CLI regression
     suite asserts those fields in the runner-facing smoke report.
+- [x] `DEVNET-RUNNER-RPC-BOUNDARY`: Extend the standalone devnet smoke-gate
+  runner contract so it asserts the authenticated Engine versus public RPC
+  namespace boundary from the process-runner surface.
+  - Result (2026-06-28): the gate now probes an unauthenticated Engine request
+    and a public-listener Engine namespace request, requires HTTP 401 and
+    JSON-RPC `-32601` respectively, records both outcomes in the smoke report,
+    and updates CLI/Phase A aggregate assertions for the additional boundary
+    connections.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

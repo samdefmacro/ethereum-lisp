@@ -1989,6 +1989,14 @@
                             (fixture-object-field report "engineEndpoint")))
                (is (string= "http://127.0.0.1:8545"
                             (fixture-object-field report "rpcEndpoint")))
+               (is (= 401
+                      (fixture-object-field
+                       report
+                       "engineUnauthenticatedStatus")))
+               (is (= -32601
+                      (fixture-object-field
+                       report
+                       "publicEngineNamespaceErrorCode")))
                (is (= (fixture-object-field ready-summary "processId")
                       (devnet-cli-pid-file-process-id pid-path)))
                (is (string= (namestring database-path)
@@ -2443,11 +2451,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 6 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 15 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 19 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (is (equal +engine-newpayload-v2-smoke-case-names+ case-names))
                (dolist (case cases)
@@ -2461,8 +2469,16 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 5 (fixture-object-field case "engineConnections")))
-                   (is (= 14 (fixture-object-field case "publicConnections")))
+                   (is (= 6 (fixture-object-field case "engineConnections")))
+                   (is (= 15 (fixture-object-field case "publicConnections")))
+                   (is (= 401
+                          (fixture-object-field
+                           case
+                           "engineUnauthenticatedStatus")))
+                   (is (= -32601
+                          (fixture-object-field
+                           case
+                           "publicEngineNamespaceErrorCode")))
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")
@@ -3216,11 +3232,11 @@
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 6 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 15 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 19 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")

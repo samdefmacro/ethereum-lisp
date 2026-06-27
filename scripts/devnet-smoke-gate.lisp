@@ -4905,6 +4905,7 @@ references/ checkouts.~%")
                   (expected-storage nil)
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token secret 0))
+                  (unauthenticated-engine-output (make-string-output-stream))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
                   (prepare-payload-output (make-string-output-stream))
@@ -4915,6 +4916,8 @@ references/ checkouts.~%")
                   (prepared-public-output (make-string-output-stream))
                   (remote-public-output (make-string-output-stream))
                   (invalid-public-output (make-string-output-stream))
+                  (public-engine-namespace-output
+                    (make-string-output-stream))
                   (send-raw-output (make-string-output-stream))
                   (send-basefee-output (make-string-output-stream))
                   (send-queued-output (make-string-output-stream))
@@ -5071,12 +5074,19 @@ references/ checkouts.~%")
                                (cons "params" '())))
                         remote-public-output)
                        (cons
-                       (json-encode
+                        (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 35)
                                (cons "method" "eth_blockNumber")
                                (cons "params" '())))
                         invalid-public-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 45)
+                               (cons "method" "engine_exchangeCapabilities")
+                               (cons "params" (list '()))))
+                        public-engine-namespace-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
@@ -5148,6 +5158,7 @@ references/ checkouts.~%")
                                (cons "params" '())))
                         txpool-inspect-output))))
                   (engine-served-count 0)
+                  (unauthenticated-engine-served-p nil)
                   (engine-done-p nil)
                   (public-served-count 0))
              (devnet-cli-set-node-store-config node store config)
@@ -5164,9 +5175,27 @@ references/ checkouts.~%")
                        :endpoint +devnet-smoke-gate-engine-endpoint+
                        :accept-function
                        (lambda ()
-                         (when engine-requests
-                           (destructuring-bind (body . output)
-                               (pop engine-requests)
+                         (cond
+                           ((not unauthenticated-engine-served-p)
+                            (setf unauthenticated-engine-served-p t)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream
+                              (devnet-cli-json-rpc-http-request
+                               (json-encode
+                                (list
+                                 (cons "jsonrpc" "2.0")
+                                 (cons "id" 20)
+                                 (cons "method"
+                                       "engine_getClientVersionV1")
+                                 (cons "params" (list '()))))))
+                             :output-stream unauthenticated-engine-output
+                             :close-function
+                             (lambda ()
+                               (incf engine-served-count))))
+                           (engine-requests
+                            (destructuring-bind (body . output)
+                                (pop engine-requests)
                              (make-engine-rpc-http-connection
                               :input-stream
                               (make-string-input-stream
@@ -5176,8 +5205,8 @@ references/ checkouts.~%")
                               :close-function
                               (lambda ()
                                 (incf engine-served-count)
-                                (when (= engine-served-count 5)
-                                  (setf engine-done-p t)))))))
+                                (when (= engine-served-count 6)
+                                  (setf engine-done-p t))))))))
                        :close-function (lambda () nil))
                       (make-engine-rpc-http-listener
                        :endpoint +devnet-smoke-gate-public-endpoint+
@@ -5196,7 +5225,7 @@ references/ checkouts.~%")
                               :close-function
                               (lambda () (incf public-served-count))))))
                       :close-function (lambda () nil))
-                      :max-connections 14
+                      :max-connections 15
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
                         (let ((engine-endpoint
@@ -5226,6 +5255,9 @@ references/ checkouts.~%")
                   :connection-summary summary))
                (let* ((new-payload-response
                         (get-output-stream-string new-payload-output))
+                      (unauthenticated-engine-response
+                        (get-output-stream-string
+                         unauthenticated-engine-output))
                       (forkchoice-response
                         (get-output-stream-string forkchoice-output))
                       (prepare-payload-response
@@ -5244,6 +5276,9 @@ references/ checkouts.~%")
                         (get-output-stream-string remote-public-output))
                       (invalid-public-response
                         (get-output-stream-string invalid-public-output))
+                      (public-engine-namespace-response
+                        (get-output-stream-string
+                         public-engine-namespace-output))
                       (send-raw-response
                         (get-output-stream-string send-raw-output))
                       (send-basefee-response
@@ -5283,6 +5318,9 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body remote-public-response))
                       (invalid-public-rpc
                         (devnet-smoke-gate-rpc-body invalid-public-response))
+                      (public-engine-namespace-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-engine-namespace-response))
                       (send-raw-rpc
                         (devnet-smoke-gate-rpc-body send-raw-response))
                       (send-basefee-rpc
@@ -5393,13 +5431,17 @@ references/ checkouts.~%")
                       (actual-balance
                         (fixture-object-field balance-rpc "result")))
                  (devnet-smoke-gate-require
-                  (= 5 (getf summary :engine-connections))
-                  "Expected 5 Engine connections, got ~S"
+                  (= 6 (getf summary :engine-connections))
+                  "Expected 6 Engine connections, got ~S"
                   (getf summary :engine-connections))
                  (devnet-smoke-gate-require
-                  (= 14 (getf summary :public-connections))
-                  "Expected 14 public RPC connections, got ~S"
+                  (= 15 (getf summary :public-connections))
+                  "Expected 15 public RPC connections, got ~S"
                   (getf summary :public-connections))
+                 (devnet-smoke-gate-require
+                  (= 401 (devnet-cli-http-status
+                          unauthenticated-engine-response))
+                  "Unauthenticated Engine request HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
                   "engine_newPayloadV2 HTTP status mismatch")
@@ -5431,7 +5473,19 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status invalid-public-response))
                   "invalid-tipset eth_blockNumber HTTP status mismatch")
                  (devnet-smoke-gate-require
-                 (= 200 (devnet-cli-http-status send-raw-response))
+                  (= 200 (devnet-cli-http-status
+                          public-engine-namespace-response))
+                  "Public Engine namespace probe HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= -32601
+                     (fixture-object-field
+                      (fixture-object-field
+                       public-engine-namespace-rpc
+                       "error")
+                      "code"))
+                  "Public listener exposed Engine namespace")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status send-raw-response))
                   "eth_sendRawTransaction HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status send-basefee-response))
@@ -5646,6 +5700,15 @@ references/ checkouts.~%")
                         (getf summary :public-connections))
                   (cons "totalConnections"
                         (getf summary :total-connections))
+                  (cons "engineUnauthenticatedStatus"
+                        (devnet-cli-http-status
+                         unauthenticated-engine-response))
+                  (cons "publicEngineNamespaceErrorCode"
+                        (fixture-object-field
+                         (fixture-object-field
+                          public-engine-namespace-rpc
+                          "error")
+                         "code"))
                   (cons "newPayloadStatus"
                         (fixture-object-field new-payload-result "status"))
                   (cons "latestValidHash" expected-hash)

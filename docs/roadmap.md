@@ -1036,7 +1036,10 @@ first pass, but interfaces must not block that path.
   listener summary for runner accounting. The standalone devnet gate now also
   reports concrete HTTP loopback `engineEndpoint` / `rpcEndpoint` values and
   validates that ready files and lifecycle telemetry carry those same endpoints
-  rather than placeholder listener names. The CLI also supports a
+  rather than placeholder listener names, and it probes the same runner surface
+  to require unauthenticated Engine requests to fail with HTTP 401 while the
+  public listener rejects Engine namespace methods with JSON-RPC `-32601`.
+  The CLI also supports a
   Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
   telemetry, and the standalone plus Phase A devnet smoke gates verify the
   pid-file process id against readiness/log metadata. The top-level Phase A
