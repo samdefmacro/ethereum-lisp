@@ -4908,6 +4908,11 @@ splits can land after the Phase A smoke path closes.
     flush operations and corrupt devnet log files. A concurrent stream-sink
     regression keeps the standalone and Phase A devnet smoke gates from
     failing while reading lifecycle telemetry forms.
+  - Result: Engine RPC HTTP request telemetry now has regression coverage for
+    malformed JSON and invalid JSON-RPC envelopes. Devnet/Hive process logs
+    keep reporting HTTP status, JSON-RPC error codes, and method summaries
+    when a runner sends rejected requests, while unparseable request bodies
+    avoid misleading method fields.
 
 - [x] Add CLI entry point for local devnet experiments.
   - Milestone: future node shell

@@ -24127,7 +24127,38 @@ Content-Type: application/json
       (let ((fields
               (ethereum-lisp.telemetry:telemetry-event-fields
                (first (ethereum-lisp.telemetry:telemetry-events sink)))))
-        (is (string= "-32601" (field fields "rpcErrorCode")))))))
+        (is (string= "-32601" (field fields "rpcErrorCode")))))
+    (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+           (body "{\"jsonrpc\":\"2.0\",\"id\":32,")
+           (input (make-string-input-stream (request body)))
+           (output (make-string-output-stream)))
+      (engine-rpc-handle-http-stream
+       input output
+       (make-engine-payload-memory-store)
+       (make-chain-config)
+       :telemetry-sink sink)
+      (let ((fields
+              (ethereum-lisp.telemetry:telemetry-event-fields
+               (first (ethereum-lisp.telemetry:telemetry-events sink)))))
+        (is (string= "200" (field fields "status")))
+        (is (string= "-32700" (field fields "rpcErrorCode")))
+        (is (null (field fields "rpcMethods")))))
+    (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+           (body
+             "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"eth_blockNumber\",\"params\":7}")
+           (input (make-string-input-stream (request body)))
+           (output (make-string-output-stream)))
+      (engine-rpc-handle-http-stream
+       input output
+       (make-engine-payload-memory-store)
+       (make-chain-config)
+       :telemetry-sink sink)
+      (let ((fields
+              (ethereum-lisp.telemetry:telemetry-event-fields
+               (first (ethereum-lisp.telemetry:telemetry-events sink)))))
+        (is (string= "200" (field fields "status")))
+        (is (string= "eth_blockNumber" (field fields "rpcMethods")))
+        (is (string= "-32600" (field fields "rpcErrorCode")))))))
 
 (deftest engine-rpc-http-service-wraps-stream-configuration
   (labels ((field (object name)
