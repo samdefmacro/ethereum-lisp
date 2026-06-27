@@ -42,6 +42,18 @@ until the smoke path passes once end-to-end:
 - comparison against a pinned execution-spec-tests release and a small
   in-repo fixture set.
 
+Closure audit: the bounded in-repo Phase A smoke path and the
+process/database devnet gate pass with
+`sbcl --script scripts/phase-a-smoke-gate.lisp -- --json --devnet`. The green
+gate covers atomic executable import, strict sender recovery, receipt/root
+derivation, retained-state/public-RPC reads, forkchoice reorg visibility,
+safe/finalized ancestor checks, txpool reinsertion for displaced transactions,
+and KV export/import restoration for the current Shanghai fixture set. Phase A
+is therefore closed for the current bounded smoke path; remaining Phase A work
+should be either real pinned fixture synchronization against an available
+v5.4.0 fixture root or a concrete correctness bug/gap found while preserving
+that gate.
+
 The end-to-end smoke scenario is:
 
 1. load genesis/state;
@@ -67,11 +79,28 @@ Long-running automation should pick from this queue before other P0 items unless
 a listed dependency is blocked. Order matters: earlier items unblock later
 ones.
 
-- No active Immediate Queue items. Before adding another item here, verify it
-  is a concrete Phase A production blocker or a real upstream/pinned fixture
-  synchronization slice. Do not reopen `TRIE-FIXTURE-GRADE` or `STATE-PROOFS`
-  for narrow fixture hardening without a concrete implementation bug, missing
-  consensus boundary, or reference-client drift.
+- [ ] `PINNED-V5.4.0-ROOT-SMOKE`: Rehydrate or configure an official
+  `ethereum/execution-spec-tests` v5.4.0 `fixtures_stable.tar.gz` extraction,
+  run `scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root PATH`, and
+  record any selector drift or root-layout mismatch. This is blocked when no
+  local pinned fixture root is available; do not substitute local hand-written
+  fixture hardening for this task.
+- [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
+  boundaries that affect current Phase A behavior without expanding public
+  RPC surface. First target: displaced old-canonical transactions must not
+  replace an already pooled same-sender/same-nonce local transaction during
+  canonical-head reinsert.
+  - Result: covered the same-sender/same-nonce conflict boundary directly.
+    Canonical-head reinsert now has regression coverage proving a displaced
+    old-canonical transaction is not re-pooled when a local pending
+    transaction already occupies the sender/nonce slot; the local transaction
+    remains pending and the displaced transaction loses canonical lookup.
+
+Before adding another Immediate Queue item, verify it is a concrete Phase A
+production blocker or a real upstream/pinned fixture synchronization slice. Do
+not reopen `TRIE-FIXTURE-GRADE` or `STATE-PROOFS` for narrow fixture hardening
+without a concrete implementation bug, missing consensus boundary, or
+reference-client drift.
 
 ## P0: Phase A Discipline
 
@@ -4295,6 +4324,12 @@ splits can land after the Phase A smoke path closes.
     valid but its fee cap is below the new canonical head base fee, the
     canonical-head switch hides the old canonical receipt/location and routes
     the transaction into the basefee subpool instead of pending.
+  - Progress: reorg reinsertion now has direct coverage for same-sender /
+    same-nonce local conflicts. If a local pooled transaction already occupies
+    the displaced transaction's sender/nonce slot, the canonical-head switch
+    removes the old canonical transaction location but preserves the local
+    pooled transaction instead of reinserting or replacing it with the
+    displaced transaction.
   - Progress: canonical-head updates now prune stale, over-gas, and
     sender-code-invalid pooled transactions against the new head before
     reinserting displaced old-canonical transactions. A stale invalid same
