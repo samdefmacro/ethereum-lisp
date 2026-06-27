@@ -1545,6 +1545,51 @@
       (when (probe-file pid-path)
         (delete-file pid-path)))))
 
+(deftest devnet-cli-main-accepts-explicit-engine-endpoint-options
+  (let ((ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
+        (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
+        (output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--engine-host" "192.0.2.10"
+                         "--engine-port" "9551"
+                         "--public-host" "192.0.2.11"
+                         "--public-port" "9545"
+                         "--ready-file" (namestring ready-path)
+                         "--log-file" (namestring log-path)
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let* ((stdout-summary
+                    (parse-json (get-output-stream-string output)))
+                  (ready-summary
+                    (parse-json (devnet-cli-file-string ready-path)))
+                  (log-records (devnet-cli-file-forms log-path)))
+             (dolist (summary (list stdout-summary ready-summary))
+               (is (string= "192.0.2.10:9551"
+                            (fixture-object-field summary "engineEndpoint")))
+               (is (string= "192.0.2.11:9545"
+                            (fixture-object-field summary "rpcEndpoint"))))
+             (dolist (log-record log-records)
+               (let ((fields (getf log-record :fields)))
+                 (is (string= "192.0.2.10:9551"
+                              (cdr (assoc "engineEndpoint" fields
+                                          :test #'string=))))
+                 (is (string= "192.0.2.11:9545"
+                              (cdr (assoc "rpcEndpoint" fields
+                                          :test #'string=))))))))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path)))))
+
 (deftest devnet-cli-main-log-file-records-ready-event
   (let ((ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
         (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
@@ -3552,10 +3597,19 @@
                 (run-error (list "devnet" "--genesis" "--no-serve"))))
     (is (search "--host requires a value"
                 (run-error (list "devnet" "--host" "--no-serve"))))
+    (is (search "--engine-host requires a value"
+                (run-error (list "devnet" "--engine-host" "--no-serve"))))
     (is (search "--public-host requires a value"
                 (run-error (list "devnet" "--public-host" "--no-serve"))))
     (is (search "--port requires a value"
                 (run-error (list "devnet" "--port" "--no-serve"))))
+    (is (search "--engine-port requires a value"
+                (run-error (list "devnet" "--engine-port" "--no-serve"))))
+    (is (search "--engine-port must be between 0 and 65535"
+                (run-error (list "devnet"
+                                 "--engine-port"
+                                 "70000"
+                                 "--no-serve"))))
     (is (search "--public-port requires a value"
                 (run-error (list "devnet" "--public-port" "--no-serve"))))
     (is (search "--database requires a value"

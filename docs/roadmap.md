@@ -1025,8 +1025,10 @@ first pass, but interfaces must not block that path.
   consistency: `devnet.ready` reports the pre-import parent head and
   `devnet.shutdown` reports the post-forkchoice imported child head, both with
   explicit process-id and state-availability fields for process runners; the
-  standalone devnet smoke gate rejects readiness/log output whose lifecycle
-  `processId` fields are missing or inconsistent. The CLI also supports a
+  CLI accepts explicit `--engine-host` / `--engine-port` options alongside the
+  public listener options, and the standalone devnet smoke gate rejects
+  readiness/log output whose lifecycle `processId` fields are missing or
+  inconsistent. The CLI also supports a
   Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
   telemetry, and the standalone plus Phase A devnet smoke gates verify the
   pid-file process id against readiness/log metadata. The top-level Phase A

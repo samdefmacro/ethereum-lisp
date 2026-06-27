@@ -4933,6 +4933,11 @@ splits can land after the Phase A smoke path closes.
     `eth_*`, `net_*`, `web3_*`, and `txpool_*`, and readiness JSON reports the
     separate Engine and public endpoints. CLI tests cover namespace rejection
     in both directions plus `--public-host` / `--public-port` validation.
+  - Result: added explicit Hive-style `--engine-host` and `--engine-port`
+    aliases for the authenticated Engine listener while retaining `--host` /
+    `--port` compatibility. The JSON summary, ready file, and lifecycle log
+    contract now verify the explicit Engine/public endpoint split for
+    no-serve runner probes.
   - Result: wired the serving path to run both split services instead of only
     advertising the public endpoint. `start-devnet-node` now creates Engine
     and public socket listeners and runs the Engine listener on an SBCL worker

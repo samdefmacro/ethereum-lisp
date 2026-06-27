@@ -459,10 +459,12 @@
                ((string= option "--genesis")
                 (multiple-value-setq (genesis-path args)
                   (devnet-cli-next-value args option)))
-               ((string= option "--host")
+               ((or (string= option "--host")
+                    (string= option "--engine-host"))
                 (multiple-value-setq (host args)
                   (devnet-cli-next-value args option)))
-               ((string= option "--port")
+               ((or (string= option "--port")
+                    (string= option "--engine-port"))
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
                   (setf port (devnet-cli-parse-port value option)
@@ -526,7 +528,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST] [--engine-port PORT] [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
