@@ -3812,6 +3812,58 @@
                        (fixture-object-field result "classification")))
           (is (fixture-object-field result "family")))))))
 
+(deftest ethereum-lisp-script-dispatches-devnet-help
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/ethereum-lisp.lisp"
+             "--"
+             "devnet"
+             "--help")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (is (search "Usage: ethereum-lisp devnet" stdout))
+    (is (search "--ready-file PATH" stdout))
+    (is (search "--pid-file PATH" stdout))))
+
+(deftest ethereum-lisp-script-dispatches-devnet-no-serve-json
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/ethereum-lisp.lisp"
+             "--"
+             "devnet"
+             "--genesis"
+             +devnet-cli-genesis-fixture+
+             "--json"
+             "--no-serve")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let ((summary (parse-json stdout)))
+        (is (string= +devnet-cli-genesis-fixture+
+                     (fixture-object-field summary "genesisPath")))
+        (is (string= "127.0.0.1:8551"
+                     (fixture-object-field summary "engineEndpoint")))
+        (is (string= "127.0.0.1:8545"
+                     (fixture-object-field summary "rpcEndpoint")))
+        (is (eq nil (fixture-object-field summary "authRequired")))
+        (is (eq t (fixture-object-field summary "stateAvailable")))))))
+
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))

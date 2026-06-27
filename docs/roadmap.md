@@ -1051,7 +1051,10 @@ first pass, but interfaces must not block that path.
   `connectionContract`, breaking down expected Engine boundary/workflow probes
   and public canonical-read/boundary/txpool probes so Hive-style runners can
   distinguish intended listener traffic from accidental connection-count
-  drift. The
+  drift. A runner-facing `scripts/ethereum-lisp.lisp` script now provides a
+  stable `sbcl --script` process entrypoint for the devnet CLI without writing
+  ASDF fasl cache files, and subprocess coverage verifies both help discovery
+  and `devnet --json --no-serve` execution through that entrypoint. The
   top-level Phase A
   `--devnet` gate also validates the child report's ready/log/pid/database
   artifact paths and per-case counts before accepting the devnet suite.

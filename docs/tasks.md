@@ -300,6 +300,13 @@ ones.
     reporting success if actual serve-mode Engine, public, or total connection
     counts diverge from that contract; CLI coverage checks both the single-case
     and all-fixtures reports.
+- [x] `DEVNET-RUNNER-PROCESS-ENTRYPOINT`: Add a runner-facing process script
+  entrypoint for the devnet CLI.
+  - Result (2026-06-28): added `scripts/ethereum-lisp.lisp`, which loads the
+    repository sources without writing ASDF fasl cache files and dispatches to
+    `ethereum-lisp.cli:main`. CLI tests cover subprocess help discovery and
+    `devnet --json --no-serve` execution through the script, giving external
+    runners a stable `sbcl --script` entrypoint.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
