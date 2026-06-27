@@ -1042,7 +1042,11 @@ first pass, but interfaces must not block that path.
   The CLI also supports a
   Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
   telemetry, and the standalone plus Phase A devnet smoke gates verify the
-  pid-file process id against readiness/log metadata. The top-level Phase A
+  pid-file process id against readiness/log metadata. Failed devnet CLI
+  startups with `--log-file` now append a structured `devnet.error` telemetry
+  record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
+  error message, so process runners can classify failures without relying only
+  on stderr. The top-level Phase A
   `--devnet` gate also validates the child report's ready/log/pid/database
   artifact paths and per-case counts before accepting the devnet suite.
   Standalone devnet smoke-gate reports also carry pinned EEST source metadata

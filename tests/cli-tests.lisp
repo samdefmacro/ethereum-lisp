@@ -1734,6 +1734,47 @@
       (when (probe-file pid-path)
         (delete-file pid-path)))))
 
+(deftest devnet-cli-main-log-file-records-error-event
+  (let ((log-path (devnet-cli-temp-path "ethereum-lisp-devnet-error" "log"))
+        (output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (unwind-protect
+         (let ((log-path-string (namestring log-path)))
+           (is (= 1
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--log-file" log-path-string
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string output)))
+           (is (search "--genesis is required"
+                       (get-output-stream-string errors)))
+           (let* ((log-records (devnet-cli-file-forms log-path))
+                  (record (first log-records))
+                  (fields (getf record :fields)))
+             (is (= 1 (length log-records)))
+             (is (eq :log (getf record :kind)))
+             (is (eq :error (getf record :value)))
+             (is (string= "devnet.error" (getf record :name)))
+             (is (string= "error"
+                          (cdr (assoc "lifecyclePhase"
+                                      fields
+                                      :test #'string=))))
+             (is (string= "1"
+                          (cdr (assoc "exitCode" fields :test #'string=))))
+             (is (string= (devnet-cli-current-process-id-string)
+                          (cdr (assoc "processId" fields :test #'string=))))
+             (is (search "--genesis is required"
+                         (cdr (assoc "errorMessage"
+                                     fields
+                                     :test #'string=))))
+             (is (string= log-path-string
+                          (cdr (assoc "logPath" fields :test #'string=))))))
+      (when (probe-file log-path)
+        (delete-file log-path)))))
+
 (defun phase-a-smoke-gate-reference-client
     (reference-clients name)
   (find name reference-clients

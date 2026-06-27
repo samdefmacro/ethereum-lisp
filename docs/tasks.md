@@ -279,6 +279,14 @@ ones.
     JSON-RPC `-32601` respectively, records both outcomes in the smoke report,
     and updates CLI/Phase A aggregate assertions for the additional boundary
     connections.
+- [x] `DEVNET-RUNNER-ERROR-TELEMETRY`: Tighten the devnet CLI process-runner
+  failure contract so external runners can identify startup/option failures
+  from structured logs instead of stderr alone.
+  - Result (2026-06-28): when `ethereum-lisp devnet` exits with an error and
+    `--log-file` is configured, the CLI now appends a `devnet.error`
+    telemetry record with `lifecyclePhase=error`, `exitCode=1`, `processId`,
+    `errorMessage`, and `logPath`. CLI coverage locks the missing-genesis
+    failure path.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

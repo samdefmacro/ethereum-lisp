@@ -668,8 +668,35 @@
             (cond
               ((string= name "devnet.ready") "ready")
               ((string= name "devnet.shutdown") "shutdown")
+              ((string= name "devnet.error") "error")
               (t ""))
             :connection-summary connection-summary)))
+
+(defun devnet-cli-error-log-file (args)
+  (handler-case
+      (getf (devnet-cli-options args) :log-file)
+    (error () nil)))
+
+(defun devnet-cli-log-error-event (args condition)
+  (let ((log-file (devnet-cli-error-log-file args)))
+    (when log-file
+      (with-open-file (stream log-file
+                              :direction :output
+                              :if-exists :append
+                              :if-does-not-exist :create)
+        (ethereum-lisp.telemetry:telemetry-log
+         :error
+         "devnet.error"
+         :sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                :stream stream)
+         :fields `(("lifecyclePhase" . "error")
+                   ("exitCode" . "1")
+                   ("processId" . ,(let ((process-id (devnet-process-id)))
+                                      (if process-id
+                                          (write-to-string process-id)
+                                          "")))
+                   ("errorMessage" . ,(princ-to-string condition))
+                   ("logPath" . ,log-file)))))))
 
 (defun call-with-devnet-cli-telemetry-sink (options output-stream thunk)
   (let ((log-file (getf options :log-file)))
@@ -785,6 +812,7 @@
                            (devnet-cli-log-event node "devnet.shutdown"))))
                    0))))))
     (error (condition)
+      (devnet-cli-log-error-event args condition)
       (format error-stream "~A~%" condition)
       (devnet-cli-print-usage error-stream)
       1)))
