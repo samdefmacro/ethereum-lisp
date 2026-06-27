@@ -1163,7 +1163,7 @@ Detailed historical implementation notes for this section now live in
   drift against the in-repo seed root. The official v5.4.0
   `fixtures_stable.tar.gz` archive is cached under
   `.cache/eest-v5.4.0/` and extracted at `.cache/eest-v5.4.0/root/fixtures`;
-  the pinned smoke gate passes there with one Shanghai state selector,
+  the pinned smoke gate passes there with six Shanghai state selectors,
   53 Prague/EIP-7702 invalid transaction cases, and one Shanghai
   `engineNewPayloadV2` blockchain selector. The fixture report and
   selector-listing scripts now use the same configured-root error

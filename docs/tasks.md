@@ -89,9 +89,9 @@ ones.
     `.cache/eest-v5.4.0/fixtures_stable.tar.gz` with SHA256
     `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`
     and extracted to `.cache/eest-v5.4.0/root/fixtures`. The pinned smoke gate
-    now passes against that root with one official Shanghai state selector,
+    now passes against that root with six official Shanghai state selectors,
     53 official Prague/EIP-7702 invalid transaction cases summarized, and one
-    official Shanghai `engineNewPayloadV2` blockchain selector, for 55 total
+    official Shanghai `engineNewPayloadV2` blockchain selector, for 60 total
     executed fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
