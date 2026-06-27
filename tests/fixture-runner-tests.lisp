@@ -239,6 +239,30 @@
     ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-max_initcode-opcode_CREATE]"
      . "engineNewPayloadV2")
     ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-max_initcode-opcode_CREATE2]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_large_amount.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_large_amount[fork_Shanghai-blockchain_test_engine]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_multiple_withdrawals_same_address.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::TestMultipleWithdrawalsSameAddress::test_multiple_withdrawals_same_address[fork_Shanghai-blockchain_test_engine-test_case_single_block]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_newly_created_contract.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_newly_created_contract[fork_Shanghai-blockchain_test_engine-with_tx_value]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_newly_created_contract.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_newly_created_contract[fork_Shanghai-blockchain_test_engine-without_tx_value]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_self_destructing_account.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_self_destructing_account[fork_Shanghai-blockchain_test_engine]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_withdrawals_root.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_withdrawals_root[fork_Shanghai-blockchain_test_engine-n_withdrawals_0-valid_True]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_withdrawals_root.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_withdrawals_root[fork_Shanghai-blockchain_test_engine-n_withdrawals_1-valid_True]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_withdrawals_root.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_withdrawals_root[fork_Shanghai-blockchain_test_engine-n_withdrawals_16-valid_True]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_zero_amount.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_zero_amount[fork_Shanghai-blockchain_test_engine-two_withdrawals_no_value]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_zero_amount.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_zero_amount[fork_Shanghai-blockchain_test_engine-three_withdrawals_one_with_value]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_zero_amount.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_zero_amount[fork_Shanghai-blockchain_test_engine-four_withdrawals_one_with_value_one_with_max]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip4895_withdrawals/test_zero_amount.json/tests/shanghai/eip4895_withdrawals/test_withdrawals.py::test_zero_amount[fork_Shanghai-blockchain_test_engine-four_withdrawals_one_with_value_one_with_max_reversed_order]"
      . "engineNewPayloadV2")))
 
 (defparameter +phase-a-eest-blockchain-replay-discovery-feature-directories+

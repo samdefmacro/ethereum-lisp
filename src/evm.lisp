@@ -68,6 +68,8 @@
                                  (make-hash-table :test 'equalp))
                                 (storage-clears
                                  (make-hash-table :test 'equalp))
+                                (selfdestructed-addresses
+                                 (make-hash-table :test 'equalp))
                                 (accessed-storage
                                  (make-hash-table :test 'equalp))
                                 (accessed-addresses
@@ -97,6 +99,7 @@
   transient-storage
   storage-originals
   storage-clears
+  selfdestructed-addresses
   accessed-storage
   accessed-addresses
   block-hashes
@@ -525,6 +528,34 @@
                  (setf (gethash key clears) value))
                snapshot))))
 
+(defun copy-selfdestructed-addresses (context)
+  (let ((copy (make-hash-table :test 'equalp)))
+    (when context
+      (maphash (lambda (key value)
+                 (setf (gethash key copy) value))
+               (evm-context-selfdestructed-addresses context)))
+    copy))
+
+(defun restore-selfdestructed-addresses (context snapshot)
+  (when context
+    (let ((selfdestructed (evm-context-selfdestructed-addresses context)))
+      (clrhash selfdestructed)
+      (maphash (lambda (key value)
+                 (setf (gethash key selfdestructed) value))
+               snapshot))))
+
+(defun mark-selfdestructed-address (context address)
+  (setf (gethash (address-to-hex address)
+                 (evm-context-selfdestructed-addresses context))
+        t))
+
+(defun finalize-evm-selfdestructs (state context)
+  (maphash
+   (lambda (key selfdestructed-p)
+     (when selfdestructed-p
+       (state-db-clear-account state (address-from-hex key))))
+   (evm-context-selfdestructed-addresses context)))
+
 (defun copy-accessed-storage (context)
   (let ((copy (make-hash-table :test 'equalp)))
     (when context
@@ -619,7 +650,8 @@
                                    transient-snapshot
                                    &optional storage-clears-snapshot
                                              accessed-storage-snapshot
-                                             accessed-addresses-snapshot)
+                                             accessed-addresses-snapshot
+                                             selfdestructed-snapshot)
   (state-db-restore state state-snapshot)
   (restore-transient-storage context transient-snapshot)
   (when storage-clears-snapshot
@@ -627,7 +659,9 @@
   (when accessed-storage-snapshot
     (restore-accessed-storage context accessed-storage-snapshot))
   (when accessed-addresses-snapshot
-    (restore-accessed-addresses context accessed-addresses-snapshot)))
+    (restore-accessed-addresses context accessed-addresses-snapshot))
+  (when selfdestructed-snapshot
+    (restore-selfdestructed-addresses context selfdestructed-snapshot)))
 
 (defun account-balance (state address)
   (let ((account (state-db-get-account state address)))
@@ -1876,6 +1910,8 @@ kept stable while a library-backed pairing implementation is wired in."
         (frame-storage-clears-snapshot (copy-storage-clears context))
         (frame-accessed-storage-snapshot (copy-accessed-storage context))
         (frame-accessed-addresses-snapshot (copy-accessed-addresses context))
+        (frame-selfdestructed-snapshot
+          (copy-selfdestructed-addresses context))
         (original-storage-values
           (if context
               (evm-context-storage-originals context)
@@ -2542,7 +2578,9 @@ kept stable while a library-backed pairing implementation is wired in."
                                   (accessed-storage-snapshot
                                     (copy-accessed-storage context))
                                   (accessed-addresses-snapshot
-                                    (copy-accessed-addresses context)))
+                                    (copy-accessed-addresses context))
+                                  (selfdestructed-snapshot
+                                    (copy-selfdestructed-addresses context)))
                               (handler-case
                                   (progn
                                     (transfer-call-value state creator new-address value)
@@ -2581,6 +2619,9 @@ kept stable while a library-backed pairing implementation is wired in."
                                               (evm-context-storage-originals context)
                                               :storage-clears
                                               (evm-context-storage-clears context)
+                                              :selfdestructed-addresses
+                                              (evm-context-selfdestructed-addresses
+                                               context)
                                               :accessed-storage
                                               (evm-context-accessed-storage context)
                                               :accessed-addresses
@@ -2607,7 +2648,8 @@ kept stable while a library-backed pairing implementation is wired in."
 	                                           state snapshot context transient-snapshot
 	                                           storage-clears-snapshot
 	                                           accessed-storage-snapshot
-	                                           accessed-addresses-snapshot)
+	                                           accessed-addresses-snapshot
+                                             selfdestructed-snapshot)
 	                                          (progn
                                             (setf child-logs
                                                   (evm-result-logs child-result))
@@ -2640,7 +2682,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                    state snapshot context transient-snapshot
                                    storage-clears-snapshot
                                    accessed-storage-snapshot
-                                   accessed-addresses-snapshot)
+                                   accessed-addresses-snapshot
+                                   selfdestructed-snapshot)
                                   (setf success-address 0
                                         child-return-data
                                         (make-byte-vector 0)
@@ -2699,7 +2742,9 @@ kept stable while a library-backed pairing implementation is wired in."
                                     (accessed-storage-snapshot
                                       (copy-accessed-storage context))
                                     (accessed-addresses-snapshot
-                                      (copy-accessed-addresses context)))
+                                      (copy-accessed-addresses context))
+                                    (selfdestructed-snapshot
+                                      (copy-selfdestructed-addresses context)))
                                 (handler-case
                                     (progn
                                       (transfer-call-value state creator new-address value)
@@ -2738,6 +2783,9 @@ kept stable while a library-backed pairing implementation is wired in."
                                                 (evm-context-storage-originals context)
                                                 :storage-clears
                                                 (evm-context-storage-clears context)
+                                                :selfdestructed-addresses
+                                                (evm-context-selfdestructed-addresses
+                                                 context)
                                                 :accessed-storage
                                                 (evm-context-accessed-storage context)
                                                 :accessed-addresses
@@ -2764,7 +2812,8 @@ kept stable while a library-backed pairing implementation is wired in."
 	                                             state snapshot context transient-snapshot
 	                                             storage-clears-snapshot
 	                                             accessed-storage-snapshot
-	                                             accessed-addresses-snapshot)
+	                                             accessed-addresses-snapshot
+                                               selfdestructed-snapshot)
 	                                            (progn
                                               (setf child-logs
                                                     (evm-result-logs child-result))
@@ -2796,7 +2845,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                      state snapshot context transient-snapshot
                                      storage-clears-snapshot
                                      accessed-storage-snapshot
-                                     accessed-addresses-snapshot)
+                                     accessed-addresses-snapshot
+                                     selfdestructed-snapshot)
                                     (setf success-address 0
                                           child-return-data
                                           (make-byte-vector 0)
@@ -2841,6 +2891,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                (copy-accessed-storage context))
                              (accessed-addresses-snapshot
                                (copy-accessed-addresses context))
+                             (selfdestructed-snapshot
+                               (copy-selfdestructed-addresses context))
                              (args (memory-slice memory args-offset args-size))
                              (success 0)
                              (child-return-data (make-byte-vector 0))
@@ -2912,6 +2964,9 @@ kept stable while a library-backed pairing implementation is wired in."
                                                     (evm-context-storage-originals context)
                                                     :storage-clears
                                                     (evm-context-storage-clears context)
+                                                    :selfdestructed-addresses
+                                                    (evm-context-selfdestructed-addresses
+                                                     context)
                                                     :accessed-storage
                                                     (evm-context-accessed-storage context)
                                                     :accessed-addresses
@@ -2933,7 +2988,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                                  state snapshot context transient-snapshot
                                                  storage-clears-snapshot
                                                  accessed-storage-snapshot
-                                                 accessed-addresses-snapshot)
+                                                 accessed-addresses-snapshot
+                                                 selfdestructed-snapshot)
                                                 (progn
                                                   (incf refund-counter
                                                         (evm-result-refund-counter
@@ -2946,7 +3002,8 @@ kept stable while a library-backed pairing implementation is wired in."
                              state snapshot context transient-snapshot
                              storage-clears-snapshot
                              accessed-storage-snapshot
-                             accessed-addresses-snapshot)
+                             accessed-addresses-snapshot
+                             selfdestructed-snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -2958,7 +3015,8 @@ kept stable while a library-backed pairing implementation is wired in."
                              state snapshot context transient-snapshot
                              storage-clears-snapshot
                              accessed-storage-snapshot
-                             accessed-addresses-snapshot)
+                             accessed-addresses-snapshot
+                             selfdestructed-snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -3010,6 +3068,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                (copy-accessed-storage context))
                              (accessed-addresses-snapshot
                                (copy-accessed-addresses context))
+                             (selfdestructed-snapshot
+                               (copy-selfdestructed-addresses context))
                              (args (memory-slice memory args-offset args-size))
                              (success 0)
                              (child-return-data (make-byte-vector 0))
@@ -3078,6 +3138,9 @@ kept stable while a library-backed pairing implementation is wired in."
                                                     (evm-context-storage-originals context)
                                                     :storage-clears
                                                     (evm-context-storage-clears context)
+                                                    :selfdestructed-addresses
+                                                    (evm-context-selfdestructed-addresses
+                                                     context)
                                                     :accessed-storage
                                                     (evm-context-accessed-storage context)
                                                     :accessed-addresses
@@ -3099,7 +3162,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                                  state snapshot context transient-snapshot
                                                  storage-clears-snapshot
                                                  accessed-storage-snapshot
-                                                 accessed-addresses-snapshot)
+                                                 accessed-addresses-snapshot
+                                                 selfdestructed-snapshot)
                                                 (progn
                                                   (incf refund-counter
                                                         (evm-result-refund-counter
@@ -3112,7 +3176,8 @@ kept stable while a library-backed pairing implementation is wired in."
                              state snapshot context transient-snapshot
                              storage-clears-snapshot
                              accessed-storage-snapshot
-                             accessed-addresses-snapshot)
+                             accessed-addresses-snapshot
+                             selfdestructed-snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -3124,7 +3189,8 @@ kept stable while a library-backed pairing implementation is wired in."
                              state snapshot context transient-snapshot
                              storage-clears-snapshot
                              accessed-storage-snapshot
-                             accessed-addresses-snapshot)
+                             accessed-addresses-snapshot
+                             selfdestructed-snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -3171,6 +3237,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                (copy-accessed-storage context))
                              (accessed-addresses-snapshot
                                (copy-accessed-addresses context))
+                             (selfdestructed-snapshot
+                               (copy-selfdestructed-addresses context))
                              (args (memory-slice memory args-offset args-size))
                              (success 0)
                              (child-return-data (make-byte-vector 0))
@@ -3229,6 +3297,9 @@ kept stable while a library-backed pairing implementation is wired in."
                                                   (evm-context-storage-originals context)
                                                   :storage-clears
                                                   (evm-context-storage-clears context)
+                                                  :selfdestructed-addresses
+                                                  (evm-context-selfdestructed-addresses
+                                                   context)
                                                   :accessed-storage
                                                   (evm-context-accessed-storage context)
                                                   :accessed-addresses
@@ -3250,7 +3321,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                                state snapshot context transient-snapshot
                                                storage-clears-snapshot
                                                accessed-storage-snapshot
-                                               accessed-addresses-snapshot)
+                                               accessed-addresses-snapshot
+                                               selfdestructed-snapshot)
                                               (progn
                                                 (incf refund-counter
                                                       (evm-result-refund-counter
@@ -3263,7 +3335,8 @@ kept stable while a library-backed pairing implementation is wired in."
                              state snapshot context transient-snapshot
                              storage-clears-snapshot
                              accessed-storage-snapshot
-                             accessed-addresses-snapshot)
+                             accessed-addresses-snapshot
+                             selfdestructed-snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -3275,7 +3348,8 @@ kept stable while a library-backed pairing implementation is wired in."
                              state snapshot context transient-snapshot
                              storage-clears-snapshot
                              accessed-storage-snapshot
-                             accessed-addresses-snapshot)
+                             accessed-addresses-snapshot
+                             selfdestructed-snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-logs '()
@@ -3322,6 +3396,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                (copy-accessed-storage context))
                              (accessed-addresses-snapshot
                                (copy-accessed-addresses context))
+                             (selfdestructed-snapshot
+                               (copy-selfdestructed-addresses context))
                              (args (memory-slice memory args-offset args-size))
                              (success 0)
                              (child-return-data (make-byte-vector 0))
@@ -3379,6 +3455,9 @@ kept stable while a library-backed pairing implementation is wired in."
                                                   (evm-context-storage-originals context)
                                                   :storage-clears
                                                   (evm-context-storage-clears context)
+                                                  :selfdestructed-addresses
+                                                  (evm-context-selfdestructed-addresses
+                                                   context)
                                                   :accessed-storage
                                                   (evm-context-accessed-storage context)
                                                   :accessed-addresses
@@ -3400,7 +3479,8 @@ kept stable while a library-backed pairing implementation is wired in."
                                                state snapshot context transient-snapshot
                                                storage-clears-snapshot
                                                accessed-storage-snapshot
-                                               accessed-addresses-snapshot)
+                                               accessed-addresses-snapshot
+                                               selfdestructed-snapshot)
                                               (progn
                                                 (incf refund-counter
                                                       (evm-result-refund-counter
@@ -3411,7 +3491,8 @@ kept stable while a library-backed pairing implementation is wired in."
                              state snapshot context transient-snapshot
                              storage-clears-snapshot
                              accessed-storage-snapshot
-                             accessed-addresses-snapshot)
+                             accessed-addresses-snapshot
+                             selfdestructed-snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-gas-used
@@ -3422,7 +3503,8 @@ kept stable while a library-backed pairing implementation is wired in."
                              state snapshot context transient-snapshot
                              storage-clears-snapshot
                              accessed-storage-snapshot
-                             accessed-addresses-snapshot)
+                             accessed-addresses-snapshot
+                             selfdestructed-snapshot)
                             (setf success 0
                                   child-return-data (make-byte-vector 0)
                                   child-gas-used (if child-started-p
@@ -3456,7 +3538,13 @@ kept stable while a library-backed pairing implementation is wired in."
                         (selfdestruct-account
                          (evm-context-state context)
                          (evm-context-address context)
-                         beneficiary))
+                         beneficiary)
+                        (unless (and (evm-context-chain-rules context)
+                                     (chain-rules-cancun-p
+                                      (evm-context-chain-rules context)))
+                          (mark-selfdestructed-address
+                           context
+                           (evm-context-address context))))
                       (setf stack rest
                             status :selfdestructed)
                       (return)))
@@ -3474,6 +3562,9 @@ kept stable while a library-backed pairing implementation is wired in."
                       (restore-accessed-addresses
                        context
                        frame-accessed-addresses-snapshot)
+                      (restore-selfdestructed-addresses
+                       context
+                       frame-selfdestructed-snapshot)
                       (setf return-data (memory-slice memory offset size)
                             stack rest
                             refund-counter 0

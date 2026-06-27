@@ -199,6 +199,21 @@ ones.
     Prague/EIP-7702 invalid transaction cases summarized, and 32 official
     Shanghai `engineNewPayloadV2` blockchain selectors, for 179 total executed
     fixture cases.
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-EIP4895-WITHDRAWALS`: Continue official
+  v5.4.0 Engine replay widening with selector-probed Shanghai EIP-4895
+  withdrawals cases, including the selfdestruct/withdrawal ordering boundary.
+  - Result (2026-06-27): fixed pre-Cancun `SELFDESTRUCT` transaction-end
+    account clearing so a withdrawal to an account selfdestructed earlier in
+    the same block recreates the empty account with the withdrawal balance.
+    Added 12 official Shanghai `engineNewPayloadV2` replay selectors covering
+    large withdrawals, repeated withdrawals to one address, newly-created
+    contracts, selfdestructing accounts, withdrawals-root sizes, and zero/
+    maximum-amount ordering cases. A targeted probe replayed all 12 selectors
+    through the Engine import path and verified post-state. The pinned smoke
+    gate now covers 94 official state selectors, 53 official Prague/EIP-7702
+    invalid transaction cases summarized, and 44 official Shanghai
+    `engineNewPayloadV2` blockchain selectors, for 191 total executed fixture
+    cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

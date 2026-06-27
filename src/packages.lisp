@@ -966,6 +966,7 @@
    #:evm-context-transient-storage
    #:evm-context-storage-originals
    #:evm-context-storage-clears
+   #:evm-context-selfdestructed-addresses
    #:evm-context-accessed-storage
    #:evm-context-accessed-addresses
    #:evm-context-block-hashes
@@ -979,6 +980,7 @@
    #:evm-result-pc
    #:evm-result-gas-used
    #:evm-result-refund-counter
+   #:finalize-evm-selfdestructs
    #:execute-bytecode))
 
 (defpackage #:ethereum-lisp.execution

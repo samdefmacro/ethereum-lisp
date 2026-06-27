@@ -922,14 +922,18 @@ mutated."
                                  base-fee))
                               (progn
                                 (state-db-set-code state contract runtime-code)
-                                (finalize-transaction-receipt
-                                 state sender coinbase tx
-                                 (make-receipt :status 1
-                                               :cumulative-gas-used gas-used
-                                               :logs (evm-result-logs result))
-                                 base-fee
-                                 :refund-counter
-                                 (evm-result-refund-counter result))))))))))
+                                (let ((receipt
+                                        (finalize-transaction-receipt
+                                         state sender coinbase tx
+                                         (make-receipt
+                                          :status 1
+                                          :cumulative-gas-used gas-used
+                                          :logs (evm-result-logs result))
+                                         base-fee
+                                         :refund-counter
+                                         (evm-result-refund-counter result))))
+                                  (finalize-evm-selfdestructs state context)
+                                  receipt)))))))))
 	        (evm-error ()
           (state-db-restore state snapshot)
           (finalize-transaction-receipt
@@ -1015,17 +1019,21 @@ mutated."
                                               tx result effective-chain-rules))
                            base-fee
                            :refund-counter refund-counter))
-                        (finalize-transaction-receipt
-                         state sender coinbase tx
-                         (make-receipt :status 1
-	                                       :cumulative-gas-used
-	                                       (transaction-evm-gas-used
-                                            tx result effective-chain-rules)
-                                       :logs (evm-result-logs result))
-                         base-fee
-                         :refund-counter
-                         (+ refund-counter
-                            (evm-result-refund-counter result)))))
+                        (let ((receipt
+                                (finalize-transaction-receipt
+                                 state sender coinbase tx
+                                 (make-receipt
+                                  :status 1
+	                                :cumulative-gas-used
+	                                (transaction-evm-gas-used
+                                   tx result effective-chain-rules)
+                                  :logs (evm-result-logs result))
+                                 base-fee
+                                 :refund-counter
+                                 (+ refund-counter
+                                    (evm-result-refund-counter result)))))
+                          (finalize-evm-selfdestructs state context)
+                          receipt)))
                 (evm-error ()
                   (state-db-restore state snapshot)
                   (finalize-transaction-receipt
@@ -1046,7 +1054,7 @@ mutated."
                                :prev-randao prev-randao
                                :difficulty difficulty
                                :random-p random-p
-	                               :context-gas-limit context-gas-limit))))
+		                               :context-gas-limit context-gas-limit))))
 
 (defun transaction-declared-chain-id (tx)
   (typecase tx

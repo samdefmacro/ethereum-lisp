@@ -1190,11 +1190,14 @@ Detailed historical implementation notes for this section now live in
   access-list London/Shanghai warm/cold and intrinsic-gas boundary cases,
   EIP-1559 transaction-validity cases, London/Shanghai warm-coinbase gas-usage
   cases, Shanghai warm-coinbase out-of-gas cases, and additional PUSH0 contract
-  cases. The pinned `engine_newPayloadV2` blockchain replay table now includes
-  32 official Shanghai selectors after adding selector-probed EIP-3651
-  warm-coinbase out-of-gas call variants plus EIP-3860 initcode boundary
-  cases; the pinned smoke gate executes 179 total fixture cases across state,
-  transaction, and blockchain suites.
+  cases. Transaction-end `SELFDESTRUCT` clearing now matches pre-Cancun
+  semantics before block withdrawals are applied, so official EIP-4895
+  withdrawal-to-selfdestructed-account cases align with the expected state
+  root. The pinned `engine_newPayloadV2` blockchain replay table now includes
+  44 official Shanghai selectors after adding selector-probed EIP-3651
+  warm-coinbase out-of-gas call variants, EIP-3860 initcode boundary cases,
+  and EIP-4895 withdrawal ordering/root cases; the pinned smoke gate executes
+  191 total fixture cases across state, transaction, and blockchain suites.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

@@ -1042,6 +1042,52 @@
     (is (null (state-db-get-account state recipient)))
     (is (null (state-db-get-account state withdrawal-recipient)))))
 
+(deftest block-execution-applies-withdrawals-after-selfdestruct-clearing
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (contract (address-from-hex "0x00000000000000000000000000000000000000aa"))
+         (beneficiary
+           (address-from-hex "0x00000000000000000000000000000000000000bb"))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 10))
+         (header (make-block-header :number 1
+                                    :timestamp 10
+                                    :gas-limit 100000
+                                    :base-fee-per-gas 0))
+         ;; CALLDATALOAD 0; SELFDESTRUCT to the address encoded in calldata.
+         (code #(96 0 53 #xff))
+         (transaction (make-legacy-transaction
+                       :nonce 0
+                       :gas-price 1
+                       :gas-limit 80000
+                       :to contract
+                       :data (concatenate
+                              'vector
+                              (make-byte-vector 12)
+                              (address-bytes beneficiary))))
+         (withdrawal (make-withdrawal :index 0
+                                      :validator-index 42
+                                      :address contract
+                                      :amount 99)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 1000000))
+    (state-db-set-code state contract code)
+    (state-db-set-account state contract
+                          (make-state-account :balance 7
+                                              :code-hash
+                                              (keccak-256-hash code)))
+    (execute-legacy-block state sender (list transaction)
+                          :header header
+                          :chain-config config
+                          :withdrawals (list withdrawal))
+    (let ((contract-account (state-db-get-account state contract)))
+      (is (= (* 99 +wei-per-gwei+)
+             (state-account-balance contract-account)))
+      (is (= 0 (state-account-nonce contract-account)))
+      (is (zerop (length (state-db-get-code state contract)))))
+    (is (= 7 (state-account-balance
+              (state-db-get-account state beneficiary))))))
+
 (deftest block-execution-requires-withdrawals-after-shanghai-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
