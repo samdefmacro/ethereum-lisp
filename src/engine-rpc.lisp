@@ -54,16 +54,16 @@
     (engine-rpc-bytes (genesis-object-field object name) name)))
 
 (defun engine-rpc-byte-list (values label)
-  (unless (listp values)
+  (unless (json-array-p values)
     (block-validation-fail "~A must be a list" label))
-  (loop for value in values
+  (loop for value in (json-array-values values)
         for index from 0
         collect (engine-rpc-bytes value (format nil "~A ~D" label index))))
 
 (defun engine-rpc-hash32-list (values label)
-  (unless (listp values)
+  (unless (json-array-p values)
     (block-validation-fail "~A must be a list" label))
-  (loop for value in values
+  (loop for value in (json-array-values values)
         for index from 0
         collect (engine-rpc-hash32 value (format nil "~A ~D" label index))))
 
@@ -78,9 +78,9 @@
 (defun engine-rpc-withdrawals-field (object)
   (when (genesis-object-field-present-p object "withdrawals")
     (let ((withdrawals (genesis-object-field object "withdrawals")))
-      (unless (listp withdrawals)
+      (unless (json-array-p withdrawals)
         (block-validation-fail "withdrawals must be a list"))
-      (loop for withdrawal in withdrawals
+      (loop for withdrawal in (json-array-values withdrawals)
             collect (engine-rpc-withdrawal-from-object withdrawal)))))
 
 (defun engine-rpc-withdrawal-object (withdrawal)

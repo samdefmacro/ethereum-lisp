@@ -1452,6 +1452,12 @@ splits can land after the Phase A smoke path closes.
   - Progress: moved log query and filter helpers/handlers into
     `src/public-rpc.lisp`, covering `eth_getLogs`, filter installation,
     filter changes/log retrieval, and filter uninstall.
+  - Progress: public RPC request parsing now preserves empty JSON arrays where
+    filter semantics need to distinguish them from `null`. Log filters treat
+    `topics:[[]]` and `address:[]` as empty match sets while keeping
+    `topics:[null]` as a wildcard, and common empty request arrays such as
+    `params:[]`, access lists, withdrawals, proof slots, and fee-history
+    percentiles remain accepted.
   - Result: complete. Public `web3_*`, `net_*`, `eth_*`, filter, pending
     transaction, and `txpool_*` handlers now live in `src/public-rpc.lisp`
     behind `engine-rpc-handle-public-method`; `src/core.lisp` keeps the

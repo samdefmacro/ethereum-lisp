@@ -264,7 +264,7 @@
     (error ()
       (block-validation-fail "Invalid JSON number"))))
 
-(defun parse-json (string)
+(defun parse-json (string &key preserve-empty-arrays)
   (check-type string string)
   (let ((position 0)
         (length (length string)))
@@ -364,7 +364,10 @@
            (let ((items '()))
              (when (and (peek) (char= (peek) #\]))
                (incf position)
-               (return-from parse-array '()))
+               (return-from parse-array
+                 (if preserve-empty-arrays
+                     (make-array 0)
+                     '())))
              (loop
                (push (parse-value) items)
                (skip-whitespace)
@@ -425,6 +428,19 @@
                      (or (stringp (car entry))
                          (symbolp (car entry)))))
               value)))
+
+(defun json-empty-array-p (value)
+  (and (vectorp value)
+       (zerop (length value))))
+
+(defun json-array-p (value)
+  (or (listp value)
+      (json-empty-array-p value)))
+
+(defun json-array-values (value)
+  (if (json-empty-array-p value)
+      '()
+      value))
 
 (defstruct (json-empty-object
             (:constructor make-json-empty-object ())))

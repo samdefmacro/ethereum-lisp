@@ -170,15 +170,15 @@
 (defun eth-rpc-fee-history-reward-percentiles (params method)
   (let ((percentiles (engine-rpc-required-param
                       params 2 "reward percentiles" method)))
-    (unless (listp percentiles)
+    (unless (json-array-p percentiles)
       (block-validation-fail
        "~A reward percentiles must be an array" method))
-    (when (> (length percentiles)
+    (when (> (length (json-array-values percentiles))
              +eth-rpc-max-fee-history-reward-percentiles+)
       (block-validation-fail
        "~A reward percentiles exceed the query limit" method))
     (loop with previous = nil
-          for percentile in percentiles
+          for percentile in (json-array-values percentiles)
           do (progn
                (unless (realp percentile)
                  (block-validation-fail
@@ -562,15 +562,15 @@
                (ethereum-lisp.state:state-storage-proof-proof proof)))))
 
 (defun eth-rpc-proof-storage-slots-param (value method)
-  (unless (listp value)
+  (unless (json-array-p value)
     (block-validation-fail "~A storage keys must be a list" method))
-  (when (> (length value) +eth-get-proof-max-storage-keys+)
+  (when (> (length (json-array-values value)) +eth-get-proof-max-storage-keys+)
     (block-validation-fail
      "~A storage keys must contain at most ~D entries"
      method +eth-get-proof-max-storage-keys+))
   (mapcar (lambda (slot)
             (eth-rpc-proof-storage-slot-param slot method))
-          value))
+          (json-array-values value)))
 
 (defun eth-rpc-build-proof-object (store block-hash address slots)
   (let* ((state (eth-rpc-state-db-from-chain-store store block-hash))
@@ -660,7 +660,7 @@
       (block-validation-fail
        "~A accessList storageKeys must be an array"
        method))
-    (unless (listp storage-keys)
+    (unless (json-array-p storage-keys)
       (block-validation-fail
        "~A accessList storageKeys must be an array"
        method))
@@ -674,7 +674,7 @@
      (mapcar
       (lambda (storage-key)
         (eth-rpc-call-object-access-list-storage-key storage-key method))
-      storage-keys))))
+      (json-array-values storage-keys)))))
 
 (defun eth-rpc-call-object-access-list (object method)
   (if (genesis-object-field-present-p object "accessList")
@@ -683,7 +683,7 @@
           (block-validation-fail
            "~A accessList must be an array"
            method))
-        (unless (listp access-list)
+        (unless (json-array-p access-list)
           (block-validation-fail
            "~A accessList must be an array"
            method))
@@ -691,7 +691,7 @@
          (mapcar
           (lambda (entry)
             (eth-rpc-call-object-access-list-entry entry method))
-          access-list)
+          (json-array-values access-list))
          t))
       (values '() nil)))
 
@@ -2146,17 +2146,19 @@
        (bytes= (address-bytes left) (address-bytes right))))
 
 (defun eth-rpc-log-address-match-p (log addresses)
-  (or (null addresses)
-      (some (lambda (address)
-              (eth-rpc-address= (log-entry-address log) address))
-            addresses)))
+  (and (not (eq addresses :empty-address-set))
+       (or (null addresses)
+           (some (lambda (address)
+                   (eth-rpc-address= (log-entry-address log) address))
+                 addresses))))
 
 (defun eth-rpc-log-topics-match-p (log topic-filters)
   (let ((topics (log-entry-topics log)))
     (or (null topic-filters)
         (loop for slot in topic-filters
               for index from 0
-              always (and (< index (length topics))
+              always (and (not (eq slot :empty-topic-set))
+                          (< index (length topics))
                           (or (null slot)
                               (some (lambda (topic)
                                       (hash32= (nth index topics) topic))
@@ -2177,29 +2179,33 @@
       ((null value) nil)
       ((stringp value)
        (list (eth-rpc-address-param value method "address")))
-      ((listp value)
+      ((json-empty-array-p value)
+       :empty-address-set)
+      ((json-array-p value)
        (mapcar (lambda (address)
                  (unless (stringp address)
                    (block-validation-fail
                     "~A address filter entries must be addresses" method))
                  (eth-rpc-address-param address method "address"))
-               value))
+               (json-array-values value)))
       (t
        (block-validation-fail
         "~A address filter must be an address or address array" method)))))
 
 (defun eth-rpc-log-filter-topic (value method)
   (cond
-    ((null value) nil)
-    ((stringp value)
-     (list (eth-rpc-hash-param (list value) method "topic")))
-    ((listp value)
-     (mapcar (lambda (topic)
-               (unless (stringp topic)
-                 (block-validation-fail
-                  "~A topic filter entries must be topics" method))
-               (eth-rpc-hash-param (list topic) method "topic"))
-             value))
+      ((null value) nil)
+      ((stringp value)
+       (list (eth-rpc-hash-param (list value) method "topic")))
+      ((json-empty-array-p value)
+       :empty-topic-set)
+      ((json-array-p value)
+       (mapcar (lambda (topic)
+                 (unless (stringp topic)
+                   (block-validation-fail
+                    "~A topic filter entries must be topics" method))
+                 (eth-rpc-hash-param (list topic) method "topic"))
+               (json-array-values value)))
     (t
      (block-validation-fail
       "~A topic filter slots must be null, a topic, or topic array" method))))
@@ -2208,10 +2214,10 @@
   (let ((topics (genesis-object-field filter "topics")))
     (cond
       ((null topics) nil)
-      ((listp topics)
+      ((json-array-p topics)
        (mapcar (lambda (topic)
                  (eth-rpc-log-filter-topic topic method))
-               topics))
+               (json-array-values topics)))
       (t
        (block-validation-fail
         "~A topics filter must be an array" method)))))

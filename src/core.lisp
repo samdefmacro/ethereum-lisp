@@ -6972,7 +6972,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (genesis-object-field-present-p request "method")
        (stringp (genesis-object-field request "method"))
        (or (not (genesis-object-field-present-p request "params"))
-           (listp (genesis-object-field request "params")))))
+           (json-array-p (genesis-object-field request "params")))))
 
 (defun engine-rpc-string-prefix-p (prefix string)
   (and (<= (length prefix) (length string))
@@ -7009,8 +7009,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                     (return-from engine-rpc-handle-request
                       (engine-rpc-invalid-request-response)))
                   (let* ((method (engine-rpc-required-field request "method"))
-                         (params (or (genesis-object-field request "params")
-                                     '())))
+                         (params
+                           (if (genesis-object-field-present-p request
+                                                               "params")
+                               (json-array-values
+                                (genesis-object-field request "params"))
+                               '())))
                     (unless (functionp allowed-method-p)
                       (block-validation-fail
                        "JSON-RPC method filter must be a function"))
@@ -7074,7 +7078,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   (allowed-method-p #'engine-rpc-any-method-p))
   (let ((request
           (handler-case
-              (parse-json request-json)
+              (parse-json request-json :preserve-empty-arrays t)
             (block-validation-error ()
               (return-from engine-rpc-handle-request-string
                 (engine-rpc-parse-error-response))))))

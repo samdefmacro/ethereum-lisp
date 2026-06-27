@@ -23263,14 +23263,42 @@
                  "\"topics\":[null,\"" (hash32-to-hex topic-b) "\"]}]}")
                 store
                 config))
+             (empty-topic-set-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":98,"
+                 "\"method\":\"eth_getLogs\","
+                 "\"params\":[{\"fromBlock\":\"0x1\","
+                 "\"toBlock\":\"0x1\","
+                 "\"topics\":[[]]}]}")
+                store
+                config))
+             (empty-address-set-response
+               (request
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":99,"
+                 "\"method\":\"eth_getLogs\","
+                 "\"params\":[{\"fromBlock\":\"0x1\","
+                 "\"toBlock\":\"0x1\","
+                 "\"address\":[]}]}")
+                store
+                config))
              (first-position-logs
                (field first-position-response "result"))
              (missing-second-position-logs
-               (field missing-second-position-response "result")))
+               (field missing-second-position-response "result"))
+             (empty-topic-set-logs
+               (field empty-topic-set-response "result"))
+             (empty-address-set-logs
+               (field empty-address-set-response "result")))
         (is (= 1 (length first-position-logs)))
         (is (string= (address-to-hex address)
                      (field (first first-position-logs) "address")))
-        (is (null missing-second-position-logs))))))
+        (is (null missing-second-position-logs))
+        (is (null empty-topic-set-logs))
+        (is (null empty-address-set-logs))))))
 
 (deftest eth-rpc-log-filter-defaults-to-latest
   (labels ((field (object name)
