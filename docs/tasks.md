@@ -139,6 +139,17 @@ ones.
     Prague/EIP-7702 invalid transaction cases summarized, and 14 official
     Shanghai `engineNewPayloadV2` blockchain selectors, for 101 total executed
     fixture cases.
+- [x] `PINNED-V5.4.0-STATE-INTRINSIC-GAS-WIDEN`: Continue the official
+  v5.4.0 state-transition widening with selector-probed EIP-2930 intrinsic
+  gas boundary cases that execute cleanly through the current Phase A EVM
+  path.
+  - Result (2026-06-27): added 20 more official EIP-2930 intrinsic-gas
+    selectors covering London not-enough-gas access-list combinations and
+    Shanghai enough-gas access-list combinations. The pinned smoke gate now
+    passes with 54 official state selectors, 53 official Prague/EIP-7702
+    invalid transaction cases summarized, and 14 official Shanghai
+    `engineNewPayloadV2` blockchain selectors, for 121 total executed fixture
+    cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
