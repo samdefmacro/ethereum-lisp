@@ -4791,6 +4791,10 @@ splits can land after the Phase A smoke path closes.
     authoritative and prunes prepared cache entries for those blocks. Import
     mirrors the cleanup by dropping stale prepared-payload records whose block
     is already restored as known or invalid.
+  - Progress: the live memory store now mirrors that prepared-payload cleanup:
+    publishing a known block or marking a block/head invalid removes matching
+    prepared payload ids before later `engine_getPayload*` reads or KV export
+    can observe stale build results.
   - Result: the standalone devnet smoke gate now exercises that prepared
     payload persistence across the process boundary. Each database-backed
     pinned Shanghai devnet run prepares a V2 payload through authenticated

@@ -2648,6 +2648,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (remhash key (engine-payload-memory-store-remote-blocks store))
     (setf (gethash key (engine-payload-memory-store-blocks store))
           stored-block)
+    (engine-payload-store-prune-prepared-payloads-for-block store key)
     (let ((number (block-header-number (block-header stored-block))))
       (when (and (integerp number) (not (minusp number)))
         (setf (gethash number
@@ -6656,6 +6657,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (remhash (engine-payload-store-key hash)
            (engine-payload-memory-store-remote-blocks store)))
 
+(defun engine-payload-store-prune-prepared-payloads-for-block
+    (store block-key)
+  (let ((stale-payload-id-keys nil))
+    (maphash
+     (lambda (payload-id-key prepared-payload)
+       (when (string= block-key
+                      (engine-payload-store-key
+                       (block-hash
+                        (engine-prepared-payload-block prepared-payload))))
+         (push payload-id-key stale-payload-id-keys)))
+     (engine-payload-memory-store-prepared-payloads store))
+    (dolist (payload-id-key stale-payload-id-keys)
+      (remhash payload-id-key
+               (engine-payload-memory-store-prepared-payloads store)))))
+
 (defun engine-payload-store-mark-invalid
     (store invalid-block &key head-hash)
   (unless (typep store 'engine-payload-memory-store)
@@ -6665,8 +6681,12 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((invalid-hash (block-hash invalid-block))
          (key (engine-payload-store-key (or head-hash invalid-hash))))
     (engine-payload-store-remove-remote-block store invalid-hash)
+    (engine-payload-store-prune-prepared-payloads-for-block
+     store
+     (engine-payload-store-key invalid-hash))
     (when head-hash
-      (engine-payload-store-remove-remote-block store head-hash))
+      (engine-payload-store-remove-remote-block store head-hash)
+      (engine-payload-store-prune-prepared-payloads-for-block store key))
     (setf (gethash key (engine-payload-memory-store-invalid-tipsets store))
           (engine-payload-store-copy-block invalid-block))
     invalid-block))

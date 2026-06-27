@@ -6472,6 +6472,71 @@
         (when (probe-file path)
           (delete-file path))))))
 
+(deftest chain-store-put-block-prunes-prepared-payload-cache
+  (let* ((store (make-engine-payload-memory-store))
+         (payload-id #(2 0 0 0 0 0 0 1))
+         (block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (prepared-payload
+           (make-engine-prepared-payload
+            :payload-id payload-id
+            :version 2
+            :block block)))
+    (chain-store-put-prepared-payload store prepared-payload)
+    (is (chain-store-prepared-payload store payload-id))
+    (chain-store-put-block store block)
+    (is (not (chain-store-prepared-payload store payload-id)))))
+
+(deftest engine-payload-store-mark-invalid-prunes-prepared-payload-cache
+  (let* ((store (make-engine-payload-memory-store))
+         (invalid-payload-id #(2 0 0 0 0 0 0 1))
+         (descendant-payload-id #(2 0 0 0 0 0 0 2))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (invalid-block
+           (make-block
+            :header
+            (make-block-header :number 9
+                               :timestamp 14
+                               :beneficiary address
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (descendant-block
+           (make-block
+            :header
+            (make-block-header :number 10
+                               :parent-hash (block-hash invalid-block)
+                               :timestamp 15
+                               :beneficiary address
+                               :withdrawals-root
+                               (withdrawal-list-root '()))
+            :withdrawals '()))
+         (invalid-prepared-payload
+           (make-engine-prepared-payload
+            :payload-id invalid-payload-id
+            :version 2
+            :block invalid-block))
+         (descendant-prepared-payload
+           (make-engine-prepared-payload
+            :payload-id descendant-payload-id
+            :version 2
+            :block descendant-block)))
+    (chain-store-put-prepared-payload store invalid-prepared-payload)
+    (chain-store-put-prepared-payload store descendant-prepared-payload)
+    (is (chain-store-prepared-payload store invalid-payload-id))
+    (is (chain-store-prepared-payload store descendant-payload-id))
+    (ethereum-lisp.core::engine-payload-store-mark-invalid
+     store invalid-block :head-hash (block-hash descendant-block))
+    (is (not (chain-store-prepared-payload store invalid-payload-id)))
+    (is (not (chain-store-prepared-payload store descendant-payload-id)))))
+
 (deftest chain-store-export-to-kv-prunes-known-prepared-payload-record
   (let* ((path
            (merge-pathnames
