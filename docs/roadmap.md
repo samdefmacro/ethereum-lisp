@@ -1182,20 +1182,21 @@ Detailed historical implementation notes for this section now live in
   fixture-size bounds, so the official v5.4.0 root reports 945 materializable
   London/Shanghai state selectors without exhausting the default SBCL heap on
   the large `shanghai/eip3860_initcode/test_gas_usage.json` fixture; explicit
-  selectors still load named files directly. The pinned state-transition table
-  now includes 86 official selectors after adding selector-probed EIP-2930/
+  selectors still load named files directly. Transaction execution now gates
+  EIP-3651 coinbase prewarming on Shanghai rules, so the official London fork
+  warm-coinbase gas-usage selectors no longer drift. The pinned
+  state-transition table now includes 94 official selectors after adding
+  selector-probed EIP-2930/
   access-list London/Shanghai warm/cold and intrinsic-gas boundary cases,
-  EIP-1559 transaction-validity cases, Shanghai warm-coinbase out-of-gas and
-  EXTCODE cases, and additional PUSH0 contract cases; the pinned smoke gate
-  executes 153 total fixture cases across state, transaction, and blockchain
-  suites.
+  EIP-1559 transaction-validity cases, London/Shanghai warm-coinbase gas-usage
+  cases, Shanghai warm-coinbase out-of-gas cases, and additional PUSH0 contract
+  cases; the pinned smoke gate executes 161 total fixture cases across state,
+  transaction, and blockchain suites.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
-  `engine_newPayloadV2` replay; the eight official v5.4.0 London fork
-  warm-coinbase gas-usage state selectors found during selector probing need a
-  focused state-root mismatch investigation before they can be pinned. Future
-  widening should be explicit and selector-driven.
+  `engine_newPayloadV2` replay; future widening should be explicit and
+  selector-driven.
 - *Next:* add only real upstream/pinned synchronization slices or concrete
   cross-client drift checks, not one-off local fixture hardening.
 

@@ -1744,11 +1744,17 @@
              (state-account-balance
               (state-db-get-account state sender)))))))
 
-(deftest transaction-prewarms-coinbase-address
-  (let* ((state (make-state-db))
-         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+(deftest transaction-prewarms-coinbase-address-after-shanghai
+  (let* ((sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (contract (address-from-hex "0x00000000000000000000000000000000000000ae"))
          (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
+         (london-rules (make-chain-rules :chain-id 1
+                                         :berlin-p t
+                                         :london-p t))
+         (shanghai-rules (make-chain-rules :chain-id 1
+                                           :berlin-p t
+                                           :london-p t
+                                           :shanghai-p t))
          ;; COINBASE; BALANCE.
          (code #(#x41 #x31 #x00))
          (transaction
@@ -1756,16 +1762,30 @@
             :gas-price 1
             :gas-limit 30000
             :to contract)))
-    (state-db-set-account state sender (make-state-account :balance 100000))
-    (state-db-set-account state coinbase (make-state-account :balance 7))
-    (state-db-set-code state contract code)
-    (let ((receipt (apply-message state sender transaction
-                                  :coinbase coinbase)))
-      (is (= 1 (receipt-status receipt)))
-      (is (= 21102 (receipt-cumulative-gas-used receipt)))
-      (is (= 78898
-             (state-account-balance
-              (state-db-get-account state sender)))))))
+    (flet ((run (rules)
+             (let ((state (make-state-db)))
+               (state-db-set-account state sender
+                                     (make-state-account :balance 100000))
+               (state-db-set-account state coinbase
+                                     (make-state-account :balance 7))
+               (state-db-set-code state contract code)
+               (values
+                state
+                (apply-message state sender transaction
+                               :chain-rules rules
+                               :coinbase coinbase)))))
+      (multiple-value-bind (state receipt) (run london-rules)
+        (is (= 1 (receipt-status receipt)))
+        (is (= 23602 (receipt-cumulative-gas-used receipt)))
+        (is (= 76398
+               (state-account-balance
+                (state-db-get-account state sender)))))
+      (multiple-value-bind (state receipt) (run shanghai-rules)
+        (is (= 1 (receipt-status receipt)))
+        (is (= 21102 (receipt-cumulative-gas-used receipt)))
+        (is (= 78898
+               (state-account-balance
+                (state-db-get-account state sender))))))))
 
 (deftest contract-creation-prewarms-created-address
   (let* ((state (make-state-db))
@@ -1785,10 +1805,16 @@
              (state-account-balance
               (state-db-get-account state sender)))))))
 
-(deftest contract-creation-prewarms-coinbase-address
-  (let* ((state (make-state-db))
-         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+(deftest contract-creation-prewarms-coinbase-address-after-shanghai
+  (let* ((sender (address-from-hex "0x0000000000000000000000000000000000000001"))
          (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
+         (london-rules (make-chain-rules :chain-id 1
+                                         :berlin-p t
+                                         :london-p t))
+         (shanghai-rules (make-chain-rules :chain-id 1
+                                           :berlin-p t
+                                           :london-p t
+                                           :shanghai-p t))
          ;; COINBASE; BALANCE.
          (transaction
            (make-legacy-transaction
@@ -1796,15 +1822,29 @@
             :gas-limit 60000
             :to nil
             :data #(#x41 #x31))))
-    (state-db-set-account state sender (make-state-account :balance 100000))
-    (state-db-set-account state coinbase (make-state-account :balance 7))
-    (let ((receipt (apply-message state sender transaction
-                                  :coinbase coinbase)))
-      (is (= 1 (receipt-status receipt)))
-      (is (= 53136 (receipt-cumulative-gas-used receipt)))
-      (is (= 46864
-             (state-account-balance
-              (state-db-get-account state sender)))))))
+    (flet ((run (rules)
+             (let ((state (make-state-db)))
+               (state-db-set-account state sender
+                                     (make-state-account :balance 100000))
+               (state-db-set-account state coinbase
+                                     (make-state-account :balance 7))
+               (values
+                state
+                (apply-message state sender transaction
+                               :chain-rules rules
+                               :coinbase coinbase)))))
+      (multiple-value-bind (state receipt) (run london-rules)
+        (is (= 1 (receipt-status receipt)))
+        (is (= 55634 (receipt-cumulative-gas-used receipt)))
+        (is (= 44366
+               (state-account-balance
+                (state-db-get-account state sender)))))
+      (multiple-value-bind (state receipt) (run shanghai-rules)
+        (is (= 1 (receipt-status receipt)))
+        (is (= 53136 (receipt-cumulative-gas-used receipt)))
+        (is (= 46864
+               (state-account-balance
+                (state-db-get-account state sender))))))))
 
 (deftest contract-creation-intrinsic-gas-adds-initcode-word-cost
   (let ((transaction (make-legacy-transaction :to nil

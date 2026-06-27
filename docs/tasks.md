@@ -161,12 +161,19 @@ ones.
     invalid transaction cases summarized, and 14 official Shanghai
     `engineNewPayloadV2` blockchain selectors, for 153 total executed fixture
     cases.
-- [ ] `PINNED-WARM-COINBASE-LONDON-DRIFT`: Investigate the eight official
+- [x] `PINNED-WARM-COINBASE-LONDON-DRIFT`: Investigate the eight official
   v5.4.0 London fork warm-coinbase gas-usage state selectors that currently
   fail selector probing with a state-root mismatch. Determine whether the drift
   comes from fork-rule activation, EIP-3651 warm-coinbase gating, or fixture
   harness environment construction before adding those selectors to the pinned
   table.
+  - Result (2026-06-27): fixed the transaction execution warm-address
+    initialization so coinbase is prewarmed only when Shanghai/EIP-3651 rules
+    are active. The eight London warm-coinbase gas-usage selectors now pass and
+    are pinned, bringing the pinned smoke gate to 94 official state selectors,
+    53 official Prague/EIP-7702 invalid transaction cases summarized, and 14
+    official Shanghai `engineNewPayloadV2` blockchain selectors, for 161 total
+    executed fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

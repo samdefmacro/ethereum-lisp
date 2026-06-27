@@ -452,7 +452,9 @@
     (prewarm-precompile-addresses accessed-addresses chain-rules)
     (prewarm-execution-address accessed-addresses sender)
     (prewarm-execution-address accessed-addresses destination)
-    (prewarm-execution-address accessed-addresses coinbase)
+    (when (or (null chain-rules)
+              (chain-rules-shanghai-p chain-rules))
+      (prewarm-execution-address accessed-addresses coinbase))
     (dolist (entry (transaction-access-list tx))
       (prewarm-execution-address accessed-addresses
                                  (access-list-entry-address entry)))
