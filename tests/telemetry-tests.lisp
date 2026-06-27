@@ -65,6 +65,42 @@
       (is (equal '(("endpoint" . "localhost:8551"))
                  (getf record :fields))))))
 
+#+sbcl
+(deftest stream-telemetry-sink-serializes-concurrent-writes
+  (let* ((output (make-string-output-stream))
+         (sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                :stream output))
+         (threads
+           (loop for worker below 4
+                 collect
+                 (sb-thread:make-thread
+                  (lambda ()
+                    (loop for index below 25
+                          do
+                          (ethereum-lisp.telemetry:telemetry-log
+                           :info
+                           "worker.event"
+                           :sink sink
+                           :fields
+                           `(("worker" . ,(write-to-string worker))
+                             ("index" . ,(write-to-string index))))))
+                  :name "ethereum-lisp-telemetry-writer"))))
+    (dolist (thread threads)
+      (sb-thread:join-thread thread))
+    (let ((input (make-string-input-stream
+                  (get-output-stream-string output)))
+          (records nil))
+      (loop for record = (read input nil :eof)
+            until (eq record :eof)
+            do (push record records))
+      (is (= 100 (length records)))
+      (dolist (record records)
+        (is (eq :log (getf record :kind)))
+        (is (string= "worker.event" (getf record :name)))
+        (is (eq :info (getf record :value)))
+        (is (assoc "worker" (getf record :fields) :test #'string=))
+        (is (assoc "index" (getf record :fields) :test #'string=))))))
+
 (deftest telemetry-dynamic-sink-provides-default-backend
   (let ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink)))
     (let ((ethereum-lisp.telemetry:*telemetry-sink* sink))

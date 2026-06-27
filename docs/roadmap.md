@@ -1035,7 +1035,9 @@ first pass, but interfaces must not block that path.
   Standalone devnet smoke-gate reports also carry pinned EEST source metadata
   and local reference-client commit/status metadata, and concurrent standalone
   smoke-gate processes use distinct temp files so automation can run parallel
-  checks without JWT cleanup races. Public `safe` / `finalized` block-tag
+  checks without JWT cleanup races. Stream telemetry writes are serialized, so
+  split Engine/public listener threads cannot corrupt lifecycle log records
+  while the Phase A/devnet gates parse them. Public `safe` / `finalized` block-tag
   number resolution requires explicit forkchoice checkpoint publication instead
   of falling back to `latest`, matching the geth/Nethermind checkpoint model.
   The all-fixtures devnet gate now also includes the pinned multi-transaction

@@ -19,7 +19,9 @@
 (defstruct (stream-telemetry-sink
             (:constructor %make-stream-telemetry-sink
                 (&key stream)))
-  stream)
+  stream
+  #+sbcl
+  (lock (sb-thread:make-mutex :name "telemetry stream sink")))
 
 (defun make-stream-telemetry-sink (&key (stream *standard-output*))
   (unless (output-stream-p stream)
@@ -37,18 +39,27 @@
   (push event (memory-telemetry-sink-events sink))
   event)
 
+(defun telemetry-event-record (event)
+  (list :kind (telemetry-event-kind event)
+        :name (telemetry-event-name event)
+        :value (telemetry-event-value event)
+        :fields (telemetry-event-fields event)))
+
+(defun telemetry-write-event-record (stream event)
+  (write (telemetry-event-record event)
+         :stream stream
+         :pretty nil)
+  (terpri stream)
+  (finish-output stream))
+
 (defmethod telemetry-emit
     ((sink stream-telemetry-sink) (event telemetry-event))
   (let ((stream (stream-telemetry-sink-stream sink)))
-    (write
-     (list :kind (telemetry-event-kind event)
-           :name (telemetry-event-name event)
-           :value (telemetry-event-value event)
-           :fields (telemetry-event-fields event))
-     :stream stream
-     :pretty nil)
-    (terpri stream)
-    (finish-output stream))
+    #+sbcl
+    (sb-thread:with-mutex ((stream-telemetry-sink-lock sink))
+      (telemetry-write-event-record stream event))
+    #-sbcl
+    (telemetry-write-event-record stream event))
   event)
 
 (defun telemetry-events (sink)

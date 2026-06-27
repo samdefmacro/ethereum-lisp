@@ -4889,6 +4889,11 @@ splits can land after the Phase A smoke path closes.
     JSON-RPC error-code and Engine payload-status outcomes, listener
     start/finish, and listener connection-count events without hardcoding a
     backend.
+  - Result: stream-backed telemetry sinks now serialize writes under SBCL so
+    Engine/public listener threads cannot interleave `write` / newline /
+    flush operations and corrupt devnet log files. A concurrent stream-sink
+    regression keeps the standalone and Phase A devnet smoke gates from
+    failing while reading lifecycle telemetry forms.
 
 - [x] Add CLI entry point for local devnet experiments.
   - Milestone: future node shell
