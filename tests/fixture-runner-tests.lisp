@@ -203,6 +203,22 @@
     ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-blockchain_test_engine_from_state_test-DELEGATECALL]"
      . "engineNewPayloadV2")
     ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-blockchain_test_engine_from_state_test-STATICCALL]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-CALL-insufficient_gas]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-CALL-sufficient_gas]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-CALLCODE-insufficient_gas]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-CALLCODE-sufficient_gas]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-DELEGATECALL-insufficient_gas]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-DELEGATECALL-sufficient_gas]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-STATICCALL-insufficient_gas]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-STATICCALL-sufficient_gas]"
      . "engineNewPayloadV2")))
 
 (defparameter +phase-a-eest-blockchain-replay-discovery-feature-directories+

@@ -89,9 +89,9 @@ ones.
     `.cache/eest-v5.4.0/fixtures_stable.tar.gz` with SHA256
     `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`
     and extracted to `.cache/eest-v5.4.0/root/fixtures`. The pinned smoke gate
-    now passes against that root with 14 official Shanghai state selectors,
-    53 official Prague/EIP-7702 invalid transaction cases summarized, and 14
-    official Shanghai `engineNewPayloadV2` blockchain selectors, for 81 total
+    now passes against that root with 94 official Shanghai state selectors,
+    53 official Prague/EIP-7702 invalid transaction cases summarized, and 22
+    official Shanghai `engineNewPayloadV2` blockchain selectors, for 169 total
     executed fixture cases.
 - [x] `PINNED-V5.4.0-BLOCKCHAIN-WIDEN`: Use the bounded official v5.4.0
   blockchain discovery to widen the pinned Shanghai Engine replay table with
@@ -174,6 +174,19 @@ ones.
     53 official Prague/EIP-7702 invalid transaction cases summarized, and 14
     official Shanghai `engineNewPayloadV2` blockchain selectors, for 161 total
     executed fixture cases.
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-WARM-COINBASE-OOG`: Continue explicit
+  official v5.4.0 Engine replay widening with selector-probed EIP-3651
+  warm-coinbase out-of-gas call variants that execute cleanly through
+  `engine_newPayloadV2`.
+  - Result (2026-06-27): added 8 official Shanghai
+    `engineNewPayloadV2` replay selectors covering CALL, CALLCODE,
+    DELEGATECALL, and STATICCALL warm-coinbase out-of-gas sufficient/
+    insufficient gas cases. A targeted probe replayed all 8 selectors through
+    the Engine import path and verified post-state. The pinned smoke gate now
+    covers 94 official state selectors, 53 official Prague/EIP-7702 invalid
+    transaction cases summarized, and 22 official Shanghai
+    `engineNewPayloadV2` blockchain selectors, for 169 total executed fixture
+    cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
