@@ -1058,7 +1058,10 @@ first pass, but interfaces must not block that path.
   script entrypoint is now covered from a non-repository working directory
   with absolute script/genesis paths and runner artifacts, proving stdout JSON,
   ready-file JSON, log-file lifecycle records, and pid-file output agree for
-  Hive-style temporary-directory invocation. The
+  Hive-style temporary-directory invocation. Serve-mode script invocation is
+  also covered with random bound Engine/public ports and `--max-connections 0`,
+  verifying ready/shutdown telemetry and runner artifacts agree on the actual
+  listener endpoints before and after a clean zero-connection shutdown. The
   top-level Phase A
   `--devnet` gate also validates the child report's ready/log/pid/database
   artifact paths and per-case counts before accepting the devnet suite.

@@ -316,6 +316,16 @@ ones.
     paths, lifecycle phases, and retained-state availability. This protects
     Hive-style runners that launch the devnet entrypoint from temporary
     working directories.
+- [x] `DEVNET-RUNNER-SCRIPT-SERVE-LIFECYCLE`: Lock the runner-facing script's
+  serve-mode lifecycle artifact contract.
+  - Result (2026-06-28): added subprocess coverage for
+    `scripts/ethereum-lisp.lisp -- devnet --max-connections 0` with random
+    Engine/public ports, ready/log/pid artifacts, and JSON output. The default
+    suite skips this test when local socket bind is blocked by the sandbox;
+    the same command was run with local socket escalation and verified stdout
+    JSON, ready-file JSON, pid-file output, and `devnet.ready` /
+    `devnet.shutdown` telemetry agree on bound endpoints, process id,
+    lifecycle phases, zero connection counts, and retained-state availability.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
