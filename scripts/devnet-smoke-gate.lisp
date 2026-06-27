@@ -3103,6 +3103,30 @@ references/ checkouts.~%")
                     (hash32-to-hex transaction-hash))
                   (displaced-transaction
                     (first (block-transactions child-block)))
+                  (transaction-items
+                    (loop for check in transaction-checks
+                          for transaction in (block-transactions child-block)
+                          collect
+                          (list
+                           :hash (getf check :hash)
+                           :hash-hex (hash32-to-hex (getf check :hash))
+                           :raw (getf check :raw)
+                           :reinsertable-p
+                           (not (null
+                                 (transaction-sender
+                                  transaction
+                                  :expected-chain-id
+                                  (chain-config-chain-id
+                                   (ethereum-lisp.cli:devnet-node-config
+                                    node))))))))
+                  (reinsertable-transaction-items
+                    (remove-if-not
+                     (lambda (item) (getf item :reinsertable-p))
+                     transaction-items))
+                  (reinsertable-transaction-hashes
+                    (mapcar
+                     (lambda (item) (getf item :hash-hex))
+                     reinsertable-transaction-items))
                   (side-block-hash (block-hash side-block))
                   (child-block-hash (block-hash child-block))
                   (node-chain-id
@@ -3351,6 +3375,15 @@ references/ checkouts.~%")
                           :key (lambda (transaction)
                                  (fixture-object-field transaction
                                                        "hash"))))
+                  (side-reinserted-transactions
+                    (loop for item in reinsertable-transaction-items
+                          collect
+                          (find (getf item :hash-hex)
+                                side-pending-transactions
+                                :test #'string=
+                                :key (lambda (transaction)
+                                       (fixture-object-field transaction
+                                                             "hash")))))
                   (child-block-by-hash
                     (fixture-object-field child-block-rpc "result"))
                   (side-block-receipts
@@ -3450,7 +3483,31 @@ references/ checkouts.~%")
                    (devnet-smoke-gate-require
                     (null (fixture-object-field side-pending-transaction
                                                 "transactionIndex"))
-                    "Restored side sibling pending view should not have an index"))
+                    "Restored side sibling pending view should not have an index")
+                 (loop for item in reinsertable-transaction-items
+                       for pending-transaction in side-reinserted-transactions
+                       do
+                          (devnet-smoke-gate-require
+                           pending-transaction
+                           "Restored side sibling missing displaced transaction in pending view")
+                          (devnet-smoke-gate-require
+                           (string= (getf item :hash-hex)
+                                    (fixture-object-field
+                                     pending-transaction
+                                     "hash"))
+                           "Restored side sibling displaced pending hash mismatch")
+                          (devnet-smoke-gate-require
+                           (null (fixture-object-field pending-transaction
+                                                       "blockHash"))
+                           "Restored side sibling displaced pending kept old block hash")
+                          (devnet-smoke-gate-require
+                           (null (fixture-object-field pending-transaction
+                                                       "blockNumber"))
+                           "Restored side sibling displaced pending kept old block number")
+                          (devnet-smoke-gate-require
+                           (null (fixture-object-field pending-transaction
+                                                       "transactionIndex"))
+                           "Restored side sibling displaced pending kept old index")))
                (progn
                  (devnet-smoke-gate-require
                   (null side-transaction)
@@ -3715,6 +3772,15 @@ references/ checkouts.~%")
                             :key (lambda (transaction)
                                    (fixture-object-field transaction
                                                          "hash"))))
+                    (fresh-reinserted-transactions
+                      (loop for item in reinsertable-transaction-items
+                            collect
+                            (find (getf item :hash-hex)
+                                  fresh-pending-transactions
+                                  :test #'string=
+                                  :key (lambda (transaction)
+                                         (fixture-object-field transaction
+                                                               "hash")))))
                     (fresh-latest-block
                       (fixture-object-field fresh-latest-block-rpc "result"))
                     (fresh-child-block
@@ -3819,7 +3885,31 @@ references/ checkouts.~%")
                      (devnet-smoke-gate-require
                       (null (fixture-object-field fresh-pending-transaction
                                                   "transactionIndex"))
-                      "Fresh side-reorg restore pending view kept old index"))
+                      "Fresh side-reorg restore pending view kept old index")
+                     (loop for item in reinsertable-transaction-items
+                           for pending-transaction in fresh-reinserted-transactions
+                           do
+                              (devnet-smoke-gate-require
+                               pending-transaction
+                               "Fresh side-reorg restore missing displaced transaction in pending view")
+                              (devnet-smoke-gate-require
+                               (string= (getf item :hash-hex)
+                                        (fixture-object-field
+                                         pending-transaction
+                                         "hash"))
+                               "Fresh side-reorg restore displaced pending hash mismatch")
+                              (devnet-smoke-gate-require
+                               (null (fixture-object-field pending-transaction
+                                                           "blockHash"))
+                               "Fresh side-reorg restore displaced pending kept old block hash")
+                              (devnet-smoke-gate-require
+                               (null (fixture-object-field pending-transaction
+                                                           "blockNumber"))
+                               "Fresh side-reorg restore displaced pending kept old block number")
+                              (devnet-smoke-gate-require
+                               (null (fixture-object-field pending-transaction
+                                                           "transactionIndex"))
+                               "Fresh side-reorg restore displaced pending kept old index")))
                  (progn
                    (devnet-smoke-gate-require
                     (null fresh-raw-transaction)
@@ -3894,6 +3984,14 @@ references/ checkouts.~%")
                      (or side-raw-transaction :false)
                      :side-pending-transaction
                      (or side-pending-transaction :false)
+                     :side-reinserted-transaction-count
+                     (if reinsertable-transaction-p
+                         (length reinsertable-transaction-items)
+                         :false)
+                     :side-reinserted-transaction-hashes
+                     (if reinsertable-transaction-p
+                         reinsertable-transaction-hashes
+                         :false)
                      :side-receipt
                      (or (fixture-object-field side-receipt-rpc "result")
                          :false)
@@ -3936,6 +4034,14 @@ references/ checkouts.~%")
                      (or fresh-raw-transaction :false)
                      :side-restored-pending-transaction
                      (or fresh-pending-transaction :false)
+                     :side-restored-reinserted-transaction-count
+                     (if reinsertable-transaction-p
+                         (length reinsertable-transaction-items)
+                         :false)
+                     :side-restored-reinserted-transaction-hashes
+                     (if reinsertable-transaction-p
+                         reinsertable-transaction-hashes
+                         :false)
                      :side-restored-receipt
                      (or (fixture-object-field fresh-receipt-rpc "result")
                          :false)
@@ -4428,6 +4534,14 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-pending-transaction))
+                  :rpc-side-reinserted-transaction-count
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-reinserted-transaction-count))
+                  :rpc-side-reinserted-transaction-hashes
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-reinserted-transaction-hashes))
                   :rpc-side-receipt
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary :side-receipt))
@@ -4506,6 +4620,14 @@ references/ checkouts.~%")
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
                              :side-restored-pending-transaction))
+                  :rpc-side-restored-reinserted-transaction-count
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-reinserted-transaction-count))
+                  :rpc-side-restored-reinserted-transaction-hashes
+                  (and side-reorg-rpc-summary
+                       (getf side-reorg-rpc-summary
+                             :side-restored-reinserted-transaction-hashes))
                   :rpc-side-restored-receipt
                   (and side-reorg-rpc-summary
                        (getf side-reorg-rpc-summary
@@ -5987,6 +6109,18 @@ references/ checkouts.~%")
                                       :rpc-side-pending-transaction)
                                 :false)
                             :false))
+                  (cons "databaseRpcSideReinsertedTransactionCount"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-reinserted-transaction-count)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideReinsertedTransactionHashes"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-reinserted-transaction-hashes)
+                                :false)
+                            :false))
                   (cons "databaseRpcSideReceipt"
                         (if database-summary
                             (or (getf database-summary :rpc-side-receipt)
@@ -6104,6 +6238,18 @@ references/ checkouts.~%")
                         (if database-summary
                             (or (getf database-summary
                                       :rpc-side-restored-pending-transaction)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredReinsertedTransactionCount"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-reinserted-transaction-count)
+                                :false)
+                            :false))
+                  (cons "databaseRpcSideRestoredReinsertedTransactionHashes"
+                        (if database-summary
+                            (or (getf database-summary
+                                      :rpc-side-restored-reinserted-transaction-hashes)
                                 :false)
                             :false))
                   (cons "databaseRpcSideRestoredReceipt"

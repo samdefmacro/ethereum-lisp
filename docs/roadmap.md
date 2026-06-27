@@ -340,9 +340,10 @@ fixes in those areas are allowed; expansion is not.
   side probes and reports `sideReorgCaseCount` as zero instead of implying
   coverage it did not execute; a separate top-level `devnetSideReorg` suite
   now runs non-pruned database-backed side-reorg probes for the balance-changing
-  transfer case and the log-producing contract-call case, so the Phase A
-  parent gate covers both pruned retained-state behavior and restored reorg
-  behavior in the same command. Each side-reorg report distinguishes child-head
+  transfer case, the two-transaction legacy-transfer case, and the
+  log-producing contract-call case, so the Phase A parent gate covers both
+  pruned retained-state behavior and restored reorg behavior in the same
+  command. Each side-reorg report distinguishes child-head
   `checkedBalance` from checkpoint-state `checkedCheckpointBalance`, so
   restored `safe` / `finalized` balance checks can cover balance-changing
   payloads without conflating head state with checkpoint state. The parent gate
@@ -355,7 +356,11 @@ fixes in those areas are allowed; expansion is not.
   stay block-readable while balance, nonce, code, storage, proof, call,
   estimate-gas, and access-list requests with `requireCanonical=true` reject
   them as non-canonical, so EIP-1898 state reads cannot silently follow a
-  displaced branch after database restore.
+  displaced branch after database restore. Multi-transaction side-reorg
+  reports now also carry reinserted transaction hash arrays and counts before
+  and after fresh restore, locking that every transaction displaced by the old
+  canonical child re-enters pending visibility, not only the first receipt
+  sampled by legacy summary fields.
 - **Next checkpoint:** keep the current bounded Shanghai smoke gate stable and
   widen only through explicit upstream/pinned synchronization slices or
   concrete cross-client drift. The selected

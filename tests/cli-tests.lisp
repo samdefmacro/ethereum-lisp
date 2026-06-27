@@ -8,6 +8,7 @@
 
 (defparameter +devnet-side-reorg-smoke-case-names+
   '("shanghai-one-transfer-with-withdrawal"
+    "shanghai-two-legacy-transfers-with-withdrawal"
     "shanghai-log-contract-call-with-withdrawal"))
 
 (defvar *devnet-cli-temp-counter* 0)
@@ -175,6 +176,8 @@
                          "databaseRpcSideTransactionByHash"
                          "databaseRpcSideRawTransaction"
                          "databaseRpcSidePendingTransaction"
+                         "databaseRpcSideReinsertedTransactionCount"
+                         "databaseRpcSideReinsertedTransactionHashes"
                          "databaseRpcSideReceipt"
                          "databaseRpcSideChildBlockHash"
                          "databaseRpcSideBlockReceiptsCount"
@@ -195,6 +198,8 @@
                          "databaseRpcSideRestoredFinalizedBalance"
                          "databaseRpcSideRestoredRawTransaction"
                          "databaseRpcSideRestoredPendingTransaction"
+                         "databaseRpcSideRestoredReinsertedTransactionCount"
+                         "databaseRpcSideRestoredReinsertedTransactionHashes"
                          "databaseRpcSideRestoredReceipt"
                          "databaseRpcSideRestoredChildBlockHash"
                          "databaseRpcSideRestoredChildRequireCanonicalError"
@@ -374,6 +379,26 @@
                         (fixture-object-field
                          report
                          "databaseRpcSideRestoredPendingTransaction")))))
+          (when (fixture-object-field report
+                                      "databaseRpcSideTransactionReinserted")
+            (is (= (fixture-object-field report "databaseRpcTransactionCount")
+                   (fixture-object-field
+                    report "databaseRpcSideReinsertedTransactionCount")))
+            (is (= (fixture-object-field report "databaseRpcTransactionCount")
+                   (fixture-object-field
+                    report
+                    "databaseRpcSideRestoredReinsertedTransactionCount")))
+            (is (equal (fixture-object-field
+                        report "databaseRpcSideReinsertedTransactionHashes")
+                       (fixture-object-field
+                        report
+                        "databaseRpcSideRestoredReinsertedTransactionHashes")))
+            (is (member (fixture-object-field
+                         report "databaseRpcReceiptTransactionHash")
+                        (fixture-object-field
+                         report
+                         "databaseRpcSideReinsertedTransactionHashes")
+                        :test #'string=)))
           (is (eq nil
                   (fixture-object-field report "databaseRpcSideReceipt")))
           (is (eq nil
@@ -3021,7 +3046,25 @@
             (when log-case
               (is (= 1 (fixture-object-field log-case "checkedLogCount")))
               (is (= 1 (fixture-object-field
-                        log-case "databaseRpcLogCount"))))))
+                        log-case "databaseRpcLogCount")))))
+          (let ((two-transfer-case
+                  (find "shanghai-two-legacy-transfers-with-withdrawal"
+                        side-reorg-cases
+                        :key (lambda (case)
+                               (fixture-object-field case "fixtureCase"))
+                        :test #'string=)))
+            (is two-transfer-case)
+            (when two-transfer-case
+              (is (= 2 (fixture-object-field
+                        two-transfer-case
+                        "databaseRpcSideReinsertedTransactionCount")))
+              (is (= 2 (fixture-object-field
+                        two-transfer-case
+                        "databaseRpcSideRestoredReinsertedTransactionCount")))
+              (is (= 2 (length
+                        (fixture-object-field
+                         two-transfer-case
+                         "databaseRpcSideReinsertedTransactionHashes")))))))
         (is (= (* 5 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))

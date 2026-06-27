@@ -20,6 +20,7 @@
 (defconstant +smoke-gate-devnet-prune-state-before+ 42)
 (defparameter +smoke-gate-devnet-side-reorg-fixture-cases+
   '("shanghai-one-transfer-with-withdrawal"
+    "shanghai-two-legacy-transfers-with-withdrawal"
     "shanghai-log-contract-call-with-withdrawal"))
 
 (defun smoke-gate-arguments ()
@@ -437,6 +438,8 @@ references/ checkouts.~%"))
     "databaseRpcSideTransactionByHash"
     "databaseRpcSideRawTransaction"
     "databaseRpcSidePendingTransaction"
+    "databaseRpcSideReinsertedTransactionCount"
+    "databaseRpcSideReinsertedTransactionHashes"
     "databaseRpcSideReceipt"
     "databaseRpcSideChildBlockHash"
     "databaseRpcSideBlockReceiptsCount"
@@ -457,6 +460,8 @@ references/ checkouts.~%"))
     "databaseRpcSideRestoredFinalizedBalance"
     "databaseRpcSideRestoredRawTransaction"
     "databaseRpcSideRestoredPendingTransaction"
+    "databaseRpcSideRestoredReinsertedTransactionCount"
+    "databaseRpcSideRestoredReinsertedTransactionHashes"
     "databaseRpcSideRestoredReceipt"
     "databaseRpcSideRestoredChildBlockHash"
     "databaseRpcSideRestoredChildRequireCanonicalError"
@@ -544,7 +549,12 @@ references/ checkouts.~%"))
   (if (not (smoke-gate-false-p
             (smoke-gate-field
              case-report "databaseRpcSideTransactionReinserted")))
-      (progn
+      (let ((expected-hash
+              (smoke-gate-field case-report
+                                "databaseRpcReceiptTransactionHash"))
+            (expected-count
+              (smoke-gate-field case-report
+                                "databaseRpcTransactionCount")))
         (smoke-gate-devnet-case-require-side-pending-object
          case-report "databaseRpcSideTransactionByHash")
         (smoke-gate-devnet-case-require-field
@@ -558,12 +568,38 @@ references/ checkouts.~%"))
          "databaseRpcSideRestoredRawTransaction"
          (smoke-gate-field case-report "databaseRpcRawTransactionByHash"))
         (smoke-gate-devnet-case-require-side-pending-object
-         case-report "databaseRpcSideRestoredPendingTransaction"))
+         case-report "databaseRpcSideRestoredPendingTransaction")
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideReinsertedTransactionCount"
+         expected-count)
+        (smoke-gate-devnet-case-require-field
+         case-report "databaseRpcSideRestoredReinsertedTransactionCount"
+         expected-count)
+        (smoke-gate-devnet-case-require-field
+         case-report
+         "databaseRpcSideReinsertedTransactionHashes"
+         (smoke-gate-field
+          case-report "databaseRpcSideRestoredReinsertedTransactionHashes"))
+        (unless (member expected-hash
+                        (smoke-gate-field
+                         case-report
+                         "databaseRpcSideReinsertedTransactionHashes")
+                        :test #'string=)
+          (error "Devnet smoke gate case ~A reinserted transaction hashes ~S must include ~S"
+                 (smoke-gate-devnet-case-label case-report)
+                 (smoke-gate-field
+                  case-report
+                  "databaseRpcSideReinsertedTransactionHashes")
+                 expected-hash)))
       (dolist (field '("databaseRpcSideTransactionByHash"
                        "databaseRpcSideRawTransaction"
                        "databaseRpcSidePendingTransaction"
+                       "databaseRpcSideReinsertedTransactionCount"
+                       "databaseRpcSideReinsertedTransactionHashes"
                        "databaseRpcSideRestoredRawTransaction"
-                       "databaseRpcSideRestoredPendingTransaction"))
+                       "databaseRpcSideRestoredPendingTransaction"
+                       "databaseRpcSideRestoredReinsertedTransactionCount"
+                       "databaseRpcSideRestoredReinsertedTransactionHashes"))
         (smoke-gate-devnet-case-require-false case-report field))))
 
 (defun smoke-gate-devnet-validate-side-reorg-case (case-report)

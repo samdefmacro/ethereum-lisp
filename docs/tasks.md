@@ -5076,14 +5076,14 @@ splits can land after the Phase A smoke path closes.
     gate and top-level Phase A `--devnet` gate now pass and verify pid files
     alongside ready/log/database artifacts.
   - Result: widened the top-level Phase A dedicated side-reorg process gate
-    from a single transfer probe to a two-case suite. `devnetSideReorg` now
-    runs the existing non-pruned database-backed side-reorg contract for both
-    `shanghai-one-transfer-with-withdrawal` and the log-producing
-    `shanghai-log-contract-call-with-withdrawal`, reports per-case summaries
-    under `cases`, and counts ready/log/pid/database/side-reorg evidence
-    across the suite. The added case proves restored reorg persistence also
-    hides displaced receipts/logs and preserves pending reinsertion for an
-    executable-code/log payload.
+    from a two-case suite to three cases. `devnetSideReorg` now also runs
+    `shanghai-two-legacy-transfers-with-withdrawal`, reports reinserted
+    transaction hash arrays plus counts for both the immediate side switch and
+    the fresh database restore, and requires those counts to match the
+    original block transaction count. The suite now proves restored reorg
+    persistence hides displaced receipts/logs while preserving pending
+    reinsertion for balance-changing, multi-transaction, and
+    executable-code/log payloads.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8
