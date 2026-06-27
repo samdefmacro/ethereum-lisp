@@ -90,9 +90,18 @@ ones.
     `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`
     and extracted to `.cache/eest-v5.4.0/root/fixtures`. The pinned smoke gate
     now passes against that root with 14 official Shanghai state selectors,
-    53 official Prague/EIP-7702 invalid transaction cases summarized, and one
-    official Shanghai `engineNewPayloadV2` blockchain selector, for 68 total
+    53 official Prague/EIP-7702 invalid transaction cases summarized, and 12
+    official Shanghai `engineNewPayloadV2` blockchain selectors, for 79 total
     executed fixture cases.
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-WIDEN`: Use the bounded official v5.4.0
+  blockchain discovery to widen the pinned Shanghai Engine replay table with
+  selector-probed cases that execute cleanly through the current import path.
+  - Result (2026-06-27): added 11 more official Shanghai
+    `engineNewPayloadV2` replay selectors covering EIP-2930 access-list
+    boundaries plus PUSH0 and warm-coinbase Engine payloads. A local probe also
+    found two DELEGATECALL-shaped candidate selectors with state-root drift;
+    they are not included in the green pinned table and should be investigated
+    separately before widening further in that direction.
 - [x] `PINNED-BLOCKCHAIN-DISCOVERY-BOUND`: Keep official v5.4.0 blockchain
   selector discovery usable under the default SBCL heap while excluding
   Phase A-out-of-scope far-fork and oversized fixture files from automatic

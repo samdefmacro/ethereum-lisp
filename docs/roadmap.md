@@ -1164,8 +1164,8 @@ Detailed historical implementation notes for this section now live in
   `fixtures_stable.tar.gz` archive is cached under
   `.cache/eest-v5.4.0/` and extracted at `.cache/eest-v5.4.0/root/fixtures`;
   the pinned smoke gate passes there with 14 Shanghai state selectors,
-  53 Prague/EIP-7702 invalid transaction cases, and one Shanghai
-  `engineNewPayloadV2` blockchain selector. The fixture report and
+  53 Prague/EIP-7702 invalid transaction cases, and 12 Shanghai
+  `engineNewPayloadV2` blockchain selectors. The fixture report and
   selector-listing scripts now use the same configured-root error
   classification when either `--root PATH` or the environment variable points
   to a nonexistent path. Automatic blockchain selector discovery now bounds
@@ -1174,7 +1174,10 @@ Detailed historical implementation notes for this section now live in
   default SBCL heap and the bounded automatic scan reports 362 materializable
   Shanghai `engineNewPayloadV2` selectors without parsing Cancun/blob or
   oversized out-of-scope files; explicit selectors still load named files
-  directly.
+  directly. The wider pinned blockchain table now includes selector-probed
+  EIP-2930, PUSH0, and warm-coinbase Engine payloads; two DELEGATECALL-shaped
+  candidates remain outside the green table because they currently produce
+  state-root drift.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
