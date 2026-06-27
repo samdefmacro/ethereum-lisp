@@ -4957,6 +4957,12 @@ splits can land after the Phase A smoke path closes.
     `--port` compatibility. The JSON summary, ready file, and lifecycle log
     contract now verify the explicit Engine/public endpoint split for
     no-serve runner probes.
+  - Result: tightened the Hive-style endpoint split so `--engine-host`
+    changes only the authenticated Engine listener while the public RPC host
+    keeps its default unless `--public-host` or legacy `--host` is supplied.
+    CLI coverage preserves the old `--host` shared-host compatibility while
+    preventing Engine-only runner configuration from unintentionally exposing
+    the public endpoint on the Engine host.
   - Result: wired the serving path to run both split services instead of only
     advertising the public endpoint. `start-devnet-node` now creates Engine
     and public socket listeners and runs the Engine listener on an SBCL worker

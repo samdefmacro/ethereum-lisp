@@ -439,6 +439,7 @@
   (let ((genesis-path nil)
         (host "127.0.0.1")
         (port +engine-rpc-default-http-port+)
+        (default-public-host "127.0.0.1")
         (public-host nil)
         (public-port +devnet-default-public-rpc-port+)
         (jwt-secret-path nil)
@@ -459,8 +460,11 @@
                ((string= option "--genesis")
                 (multiple-value-setq (genesis-path args)
                   (devnet-cli-next-value args option)))
-               ((or (string= option "--host")
-                    (string= option "--engine-host"))
+               ((string= option "--host")
+                (multiple-value-setq (host args)
+                  (devnet-cli-next-value args option))
+                (setf default-public-host host))
+               ((string= option "--engine-host")
                 (multiple-value-setq (host args)
                   (devnet-cli-next-value args option)))
                ((or (string= option "--port")
@@ -513,7 +517,7 @@
     (list :genesis-path genesis-path
           :host host
           :port port
-          :public-host (or public-host host)
+          :public-host (or public-host default-public-host)
           :public-port public-port
           :jwt-secret-path jwt-secret-path
           :database-path database-path

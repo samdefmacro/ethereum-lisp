@@ -1607,6 +1607,44 @@
       (when (probe-file log-path)
         (delete-file log-path)))))
 
+(deftest devnet-cli-main-engine-host-does-not-rewrite-public-default
+  (let ((engine-output (make-string-output-stream))
+        (engine-errors (make-string-output-stream))
+        (host-output (make-string-output-stream))
+        (host-errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  "--genesis" +devnet-cli-genesis-fixture+
+                  "--engine-host" "192.0.2.10"
+                  "--engine-port" "9551"
+                  "--json"
+                  "--no-serve")
+            :output-stream engine-output
+            :error-stream engine-errors)))
+    (is (string= "" (get-output-stream-string engine-errors)))
+    (let ((summary (parse-json (get-output-stream-string engine-output))))
+      (is (string= "192.0.2.10:9551"
+                   (fixture-object-field summary "engineEndpoint")))
+      (is (string= "127.0.0.1:8545"
+                   (fixture-object-field summary "rpcEndpoint"))))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  "--genesis" +devnet-cli-genesis-fixture+
+                  "--host" "192.0.2.20"
+                  "--port" "9552"
+                  "--json"
+                  "--no-serve")
+            :output-stream host-output
+            :error-stream host-errors)))
+    (is (string= "" (get-output-stream-string host-errors)))
+    (let ((summary (parse-json (get-output-stream-string host-output))))
+      (is (string= "192.0.2.20:9552"
+                   (fixture-object-field summary "engineEndpoint")))
+      (is (string= "192.0.2.20:8545"
+                   (fixture-object-field summary "rpcEndpoint"))))))
+
 (deftest devnet-cli-main-log-file-records-ready-event
   (let ((ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
         (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
