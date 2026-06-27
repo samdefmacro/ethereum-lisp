@@ -1033,7 +1033,10 @@ first pass, but interfaces must not block that path.
   to infer startup versus exit records solely from event names. The same
   lifecycle records now expose `engineConnections`, `publicConnections`, and
   `totalConnections`, with serve-mode shutdown logs recording the actual split
-  listener summary for runner accounting. The CLI also supports a
+  listener summary for runner accounting. The standalone devnet gate now also
+  reports concrete HTTP loopback `engineEndpoint` / `rpcEndpoint` values and
+  validates that ready files and lifecycle telemetry carry those same endpoints
+  rather than placeholder listener names. The CLI also supports a
   Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
   telemetry, and the standalone plus Phase A devnet smoke gates verify the
   pid-file process id against readiness/log metadata. The top-level Phase A

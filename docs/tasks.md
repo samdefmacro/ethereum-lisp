@@ -264,6 +264,13 @@ ones.
     100 pinned selectors, and classified the first four unpinned
     `frontier/opcodes/test_swap.json` selectors as passing without pinning
     them.
+- [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
+  runner contract so readiness/log artifacts expose and validate concrete
+  loopback Engine/public RPC endpoints rather than placeholder listener names.
+  - Result (2026-06-28): `scripts/devnet-smoke-gate.lisp` now reports
+    `engineEndpoint` / `rpcEndpoint` as HTTP loopback endpoints, validates the
+    same values in ready files and lifecycle telemetry, and the CLI regression
+    suite asserts those fields in the runner-facing smoke report.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

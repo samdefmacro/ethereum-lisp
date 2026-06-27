@@ -73,6 +73,8 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-txpool-value+ 1)
 (defconstant +devnet-smoke-gate-txpool-recipient+
   "0x0000000000000000000000000000000000003001")
+(defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
+(defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 
 (defun devnet-smoke-gate-arguments ()
   #+sbcl
@@ -835,15 +837,31 @@ references/ checkouts.~%")
        (> (length code) 2)
        (not (string= code "0x00"))))
 
+(defun devnet-smoke-gate-http-endpoint-p (endpoint)
+  (and (stringp endpoint)
+       (or (uiop:string-prefix-p "http://127.0.0.1:" endpoint)
+           (uiop:string-prefix-p "http://localhost:" endpoint))))
+
 (defun devnet-smoke-gate-verify-ready-file
-    (path expected-head-number expected-head-hash)
+    (path expected-head-number expected-head-hash
+     &key expected-engine-endpoint expected-rpc-endpoint)
   (let ((summary (parse-json (devnet-smoke-gate-file-string path))))
     (devnet-smoke-gate-require
-     (string= "engine" (fixture-object-field summary "engineEndpoint"))
+     (string= (or expected-engine-endpoint +devnet-smoke-gate-engine-endpoint+)
+              (fixture-object-field summary "engineEndpoint"))
      "Ready file Engine endpoint mismatch")
     (devnet-smoke-gate-require
-     (string= "public" (fixture-object-field summary "rpcEndpoint"))
+     (string= (or expected-rpc-endpoint +devnet-smoke-gate-public-endpoint+)
+              (fixture-object-field summary "rpcEndpoint"))
      "Ready file public RPC endpoint mismatch")
+    (devnet-smoke-gate-require
+     (devnet-smoke-gate-http-endpoint-p
+      (fixture-object-field summary "engineEndpoint"))
+     "Ready file Engine endpoint must be an HTTP loopback endpoint")
+    (devnet-smoke-gate-require
+     (devnet-smoke-gate-http-endpoint-p
+      (fixture-object-field summary "rpcEndpoint"))
+     "Ready file public RPC endpoint must be an HTTP loopback endpoint")
     (devnet-smoke-gate-require
      (eq t (fixture-object-field summary "authRequired"))
      "Ready file must report authenticated Engine RPC")
@@ -888,7 +906,8 @@ references/ checkouts.~%")
 
 (defun devnet-smoke-gate-verify-log-file
     (path ready-head-number ready-head-hash shutdown-head-number
-     shutdown-head-hash &key expected-process-id expected-connection-summary)
+     shutdown-head-hash &key expected-process-id expected-connection-summary
+       expected-engine-endpoint expected-rpc-endpoint)
   (let* ((records (devnet-smoke-gate-file-forms path))
          (names (mapcar (lambda (record) (getf record :name)) records)))
     (devnet-smoke-gate-require
@@ -908,13 +927,23 @@ references/ checkouts.~%")
                (expected-head-hash
                  (if ready-p ready-head-hash shutdown-head-hash)))
           (devnet-smoke-gate-require
-           (string= "engine"
+           (string= (or expected-engine-endpoint
+                        +devnet-smoke-gate-engine-endpoint+)
                     (cdr (assoc "engineEndpoint" fields :test #'string=)))
            "Log file Engine endpoint mismatch")
           (devnet-smoke-gate-require
-           (string= "public"
+           (string= (or expected-rpc-endpoint
+                        +devnet-smoke-gate-public-endpoint+)
                     (cdr (assoc "rpcEndpoint" fields :test #'string=)))
            "Log file public RPC endpoint mismatch")
+          (devnet-smoke-gate-require
+           (devnet-smoke-gate-http-endpoint-p
+            (cdr (assoc "engineEndpoint" fields :test #'string=)))
+           "Log file Engine endpoint must be an HTTP loopback endpoint")
+          (devnet-smoke-gate-require
+           (devnet-smoke-gate-http-endpoint-p
+            (cdr (assoc "rpcEndpoint" fields :test #'string=)))
+           "Log file public RPC endpoint must be an HTTP loopback endpoint")
           (devnet-smoke-gate-require
            (string= (if ready-p "ready" "shutdown")
                     (cdr (assoc "lifecyclePhase" fields :test #'string=)))
@@ -5132,7 +5161,7 @@ references/ checkouts.~%")
                      (ethereum-lisp.cli:start-devnet-node-listeners
                       node
                       (make-engine-rpc-http-listener
-                       :endpoint "engine"
+                       :endpoint +devnet-smoke-gate-engine-endpoint+
                        :accept-function
                        (lambda ()
                          (when engine-requests
@@ -5151,7 +5180,7 @@ references/ checkouts.~%")
                                   (setf engine-done-p t)))))))
                        :close-function (lambda () nil))
                       (make-engine-rpc-http-listener
-                       :endpoint "public"
+                       :endpoint +devnet-smoke-gate-public-endpoint+
                        :accept-function
                        (lambda ()
                          (loop until engine-done-p
@@ -5192,8 +5221,8 @@ references/ checkouts.~%")
                  (ethereum-lisp.cli::devnet-cli-log-event
                   node
                   "devnet.shutdown"
-                  :engine-endpoint "engine"
-                  :rpc-endpoint "public"
+                  :engine-endpoint +devnet-smoke-gate-engine-endpoint+
+                  :rpc-endpoint +devnet-smoke-gate-public-endpoint+
                   :connection-summary summary))
                (let* ((new-payload-response
                         (get-output-stream-string new-payload-output))
@@ -5707,6 +5736,8 @@ references/ checkouts.~%")
                   (cons "checkedProofStorageValue"
                         (quantity-to-hex (hex-to-quantity expected-storage)))
                   (cons "readyFile" (or ready-file :false))
+                  (cons "engineEndpoint" +devnet-smoke-gate-engine-endpoint+)
+                  (cons "rpcEndpoint" +devnet-smoke-gate-public-endpoint+)
                   (cons "logFile" (or log-file :false))
                   (cons "pidFile" (or pid-file :false))
                   (cons "databaseFile" (or database-file :false))
@@ -6478,7 +6509,11 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-verify-ready-file
                          ready-file
                          (devnet-smoke-gate-field report "safeBlockNumber")
-                         (devnet-smoke-gate-field report "safeBlockHash"))))
+                         (devnet-smoke-gate-field report "safeBlockHash")
+                         :expected-engine-endpoint
+                         (devnet-smoke-gate-field report "engineEndpoint")
+                         :expected-rpc-endpoint
+                         (devnet-smoke-gate-field report "rpcEndpoint"))))
                     (ready-process-id
                       (and ready-summary
                            (fixture-object-field ready-summary "processId")))
@@ -6503,7 +6538,11 @@ references/ checkouts.~%")
                         :public-connections
                         (fixture-object-field report "publicConnections")
                         :total-connections
-                        (fixture-object-field report "totalConnections"))))
+                        (fixture-object-field report "totalConnections"))
+                  :expected-engine-endpoint
+                  (devnet-smoke-gate-field report "engineEndpoint")
+                  :expected-rpc-endpoint
+                  (devnet-smoke-gate-field report "rpcEndpoint")))
                report)))
       (when (probe-file jwt-path)
         (delete-file jwt-path))))

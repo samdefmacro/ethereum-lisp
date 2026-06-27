@@ -1985,6 +1985,10 @@
                             (fixture-object-field report "logFile")))
                (is (string= (namestring pid-path)
                             (fixture-object-field report "pidFile")))
+               (is (string= "http://127.0.0.1:8551"
+                            (fixture-object-field report "engineEndpoint")))
+               (is (string= "http://127.0.0.1:8545"
+                            (fixture-object-field report "rpcEndpoint")))
                (is (= (fixture-object-field ready-summary "processId")
                       (devnet-cli-pid-file-process-id pid-path)))
                (is (string= (namestring database-path)
@@ -2265,10 +2269,10 @@
                                  database :txpool))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :canonical-hash))))
-               (is (string= "engine"
+               (is (string= "http://127.0.0.1:8551"
                             (fixture-object-field ready-summary
                                                   "engineEndpoint")))
-               (is (string= "public"
+               (is (string= "http://127.0.0.1:8545"
                             (fixture-object-field ready-summary
                                                   "rpcEndpoint")))
                (is (integerp (fixture-object-field ready-summary
@@ -2317,6 +2321,13 @@
                                               :test #'string=))))
                      (is (string= (if ready-p "ready" "shutdown")
                                   (cdr (assoc "lifecyclePhase" fields
+                                              :test #'string=))))
+                     (is (string= (fixture-object-field report
+                                                        "engineEndpoint")
+                                  (cdr (assoc "engineEndpoint" fields
+                                              :test #'string=))))
+                     (is (string= (fixture-object-field report "rpcEndpoint")
+                                  (cdr (assoc "rpcEndpoint" fields
                                               :test #'string=))))
                      (is (string= (write-to-string
                                     (fixture-object-field ready-summary
