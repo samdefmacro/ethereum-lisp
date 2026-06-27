@@ -1191,9 +1191,10 @@ Detailed historical implementation notes for this section now live in
   EIP-1559 transaction-validity cases, London/Shanghai warm-coinbase gas-usage
   cases, Shanghai warm-coinbase out-of-gas cases, and additional PUSH0 contract
   cases. The pinned `engine_newPayloadV2` blockchain replay table now includes
-  22 official Shanghai selectors after adding selector-probed EIP-3651
-  warm-coinbase out-of-gas call variants; the pinned smoke gate executes 169
-  total fixture cases across state, transaction, and blockchain suites.
+  32 official Shanghai selectors after adding selector-probed EIP-3651
+  warm-coinbase out-of-gas call variants plus EIP-3860 initcode boundary
+  cases; the pinned smoke gate executes 179 total fixture cases across state,
+  transaction, and blockchain suites.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

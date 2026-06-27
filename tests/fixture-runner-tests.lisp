@@ -219,6 +219,26 @@
     ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-STATICCALL-insufficient_gas]"
      . "engineNewPayloadV2")
     ("shanghai/eip3651_warm_coinbase/test_warm_coinbase_call_out_of_gas.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_call_out_of_gas[fork_Shanghai-blockchain_test_engine_from_state_test-STATICCALL-sufficient_gas]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_contract_creating_tx.json/tests/shanghai/eip3860_initcode/test_initcode.py::test_contract_creating_tx[fork_Shanghai-blockchain_test_engine_from_state_test-max_size_ones]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_contract_creating_tx.json/tests/shanghai/eip3860_initcode/test_initcode.py::test_contract_creating_tx[fork_Shanghai-blockchain_test_engine_from_state_test-max_size_zeros]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-empty_code-opcode_CREATE]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-empty_code-opcode_CREATE2]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-empty_initcode-opcode_CREATE]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-empty_initcode-opcode_CREATE2]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-max_code-opcode_CREATE]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-max_code-opcode_CREATE2]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-max_initcode-opcode_CREATE]"
+     . "engineNewPayloadV2")
+    ("shanghai/eip3860_initcode/test_legacy_create_edge_code_size.json/tests/shanghai/eip3860_initcode/test_with_eof.py::test_legacy_create_edge_code_size[fork_Shanghai-blockchain_test_engine_from_state_test-max_initcode-opcode_CREATE2]"
      . "engineNewPayloadV2")))
 
 (defparameter +phase-a-eest-blockchain-replay-discovery-feature-directories+

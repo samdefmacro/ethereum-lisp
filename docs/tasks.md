@@ -90,8 +90,8 @@ ones.
     `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909`
     and extracted to `.cache/eest-v5.4.0/root/fixtures`. The pinned smoke gate
     now passes against that root with 94 official Shanghai state selectors,
-    53 official Prague/EIP-7702 invalid transaction cases summarized, and 22
-    official Shanghai `engineNewPayloadV2` blockchain selectors, for 169 total
+    53 official Prague/EIP-7702 invalid transaction cases summarized, and 32
+    official Shanghai `engineNewPayloadV2` blockchain selectors, for 179 total
     executed fixture cases.
 - [x] `PINNED-V5.4.0-BLOCKCHAIN-WIDEN`: Use the bounded official v5.4.0
   blockchain discovery to widen the pinned Shanghai Engine replay table with
@@ -187,6 +187,18 @@ ones.
     transaction cases summarized, and 22 official Shanghai
     `engineNewPayloadV2` blockchain selectors, for 169 total executed fixture
     cases.
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-EIP3860-WIDEN`: Continue explicit official
+  v5.4.0 Engine replay widening with selector-probed Shanghai EIP-3860
+  initcode cases that execute cleanly through `engine_newPayloadV2`.
+  - Result (2026-06-27): added 10 official Shanghai
+    `engineNewPayloadV2` replay selectors covering max-size contract-creating
+    transactions and legacy CREATE/CREATE2 edge-code-size cases for empty code,
+    empty initcode, max code, and max initcode. A targeted probe replayed all
+    10 selectors through the Engine import path and verified post-state. The
+    pinned smoke gate now covers 94 official state selectors, 53 official
+    Prague/EIP-7702 invalid transaction cases summarized, and 32 official
+    Shanghai `engineNewPayloadV2` blockchain selectors, for 179 total executed
+    fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
