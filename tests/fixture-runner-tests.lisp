@@ -182,6 +182,70 @@
      . "engineNewPayloadV2")
     ("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_Shanghai-blockchain_test_engine_from_state_test-account_warm_True-storage_key_warm_True]"
      . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH1]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH2]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH3]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH4]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH5]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH6]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH7]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH8]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH9]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH10]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH11]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH12]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH13]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH14]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH15]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH16]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH17]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH18]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH19]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH20]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH21]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH22]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH23]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH24]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH25]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH26]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH27]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH28]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH29]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH30]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH31]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH32]"
+     . "engineNewPayloadV2")
     ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-gas_cost]"
      . "engineNewPayloadV2")
     ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-storage_overwrite]"
