@@ -4807,6 +4807,10 @@ splits can land after the Phase A smoke path closes.
     parked payload is imported or marked invalid, preventing file-backed KV
     export from persisting stale remote-block records for blocks that have
     since become known or invalid.
+  - Progress: propagated invalid-tipset marking now also clears the descendant
+    head from the remote-block cache. A payload parked as `SYNCING` can no
+    longer remain in memory as a remote block after a later parent-invalid
+    response marks that same descendant as linking to a rejected ancestor.
   - Progress: KV import now mirrors that cleanup policy for snapshots that
     already contain stale remote-block records, dropping remote-cache entries
     that duplicate restored known blocks or invalid tipsets while preserving

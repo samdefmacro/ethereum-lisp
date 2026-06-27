@@ -6665,6 +6665,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (let* ((invalid-hash (block-hash invalid-block))
          (key (engine-payload-store-key (or head-hash invalid-hash))))
     (engine-payload-store-remove-remote-block store invalid-hash)
+    (when head-hash
+      (engine-payload-store-remove-remote-block store head-hash))
     (setf (gethash key (engine-payload-memory-store-invalid-tipsets store))
           (engine-payload-store-copy-block invalid-block))
     invalid-block))
