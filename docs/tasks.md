@@ -326,6 +326,16 @@ ones.
     JSON, ready-file JSON, pid-file output, and `devnet.ready` /
     `devnet.shutdown` telemetry agree on bound endpoints, process id,
     lifecycle phases, zero connection counts, and retained-state availability.
+- [x] `DEVNET-RUNNER-SIGNAL-SHUTDOWN`: Lock the runner-facing script's external
+  shutdown signal contract for long-running serve mode.
+  - Result (2026-06-28): added subprocess coverage that launches
+    `scripts/ethereum-lisp.lisp -- devnet` with random Engine/public ports,
+    waits for the ready-file and pid-file, sends `SIGTERM` to the reported
+    process id, and verifies exit status 0 plus stdout JSON, ready-file JSON,
+    stderr signal notice, and `devnet.ready` / `devnet.shutdown` telemetry agree
+    on endpoints, process id, lifecycle phases, and zero connection counts. The
+    default suite skips this test when local socket bind is blocked by the
+    sandbox; it was also run with local socket escalation.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

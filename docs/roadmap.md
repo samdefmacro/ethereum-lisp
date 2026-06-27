@@ -1061,7 +1061,12 @@ first pass, but interfaces must not block that path.
   Hive-style temporary-directory invocation. Serve-mode script invocation is
   also covered with random bound Engine/public ports and `--max-connections 0`,
   verifying ready/shutdown telemetry and runner artifacts agree on the actual
-  listener endpoints before and after a clean zero-connection shutdown. The
+  listener endpoints before and after a clean zero-connection shutdown. The same
+  runner-facing script is now covered as a long-running serve process receiving
+  `SIGTERM` through its pid-file process id, verifying external runner shutdown
+  produces exit status 0, the expected signal notice, stdout JSON, ready-file
+  JSON, and `devnet.ready` / `devnet.shutdown` telemetry with matching endpoints
+  and lifecycle phases. The
   top-level Phase A
   `--devnet` gate also validates the child report's ready/log/pid/database
   artifact paths and per-case counts before accepting the devnet suite.

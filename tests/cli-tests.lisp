@@ -4074,6 +4074,166 @@
       (when (probe-file pid-path)
         (delete-file pid-path)))))
 
+(defun devnet-cli-wait-for-file (path timeout-seconds)
+  (loop repeat (* timeout-seconds 20)
+        when (probe-file path)
+          return t
+        do (sleep 0.05)
+        finally (return nil)))
+
+(defun devnet-cli-wait-process-exit (process timeout-seconds)
+  (loop repeat (* timeout-seconds 20)
+        unless (uiop:process-alive-p process)
+          return (uiop:wait-process process)
+        do (sleep 0.05)
+        finally (return :timeout)))
+
+(deftest ethereum-lisp-script-serve-mode-handles-sigterm-shutdown
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+        (ready-path
+          (devnet-cli-temp-path "ethereum-lisp-script-sigterm-ready" "json"))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-script-sigterm" "log"))
+        (pid-path
+          (devnet-cli-temp-path "ethereum-lisp-script-sigterm" "pid"))
+        (process nil))
+    (unwind-protect
+         (progn
+           (setf process
+                 (uiop:launch-program
+                  (list "sbcl"
+                        "--script"
+                        script
+                        "--"
+                        "devnet"
+                        "--genesis"
+                        genesis
+                        "--engine-port"
+                        "0"
+                        "--public-port"
+                        "0"
+                        "--ready-file"
+                        (namestring ready-path)
+                        "--log-file"
+                        (namestring log-path)
+                        "--pid-file"
+                        (namestring pid-path)
+                        "--json")
+                  :directory #P"/private/tmp/"
+                  :output :stream
+                  :error-output :stream))
+           (unless (devnet-cli-wait-for-file ready-path 10)
+             (when (uiop:process-alive-p process)
+               (uiop:terminate-process process)
+               (devnet-cli-wait-process-exit process 5))
+             (let ((stdout
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-output process)))
+                   (stderr
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-error-output process))))
+               (when (search "Operation not permitted" stderr)
+                 (skip-test
+                  "Local socket bind is not permitted in this sandbox"))
+               (is (probe-file ready-path))
+               (is (string= "" stdout))
+               (is (string= "" stderr))))
+           (when (probe-file ready-path)
+             (let* ((ready-summary
+                      (parse-json (devnet-cli-file-string ready-path)))
+                    (pid (devnet-cli-pid-file-process-id pid-path)))
+               (is (= pid (fixture-object-field ready-summary "processId")))
+               (multiple-value-bind (kill-stdout kill-stderr kill-status)
+                   (uiop:run-program
+                    (list "kill" "-TERM" (write-to-string pid))
+                    :output :string
+                    :error-output :string
+                    :ignore-error-status t)
+                 (is (= 0 kill-status))
+                 (is (string= "" kill-stdout))
+                 (is (string= "" kill-stderr)))
+               (let ((status (devnet-cli-wait-process-exit process 10)))
+                 (when (eq status :timeout)
+                   (uiop:terminate-process process))
+                 (is (not (eq status :timeout)))
+                 (is (and (numberp status) (= 0 status)))
+                 (let ((stdout
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-output process)))
+                   (stderr
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-error-output process))))
+                   (is (search "Devnet shutdown requested; closing RPC listeners."
+                               stderr))
+                   (when (and (numberp status) (= 0 status))
+                     (let* ((stdout-summary (parse-json stdout))
+                            (log-records (devnet-cli-file-forms log-path))
+                            (log-names
+                              (mapcar (lambda (record) (getf record :name))
+                                      log-records))
+                            (engine-endpoint
+                              (fixture-object-field stdout-summary
+                                                    "engineEndpoint"))
+                            (rpc-endpoint
+                              (fixture-object-field stdout-summary
+                                                    "rpcEndpoint")))
+                       (is (= pid
+                              (fixture-object-field stdout-summary
+                                                    "processId")))
+                       (is (string= genesis
+                                    (fixture-object-field stdout-summary
+                                                          "genesisPath")))
+                       (is (string= engine-endpoint
+                                    (fixture-object-field ready-summary
+                                                          "engineEndpoint")))
+                       (is (string= rpc-endpoint
+                                    (fixture-object-field ready-summary
+                                                          "rpcEndpoint")))
+                       (is (not (string= "127.0.0.1:0" engine-endpoint)))
+                       (is (not (string= "127.0.0.1:0" rpc-endpoint)))
+                       (is (member "devnet.ready" log-names :test #'string=))
+                       (is (member "devnet.shutdown" log-names :test #'string=))
+                       (dolist (log-record log-records)
+                         (when (member (getf log-record :name)
+                                       '("devnet.ready" "devnet.shutdown")
+                                       :test #'string=)
+                           (let ((fields (getf log-record :fields)))
+                             (is (string= engine-endpoint
+                                          (cdr (assoc "engineEndpoint"
+                                                      fields
+                                                      :test #'string=))))
+                             (is (string= rpc-endpoint
+                                          (cdr (assoc "rpcEndpoint"
+                                                      fields
+                                                      :test #'string=))))
+                             (is (string= (if (string= "devnet.ready"
+                                                        (getf log-record :name))
+                                               "ready"
+                                               "shutdown")
+                                          (cdr (assoc "lifecyclePhase"
+                                                      fields
+                                                      :test #'string=))))
+                             (is (string= (write-to-string pid)
+                                          (cdr (assoc "processId"
+                                                      fields
+                                                      :test #'string=))))
+                             (is (string= "0"
+                                          (cdr (assoc "totalConnections"
+                                                      fields
+                                                      :test #'string=)))))))))))))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path))))))
+
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))

@@ -7917,7 +7917,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (unwind-protect
          (loop until (or (and max-connections (>= served max-connections))
                          (funcall stop-p))
-               for connection = (engine-rpc-http-listener-accept listener)
+               for connection = (handler-case
+                                    (engine-rpc-http-listener-accept
+                                     listener)
+                                  (error (condition)
+                                    (if (funcall stop-p)
+                                        nil
+                                        (error condition))))
                while connection
                do (unwind-protect
                        (engine-rpc-http-service-handle-stream
