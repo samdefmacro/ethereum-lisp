@@ -85,6 +85,16 @@ ones.
   record any selector drift or root-layout mismatch. This is blocked when no
   local pinned fixture root is available; do not substitute local hand-written
   fixture hardening for this task.
+  - Blocker update (2026-06-27): no local official v5.4.0 fixture root is
+    currently configured. `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT` is unset,
+    `/private/tmp/eest-v5.4.0-extract/fixtures` is absent, and the available
+    `/private/tmp/ethereum-lisp-*fixture*` directories are test-generated
+    scratch roots rather than an official `fixtures_stable.tar.gz` extraction.
+    Until an official root is restored, automation should report this as an
+    external fixture-root blocker and only work on another local slice when a
+    concrete project-goal task is identified independently of fixture widening.
+    To unblock, extract the v5.4.0 archive and rerun the pinned smoke gate
+    with `--root PATH`.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
