@@ -894,10 +894,17 @@
 (defun fixture-address-field (object name)
   (address-from-hex (fixture-object-field object name)))
 
+(defun fixture-optional-quantity-field (object name default)
+  (hex-to-quantity (or (fixture-object-field object name) default)))
+
 (defun engine-fixture-chain-config (case)
   (let ((config (fixture-object-field case "config")))
     (make-chain-config
      :chain-id (hex-to-quantity (fixture-object-field case "chainId"))
+     :homestead-block (fixture-optional-quantity-field config "homesteadBlock" "0x0")
+     :eip150-block (fixture-optional-quantity-field config "eip150Block" "0x0")
+     :eip155-block (fixture-optional-quantity-field config "eip155Block" "0x0")
+     :eip158-block (fixture-optional-quantity-field config "eip158Block" "0x0")
      :byzantium-block 0
      :constantinople-block 0
      :petersburg-block 0
