@@ -1194,12 +1194,12 @@ Detailed historical implementation notes for this section now live in
   semantics before block withdrawals are applied, so official EIP-4895
   withdrawal-to-selfdestructed-account cases align with the expected state
   root. The pinned `engine_newPayloadV2` blockchain replay table now includes
-  84 official Shanghai selectors after adding selector-probed Frontier PUSH
-  opcode cases, EIP-3651 warm-coinbase out-of-gas and EXTCODE gas-usage
-  variants, PUSH0 contract variants, EIP-3860 initcode boundary cases, and
-  EIP-4895 withdrawal ordering/root/many-withdrawals cases; the pinned smoke
-  gate executes 231 total fixture cases across state, transaction, and
-  blockchain suites.
+  100 official Shanghai selectors after adding selector-probed Frontier PUSH
+  and DUP opcode cases, EIP-3651 warm-coinbase out-of-gas and EXTCODE
+  gas-usage variants, PUSH0 contract variants, EIP-3860 initcode boundary
+  cases, and EIP-4895 withdrawal ordering/root/many-withdrawals cases; the
+  pinned smoke gate executes 247 total fixture cases across state,
+  transaction, and blockchain suites.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

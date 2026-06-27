@@ -239,6 +239,17 @@ ones.
     Prague/EIP-7702 invalid transaction cases summarized, and 84 official
     Shanghai `engineNewPayloadV2` blockchain selectors, for 231 total executed
     fixture cases.
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-DUP-WIDEN`: Continue official v5.4.0 Engine
+  replay widening with selector-probed Frontier DUP opcode cases materialized
+  under the Shanghai fork.
+  - Result (2026-06-28): added all 16 official
+    `frontier/opcodes/test_dup.json` selectors for DUP1 through DUP16 as
+    Shanghai `engineNewPayloadV2` replay cases. A targeted probe replayed all
+    16 selectors through the Engine import path and verified post-state. The
+    pinned smoke gate now covers 94 official state selectors, 53 official
+    Prague/EIP-7702 invalid transaction cases summarized, and 100 official
+    Shanghai `engineNewPayloadV2` blockchain selectors, for 247 total executed
+    fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

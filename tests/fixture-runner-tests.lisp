@@ -246,6 +246,38 @@
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH32]"
      . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP1]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP2]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP3]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP4]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP5]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP6]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP7]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP8]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP9]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP10]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP11]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP12]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP13]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP14]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP15]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup[fork_Shanghai-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-DUP16]"
+     . "engineNewPayloadV2")
     ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-gas_cost]"
      . "engineNewPayloadV2")
     ("shanghai/eip3855_push0/test_push0_contracts.json/tests/shanghai/eip3855_push0/test_push0.py::test_push0_contracts[fork_Shanghai-blockchain_test_engine_from_state_test-storage_overwrite]"
