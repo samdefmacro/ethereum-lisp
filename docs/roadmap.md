@@ -1168,7 +1168,13 @@ Detailed historical implementation notes for this section now live in
   `engineNewPayloadV2` blockchain selector. The fixture report and
   selector-listing scripts now use the same configured-root error
   classification when either `--root PATH` or the environment variable points
-  to a nonexistent path.
+  to a nonexistent path. Automatic blockchain selector discovery now bounds
+  the official root scan to Phase A-supported feature directories and
+  reasonably sized fixture files, so v5.4.0 discovery completes under the
+  default SBCL heap and the bounded automatic scan reports 362 materializable
+  Shanghai `engineNewPayloadV2` selectors without parsing Cancun/blob or
+  oversized out-of-scope files; explicit selectors still load named files
+  directly.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

@@ -91,6 +91,14 @@
   '(("berlin/eip2930_access_list/test_eip2930_tx_validity.json/tests/berlin/eip2930_access_list/test_tx_type.py::test_eip2930_tx_validity[fork_Shanghai-valid-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")))
 
+(defparameter +phase-a-eest-blockchain-replay-discovery-feature-directories+
+  '("frontier" "homestead" "eip150" "eip158" "byzantium"
+    "constantinople" "constantinoplefix" "istanbul" "berlin" "london"
+    "paris" "shanghai"))
+
+(defconstant +phase-a-eest-blockchain-replay-discovery-max-file-bytes+
+  (* 2 1024 1024))
+
 (defun eest-blockchain-test-root-json-paths (root)
   (execution-spec-tests-root-json-paths root "EEST blockchain test"))
 
@@ -262,6 +270,28 @@
          append (load-eest-state-test-root-file-cases root path))
    names
    "EEST state test"))
+
+(defun phase-a-eest-blockchain-replay-discovery-path-p (root path)
+  (let* ((relative (enough-namestring (truename path) (truename root)))
+         (slash (position #\/ relative))
+         (feature-directory (if slash
+                                (subseq relative 0 slash)
+                                relative)))
+    (and (member (string-downcase feature-directory)
+                 +phase-a-eest-blockchain-replay-discovery-feature-directories+
+                 :test #'string=)
+         (<= (eest-fixture-file-byte-size path)
+             +phase-a-eest-blockchain-replay-discovery-max-file-bytes+))))
+
+(defun eest-fixture-file-byte-size (path)
+  (with-open-file (stream path :direction :input
+                               :element-type '(unsigned-byte 8))
+    (file-length stream)))
+
+(defun load-phase-a-eest-blockchain-discovery-cases (root)
+  (loop for path in (eest-blockchain-test-root-json-paths root)
+        when (phase-a-eest-blockchain-replay-discovery-path-p root path)
+          append (load-eest-blockchain-test-root-file-cases root path)))
 
 (defun eest-state-test-case-fork-names (case)
   (let ((post (fixture-required-field
@@ -563,7 +593,7 @@
     (error () nil)))
 
 (defun discover-phase-a-eest-blockchain-replay-selectors (root)
-  (loop for case in (load-eest-blockchain-test-root-cases root)
+  (loop for case in (load-phase-a-eest-blockchain-discovery-cases root)
         for kind = (phase-a-eest-blockchain-replay-materializable-kind case)
         when kind
           collect (cons (fixture-required-field case "name") kind)))
@@ -1253,6 +1283,36 @@
                "tests/fixtures/geth-spec-tests-root/")))
     (signals error
       (eest-blockchain-test-root-json-paths root))))
+
+(deftest phase-a-eest-blockchain-discovery-skips-unsupported-fork-roots
+  (let* ((root
+           (merge-pathnames
+            (format nil "ethereum-lisp-blockchain-discovery-root-~A/" (gensym))
+            #P"/private/tmp/"))
+         (shanghai-path
+           (merge-pathnames "shanghai/phase-a-empty-engine.json" root))
+         (cancun-path
+           (merge-pathnames "cancun/eip4844_blobs/invalid.json" root)))
+    (labels ((file-string (path)
+               (with-open-file (stream path :direction :input)
+                 (let ((string (make-string (file-length stream))))
+                   (read-sequence string stream)
+                   string)))
+             (write-file (path contents)
+               (ensure-directories-exist path)
+               (with-open-file (stream path
+                                       :direction :output
+                                       :if-exists :supersede
+                                       :if-does-not-exist :create)
+                 (write-string contents stream))))
+      (write-file
+       shanghai-path
+       (file-string
+        "tests/fixtures/execution-spec-tests-root/fixtures/blockchain_tests_engine/shanghai/phase-a-empty-engine.json"))
+      (write-file cancun-path "{")
+      (is (equal
+           '(("shanghai/phase-a-empty-engine.json" . "engineNewPayloadV2"))
+           (discover-phase-a-eest-blockchain-replay-selectors root))))))
 
 (deftest eest-state-test-root-json-discovery
   (let* ((root (execution-spec-tests-state-test-root

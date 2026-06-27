@@ -93,6 +93,19 @@ ones.
     53 official Prague/EIP-7702 invalid transaction cases summarized, and one
     official Shanghai `engineNewPayloadV2` blockchain selector, for 68 total
     executed fixture cases.
+- [x] `PINNED-BLOCKCHAIN-DISCOVERY-BOUND`: Keep official v5.4.0 blockchain
+  selector discovery usable under the default SBCL heap while excluding
+  Phase A-out-of-scope far-fork and oversized fixture files from automatic
+  discovery. Explicit selectors must still be able to load any named fixture
+  file for targeted investigation.
+  - Result (2026-06-27): `scripts/list-blockchain-replay-selectors.lisp
+    -- --root .cache/eest-v5.4.0/root/fixtures --json` now completes against
+    the official root and the bounded automatic scan reports 362
+    materializable Shanghai `engineNewPayloadV2` selectors instead of
+    exhausting the heap while
+    scanning Cancun/blob or oversized pre-Shanghai feature files. A regression
+    fixture proves unsupported far-fork JSON is not loaded by automatic
+    discovery.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
