@@ -255,6 +255,13 @@
 
 (deftest evm-dynamic-memory-gas-for-hash-and-copy
   (let* ((context (make-evm-context :input #(1 2 3 4)))
+         (byzantium-context
+           (make-evm-context :input #(1 2 3 4)
+                             :return-data #(5 6 7 8)
+                             :chain-rules
+                             (make-chain-rules :chain-id 1
+                                               :byzantium-p t
+                                               :shanghai-p t)))
          (sha3-existing-word (execute-bytecode #(96 1 95 82 96 32 95 32 0)))
          (sha3-expands-memory
            (execute-bytecode #(96 1 96 32 32 89 0)))
@@ -262,6 +269,12 @@
                                                    :context context))
          (calldatacopy-zero (execute-bytecode #(95 95 95 55 0)
                                               :context context))
+         (calldatacopy-zero-high-offset
+           (execute-bytecode #(95 95 97 2 0 55 97 2 0 81 0)
+                             :context context))
+         (returndatacopy-zero-high-offset
+           (execute-bytecode #(95 95 97 2 0 #x3e 97 2 0 81 0)
+                             :context byzantium-context))
          (mcopy-expands-source (execute-bytecode #(96 1 96 64 83
                                                    96 33 96 64 95 #x5e 0))))
     (is (= 52 (evm-result-gas-used sha3-existing-word)))
@@ -269,6 +282,8 @@
     (is (= 64 (first (evm-result-stack sha3-expands-memory))))
     (is (= 22 (evm-result-gas-used calldatacopy-two-words)))
     (is (= 9 (evm-result-gas-used calldatacopy-zero)))
+    (is (= 67 (evm-result-gas-used calldatacopy-zero-high-offset)))
+    (is (= 67 (evm-result-gas-used returndatacopy-zero-high-offset)))
     (is (= 38 (evm-result-gas-used mcopy-expands-source))))
   (signals evm-error
     (execute-bytecode #(96 33 95 95 55 0)

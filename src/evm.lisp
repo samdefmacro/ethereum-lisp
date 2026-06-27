@@ -326,14 +326,19 @@
   (ensure-memory-size memory (apply #'memory-regions-high-water regions)))
 
 (defun memory-slice (memory offset size)
-  (let ((memory (ensure-memory-size memory (+ offset size))))
-    (subseq memory offset (+ offset size))))
+  (if (zerop size)
+      (make-byte-vector 0)
+      (let ((memory (ensure-memory-size memory (+ offset size))))
+        (subseq memory offset (+ offset size)))))
 
 (defun copy-into-memory (memory memory-offset data)
   (let* ((data (ensure-byte-vector data))
-         (memory (ensure-memory-size memory (+ memory-offset (length data)))))
-    (replace memory data :start1 memory-offset)
-    memory))
+         (size (length data)))
+    (if (zerop size)
+        memory
+        (let ((memory (ensure-memory-size memory (+ memory-offset size))))
+          (replace memory data :start1 memory-offset)
+          memory))))
 
 (defun copy-memory-region (memory destination source size)
   (if (zerop size)

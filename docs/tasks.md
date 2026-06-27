@@ -336,7 +336,7 @@ ones.
     on endpoints, process id, lifecycle phases, and zero connection counts. The
     default suite skips this test when local socket bind is blocked by the
     sandbox; it was also run with local socket escalation.
-- [ ] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
+- [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
   - Context (2026-06-28): a bounded classifier run over the first 64 unpinned
@@ -356,6 +356,12 @@ ones.
     green with
     `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root .cache/eest-v5.4.0/root/fixtures --prefix constantinople/eip1014_create2/test_create2_return_data.json`
     and the full test suite.
+  - Result (2026-06-28): fixed zero-length memory copy helpers so
+    `CALLDATACOPY` / `RETURNDATACOPY` no longer expand memory for free when the
+    copy size is zero and the destination offset is high. The official
+    CREATE/CREATE2 returndata family now classifies 24/24 passing against the
+    installed v5.4.0 fixture root, and all 24 selectors are pinned in the
+    v5.4.0 blockchain replay guard.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

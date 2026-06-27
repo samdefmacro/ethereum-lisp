@@ -1236,13 +1236,12 @@ Detailed historical implementation notes for this section now live in
   blockchain replay selectors into passing, implementation-bug-candidate,
   fixture-harness-error, and out-of-scope buckets with per-family summaries
   before choosing whether to fix implementation drift, record a blocker, or
-  selectively widen the pinned table. The current classifier map includes a
-  concrete CREATE/CREATE2 returndata drift in the official v5.4.0
-  `constantinople/eip1014_create2/test_create2_return_data.json` family: the
-  representative failing Engine replay reaches post-state account code/storage
-  parity but reports gas used 40 below the fixture expectation, so the next
-  pinned-fixture synchronization slice should fix that gas accounting boundary
-  before mechanically pinning more opcode selectors.
+  selectively widen the pinned table. The official v5.4.0 CREATE/CREATE2
+  returndata drift in
+  `constantinople/eip1014_create2/test_create2_return_data.json` is closed:
+  zero-length `CALLDATACOPY` / `RETURNDATACOPY` no longer expand memory for
+  free, the family classifies 24/24 passing, and those selectors are now pinned
+  in the v5.4.0 blockchain replay guard.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
