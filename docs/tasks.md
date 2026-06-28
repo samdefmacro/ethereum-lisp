@@ -528,6 +528,14 @@ ones.
     for requests outside the configured prefix while preserving the default
     root-path behavior. Core HTTP and split-listener CLI tests cover accepted
     prefixed requests and rejected off-prefix requests.
+- [x] `DEVNET-RUNNER-EQUALS-OPTIONS`: Accept geth/Hive-style
+  `--option=value` arguments for devnet runner invocations.
+  - Result (2026-06-28): devnet CLI option parsing now normalizes
+    `--option=value` into the existing option/value flow before validation, so
+    endpoint aliases, JWT paths, RPC prefixes, public API lists, network ids,
+    runner artifact paths, and malformed-option error telemetry work with both
+    `--flag value` and `--flag=value` forms. CLI regressions cover successful
+    geth-shaped startup and parse-error logging through equals-style options.
 - [x] `DEVNET-RUNNER-GETH-STYLE-NOOP-FLAGS`: Accept common geth/Hive-style
   public/auth listener toggle and host-policy flags that do not alter the
   current Lisp split-service contract.

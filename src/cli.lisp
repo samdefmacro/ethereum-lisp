@@ -439,6 +439,15 @@
        (<= 2 (length value))
        (string= "--" value :end2 2)))
 
+(defun devnet-cli-normalize-option-args (args)
+  (loop for arg in args
+        for separator = (and (devnet-cli-option-token-p arg)
+                             (position #\= arg :start 2))
+        append (if separator
+                   (list (subseq arg 0 separator)
+                         (subseq arg (1+ separator)))
+                   (list arg))))
+
 (defun devnet-cli-next-value (args option)
   (unless (and args
                (not (devnet-cli-option-token-p (first args))))
@@ -500,6 +509,7 @@
 (defun devnet-cli-options (args)
   (when (and args (string= "devnet" (first args)))
     (setf args (rest args)))
+  (setf args (devnet-cli-normalize-option-args args))
   (let ((genesis-path nil)
         (host "127.0.0.1")
         (port +engine-rpc-default-http-port+)
@@ -805,6 +815,7 @@
 (defun devnet-cli-error-log-file (args)
   (when (and args (string= "devnet" (first args)))
     (setf args (rest args)))
+  (setf args (devnet-cli-normalize-option-args args))
   (loop while args
         for option = (pop args)
         do (cond

@@ -1056,7 +1056,9 @@ first pass, but interfaces must not block that path.
   `--authrpc.rpcprefix PATH` and `--http.rpcprefix PATH` now configure real
   HTTP path-prefix filters on the Engine and public services, and the selected
   prefixes are reported through stdout summaries, readiness JSON, and
-  lifecycle telemetry for Hive-style runners.
+  lifecycle telemetry for Hive-style runners. These runner options also accept
+  geth-style `--option=value` spelling through the same validation path used by
+  space-separated option values.
   The standalone devnet smoke gate also probes that allowlist through the same
   listener boundary and reports the allowed modules, accepted `eth`/`net`
   calls, rejected `web3`/`txpool`/Engine calls, and connection counts for

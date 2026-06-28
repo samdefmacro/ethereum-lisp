@@ -1859,26 +1859,30 @@
            (is (= 0
                   (ethereum-lisp.cli:main
                    (list "devnet"
-                         "--genesis" +devnet-cli-genesis-fixture+
-                         "--authrpc.addr" "192.0.2.30"
-                         "--authrpc.port" "9651"
-                         "--authrpc.jwtsecret" (namestring jwt-path)
-                         "--authrpc.rpcprefix" "/engine"
-                         "--authrpc.vhosts" "*"
+                         (format nil "--genesis=~A"
+                                 +devnet-cli-genesis-fixture+)
+                         "--authrpc.addr=192.0.2.30"
+                         "--authrpc.port=9651"
+                         (format nil "--authrpc.jwtsecret=~A"
+                                 (namestring jwt-path))
+                         "--authrpc.rpcprefix=/engine"
+                         "--authrpc.vhosts=*"
                          "--http"
-                         "--http.addr" "192.0.2.31"
-                         "--http.port" "9645"
-                         "--http.api" "eth,net,web3,txpool"
-                         "--http.rpcprefix" "/rpc"
-                         "--http.vhosts" "*"
-                         "--http.corsdomain" "*"
-                         "--networkid" "7331"
-                         "--syncmode" "full"
+                         "--http.addr=192.0.2.31"
+                         "--http.port=9645"
+                         "--http.api=eth,net,web3,txpool"
+                         "--http.rpcprefix=/rpc"
+                         "--http.vhosts=*"
+                         "--http.corsdomain=*"
+                         "--networkid=7331"
+                         "--syncmode=full"
                          "--nodiscover"
                          "--ipcdisable"
-                         "--verbosity" "3"
-                         "--ready-file" (namestring ready-path)
-                         "--log-file" (namestring log-path)
+                         "--verbosity=3"
+                         (format nil "--ready-file=~A"
+                                 (namestring ready-path))
+                         (format nil "--log-file=~A"
+                                 (namestring log-path))
                          "--json"
                          "--no-serve")
                    :output-stream output
@@ -2102,9 +2106,10 @@
            (is (= 1
                   (ethereum-lisp.cli:main
                    (list "devnet"
-                         "--log-file" log-path-string
-                         "--genesis" +devnet-cli-genesis-fixture+
-                         "--public-port" "not-a-port"
+                         (format nil "--log-file=~A" log-path-string)
+                         (format nil "--genesis=~A"
+                                 +devnet-cli-genesis-fixture+)
+                         "--public-port=not-a-port"
                          "--no-serve")
                    :output-stream output
                    :error-stream errors)))
@@ -4723,6 +4728,8 @@
                (get-output-stream-string errors))))
     (is (search "--port requires an integer value"
                 (run-error (list "devnet" "--port" "abc" "--no-serve"))))
+    (is (search "--port requires an integer value"
+                (run-error (list "devnet" "--port=abc" "--no-serve"))))
     (is (search "--port must be between 0 and 65535"
                 (run-error (list "devnet" "--port" "70000" "--no-serve"))))
     (is (search "--public-port requires an integer value"
@@ -4739,6 +4746,10 @@
                 (run-error (list "devnet"
                                  "--authrpc.rpcprefix"
                                  "engine"
+                                 "--no-serve"))))
+    (is (search "--authrpc.rpcprefix requires a path beginning with /"
+                (run-error (list "devnet"
+                                 "--authrpc.rpcprefix=engine"
                                  "--no-serve"))))
     (is (search "--http.rpcprefix requires a path beginning with /"
                 (run-error (list "devnet"
