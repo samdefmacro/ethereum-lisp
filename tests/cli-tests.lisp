@@ -1649,8 +1649,13 @@
                          "--authrpc.addr" "192.0.2.30"
                          "--authrpc.port" "9651"
                          "--authrpc.jwtsecret" (namestring jwt-path)
+                         "--authrpc.vhosts" "*"
+                         "--http"
                          "--http.addr" "192.0.2.31"
                          "--http.port" "9645"
+                         "--http.api" "eth,net,web3,txpool"
+                         "--http.vhosts" "*"
+                         "--http.corsdomain" "*"
                          "--ready-file" (namestring ready-path)
                          "--json"
                          "--no-serve")
@@ -3922,7 +3927,9 @@
     (is (search "--ready-file PATH" stdout))
     (is (search "--pid-file PATH" stdout))
     (is (search "--authrpc.jwtsecret PATH" stdout))
-    (is (search "--http.port PORT" stdout))))
+    (is (search "--http.port PORT" stdout))
+    (is (search "--http.api LIST" stdout))
+    (is (search "--authrpc.vhosts HOSTS" stdout))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-no-serve-json
   #-sbcl

@@ -1047,7 +1047,10 @@ first pass, but interfaces must not block that path.
   accepts geth/Hive-style `--authrpc.addr`,
   `--authrpc.port`, `--authrpc.jwtsecret`, `--http.addr`, and `--http.port`
   aliases, mapping them onto the existing authenticated Engine and public RPC
-  listener fields without changing the split-service contract. Failed devnet CLI
+  listener fields without changing the split-service contract. It also accepts
+  geth-shaped `--http`, `--http.api`, `--http.vhosts`, `--http.corsdomain`,
+  and `--authrpc.vhosts` runner flags as compatibility no-ops, leaving the
+  current Engine/public method filters authoritative. Failed devnet CLI
   startups with `--log-file` now append a structured `devnet.error` telemetry
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, and

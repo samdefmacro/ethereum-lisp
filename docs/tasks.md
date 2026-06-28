@@ -518,6 +518,16 @@ ones.
     malformed-option error telemetry parser know these aliases, and
     CLI/script coverage verifies runner-visible endpoint and JWT summaries
     through the alias form.
+- [x] `DEVNET-RUNNER-GETH-STYLE-NOOP-FLAGS`: Accept common geth/Hive-style
+  public/auth listener toggle and allow-list flags that do not alter the
+  current Lisp split-service contract.
+  - Result (2026-06-28): `ethereum-lisp devnet` now accepts `--http`,
+    `--http.api`, `--http.vhosts`, `--http.corsdomain`, and
+    `--authrpc.vhosts` so geth-shaped runner invocations do not fail before
+    startup. These options are compatibility no-ops: the existing authenticated
+    Engine versus public RPC method filters remain authoritative. Usage text,
+    malformed-option error telemetry scanning, and CLI/script coverage include
+    the new flags.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

@@ -504,6 +504,16 @@
                   (setf max-connections
                         (devnet-cli-parse-non-negative-integer value option)
                         args rest)))
+               ((string= option "--http")
+                nil)
+               ((member option
+                        '("--http.api" "--http.vhosts" "--http.corsdomain"
+                          "--authrpc.vhosts")
+                        :test #'string=)
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (declare (ignore value))
+                  (setf args rest)))
                ((string= option "--no-serve")
                 (setf serve-p nil))
                ((string= option "--json")
@@ -537,7 +547,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--http] [--http.api LIST] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -692,7 +702,9 @@
                         "--authrpc.addr" "--port" "--engine-port"
                         "--authrpc.port" "--public-host" "--http.addr"
                         "--public-port" "--http.port" "--jwt-secret"
-                        "--authrpc.jwtsecret" "--database" "--prune-state-before"
+                        "--authrpc.jwtsecret" "--http.api" "--http.vhosts"
+                        "--http.corsdomain" "--authrpc.vhosts"
+                        "--database" "--prune-state-before"
                         "--max-connections" "--ready-file" "--pid-file")
                       :test #'string=)
               (when args (pop args))))))
