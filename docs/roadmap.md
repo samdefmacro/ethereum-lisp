@@ -1109,7 +1109,10 @@ first pass, but interfaces must not block that path.
   distinguish intended listener traffic from accidental connection-count
   drift. The Engine boundary probes now cover both missing authentication and
   a request signed with the wrong JWT secret, and the smoke report exposes
-  separate HTTP 401 status fields for both cases. A runner-facing
+  separate HTTP 401 status fields for both cases. The authenticated Engine
+  workflow now also probes `engine_exchangeCapabilities` before payload import
+  and reports whether the expected V2 payload/forkchoice capabilities are
+  advertised at the process boundary. A runner-facing
   `scripts/ethereum-lisp.lisp` script now provides a
   stable `sbcl --script` process entrypoint for the devnet CLI without writing
   ASDF fasl cache files, and subprocess coverage verifies both help discovery

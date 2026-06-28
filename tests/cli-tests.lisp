@@ -68,7 +68,7 @@
     (is (= case-count (fixture-object-field contract "caseCount")))
     (is (= (* 2 case-count)
            (fixture-object-field contract "engineBoundaryConnections")))
-    (is (= (* 5 case-count)
+    (is (= (* 6 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
     (is (= (* 5 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
@@ -2426,6 +2426,16 @@
                       (fixture-object-field
                        report
                        "engineInvalidAuthStatus")))
+               (is (plusp
+                    (fixture-object-field report "engineCapabilityCount")))
+               (is (eq t
+                       (fixture-object-field
+                        report
+                        "engineCapabilityHasNewPayloadV2")))
+               (is (eq t
+                       (fixture-object-field
+                        report
+                        "engineCapabilityHasForkchoiceUpdatedV2")))
                (is (= -32601
                       (fixture-object-field
                        report
@@ -2932,11 +2942,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 7 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 8 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
                (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 23 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 24 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -2953,7 +2963,7 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 7 (fixture-object-field case "engineConnections")))
+                   (is (= 8 (fixture-object-field case "engineConnections")))
                    (is (= 16 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
@@ -2963,6 +2973,16 @@
                           (fixture-object-field
                            case
                            "engineInvalidAuthStatus")))
+                   (is (plusp
+                        (fixture-object-field case "engineCapabilityCount")))
+                   (is (eq t
+                           (fixture-object-field
+                            case
+                            "engineCapabilityHasNewPayloadV2")))
+                   (is (eq t
+                           (fixture-object-field
+                            case
+                            "engineCapabilityHasForkchoiceUpdatedV2")))
                    (is (= -32601
                           (fixture-object-field
                            case
@@ -3726,11 +3746,11 @@
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 7 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 8 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 23 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 24 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")

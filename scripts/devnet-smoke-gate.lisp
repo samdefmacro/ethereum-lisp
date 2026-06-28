@@ -76,7 +76,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 (defconstant +devnet-smoke-gate-engine-boundary-connections+ 2)
-(defconstant +devnet-smoke-gate-engine-workflow-connections+ 5)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 6)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
@@ -5104,6 +5104,7 @@ references/ checkouts.~%")
                      0))
                   (unauthenticated-engine-output (make-string-output-stream))
                   (invalid-auth-engine-output (make-string-output-stream))
+                  (capabilities-output (make-string-output-stream))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
                   (prepare-payload-output (make-string-output-stream))
@@ -5200,6 +5201,16 @@ references/ checkouts.~%")
                      queued-transaction))
                   (engine-requests
                     (list
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 19)
+                             (cons "method" "engine_exchangeCapabilities")
+                             (cons "params"
+                                   (list
+                                    (list "engine_newPayloadV2"
+                                          "engine_forkchoiceUpdatedV2")))))
+                      capabilities-output)
                      (cons
                       (json-encode
                        (engine-fixture-payload-request 21 payload))
@@ -5487,7 +5498,9 @@ references/ checkouts.~%")
                   :engine-endpoint +devnet-smoke-gate-engine-endpoint+
                   :rpc-endpoint +devnet-smoke-gate-public-endpoint+
                   :connection-summary summary))
-               (let* ((new-payload-response
+               (let* ((capabilities-response
+                        (get-output-stream-string capabilities-output))
+                      (new-payload-response
                         (get-output-stream-string new-payload-output))
                       (unauthenticated-engine-response
                         (get-output-stream-string
@@ -5538,6 +5551,8 @@ references/ checkouts.~%")
                          txpool-content-from-output))
                       (txpool-inspect-response
                         (get-output-stream-string txpool-inspect-output))
+                      (capabilities-rpc
+                        (devnet-smoke-gate-rpc-body capabilities-response))
                       (new-payload-rpc
                         (devnet-smoke-gate-rpc-body new-payload-response))
                       (forkchoice-rpc
@@ -5583,6 +5598,8 @@ references/ checkouts.~%")
                          txpool-content-from-response))
                       (txpool-inspect-rpc
                         (devnet-smoke-gate-rpc-body txpool-inspect-response))
+                      (capabilities-result
+                        (fixture-object-field capabilities-rpc "result"))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -5694,6 +5711,9 @@ references/ checkouts.~%")
                           invalid-auth-engine-response))
                   "Invalid-token Engine request HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status capabilities-response))
+                  "engine_exchangeCapabilities HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
                   "engine_newPayloadV2 HTTP status mismatch")
                  (devnet-smoke-gate-require
@@ -5774,6 +5794,16 @@ references/ checkouts.~%")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status txpool-inspect-response))
                   "txpool_inspect HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (member "engine_newPayloadV2"
+                          capabilities-result
+                          :test #'string=)
+                  "engine_exchangeCapabilities omitted engine_newPayloadV2")
+                 (devnet-smoke-gate-require
+                  (member "engine_forkchoiceUpdatedV2"
+                          capabilities-result
+                          :test #'string=)
+                  "engine_exchangeCapabilities omitted engine_forkchoiceUpdatedV2")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
@@ -6006,6 +6036,20 @@ references/ checkouts.~%")
                   (cons "engineInvalidAuthStatus"
                         (devnet-cli-http-status
                          invalid-auth-engine-response))
+                  (cons "engineCapabilityCount"
+                        (length capabilities-result))
+                  (cons "engineCapabilityHasNewPayloadV2"
+                        (if (member "engine_newPayloadV2"
+                                    capabilities-result
+                                    :test #'string=)
+                            t
+                            :false))
+                  (cons "engineCapabilityHasForkchoiceUpdatedV2"
+                        (if (member "engine_forkchoiceUpdatedV2"
+                                    capabilities-result
+                                    :test #'string=)
+                            t
+                            :false))
                   (cons "publicEngineNamespaceErrorCode"
                         (fixture-object-field
                          (fixture-object-field
@@ -7828,6 +7872,8 @@ references/ checkouts.~%")
         (format t "engineInvalidAuthStatus=~D~%"
                 (devnet-smoke-gate-field report
                                          "engineInvalidAuthStatus"))
+        (format t "engineCapabilityCount=~D~%"
+                (devnet-smoke-gate-field report "engineCapabilityCount"))
         (format t "newPayloadStatus=~A~%"
                 (devnet-smoke-gate-field report "newPayloadStatus"))
         (format t "latestValidHash=~A~%"

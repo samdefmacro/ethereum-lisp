@@ -669,6 +669,18 @@ ones.
     runners can distinguish missing-auth and bad-auth failures from workflow
     failures. CLI coverage updates the single-case, all-fixtures, and Phase A
     devnet aggregate connection budgets for the added Engine boundary probe.
+- [x] `DEVNET-RUNNER-ENGINE-CAPABILITIES-SMOKE`: Extend the standalone devnet
+  smoke gate so authenticated Engine readiness probes include
+  `engine_exchangeCapabilities`, not only payload import calls.
+  - Result (2026-06-29): the listener-boundary smoke now sends an
+    authenticated `engine_exchangeCapabilities` request before the normal
+    `engine_newPayloadV2` / forkchoice workflow, requires HTTP 200, and asserts
+    the returned capability list includes `engine_newPayloadV2` and
+    `engine_forkchoiceUpdatedV2`. The smoke report exposes
+    `engineCapabilityCount`, `engineCapabilityHasNewPayloadV2`, and
+    `engineCapabilityHasForkchoiceUpdatedV2`, and CLI coverage updates
+    single-case, all-fixtures, and Phase A devnet connection budgets for the
+    extra Engine workflow probe.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
