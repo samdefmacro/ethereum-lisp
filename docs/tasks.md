@@ -624,6 +624,22 @@ ones.
     process templates from failing before the current split Engine/public RPC
     devnet surface starts. Usage text and equals-form CLI coverage lock the
     runner-visible behavior.
+- [x] `DEVNET-RUNNER-MINING-METRICS-NOOP-FLAGS`: Accept common geth/Hive
+  archive, mining, account, and diagnostics flags that appear in local runner
+  templates.
+  - Result (2026-06-28): `ethereum-lisp devnet` now accepts `--gcmode`,
+    `--cache`, `--cache.database`, `--cache.gc`, `--cache.trie`,
+    `--txlookuplimit`, `--history.transactions`, `--bootnodes`, `--mine`,
+    `--miner.etherbase`, `--etherbase`, `--miner.gaslimit`,
+    `--miner.gasprice`, `--unlock`, `--password`, `--metrics`,
+    `--metrics.addr`, `--metrics.port`, `--pprof`, `--pprof.addr`,
+    `--pprof.port`, and `--snapshot` as runner compatibility options. These
+    options intentionally do not enable mining, account management, metrics,
+    profiling, bootnode discovery, or archive-mode behavior; they prevent
+    geth-shaped process templates from failing before the current split
+    Engine/public RPC devnet surface starts. Usage text, equals-form value
+    parsing, optional boolean values, and malformed boolean rejection have CLI
+    coverage.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

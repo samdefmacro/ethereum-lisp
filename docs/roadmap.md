@@ -1081,6 +1081,13 @@ first pass, but interfaces must not block that path.
   `--allow-insecure-unlock`; `networkId` is reported in summaries and
   lifecycle telemetry while the no-P2P/no-IPC/node-identity/account-unlock
   flags remain compatibility no-ops against the current split-service process.
+  It also accepts common geth/Hive archive, mining, account, and diagnostics
+  flags (`--gcmode`, cache sizing flags, tx history knobs, `--bootnodes`,
+  mining/etherbase/gas-price flags, `--unlock`, `--password`, `--metrics`,
+  `--pprof`, and `--snapshot`) as explicit no-op compatibility options, so
+  geth-shaped runner templates can launch the current Lisp split Engine/public
+  process without implying mining, account management, metrics, profiling,
+  bootnode discovery, or archive-mode behavior.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

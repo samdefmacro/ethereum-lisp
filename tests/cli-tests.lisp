@@ -4335,6 +4335,12 @@
     (is (search "--maxpeers N" stdout))
     (is (search "--nat MODE" stdout))
     (is (search "--identity NAME" stdout))
+    (is (search "--gcmode MODE" stdout))
+    (is (search "--mine" stdout))
+    (is (search "--miner.etherbase ADDRESS" stdout))
+    (is (search "--metrics" stdout))
+    (is (search "--pprof" stdout))
+    (is (search "--snapshot" stdout))
     (is (search "--allow-insecure-unlock" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
@@ -4839,7 +4845,12 @@
                  "--no-serve=0"
                  "--http=true"
                  "--nodiscover=0"
-                 "--ipcdisable=1")))
+                 "--ipcdisable=1"
+                 "--mine=false"
+                 "--metrics=0"
+                 "--pprof=false"
+                 "--snapshot"
+                 "false")))
         (enabled
           (ethereum-lisp.cli::devnet-cli-options
            (list "devnet"
@@ -4849,6 +4860,46 @@
     (is (getf disabled :serve-p))
     (is (eq :json (getf enabled :summary-format)))
     (is (not (getf enabled :serve-p)))))
+
+(deftest devnet-cli-accepts-geth-style-mining-archive-and-metrics-flags
+  (let ((options
+          (ethereum-lisp.cli::devnet-cli-options
+           (list "devnet"
+                 "--gcmode=archive"
+                 "--cache"
+                 "256"
+                 "--cache.database=64"
+                 "--cache.gc"
+                 "32"
+                 "--cache.trie=160"
+                 "--txlookuplimit=0"
+                 "--history.transactions"
+                 "0"
+                 "--bootnodes="
+                 "--mine=true"
+                 "--miner.etherbase"
+                 "0x0000000000000000000000000000000000000000"
+                 "--etherbase=0x0000000000000000000000000000000000000000"
+                 "--miner.gaslimit"
+                 "30000000"
+                 "--miner.gasprice=0"
+                 "--unlock"
+                 "0"
+                 "--password=/tmp/password"
+                 "--allow-insecure-unlock=true"
+                 "--metrics=true"
+                 "--metrics.addr"
+                 "127.0.0.1"
+                 "--metrics.port=6060"
+                 "--pprof=false"
+                 "--pprof.addr"
+                 "127.0.0.1"
+                 "--pprof.port=6061"
+                 "--snapshot=false"
+                 "--json"
+                 "--no-serve"))))
+    (is (eq :json (getf options :summary-format)))
+    (is (not (getf options :serve-p)))))
 
 (deftest devnet-cli-rejects-malformed-options-before-loading-genesis
   (labels ((run-error (args)
@@ -4902,6 +4953,22 @@
     (is (search "--allow-insecure-unlock boolean value must be true or false"
                 (run-error (list "devnet"
                                  "--allow-insecure-unlock=maybe"
+                                 "--no-serve"))))
+    (is (search "--mine boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--mine=maybe"
+                                 "--no-serve"))))
+    (is (search "--metrics boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--metrics=maybe"
+                                 "--no-serve"))))
+    (is (search "--pprof boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--pprof=maybe"
+                                 "--no-serve"))))
+    (is (search "--snapshot boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--snapshot=maybe"
                                  "--no-serve"))))
     (is (search "--http.rpcprefix requires a path beginning with /"
                 (run-error (list "devnet"
