@@ -155,6 +155,8 @@
        (public-host host)
        (public-port +devnet-default-public-rpc-port+)
        jwt-secret-path
+       (engine-rpc-prefix "/")
+       (public-rpc-prefix "/")
        log-path
        database-path
        pid-file-path
@@ -182,6 +184,7 @@
             :config config
             :network-id effective-network-id
             :jwt-secret jwt-secret
+            :rpc-prefix engine-rpc-prefix
             :allowed-method-p #'engine-rpc-engine-method-p
             :telemetry-sink telemetry-sink))
          (public-service
@@ -191,6 +194,7 @@
             :store store
             :config config
             :network-id effective-network-id
+            :rpc-prefix public-rpc-prefix
             :allowed-method-p public-allowed-method-p
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
@@ -264,6 +268,11 @@
     (list :genesis-path (devnet-node-genesis-path node)
           :engine-endpoint engine-endpoint
           :rpc-endpoint rpc-endpoint
+          :engine-rpc-prefix
+          (engine-rpc-http-service-rpc-prefix (devnet-node-service node))
+          :public-rpc-prefix
+          (engine-rpc-http-service-rpc-prefix
+           (devnet-node-public-service node))
           :process-id (devnet-process-id)
           :auth-required-p
           (not (null (engine-rpc-http-service-jwt-secret
@@ -293,6 +302,8 @@
     `(("genesisPath" . ,(getf summary :genesis-path))
       ("engineEndpoint" . ,(getf summary :engine-endpoint))
       ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
+      ("engineRpcPrefix" . ,(getf summary :engine-rpc-prefix))
+      ("publicRpcPrefix" . ,(getf summary :public-rpc-prefix))
       ("processId" . ,(or (getf summary :process-id) :false))
       ("authRequired" . ,(if (getf summary :auth-required-p) t :false))
       ("jwtSecretPath" . ,(getf summary :jwt-secret-path))
@@ -464,6 +475,13 @@
       (error "~A requires at least one API module" option))
     modules))
 
+(defun devnet-cli-parse-rpc-prefix (value option)
+  (unless (and (stringp value)
+               (plusp (length value))
+               (char= #\/ (char value 0)))
+    (error "~A requires a path beginning with /" option))
+  value)
+
 (defun devnet-cli-rpc-method-module (method)
   (let ((separator (and (stringp method) (position #\_ method))))
     (and separator
@@ -489,6 +507,8 @@
         (public-host nil)
         (public-port +devnet-default-public-rpc-port+)
         (jwt-secret-path nil)
+        (engine-rpc-prefix "/")
+        (public-rpc-prefix "/")
         (database-path nil)
         (datadir-path nil)
         (network-id nil)
@@ -538,6 +558,18 @@
                     (string= option "--authrpc.jwtsecret"))
                 (multiple-value-setq (jwt-secret-path args)
                   (devnet-cli-next-value args option)))
+               ((string= option "--authrpc.rpcprefix")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf engine-rpc-prefix
+                        (devnet-cli-parse-rpc-prefix value option)
+                        args rest)))
+               ((string= option "--http.rpcprefix")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf public-rpc-prefix
+                        (devnet-cli-parse-rpc-prefix value option)
+                        args rest)))
                ((string= option "--database")
                 (multiple-value-setq (database-path args)
                   (devnet-cli-next-value args option)))
@@ -602,6 +634,8 @@
           :public-host (or public-host default-public-host)
           :public-port public-port
           :jwt-secret-path jwt-secret-path
+          :engine-rpc-prefix engine-rpc-prefix
+          :public-rpc-prefix public-rpc-prefix
           :database-path (or database-path
                              (and datadir-path
                                   (devnet-cli-datadir-database-path
@@ -619,7 +653,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--http] [--http.api LIST] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--verbosity LEVEL] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--verbosity LEVEL] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -743,6 +777,8 @@
                                 "false"))
       ("authRequired" . ,(if (getf summary :auth-required-p) "true" "false"))
       ("jwtSecretPath" . ,(or (getf summary :jwt-secret-path) ""))
+      ("engineRpcPrefix" . ,(getf summary :engine-rpc-prefix))
+      ("publicRpcPrefix" . ,(getf summary :public-rpc-prefix))
       ("logPath" . ,(or (getf summary :log-path) ""))
       ("databasePath" . ,(or (getf summary :database-path) ""))
       ("networkId" . ,(quantity-to-hex (getf summary :network-id)))
@@ -781,7 +817,8 @@
                         "--authrpc.addr" "--port" "--engine-port"
                         "--authrpc.port" "--public-host" "--http.addr"
                         "--public-port" "--http.port" "--jwt-secret"
-                        "--authrpc.jwtsecret" "--http.api" "--http.vhosts"
+                        "--authrpc.jwtsecret" "--authrpc.rpcprefix"
+                        "--http.api" "--http.rpcprefix" "--http.vhosts"
                         "--http.corsdomain" "--authrpc.vhosts"
                         "--networkid" "--network-id" "--syncmode"
                         "--verbosity" "--database" "--datadir"
@@ -852,6 +889,10 @@
                           :public-host (getf options :public-host)
                           :public-port (getf options :public-port)
                           :jwt-secret-path (getf options :jwt-secret-path)
+                          :engine-rpc-prefix
+                          (getf options :engine-rpc-prefix)
+                          :public-rpc-prefix
+                          (getf options :public-rpc-prefix)
                           :log-path (getf options :log-file)
                           :database-path (getf options :database-path)
                           :pid-file-path (getf options :pid-file)

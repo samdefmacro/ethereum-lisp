@@ -518,6 +518,16 @@ ones.
     malformed-option error telemetry parser know these aliases, and
     CLI/script coverage verifies runner-visible endpoint and JWT summaries
     through the alias form.
+- [x] `DEVNET-RUNNER-RPC-PREFIX`: Make geth/Hive-style Engine and public RPC
+  path prefixes real listener behavior instead of parser-only compatibility.
+  - Result (2026-06-28): `ethereum-lisp devnet` now accepts
+    `--authrpc.rpcprefix PATH` and `--http.rpcprefix PATH`, validates that each
+    value is an absolute HTTP path, wires the configured prefixes into the
+    authenticated Engine and public RPC HTTP services, reports them in stdout
+    summaries, ready-file JSON, and lifecycle telemetry, and returns HTTP 404
+    for requests outside the configured prefix while preserving the default
+    root-path behavior. Core HTTP and split-listener CLI tests cover accepted
+    prefixed requests and rejected off-prefix requests.
 - [x] `DEVNET-RUNNER-GETH-STYLE-NOOP-FLAGS`: Accept common geth/Hive-style
   public/auth listener toggle and host-policy flags that do not alter the
   current Lisp split-service contract.

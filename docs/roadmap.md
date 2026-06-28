@@ -1053,6 +1053,10 @@ first pass, but interfaces must not block that path.
   now parses comma-separated public module names and applies them to the
   public listener method filter, so omitted modules return JSON-RPC `-32601`
   while the authenticated Engine/public namespace split remains authoritative.
+  `--authrpc.rpcprefix PATH` and `--http.rpcprefix PATH` now configure real
+  HTTP path-prefix filters on the Engine and public services, and the selected
+  prefixes are reported through stdout summaries, readiness JSON, and
+  lifecycle telemetry for Hive-style runners.
   The standalone devnet smoke gate also probes that allowlist through the same
   listener boundary and reports the allowed modules, accepted `eth`/`net`
   calls, rejected `web3`/`txpool`/Engine calls, and connection counts for

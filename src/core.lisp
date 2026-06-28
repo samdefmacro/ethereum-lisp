@@ -7129,7 +7129,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor %make-engine-rpc-http-service
                 (&key host port store config jwt-secret now-provider
                       import-function telemetry-sink allowed-method-p
-                      network-id)))
+                      network-id rpc-prefix)))
   host
   port
   store
@@ -7139,7 +7139,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   import-function
   telemetry-sink
   allowed-method-p
-  network-id)
+  network-id
+  rpc-prefix)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7174,6 +7175,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (import-function (engine-rpc-default-import-function))
        (allowed-method-p #'engine-rpc-any-method-p)
        network-id
+       (rpc-prefix "/")
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7199,6 +7201,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (not (and (integerp network-id) (not (minusp network-id)))))
     (block-validation-fail
      "Engine RPC HTTP network id must be a non-negative integer"))
+  (unless (and (stringp rpc-prefix)
+               (plusp (length rpc-prefix))
+               (char= #\/ (char rpc-prefix 0)))
+    (block-validation-fail "Engine RPC HTTP prefix must start with /"))
   (%make-engine-rpc-http-service
    :host host
    :port port
@@ -7209,7 +7215,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :import-function import-function
    :telemetry-sink telemetry-sink
    :allowed-method-p allowed-method-p
-   :network-id network-id))
+   :network-id network-id
+   :rpc-prefix rpc-prefix))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -7527,6 +7534,22 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (values (subseq request-line 0 first-space)
               (subseq request-line (1+ first-space) second-space)))))
 
+(defun engine-rpc-http-target-path (target)
+  (if (and (stringp target)
+           (plusp (length target))
+           (char= #\/ (char target 0)))
+      (subseq target 0 (or (position #\? target)
+                           (length target)))
+      target))
+
+(defun engine-rpc-http-target-allowed-p (target rpc-prefix)
+  (let ((path (engine-rpc-http-target-path target)))
+    (or (string= rpc-prefix "/")
+        (string= path rpc-prefix)
+        (and (< (length rpc-prefix) (length path))
+             (engine-rpc-string-prefix-p rpc-prefix path)
+             (char= #\/ (char path (length rpc-prefix)))))))
+
 (defun engine-rpc-http-headers (lines)
   (loop for line in lines
         unless (string= line "")
@@ -7639,14 +7662,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (return-from engine-rpc-http-request-telemetry-fields nil))
           (multiple-value-bind (http-method target)
               (engine-rpc-http-request-target (first lines))
-            (declare (ignore target))
             (let* ((headers (engine-rpc-http-headers (rest lines)))
                    (body (engine-rpc-http-body body headers))
                    (methods
                      (and (plusp (length body))
                           (engine-rpc-request-methods (parse-json body)))))
               (append
-               (list (cons "httpMethod" http-method))
+               (list (cons "httpMethod" http-method)
+                     (cons "httpTarget" target))
                (when methods
                  (list (cons "rpcMethods"
                              (engine-rpc-method-summary methods)))))))))
@@ -7783,6 +7806,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-http-request-string
     (request store config &key jwt-secret now import-function
                                network-id
+                               (rpc-prefix "/")
                                (allowed-method-p #'engine-rpc-any-method-p))
   (handler-case
       (multiple-value-bind (boundary boundary-length)
@@ -7794,8 +7818,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (block-validation-fail "HTTP request is empty"))
           (multiple-value-bind (method target)
               (engine-rpc-http-request-target (first lines))
-            (declare (ignore target))
             (let ((headers (engine-rpc-http-headers (rest lines))))
+              (unless (engine-rpc-http-target-allowed-p target rpc-prefix)
+                (return-from engine-rpc-handle-http-request-string
+                  (engine-rpc-http-error-response
+                   404 "Not Found" "not found")))
               (when jwt-secret
                 (handler-case
                     (engine-rpc-http-authorized-p
@@ -7838,6 +7865,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (input-stream output-stream store config
      &key jwt-secret now import-function
           network-id
+          (rpc-prefix "/")
           (allowed-method-p #'engine-rpc-any-method-p)
           telemetry-sink telemetry-fields)
   (let* ((request nil)
@@ -7853,6 +7881,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :now now
                  :import-function import-function
                  :network-id network-id
+                 :rpc-prefix rpc-prefix
                  :allowed-method-p allowed-method-p))
             (error (condition)
               (engine-rpc-http-error-response
@@ -7897,6 +7926,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           :now (funcall (engine-rpc-http-service-now-provider service))
           :import-function (engine-rpc-http-service-import-function service)
           :network-id (engine-rpc-http-service-network-id service)
+          :rpc-prefix (engine-rpc-http-service-rpc-prefix service)
           :allowed-method-p
           (engine-rpc-http-service-allowed-method-p service)
           :telemetry-sink sink

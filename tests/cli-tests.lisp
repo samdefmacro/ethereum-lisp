@@ -559,9 +559,9 @@
          (status-line (subseq response 0 line-end)))
     (parse-integer status-line :start 9 :end 12)))
 
-(defun devnet-cli-json-rpc-http-request (body &key token)
+(defun devnet-cli-json-rpc-http-request (body &key token (target "/"))
   (with-output-to-string (stream)
-    (format stream "POST / HTTP/1.1~%Host: localhost~%")
+    (format stream "POST ~A HTTP/1.1~%Host: localhost~%" target)
     (format stream "Content-Type: application/json~%")
     (when token
       (format stream "Authorization: Bearer ~A~%" token))
@@ -636,6 +636,8 @@
     (is (= 0 (getf summary :head-number)))
     (is (string= "127.0.0.1:0" (getf summary :engine-endpoint)))
     (is (string= "127.0.0.1:8545" (getf summary :rpc-endpoint)))
+    (is (string= "/" (getf summary :engine-rpc-prefix)))
+    (is (string= "/" (getf summary :public-rpc-prefix)))
     (is (equal (devnet-cli-current-process-id) (getf summary :process-id)))
     (is (string= (hash32-to-hex head-hash) (getf summary :head-hash)))
     (is (null (getf summary :safe-number)))
@@ -645,6 +647,12 @@
     (is (getf summary :state-available-p))
     (is (not (getf summary :auth-required-p)))
     (is (not (getf summary :jwt-secret-path)))
+    (is (string= "/"
+                 (engine-rpc-http-service-rpc-prefix
+                  (ethereum-lisp.cli:devnet-node-service node))))
+    (is (string= "/"
+                 (engine-rpc-http-service-rpc-prefix
+                  (ethereum-lisp.cli:devnet-node-public-service node))))
     (is (funcall (engine-rpc-http-service-allowed-method-p
                   (ethereum-lisp.cli:devnet-node-service node))
                  "engine_exchangeCapabilities"))
@@ -830,7 +838,9 @@
                          :genesis-path +devnet-cli-genesis-fixture+
                          :port 8551
                          :public-port 8545
-                         :jwt-secret-path (namestring jwt-path)))
+                         :jwt-secret-path (namestring jwt-path)
+                         :engine-rpc-prefix "/engine"
+                         :public-rpc-prefix "/rpc"))
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token secret 0))
                   (engine-body
@@ -861,7 +871,8 @@
                            (make-string-input-stream
                             (devnet-cli-json-rpc-http-request
                              engine-body
-                             :token token))
+                             :token token
+                             :target "/engine"))
                            :output-stream engine-output
                            :close-function
                            (lambda () (setf engine-closed-p t)))))
@@ -875,7 +886,9 @@
                         (make-engine-rpc-http-connection
                          :input-stream
                          (make-string-input-stream
-                          (devnet-cli-json-rpc-http-request public-body))
+                          (devnet-cli-json-rpc-http-request
+                           public-body
+                           :target "/rpc"))
                          :output-stream public-output
                          :close-function
                          (lambda () (setf public-closed-p t))))
@@ -1850,11 +1863,13 @@
                          "--authrpc.addr" "192.0.2.30"
                          "--authrpc.port" "9651"
                          "--authrpc.jwtsecret" (namestring jwt-path)
+                         "--authrpc.rpcprefix" "/engine"
                          "--authrpc.vhosts" "*"
                          "--http"
                          "--http.addr" "192.0.2.31"
                          "--http.port" "9645"
                          "--http.api" "eth,net,web3,txpool"
+                         "--http.rpcprefix" "/rpc"
                          "--http.vhosts" "*"
                          "--http.corsdomain" "*"
                          "--networkid" "7331"
@@ -1879,6 +1894,12 @@
                             (fixture-object-field summary "engineEndpoint")))
                (is (string= "192.0.2.31:9645"
                             (fixture-object-field summary "rpcEndpoint")))
+               (is (string= "/engine"
+                            (fixture-object-field summary
+                                                  "engineRpcPrefix")))
+               (is (string= "/rpc"
+                            (fixture-object-field summary
+                                                  "publicRpcPrefix")))
                (is (= 7331 (fixture-object-field summary "networkId")))
                (is (eq t (fixture-object-field summary "authRequired")))
                (is (string= (namestring jwt-path)
@@ -1887,6 +1908,12 @@
                (let ((fields (getf log-record :fields)))
                  (is (string= "0x1ca3"
                               (cdr (assoc "networkId" fields
+                                          :test #'string=))))
+                 (is (string= "/engine"
+                              (cdr (assoc "engineRpcPrefix" fields
+                                          :test #'string=))))
+                 (is (string= "/rpc"
+                              (cdr (assoc "publicRpcPrefix" fields
                                           :test #'string=))))))))
       (when (probe-file jwt-path)
         (delete-file jwt-path))
@@ -4708,6 +4735,16 @@
                                  "--public-port"
                                  "70000"
                                  "--no-serve"))))
+    (is (search "--authrpc.rpcprefix requires a path beginning with /"
+                (run-error (list "devnet"
+                                 "--authrpc.rpcprefix"
+                                 "engine"
+                                 "--no-serve"))))
+    (is (search "--http.rpcprefix requires a path beginning with /"
+                (run-error (list "devnet"
+                                 "--http.rpcprefix"
+                                 "rpc"
+                                 "--no-serve"))))
     (is (search "--max-connections must be non-negative"
                 (run-error (list "devnet"
                                  "--max-connections"
@@ -4744,6 +4781,14 @@
                                  "--no-serve"))))
     (is (search "--public-port requires a value"
                 (run-error (list "devnet" "--public-port" "--no-serve"))))
+    (is (search "--authrpc.rpcprefix requires a value"
+                (run-error (list "devnet"
+                                 "--authrpc.rpcprefix"
+                                 "--no-serve"))))
+    (is (search "--http.rpcprefix requires a value"
+                (run-error (list "devnet"
+                                 "--http.rpcprefix"
+                                 "--no-serve"))))
     (is (search "--database requires a value"
                 (run-error (list "devnet" "--database"))))
     (is (search "--prune-state-before requires a value"

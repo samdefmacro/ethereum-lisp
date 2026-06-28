@@ -23737,6 +23737,37 @@
       (is (search "Connection: close" http-response))
       (is (= 17 (field rpc-response "id")))
       (is (string= "ethereum-lisp" (field local "name"))))
+    (let* ((body
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":117,"
+              "\"method\":\"engine_getClientVersionV1\","
+              "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+              "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+           (request
+             (format nil
+                     "POST /engine/v1?trace=true HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (http-response
+             (engine-rpc-handle-http-request-string
+              request
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :rpc-prefix "/engine"))
+           (rpc-response (parse-json (http-body http-response))))
+      (is (= 200 (http-status http-response)))
+      (is (= 117 (field rpc-response "id"))))
+    (let* ((response
+             (engine-rpc-handle-http-request-string
+              "POST /public HTTP/1.1
+Content-Type: application/json
+
+{}"
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :rpc-prefix "/engine")))
+      (is (= 404 (http-status response))))
     (let* ((body "{\"jsonrpc\":\"2.0\",\"id\":18,")
            (request
              (format nil
@@ -24121,6 +24152,7 @@ Content-Type: application/json
                    (field (field (field rpc-response "result")
                                  "payloadStatus")
                           "status")))
+      (is (string= "/" (field fields "httpTarget")))
       (is (string= +payload-status-syncing+
                    (field fields "rpcPayloadStatus"))))
     (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
@@ -24193,6 +24225,7 @@ Content-Type: application/json
               :jwt-secret secret
               :now-provider (lambda () now)
               :import-function #'execute-and-commit-engine-payload
+              :rpc-prefix "/engine"
               :telemetry-sink sink)))
       (is (string= "localhost:8551"
                    (engine-rpc-http-service-endpoint default-service)))
@@ -24204,6 +24237,8 @@ Content-Type: application/json
            (engine-rpc-http-service-import-function default-service)))
       (is (eq #'execute-and-commit-engine-payload
               (engine-rpc-http-service-import-function default-service)))
+      (is (string= "/" (engine-rpc-http-service-rpc-prefix default-service)))
+      (is (string= "/engine" (engine-rpc-http-service-rpc-prefix service)))
       (is (typep (engine-rpc-http-service-store service)
                  'engine-payload-memory-store))
       (is (typep (engine-rpc-http-service-config service) 'chain-config))
@@ -24218,7 +24253,7 @@ Content-Type: application/json
              (token (engine-rpc-make-jwt-token secret now))
              (request
                (format nil
-                       "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Authorization: Bearer ~A~%Content-Length: ~D~%~%~A"
+                       "POST /engine HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Authorization: Bearer ~A~%Content-Length: ~D~%~%~A"
                        token
                        (length body)
                        body))
@@ -24265,6 +24300,8 @@ Content-Type: application/json
                                  (ethereum-lisp.telemetry:telemetry-event-fields
                                   (first events))
                                  :test #'string=)))))
+      (signals block-validation-error
+        (make-engine-rpc-http-service :rpc-prefix "engine"))
       (signals block-validation-error
         (make-engine-rpc-http-service :port 70000))
       (signals block-validation-error
