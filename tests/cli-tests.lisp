@@ -2433,6 +2433,14 @@
                (is (equal '("eth" "net")
                           (fixture-object-field report
                                                 "publicApiAllowlist")))
+               (is (equal '("eth" "net")
+                          (fixture-object-field
+                           report
+                           "publicApiAllowlistReportedModules")))
+               (is (string= "eth,net"
+                            (fixture-object-field
+                             report
+                             "publicApiAllowlistTelemetryModules")))
                (is (= 0
                       (fixture-object-field
                        report

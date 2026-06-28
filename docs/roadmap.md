@@ -1071,7 +1071,8 @@ first pass, but interfaces must not block that path.
   runner-visible validation. Devnet startup summaries, readiness JSON, and
   lifecycle telemetry now also report configured `publicApiModules`, so process
   runners can correlate launch parameters with the advertised public RPC
-  method filter.
+  method filter; the standalone smoke report now verifies and exposes the same
+  reported summary/telemetry module list beside its allowlist RPC probes.
   `--datadir PATH` now
   maps to a concrete `PATH/ethereum-lisp-chain.sexp` KV chain-store path when
   `--database` is absent, while explicit `--database` remains authoritative.

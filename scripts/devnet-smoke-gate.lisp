@@ -581,7 +581,9 @@ references/ checkouts.~%")
             :network-id 7331
             :public-allowed-method-p
             (ethereum-lisp.cli::devnet-cli-public-api-method-filter
-             *devnet-smoke-gate-public-api-allowlist*)))
+             *devnet-smoke-gate-public-api-allowlist*)
+            :public-api-modules
+            *devnet-smoke-gate-public-api-allowlist*))
          (chain-id-output (make-string-output-stream))
          (network-output (make-string-output-stream))
          (web3-output (make-string-output-stream))
@@ -650,7 +652,19 @@ references/ checkouts.~%")
              (txpool-error-code
                (devnet-smoke-gate-error-code txpool-rpc))
              (engine-error-code
-               (devnet-smoke-gate-error-code engine-rpc)))
+               (devnet-smoke-gate-error-code engine-rpc))
+             (summary-json
+               (ethereum-lisp.cli::devnet-node-summary-json-object node))
+             (telemetry-fields
+               (ethereum-lisp.cli::devnet-node-telemetry-fields node))
+             (reported-modules
+               (cdr (assoc "publicApiModules"
+                           summary-json
+                           :test #'string=)))
+             (telemetry-modules
+               (cdr (assoc "publicApiModules"
+                           telemetry-fields
+                           :test #'string=))))
         (dolist (response (list chain-id-response network-response
                                 web3-response txpool-response
                                 engine-response))
@@ -675,8 +689,17 @@ references/ checkouts.~%")
           (devnet-smoke-gate-require
            (= -32601 code)
            "Public API allowlist did not reject a blocked method"))
+        (devnet-smoke-gate-require
+         (equal *devnet-smoke-gate-public-api-allowlist*
+                reported-modules)
+         "Public API allowlist summary modules mismatch")
+        (devnet-smoke-gate-require
+         (string= "eth,net" telemetry-modules)
+         "Public API allowlist telemetry modules mismatch")
         (list :allowed-modules
               (copy-list *devnet-smoke-gate-public-api-allowlist*)
+              :reported-modules reported-modules
+              :telemetry-modules telemetry-modules
               :engine-connections (getf summary :engine-connections)
               :public-connections (getf summary :public-connections)
               :total-connections (getf summary :total-connections)
@@ -5914,6 +5937,12 @@ references/ checkouts.~%")
                   (cons "publicApiAllowlist"
                         (getf public-api-allowlist-summary
                               :allowed-modules))
+                  (cons "publicApiAllowlistReportedModules"
+                        (getf public-api-allowlist-summary
+                              :reported-modules))
+                  (cons "publicApiAllowlistTelemetryModules"
+                        (getf public-api-allowlist-summary
+                              :telemetry-modules))
                   (cons "publicApiAllowlistEngineConnections"
                         (getf public-api-allowlist-summary
                               :engine-connections))

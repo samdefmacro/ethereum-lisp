@@ -648,6 +648,16 @@ ones.
     field in `devnet.ready` / `devnet.shutdown`. CLI coverage verifies direct
     node summaries and geth-shaped runner invocations so process runners can
     correlate configured public API modules with observed RPC method filters.
+- [x] `DEVNET-RUNNER-PUBLIC-API-SMOKE-REPORT`: Extend the standalone devnet
+  smoke gate so public API allowlist behavior and runner-visible reporting are
+  validated together.
+  - Result (2026-06-28): the `--http.api` allowlist smoke path now constructs
+    its node with the same reported public module list that drives the method
+    filter, verifies `publicApiModules` in node summary JSON and lifecycle
+    telemetry, and exposes `publicApiAllowlistReportedModules` plus
+    `publicApiAllowlistTelemetryModules` in the smoke report. CLI script
+    coverage locks these fields next to the existing accepted/rejected RPC
+    method checks.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
