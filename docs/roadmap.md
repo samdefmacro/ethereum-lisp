@@ -1043,7 +1043,11 @@ first pass, but interfaces must not block that path.
   The CLI also supports a
   Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
   telemetry, and the standalone plus Phase A devnet smoke gates verify the
-  pid-file process id against readiness/log metadata. Failed devnet CLI
+  pid-file process id against readiness/log metadata. The devnet CLI now also
+  accepts geth/Hive-style `--authrpc.addr`,
+  `--authrpc.port`, `--authrpc.jwtsecret`, `--http.addr`, and `--http.port`
+  aliases, mapping them onto the existing authenticated Engine and public RPC
+  listener fields without changing the split-service contract. Failed devnet CLI
   startups with `--log-file` now append a structured `devnet.error` telemetry
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, and

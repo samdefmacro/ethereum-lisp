@@ -1628,6 +1628,52 @@
       (when (probe-file log-path)
         (delete-file log-path)))))
 
+(deftest devnet-cli-main-accepts-geth-style-runner-aliases
+  (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex"))
+        (ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
+        (output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (with-open-file (stream jwt-path
+                                   :direction :output
+                                   :if-exists :supersede
+                                   :if-does-not-exist :create)
+             (write-string
+              "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+              stream))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--authrpc.addr" "192.0.2.30"
+                         "--authrpc.port" "9651"
+                         "--authrpc.jwtsecret" (namestring jwt-path)
+                         "--http.addr" "192.0.2.31"
+                         "--http.port" "9645"
+                         "--ready-file" (namestring ready-path)
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let* ((stdout-summary
+                    (parse-json (get-output-stream-string output)))
+                  (ready-summary
+                    (parse-json (devnet-cli-file-string ready-path))))
+             (dolist (summary (list stdout-summary ready-summary))
+               (is (string= "192.0.2.30:9651"
+                            (fixture-object-field summary "engineEndpoint")))
+               (is (string= "192.0.2.31:9645"
+                            (fixture-object-field summary "rpcEndpoint")))
+               (is (eq t (fixture-object-field summary "authRequired")))
+               (is (string= (namestring jwt-path)
+                            (fixture-object-field summary "jwtSecretPath"))))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))
+      (when (probe-file ready-path)
+        (delete-file ready-path)))))
+
 (deftest devnet-cli-main-engine-host-does-not-rewrite-public-default
   (let ((engine-output (make-string-output-stream))
         (engine-errors (make-string-output-stream))
@@ -3874,7 +3920,9 @@
     (is (string= "" stderr))
     (is (search "Usage: ethereum-lisp devnet" stdout))
     (is (search "--ready-file PATH" stdout))
-    (is (search "--pid-file PATH" stdout))))
+    (is (search "--pid-file PATH" stdout))
+    (is (search "--authrpc.jwtsecret PATH" stdout))
+    (is (search "--http.port PORT" stdout))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-no-serve-json
   #-sbcl

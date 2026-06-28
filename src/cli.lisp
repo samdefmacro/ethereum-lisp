@@ -464,24 +464,29 @@
                 (multiple-value-setq (host args)
                   (devnet-cli-next-value args option))
                 (setf default-public-host host))
-               ((string= option "--engine-host")
+               ((or (string= option "--engine-host")
+                    (string= option "--authrpc.addr"))
                 (multiple-value-setq (host args)
                   (devnet-cli-next-value args option)))
                ((or (string= option "--port")
-                    (string= option "--engine-port"))
+                    (string= option "--engine-port")
+                    (string= option "--authrpc.port"))
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
                   (setf port (devnet-cli-parse-port value option)
                         args rest)))
-               ((string= option "--public-host")
+               ((or (string= option "--public-host")
+                    (string= option "--http.addr"))
                 (multiple-value-setq (public-host args)
                   (devnet-cli-next-value args option)))
-               ((string= option "--public-port")
+               ((or (string= option "--public-port")
+                    (string= option "--http.port"))
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
                   (setf public-port (devnet-cli-parse-port value option)
                         args rest)))
-               ((string= option "--jwt-secret")
+               ((or (string= option "--jwt-secret")
+                    (string= option "--authrpc.jwtsecret"))
                 (multiple-value-setq (jwt-secret-path args)
                   (devnet-cli-next-value args option)))
                ((string= option "--database")
@@ -532,7 +537,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST] [--engine-port PORT] [--host HOST] [--port PORT] [--public-host HOST] [--public-port PORT] [--jwt-secret PATH] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -683,9 +688,11 @@
                          (not (devnet-cli-option-token-p (first args))))
                 (return (first args))))
              ((member option
-                      '("--genesis" "--host" "--engine-host" "--port"
-                        "--engine-port" "--public-host" "--public-port"
-                        "--jwt-secret" "--database" "--prune-state-before"
+                      '("--genesis" "--host" "--engine-host"
+                        "--authrpc.addr" "--port" "--engine-port"
+                        "--authrpc.port" "--public-host" "--http.addr"
+                        "--public-port" "--http.port" "--jwt-secret"
+                        "--authrpc.jwtsecret" "--database" "--prune-state-before"
                         "--max-connections" "--ready-file" "--pid-file")
                       :test #'string=)
               (when args (pop args))))))

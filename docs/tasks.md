@@ -509,6 +509,15 @@ ones.
     common external shutdown signals use the coordinated split-listener
     shutdown path and preserve matching stdout, ready-file, pid-file, stderr,
     and lifecycle telemetry artifacts.
+- [x] `DEVNET-RUNNER-GETH-STYLE-ALIASES`: Accept common geth/Hive-style Engine
+  and public listener option aliases in the devnet CLI.
+  - Result (2026-06-28): `ethereum-lisp devnet` now accepts
+    `--authrpc.addr`, `--authrpc.port`, and `--authrpc.jwtsecret` as aliases
+    for the authenticated Engine endpoint/JWT options, plus `--http.addr` and
+    `--http.port` for the public RPC endpoint. The usage text and
+    malformed-option error telemetry parser know these aliases, and
+    CLI/script coverage verifies runner-visible endpoint and JWT summaries
+    through the alias form.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
