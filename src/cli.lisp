@@ -23,6 +23,7 @@
   public-listener)
 
 (defconstant +devnet-default-public-rpc-port+ 8545)
+(defconstant +devnet-datadir-database-file+ "ethereum-lisp-chain.sexp")
 
 (defun devnet-process-id ()
   #+sbcl
@@ -122,10 +123,17 @@
      :transaction-location)))
 
 (defun devnet-cli-make-output-kv-database (path)
+  (ensure-directories-exist (pathname path))
   (let ((existing-path (probe-file path)))
     (when (and existing-path (devnet-cli-empty-file-p existing-path))
       (delete-file existing-path)))
   (ethereum-lisp.database:make-file-key-value-database path))
+
+(defun devnet-cli-datadir-database-path (datadir)
+  (namestring
+   (merge-pathnames
+    +devnet-datadir-database-file+
+    (uiop:ensure-directory-pathname datadir))))
 
 (defun devnet-cli-validate-imported-genesis (store genesis-block database-path)
   (let ((restored-genesis (chain-store-block-by-number store 0)))
@@ -444,6 +452,7 @@
         (public-port +devnet-default-public-rpc-port+)
         (jwt-secret-path nil)
         (database-path nil)
+        (datadir-path nil)
         (state-prune-before nil)
         (max-connections nil)
         (serve-p t)
@@ -492,6 +501,9 @@
                ((string= option "--database")
                 (multiple-value-setq (database-path args)
                   (devnet-cli-next-value args option)))
+               ((string= option "--datadir")
+                (multiple-value-setq (datadir-path args)
+                  (devnet-cli-next-value args option)))
                ((string= option "--prune-state-before")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -535,7 +547,10 @@
           :public-host (or public-host default-public-host)
           :public-port public-port
           :jwt-secret-path jwt-secret-path
-          :database-path database-path
+          :database-path (or database-path
+                             (and datadir-path
+                                  (devnet-cli-datadir-database-path
+                                   datadir-path)))
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -547,7 +562,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--http] [--http.api LIST] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--database PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--http] [--http.api LIST] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -704,7 +719,7 @@
                         "--public-port" "--http.port" "--jwt-secret"
                         "--authrpc.jwtsecret" "--http.api" "--http.vhosts"
                         "--http.corsdomain" "--authrpc.vhosts"
-                        "--database" "--prune-state-before"
+                        "--database" "--datadir" "--prune-state-before"
                         "--max-connections" "--ready-file" "--pid-file")
                       :test #'string=)
               (when args (pop args))))))

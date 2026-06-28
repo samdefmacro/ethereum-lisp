@@ -1050,7 +1050,10 @@ first pass, but interfaces must not block that path.
   listener fields without changing the split-service contract. It also accepts
   geth-shaped `--http`, `--http.api`, `--http.vhosts`, `--http.corsdomain`,
   and `--authrpc.vhosts` runner flags as compatibility no-ops, leaving the
-  current Engine/public method filters authoritative. Failed devnet CLI
+  current Engine/public method filters authoritative. `--datadir PATH` now
+  maps to a concrete `PATH/ethereum-lisp-chain.sexp` KV chain-store path when
+  `--database` is absent, while explicit `--database` remains authoritative.
+  Failed devnet CLI
   startups with `--log-file` now append a structured `devnet.error` telemetry
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, and

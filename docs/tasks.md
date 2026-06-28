@@ -528,6 +528,15 @@ ones.
     Engine versus public RPC method filters remain authoritative. Usage text,
     malformed-option error telemetry scanning, and CLI/script coverage include
     the new flags.
+- [x] `DEVNET-RUNNER-DATADIR-DATABASE`: Map geth/Hive-style `--datadir` onto
+  a real devnet persistence path.
+  - Result (2026-06-28): when `--database` is absent, `ethereum-lisp devnet`
+    now derives its KV chain-store path from
+    `DATADIR/ethereum-lisp-chain.sexp`, creates the directory on export, and
+    reports that concrete `databasePath` in JSON summaries. Explicit
+    `--database` remains higher priority. CLI coverage verifies datadir-backed
+    export/restore and the explicit database override without requiring socket
+    serving.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

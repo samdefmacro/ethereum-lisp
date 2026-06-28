@@ -1332,6 +1332,67 @@
       (when (probe-file database-path)
         (delete-file database-path)))))
 
+(deftest devnet-cli-main-datadir-defaults-database-path
+  (let* ((datadir
+           (devnet-cli-temp-directory "ethereum-lisp-devnet-datadir"))
+         (datadir-database-path
+           (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
+         (explicit-database-path
+           (devnet-cli-temp-path "ethereum-lisp-devnet-explicit-chain" "sexp"))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream))
+         (override-output (make-string-output-stream))
+         (override-errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--datadir" (namestring datadir)
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let* ((summary (parse-json (get-output-stream-string output)))
+                  (database
+                    (make-file-key-value-database datadir-database-path))
+                  (restored-node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path +devnet-cli-genesis-fixture+
+                     :port 0
+                     :database-path (namestring datadir-database-path)))
+                  (restored-store
+                    (ethereum-lisp.cli:devnet-node-store restored-node))
+                  (head (chain-store-latest-block restored-store)))
+             (is (string= (namestring datadir-database-path)
+                          (fixture-object-field summary "databasePath")))
+             (is (< 0 (length (kv-chain-record-entries database :block))))
+             (is (< 0 (length (kv-chain-record-entries database :state))))
+             (is (= 0 (block-header-number (block-header head))))
+             (is (chain-store-state-available-p restored-store
+                                                (block-hash head))))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--datadir" (namestring datadir)
+                         "--database" (namestring explicit-database-path)
+                         "--json"
+                         "--no-serve")
+                   :output-stream override-output
+                   :error-stream override-errors)))
+           (is (string= "" (get-output-stream-string override-errors)))
+           (let ((summary (parse-json
+                           (get-output-stream-string override-output))))
+             (is (string= (namestring explicit-database-path)
+                          (fixture-object-field summary "databasePath")))))
+      (when (probe-file datadir-database-path)
+        (delete-file datadir-database-path))
+      (when (probe-file explicit-database-path)
+        (delete-file explicit-database-path)))))
+
 (deftest devnet-cli-main-treats-empty-database-as-new-chain
   (labels ((write-empty-kv-database (path)
              (with-open-file (stream path
@@ -3929,6 +3990,7 @@
     (is (search "--authrpc.jwtsecret PATH" stdout))
     (is (search "--http.port PORT" stdout))
     (is (search "--http.api LIST" stdout))
+    (is (search "--datadir PATH" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-no-serve-json
