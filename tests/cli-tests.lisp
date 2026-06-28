@@ -4131,18 +4131,21 @@
         do (sleep 0.05)
         finally (return :timeout)))
 
-(deftest ethereum-lisp-script-serve-mode-handles-sigterm-shutdown
-  #-sbcl
-  (skip-test "Ethereum Lisp process script requires SBCL")
-  #+sbcl
+(defun devnet-cli-assert-script-signal-shutdown (signal-name temp-name)
   (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
         (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
         (ready-path
-          (devnet-cli-temp-path "ethereum-lisp-script-sigterm-ready" "json"))
+          (devnet-cli-temp-path
+           (format nil "ethereum-lisp-script-~A-ready" temp-name)
+           "json"))
         (log-path
-          (devnet-cli-temp-path "ethereum-lisp-script-sigterm" "log"))
+          (devnet-cli-temp-path
+           (format nil "ethereum-lisp-script-~A" temp-name)
+           "log"))
         (pid-path
-          (devnet-cli-temp-path "ethereum-lisp-script-sigterm" "pid"))
+          (devnet-cli-temp-path
+           (format nil "ethereum-lisp-script-~A" temp-name)
+           "pid"))
         (process nil))
     (unwind-protect
          (progn
@@ -4192,7 +4195,9 @@
                (is (= pid (fixture-object-field ready-summary "processId")))
                (multiple-value-bind (kill-stdout kill-stderr kill-status)
                    (uiop:run-program
-                    (list "kill" "-TERM" (write-to-string pid))
+                    (list "kill"
+                          (format nil "-~A" signal-name)
+                          (write-to-string pid))
                     :output :string
                     :error-output :string
                     :ignore-error-status t)
@@ -4276,6 +4281,18 @@
         (delete-file log-path))
       (when (probe-file pid-path)
         (delete-file pid-path))))))
+
+(deftest ethereum-lisp-script-serve-mode-handles-sigterm-shutdown
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (devnet-cli-assert-script-signal-shutdown "TERM" "sigterm"))
+
+(deftest ethereum-lisp-script-serve-mode-handles-sigint-shutdown
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (devnet-cli-assert-script-signal-shutdown "INT" "sigint"))
 
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))

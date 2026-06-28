@@ -393,6 +393,11 @@ ones.
     on endpoints, process id, lifecycle phases, and zero connection counts. The
     default suite skips this test when local socket bind is blocked by the
     sandbox; it was also run with local socket escalation.
+  - Result (2026-06-28): refactored the runner-facing signal test helper and
+    added the same long-running serve-mode contract for `SIGINT`, proving both
+    common external shutdown signals use the coordinated split-listener
+    shutdown path and preserve matching stdout, ready-file, pid-file, stderr,
+    and lifecycle telemetry artifacts.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
