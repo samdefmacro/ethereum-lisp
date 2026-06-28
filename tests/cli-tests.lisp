@@ -4294,6 +4294,69 @@
   #+sbcl
   (devnet-cli-assert-script-signal-shutdown "INT" "sigint"))
 
+(defun devnet-cli-assert-script-error-telemetry (args error-substring)
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-script-error" "log")))
+    (unwind-protect
+         (multiple-value-bind (stdout stderr status)
+             (uiop:run-program
+              (append (list "sbcl" "--script" script "--")
+                      args
+                      (list "--log-file" (namestring log-path)))
+              :directory #P"/private/tmp/"
+              :output :string
+              :error-output :string
+              :ignore-error-status t)
+           (is (= 1 status))
+           (is (string= "" stdout))
+           (is (search error-substring stderr))
+           (is (search "Usage: ethereum-lisp devnet" stderr))
+           (let* ((log-records (devnet-cli-file-forms log-path))
+                  (record (first log-records))
+                  (fields (getf record :fields))
+                  (process-id
+                    (parse-integer
+                     (cdr (assoc "processId" fields :test #'string=))
+                     :junk-allowed nil)))
+             (is (= 1 (length log-records)))
+             (is (eq :log (getf record :kind)))
+             (is (eq :error (getf record :value)))
+             (is (string= "devnet.error" (getf record :name)))
+             (is (string= "error"
+                          (cdr (assoc "lifecyclePhase"
+                                      fields
+                                      :test #'string=))))
+             (is (string= "1"
+                          (cdr (assoc "exitCode" fields :test #'string=))))
+             (is (plusp process-id))
+             (is (not (= (devnet-cli-current-process-id) process-id)))
+             (is (search error-substring
+                         (cdr (assoc "errorMessage"
+                                     fields
+                                     :test #'string=))))
+             (is (string= (namestring log-path)
+                          (cdr (assoc "logPath" fields :test #'string=))))))
+      (when (probe-file log-path)
+        (delete-file log-path)))))
+
+(deftest ethereum-lisp-script-records-runner-error-telemetry
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let ((genesis (namestring (truename +devnet-cli-genesis-fixture+))))
+    (devnet-cli-assert-script-error-telemetry
+     (list "devnet" "--json" "--no-serve")
+     "--genesis is required")
+    (devnet-cli-assert-script-error-telemetry
+     (list "devnet"
+           "--genesis"
+           genesis
+           "--public-port"
+           "not-a-port"
+           "--no-serve")
+     "--public-port requires an integer value")))
+
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))

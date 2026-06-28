@@ -348,6 +348,11 @@ ones.
     `--log-file` without requiring a successful full option parse, so
     malformed option failures such as invalid port values also produce a
     machine-readable `devnet.error` record for process runners.
+  - Result (2026-06-28): runner-facing `scripts/ethereum-lisp.lisp`
+    subprocess coverage now verifies missing-genesis and malformed-option
+    failures launched from a temporary working directory exit with status 1,
+    keep stdout empty, print usage on stderr, and append a single
+    `devnet.error` record with the child process id and configured log path.
 - [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
   gate's Engine/public listener accounting self-describing for Hive-style
   process runners.

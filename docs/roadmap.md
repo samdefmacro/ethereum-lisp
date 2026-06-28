@@ -1046,8 +1046,11 @@ first pass, but interfaces must not block that path.
   pid-file process id against readiness/log metadata. Failed devnet CLI
   startups with `--log-file` now append a structured `devnet.error` telemetry
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
-  error message, including failures while parsing malformed options, so
-  process runners can classify failures without relying only on stderr. The
+  error message, including failures while parsing malformed options, and
+  runner-facing `scripts/ethereum-lisp.lisp` subprocess coverage verifies the
+  same missing-genesis and malformed-option failure contract from temporary
+  working directories, so process runners can classify failures without
+  relying only on stderr. The
   standalone devnet smoke gate now also emits and enforces an explicit
   `connectionContract`, breaking down expected Engine boundary/workflow probes
   and public canonical-read/boundary/txpool probes so Hive-style runners can
