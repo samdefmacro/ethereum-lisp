@@ -1196,13 +1196,37 @@
   (when block
     (quantity-to-hex (length (block-transactions block)))))
 
+(defun eth-rpc-pending-block-tag-p (value)
+  (and (stringp value) (string= value "pending")))
+
+(defun eth-rpc-visible-pending-transactions (store expected-chain-id)
+  (loop for transaction in (engine-payload-store-pending-transactions store)
+        when (transaction-sender
+              transaction
+              :expected-chain-id expected-chain-id)
+          collect transaction))
+
+(defun eth-rpc-pending-transaction-by-index
+    (store index &key expected-chain-id)
+  (let ((transactions
+          (eth-rpc-visible-pending-transactions store expected-chain-id)))
+    (when (< index (length transactions))
+      (nth index transactions))))
+
 (defun engine-rpc-handle-eth-get-block-transaction-count-by-number
-    (params store)
-  (let* ((number (eth-rpc-block-number-param
-                  params store
-                  "eth_getBlockTransactionCountByNumber"))
-         (block (chain-store-block-by-number store number)))
-    (eth-rpc-block-transaction-count block)))
+    (params store config)
+  (if (and (= 1 (length params))
+           (eth-rpc-pending-block-tag-p (first params)))
+      (quantity-to-hex
+       (length
+        (eth-rpc-visible-pending-transactions
+         store
+         (chain-config-chain-id config))))
+      (let* ((number (eth-rpc-block-number-param
+                      params store
+                      "eth_getBlockTransactionCountByNumber"))
+             (block (chain-store-block-by-number store number)))
+        (eth-rpc-block-transaction-count block))))
 
 (defun engine-rpc-handle-eth-get-block-transaction-count-by-hash
     (params store)
@@ -1892,16 +1916,22 @@
 
 (defun engine-rpc-handle-eth-get-raw-transaction-by-block-number-and-index
     (params store config)
-  (let* ((number (eth-rpc-block-number-param
-                  (list (first params)) store
-                  "eth_getRawTransactionByBlockNumberAndIndex"))
-         (index (eth-rpc-transaction-index-param
-                 params "eth_getRawTransactionByBlockNumberAndIndex"))
-         (block (chain-store-block-by-number store number)))
-    (eth-rpc-raw-transaction-by-index
-     block
-     index
-     :expected-chain-id (chain-config-chain-id config))))
+  (let ((index (eth-rpc-transaction-index-param
+                params "eth_getRawTransactionByBlockNumberAndIndex"))
+        (chain-id (chain-config-chain-id config)))
+    (if (eth-rpc-pending-block-tag-p (first params))
+        (eth-rpc-raw-transaction
+         (eth-rpc-pending-transaction-by-index
+          store index :expected-chain-id chain-id)
+         :expected-chain-id chain-id)
+        (let* ((number (eth-rpc-block-number-param
+                        (list (first params)) store
+                        "eth_getRawTransactionByBlockNumberAndIndex"))
+               (block (chain-store-block-by-number store number)))
+          (eth-rpc-raw-transaction-by-index
+           block
+           index
+           :expected-chain-id chain-id)))))
 
 (defun engine-rpc-handle-eth-get-raw-transaction-by-block-hash-and-index
     (params store config)
@@ -2091,15 +2121,21 @@
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-number-and-index
     (params store config)
-  (let* ((number (eth-rpc-block-number-param
-                  (list (first params)) store
-                  "eth_getTransactionByBlockNumberAndIndex"))
-         (index (eth-rpc-transaction-index-param
-                 params "eth_getTransactionByBlockNumberAndIndex"))
-         (block (chain-store-block-by-number store number)))
-    (eth-rpc-transaction-by-index
-     block index
-     :expected-chain-id (chain-config-chain-id config))))
+  (let ((index (eth-rpc-transaction-index-param
+                params "eth_getTransactionByBlockNumberAndIndex"))
+        (chain-id (chain-config-chain-id config)))
+    (if (eth-rpc-pending-block-tag-p (first params))
+        (eth-rpc-pending-transaction-object
+         (eth-rpc-pending-transaction-by-index
+          store index :expected-chain-id chain-id)
+         :expected-chain-id chain-id)
+        (let* ((number (eth-rpc-block-number-param
+                        (list (first params)) store
+                        "eth_getTransactionByBlockNumberAndIndex"))
+               (block (chain-store-block-by-number store number)))
+          (eth-rpc-transaction-by-index
+           block index
+           :expected-chain-id chain-id)))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-hash-and-index
     (params store config)
@@ -2604,7 +2640,7 @@
       id
       :result
       (engine-rpc-handle-eth-get-block-transaction-count-by-number
-       params store)))
+       params store config)))
     ((string= method "eth_getBlockTransactionCountByHash")
      (engine-rpc-response
       id

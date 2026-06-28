@@ -18788,6 +18788,30 @@
                   "\"params\":[\"" transaction-hash "\"]}")
                  store
                  config)))
+             (pending-block-count-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"eth_getBlockTransactionCountByNumber\",\"params\":[\"pending\"]}"
+                 store
+                 config)))
+             (pending-index-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"eth_getTransactionByBlockNumberAndIndex\",\"params\":[\"pending\",\"0x0\"]}"
+                 store
+                 config)))
+             (pending-raw-index-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"eth_getRawTransactionByBlockNumberAndIndex\",\"params\":[\"pending\",\"0x0\"]}"
+                 store
+                 config)))
+             (pending-out-of-range-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":95,\"method\":\"eth_getTransactionByBlockNumberAndIndex\",\"params\":[\"pending\",\"0x1\"]}"
+                 store
+                 config)))
              (pending-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -18916,6 +18940,18 @@
                        (field pending-transaction "gasPrice")))
           (is (string= (quantity-to-hex 1000000000000000000)
                        (field pending-transaction "value"))))
+        (is (string= (quantity-to-hex 1)
+                     (field pending-block-count-response "result")))
+        (let ((pending-index-transaction
+                (field pending-index-response "result")))
+          (is (string= transaction-hash
+                       (field pending-index-transaction "hash")))
+          (is (null (field pending-index-transaction "blockHash")))
+          (is (null (field pending-index-transaction "blockNumber")))
+          (is (null (field pending-index-transaction "transactionIndex"))))
+        (is (string= raw-transaction
+                     (field pending-raw-index-response "result")))
+        (is (null (field pending-out-of-range-response "result")))
         (let ((pending-transactions (field pending-response "result")))
           (is (= 1 (length pending-transactions)))
           (is (string= transaction-hash

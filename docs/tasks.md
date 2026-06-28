@@ -721,6 +721,16 @@ ones.
     disallowed hosts with HTTP 403 before JWT or JSON-RPC dispatch. The
     standalone smoke report now includes Engine/public allowed and blocked
     vhost status probes plus summary/telemetry vhost reporting.
+- [x] `PUBLIC-RPC-PENDING-BLOCK-TAG-TXPOOL`: Make public RPC pending
+  block-tag transaction queries reflect the pending txpool instead of the
+  latest committed block.
+  - Result (2026-06-29): `eth_getBlockTransactionCountByNumber("pending")`
+    now counts visible pending transactions, and
+    `eth_getTransactionByBlockNumberAndIndex("pending", INDEX)` plus
+    `eth_getRawTransactionByBlockNumberAndIndex("pending", INDEX)` return the
+    indexed pending transaction with null block location fields. Out-of-range
+    pending indexes still return null, and non-pending block tags keep the
+    existing canonical block lookup path.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
