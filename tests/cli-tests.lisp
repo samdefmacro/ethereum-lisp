@@ -1737,6 +1737,7 @@
 (deftest devnet-cli-main-accepts-geth-style-runner-aliases
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex"))
         (ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
+        (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
         (output (make-string-output-stream))
         (errors (make-string-output-stream)))
     (unwind-protect
@@ -1762,7 +1763,13 @@
                          "--http.api" "eth,net,web3,txpool"
                          "--http.vhosts" "*"
                          "--http.corsdomain" "*"
+                         "--networkid" "7331"
+                         "--syncmode" "full"
+                         "--nodiscover"
+                         "--ipcdisable"
+                         "--verbosity" "3"
                          "--ready-file" (namestring ready-path)
+                         "--log-file" (namestring log-path)
                          "--json"
                          "--no-serve")
                    :output-stream output
@@ -1771,19 +1778,28 @@
            (let* ((stdout-summary
                     (parse-json (get-output-stream-string output)))
                   (ready-summary
-                    (parse-json (devnet-cli-file-string ready-path))))
+                    (parse-json (devnet-cli-file-string ready-path)))
+                  (log-records (devnet-cli-file-forms log-path)))
              (dolist (summary (list stdout-summary ready-summary))
                (is (string= "192.0.2.30:9651"
                             (fixture-object-field summary "engineEndpoint")))
                (is (string= "192.0.2.31:9645"
                             (fixture-object-field summary "rpcEndpoint")))
+               (is (= 7331 (fixture-object-field summary "networkId")))
                (is (eq t (fixture-object-field summary "authRequired")))
                (is (string= (namestring jwt-path)
-                            (fixture-object-field summary "jwtSecretPath"))))))
+                            (fixture-object-field summary "jwtSecretPath"))))
+             (dolist (log-record log-records)
+               (let ((fields (getf log-record :fields)))
+                 (is (string= "0x1ca3"
+                              (cdr (assoc "networkId" fields
+                                          :test #'string=))))))))
       (when (probe-file jwt-path)
         (delete-file jwt-path))
       (when (probe-file ready-path)
-        (delete-file ready-path)))))
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path)))))
 
 (deftest devnet-cli-main-engine-host-does-not-rewrite-public-default
   (let ((engine-output (make-string-output-stream))
@@ -4038,6 +4054,11 @@
     (is (search "--http.port PORT" stdout))
     (is (search "--http.api LIST" stdout))
     (is (search "--datadir PATH" stdout))
+    (is (search "--networkid ID" stdout))
+    (is (search "--syncmode MODE" stdout))
+    (is (search "--nodiscover" stdout))
+    (is (search "--ipcdisable" stdout))
+    (is (search "--verbosity LEVEL" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-no-serve-json

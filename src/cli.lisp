@@ -4,7 +4,7 @@
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
                       public-service telemetry-sink jwt-secret-path log-path
-                      database-path pid-file-path)))
+                      database-path pid-file-path network-id)))
   genesis-path
   store
   config
@@ -15,7 +15,8 @@
   jwt-secret-path
   log-path
   database-path
-  pid-file-path)
+  pid-file-path
+  network-id)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -157,6 +158,7 @@
        log-path
        database-path
        pid-file-path
+       network-id
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
     (error "Devnet node requires a genesis JSON path"))
@@ -213,7 +215,8 @@
      :jwt-secret-path jwt-secret-path
      :log-path log-path
      :database-path database-path
-     :pid-file-path pid-file-path)))
+     :pid-file-path pid-file-path
+     :network-id (or network-id (chain-config-chain-id config)))))
 
 (defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)
@@ -263,6 +266,7 @@
           :log-path (devnet-node-log-path node)
           :database-path (devnet-node-database-path node)
           :pid-file-path (devnet-node-pid-file-path node)
+          :network-id (devnet-node-network-id node)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -289,6 +293,7 @@
       ("logPath" . ,(getf summary :log-path))
       ("databasePath" . ,(getf summary :database-path))
       ("pidFilePath" . ,(getf summary :pid-file-path))
+      ("networkId" . ,(getf summary :network-id))
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
@@ -453,6 +458,7 @@
         (jwt-secret-path nil)
         (database-path nil)
         (datadir-path nil)
+        (network-id nil)
         (state-prune-before nil)
         (max-connections nil)
         (serve-p t)
@@ -504,6 +510,13 @@
                ((string= option "--datadir")
                 (multiple-value-setq (datadir-path args)
                   (devnet-cli-next-value args option)))
+               ((or (string= option "--networkid")
+                    (string= option "--network-id"))
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf network-id
+                        (devnet-cli-parse-non-negative-integer value option)
+                        args rest)))
                ((string= option "--prune-state-before")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -520,12 +533,14 @@
                 nil)
                ((member option
                         '("--http.api" "--http.vhosts" "--http.corsdomain"
-                          "--authrpc.vhosts")
+                          "--authrpc.vhosts" "--syncmode" "--verbosity")
                         :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
                   (declare (ignore value))
                   (setf args rest)))
+               ((member option '("--nodiscover" "--ipcdisable") :test #'string=)
+                nil)
                ((string= option "--no-serve")
                 (setf serve-p nil))
                ((string= option "--json")
@@ -551,6 +566,7 @@
                              (and datadir-path
                                   (devnet-cli-datadir-database-path
                                    datadir-path)))
+          :network-id network-id
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -562,7 +578,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--http] [--http.api LIST] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--http] [--http.api LIST] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--verbosity LEVEL] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -688,6 +704,7 @@
       ("jwtSecretPath" . ,(or (getf summary :jwt-secret-path) ""))
       ("logPath" . ,(or (getf summary :log-path) ""))
       ("databasePath" . ,(or (getf summary :database-path) ""))
+      ("networkId" . ,(quantity-to-hex (getf summary :network-id)))
       ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
 
 (defun devnet-cli-log-event
@@ -725,8 +742,10 @@
                         "--public-port" "--http.port" "--jwt-secret"
                         "--authrpc.jwtsecret" "--http.api" "--http.vhosts"
                         "--http.corsdomain" "--authrpc.vhosts"
-                        "--database" "--datadir" "--prune-state-before"
-                        "--max-connections" "--ready-file" "--pid-file")
+                        "--networkid" "--network-id" "--syncmode"
+                        "--verbosity" "--database" "--datadir"
+                        "--prune-state-before" "--max-connections"
+                        "--ready-file" "--pid-file")
                       :test #'string=)
               (when args (pop args))))))
 
@@ -795,6 +814,7 @@
                           :log-path (getf options :log-file)
                           :database-path (getf options :database-path)
                           :pid-file-path (getf options :pid-file)
+                          :network-id (getf options :network-id)
                           :telemetry-sink telemetry-sink)))
                    (when (getf options :pid-file)
                      (devnet-cli-write-pid-file (getf options :pid-file)))

@@ -1055,7 +1055,12 @@ first pass, but interfaces must not block that path.
   `--database` is absent, while explicit `--database` remains authoritative.
   Ready, pid, telemetry log, and error-log artifact paths now create their
   parent directories before writing, so runner-provided nested artifact
-  locations do not require a separate setup step. Failed devnet CLI
+  locations do not require a separate setup step. Devnet CLI invocations can
+  also include common geth/Hive node-level flags:
+  `--networkid` / `--network-id`, `--syncmode`, `--nodiscover`,
+  `--ipcdisable`, and `--verbosity`; `networkId` is reported in summaries and
+  lifecycle telemetry while the no-P2P/no-IPC flags remain compatibility
+  no-ops against the current split-service process. Failed devnet CLI
   startups with `--log-file` now append a structured `devnet.error` telemetry
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, and
