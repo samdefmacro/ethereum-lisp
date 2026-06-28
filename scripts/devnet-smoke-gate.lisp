@@ -75,7 +75,7 @@ references/ checkouts.~%")
   "0x0000000000000000000000000000000000003001")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
-(defconstant +devnet-smoke-gate-engine-boundary-connections+ 1)
+(defconstant +devnet-smoke-gate-engine-boundary-connections+ 2)
 (defconstant +devnet-smoke-gate-engine-workflow-connections+ 5)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
@@ -5098,7 +5098,12 @@ references/ checkouts.~%")
                   (expected-storage nil)
                   (secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token secret 0))
+                  (invalid-token
+                    (engine-rpc-make-jwt-token
+                     (make-byte-vector 32 :initial-element #x99)
+                     0))
                   (unauthenticated-engine-output (make-string-output-stream))
+                  (invalid-auth-engine-output (make-string-output-stream))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
                   (prepare-payload-output (make-string-output-stream))
@@ -5355,6 +5360,7 @@ references/ checkouts.~%")
                         txpool-inspect-output))))
                   (engine-served-count 0)
                   (unauthenticated-engine-served-p nil)
+                  (invalid-auth-engine-served-p nil)
                   (engine-done-p nil)
                   (public-served-count 0))
              (devnet-cli-set-node-store-config node store config)
@@ -5386,6 +5392,24 @@ references/ checkouts.~%")
                                        "engine_getClientVersionV1")
                                  (cons "params" (list '()))))))
                              :output-stream unauthenticated-engine-output
+                             :close-function
+                             (lambda ()
+                               (incf engine-served-count))))
+                           ((not invalid-auth-engine-served-p)
+                            (setf invalid-auth-engine-served-p t)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream
+                              (devnet-cli-json-rpc-http-request
+                               (json-encode
+                                (list
+                                 (cons "jsonrpc" "2.0")
+                                 (cons "id" 26)
+                                 (cons "method"
+                                       "engine_getClientVersionV1")
+                                 (cons "params" (list '()))))
+                               :token invalid-token))
+                             :output-stream invalid-auth-engine-output
                              :close-function
                              (lambda ()
                                (incf engine-served-count))))
@@ -5468,6 +5492,9 @@ references/ checkouts.~%")
                       (unauthenticated-engine-response
                         (get-output-stream-string
                          unauthenticated-engine-output))
+                      (invalid-auth-engine-response
+                        (get-output-stream-string
+                         invalid-auth-engine-output))
                       (forkchoice-response
                         (get-output-stream-string forkchoice-output))
                       (prepare-payload-response
@@ -5647,8 +5674,10 @@ references/ checkouts.~%")
                       (actual-balance
                         (fixture-object-field balance-rpc "result")))
                  (devnet-smoke-gate-require
-                  (= 6 (getf summary :engine-connections))
-                  "Expected 6 Engine connections, got ~S"
+                  (= +devnet-smoke-gate-engine-connections+
+                     (getf summary :engine-connections))
+                  "Expected ~D Engine connections, got ~S"
+                  +devnet-smoke-gate-engine-connections+
                   (getf summary :engine-connections))
                  (devnet-smoke-gate-require
                   (= +devnet-smoke-gate-public-connections+
@@ -5660,6 +5689,10 @@ references/ checkouts.~%")
                   (= 401 (devnet-cli-http-status
                           unauthenticated-engine-response))
                   "Unauthenticated Engine request HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 401 (devnet-cli-http-status
+                          invalid-auth-engine-response))
+                  "Invalid-token Engine request HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
                   "engine_newPayloadV2 HTTP status mismatch")
@@ -5970,6 +6003,9 @@ references/ checkouts.~%")
                   (cons "engineUnauthenticatedStatus"
                         (devnet-cli-http-status
                          unauthenticated-engine-response))
+                  (cons "engineInvalidAuthStatus"
+                        (devnet-cli-http-status
+                         invalid-auth-engine-response))
                   (cons "publicEngineNamespaceErrorCode"
                         (fixture-object-field
                          (fixture-object-field
@@ -7786,6 +7822,12 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field case-report "blockNumber")
                 (devnet-smoke-gate-field case-report "checkedBalance")))
       (progn
+        (format t "engineUnauthenticatedStatus=~D~%"
+                (devnet-smoke-gate-field report
+                                         "engineUnauthenticatedStatus"))
+        (format t "engineInvalidAuthStatus=~D~%"
+                (devnet-smoke-gate-field report
+                                         "engineInvalidAuthStatus"))
         (format t "newPayloadStatus=~A~%"
                 (devnet-smoke-gate-field report "newPayloadStatus"))
         (format t "latestValidHash=~A~%"

@@ -658,6 +658,17 @@ ones.
     `publicApiAllowlistTelemetryModules` in the smoke report. CLI script
     coverage locks these fields next to the existing accepted/rejected RPC
     method checks.
+- [x] `DEVNET-RUNNER-INVALID-JWT-SMOKE`: Extend the standalone devnet smoke
+  gate so the authenticated Engine listener rejects malformed credentials at
+  the process boundary, not only missing credentials.
+  - Result (2026-06-29): the devnet listener-boundary smoke now sends both an
+    unauthenticated Engine request and a request signed with the wrong JWT
+    secret before the normal authenticated Engine workflow. Both must return
+    HTTP 401 over the Engine listener, and the smoke report exposes
+    `engineUnauthenticatedStatus` and `engineInvalidAuthStatus` so Hive-style
+    runners can distinguish missing-auth and bad-auth failures from workflow
+    failures. CLI coverage updates the single-case, all-fixtures, and Phase A
+    devnet aggregate connection budgets for the added Engine boundary probe.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

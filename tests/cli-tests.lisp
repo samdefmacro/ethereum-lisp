@@ -66,7 +66,7 @@
   (let ((contract (fixture-object-field report "connectionContract")))
     (is contract)
     (is (= case-count (fixture-object-field contract "caseCount")))
-    (is (= case-count
+    (is (= (* 2 case-count)
            (fixture-object-field contract "engineBoundaryConnections")))
     (is (= (* 5 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
@@ -2422,6 +2422,10 @@
                       (fixture-object-field
                        report
                        "engineUnauthenticatedStatus")))
+               (is (= 401
+                      (fixture-object-field
+                       report
+                       "engineInvalidAuthStatus")))
                (is (= -32601
                       (fixture-object-field
                        report
@@ -2928,11 +2932,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 6 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 7 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
                (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 22 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 23 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -2949,12 +2953,16 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 6 (fixture-object-field case "engineConnections")))
+                   (is (= 7 (fixture-object-field case "engineConnections")))
                    (is (= 16 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
                            "engineUnauthenticatedStatus")))
+                   (is (= 401
+                          (fixture-object-field
+                           case
+                           "engineInvalidAuthStatus")))
                    (is (= -32601
                           (fixture-object-field
                            case
@@ -3718,11 +3726,11 @@
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 6 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 7 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 22 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 23 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")
@@ -4575,31 +4583,34 @@
                (is (member "devnet.ready" log-names :test #'string=))
                (is (member "devnet.shutdown" log-names :test #'string=))
                (dolist (log-record log-records)
-                 (let ((fields (getf log-record :fields)))
-                   (is (string= engine-endpoint
-                                (cdr (assoc "engineEndpoint" fields
-                                            :test #'string=))))
-                   (is (string= rpc-endpoint
-                                (cdr (assoc "rpcEndpoint" fields
-                                            :test #'string=))))
-                   (is (string= (if (string= "devnet.ready"
-                                              (getf log-record :name))
-                                     "ready"
-                                     "shutdown")
-                                (cdr (assoc "lifecyclePhase" fields
-                                            :test #'string=))))
-                   (is (string= "0"
-                                (cdr (assoc "engineConnections" fields
-                                            :test #'string=))))
-                   (is (string= "0"
-                                (cdr (assoc "publicConnections" fields
-                                            :test #'string=))))
-                   (is (string= "0"
-                                (cdr (assoc "totalConnections" fields
-                                            :test #'string=))))
-                   (is (string= (write-to-string pid)
-                                (cdr (assoc "processId" fields
-                                            :test #'string=)))))))))
+                 (when (member (getf log-record :name)
+                               '("devnet.ready" "devnet.shutdown")
+                               :test #'string=)
+                   (let ((fields (getf log-record :fields)))
+                     (is (string= engine-endpoint
+                                  (cdr (assoc "engineEndpoint" fields
+                                              :test #'string=))))
+                     (is (string= rpc-endpoint
+                                  (cdr (assoc "rpcEndpoint" fields
+                                              :test #'string=))))
+                     (is (string= (if (string= "devnet.ready"
+                                                (getf log-record :name))
+                                       "ready"
+                                       "shutdown")
+                                  (cdr (assoc "lifecyclePhase" fields
+                                              :test #'string=))))
+                     (is (string= "0"
+                                  (cdr (assoc "engineConnections" fields
+                                              :test #'string=))))
+                     (is (string= "0"
+                                  (cdr (assoc "publicConnections" fields
+                                              :test #'string=))))
+                     (is (string= "0"
+                                  (cdr (assoc "totalConnections" fields
+                                              :test #'string=))))
+                     (is (string= (write-to-string pid)
+                                  (cdr (assoc "processId" fields
+                                              :test #'string=))))))))))
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)
