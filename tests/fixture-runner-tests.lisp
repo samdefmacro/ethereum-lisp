@@ -232,6 +232,54 @@
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_call_memory_expands_on_early_revert.json/tests/frontier/opcodes/test_call.py::test_call_memory_expands_on_early_revert[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_0-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_0-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_1-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_1-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_1_nonzerovalue-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_1_nonzerovalue-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_1_nonzerovalue_insufficient_balance-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_1_nonzerovalue_insufficient_balance-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_2-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_2-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_3-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_3-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_4-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_4-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_4_exact_gas-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_4_exact_gas-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_4_insufficient_gas-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_4_insufficient_gas-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile_large_params.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile_large_params[fork_Shanghai-blockchain_test_engine_from_state_test-tx_gas_limit_10000000-identity_5-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile_large_params.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile_large_params[fork_Shanghai-blockchain_test_engine_from_state_test-tx_gas_limit_10000000-identity_5-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile_large_params.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile_large_params[fork_Shanghai-blockchain_test_engine_from_state_test-tx_gas_limit_10000000-identity_6-call_type_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_call_identity_precompile_large_params.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile_large_params[fork_Shanghai-blockchain_test_engine_from_state_test-tx_gas_limit_10000000-identity_6-call_type_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_identity_precompile_returndata.json/tests/frontier/identity_precompile/test_identity_returndatasize.py::test_identity_precompile_returndata[fork_Shanghai-blockchain_test_engine_from_state_test-output_size_greater_than_input]"
+     . "engineNewPayloadV2")
+    ("frontier/identity_precompile/test_identity_precompile_returndata.json/tests/frontier/identity_precompile/test_identity_returndatasize.py::test_identity_precompile_returndata[fork_Shanghai-blockchain_test_engine_from_state_test-output_size_less_than_input]"
+     . "engineNewPayloadV2")
     ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH1]"
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH2]"

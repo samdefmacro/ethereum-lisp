@@ -20,6 +20,11 @@
       (and (= number 9) (chain-rules-istanbul-p rules))
       (and (= number 10) (chain-rules-cancun-p rules))))
 
+(defun active-precompile-address-p (address rules)
+  (let ((number (address-to-word address)))
+    (and (<= 1 number 10)
+         (active-precompile-address-number-p number rules))))
+
 (defun prewarm-precompile-addresses (accessed-addresses &optional rules)
   (dotimes (i 10 accessed-addresses)
     (let ((number (1+ i)))
@@ -358,6 +363,11 @@
         (replace result data :start1 0 :start2 offset :end2 (+ offset available))))
     result))
 
+(defun call-output-data-slice (data size)
+  (let* ((data (ensure-byte-vector data))
+         (available (min size (length data))))
+    (subseq data 0 available)))
+
 (defun bounded-data-slice (data offset size label)
   (let ((data (ensure-byte-vector data)))
     (when (> (+ offset size) (length data))
@@ -681,13 +691,13 @@
                      (hash32-bytes +empty-code-hash+))))))
 
 (defun call-value-extra-gas
-    (state callee value &key new-account-p early-failure-p)
+    (state callee value &key new-account-p stipend-discount-p)
   (let ((gas 0))
     (when (plusp value)
       (incf gas +call-value-transfer-gas+)
       (when (and new-account-p (empty-account-p state callee))
         (incf gas +call-new-account-gas+))
-      (when early-failure-p
+      (when stipend-discount-p
         (setf gas (max 0 (- gas +call-stipend+)))))
     gas))
 
@@ -2913,7 +2923,11 @@ kept stable while a library-backed pairing implementation is wired in."
                                     (< (account-balance
                                         state
                                         (evm-context-address context))
-                                       value))))
+                                       value)))
+                             (precompile-callee-p
+                               (active-precompile-address-p
+                                callee
+                                (evm-context-chain-rules context))))
                         (charge-account-access-gas
                          context
                          callee
@@ -2921,8 +2935,9 @@ kept stable while a library-backed pairing implementation is wired in."
                         (charge-extra-gas
                          (call-value-extra-gas state callee value
                                                :new-account-p t
-                                               :early-failure-p
-                                               insufficient-balance-p))
+                                               :stipend-discount-p
+                                               (or insufficient-balance-p
+                                                   precompile-callee-p)))
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used
@@ -3045,7 +3060,7 @@ kept stable while a library-backed pairing implementation is wired in."
                               (copy-into-memory
                                memory
                                return-offset
-                               (padded-data-slice child-return-data 0 return-size))
+                               (call-output-data-slice child-return-data return-size))
                               logs (append (reverse child-logs) logs)
                               stack (stack-push rest success))))
                     (incf pc))
@@ -3098,7 +3113,11 @@ kept stable while a library-backed pairing implementation is wired in."
                                     (< (account-balance
                                         state
                                         (evm-context-address context))
-                                       value))))
+                                       value)))
+                             (precompile-code-address-p
+                               (active-precompile-address-p
+                                code-address
+                                (evm-context-chain-rules context))))
                         (charge-account-access-gas
                          context
                          code-address
@@ -3106,7 +3125,9 @@ kept stable while a library-backed pairing implementation is wired in."
                         (charge-extra-gas
                          (call-value-extra-gas
                           state code-address value
-                          :early-failure-p insufficient-balance-p))
+                          :stipend-discount-p
+                          (or insufficient-balance-p
+                              precompile-code-address-p)))
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used
@@ -3227,7 +3248,7 @@ kept stable while a library-backed pairing implementation is wired in."
                               (copy-into-memory
                                memory
                                return-offset
-                               (padded-data-slice child-return-data 0 return-size))
+                               (call-output-data-slice child-return-data return-size))
                               logs (append (reverse child-logs) logs)
                               stack (stack-push rest success))))
                     (incf pc))
@@ -3386,7 +3407,7 @@ kept stable while a library-backed pairing implementation is wired in."
                               (copy-into-memory
                                memory
                                return-offset
-                               (padded-data-slice child-return-data 0 return-size))
+                               (call-output-data-slice child-return-data return-size))
                               logs (append (reverse child-logs) logs)
                               stack (stack-push rest success))))
                     (incf pc))
@@ -3540,7 +3561,7 @@ kept stable while a library-backed pairing implementation is wired in."
                               (copy-into-memory
                                memory
                                return-offset
-                               (padded-data-slice child-return-data 0 return-size))
+                               (call-output-data-slice child-return-data return-size))
                               stack (stack-push rest success))))
                     (incf pc))
                    ((= op #xff)

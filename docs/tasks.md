@@ -296,6 +296,23 @@ ones.
     fixture cases. A follow-up 128-candidate drift map reports 116 passing
     candidates and 12 remaining `implementation-bug-candidate` records, with
     the early-revert selector removed from the failure set.
+- [x] `PINNED-V5.4.0-IDENTITY-PRECOMPILE-RETURNDATA`: Fix the official
+  `frontier/identity_precompile` Engine replay drift so CALL-family output
+  copy semantics and value-call gas accounting match the v5.4.0 identity
+  precompile fixtures.
+  - Result (2026-06-28): CALL/CALLCODE/DELEGATECALL/STATICCALL output copy now
+    copies only the actual returned byte count into the caller output area
+    instead of zero-padding short returndata over the full requested
+    return-size. Active precompile value calls also receive the same stipend
+    discount already required by the official value-transfer early-failure
+    boundary. The `frontier/identity_precompile` classifier now reports 24/24
+    candidates passing, and all 24 selectors are pinned in the v5.4.0
+    blockchain replay guard. The pinned smoke gate now covers 94 official
+    state selectors, 53 official Prague/EIP-7702 invalid transaction cases
+    summarized, and 149 official Shanghai `engineNewPayloadV2` blockchain
+    selectors, for 296 total executed fixture cases. A follow-up 128-candidate
+    drift map reports 121 passing candidates and 7 remaining
+    `implementation-bug-candidate` records.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

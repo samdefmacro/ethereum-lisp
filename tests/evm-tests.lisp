@@ -1,5 +1,12 @@
 (in-package #:ethereum-lisp.test)
 
+(defun byte-prefix-padded (bytes size)
+  (let* ((bytes (ensure-byte-vector bytes))
+         (result (make-byte-vector size))
+         (available (min size (length bytes))))
+    (replace result bytes :end2 available)
+    result))
+
 (deftest evm-adds-two-numbers
   (let ((result (execute-bytecode #(96 2 96 3 1 0))))
     (is (eq :stopped (evm-result-status result)))
@@ -1331,7 +1338,19 @@
     (is (= 1 (first (evm-result-stack static-result))))
     (is (bytes= #(1 2 3) (evm-result-return-data static-result)))
     (is (= 0 (first (evm-result-stack oog-result))))
-    (is (bytes= #(0 0 0) (evm-result-return-data oog-result)))))
+    (is (bytes= #(1 2 3) (evm-result-return-data oog-result)))))
+
+(deftest evm-call-output-copy-keeps-bytes-beyond-return-data
+  (let* ((state (make-state-db))
+         (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))
+         (context (make-evm-context :state state :address caller))
+         (code #(96 1 96 0 82
+                 96 32 96 0 96 0 96 0 96 0 96 4 97 39 16 241
+                 96 0 81 96 0 82
+                 96 32 96 0 243))
+         (result (execute-bytecode code :context context)))
+    (is (= 1 (first (evm-result-stack result))))
+    (is (= 1 (bytes-to-integer (evm-result-return-data result))))))
 
 (deftest evm-call-ecrecover-precompile
   (labels ((program (input gas-high gas-low)
@@ -1361,10 +1380,10 @@
       (is (string= "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b"
                    (bytes-to-hex (evm-result-return-data result))))
       (is (= 1 (first (evm-result-stack invalid-result))))
-      (is (bytes= (make-byte-vector 32)
+      (is (bytes= (byte-prefix-padded invalid-v-input 32)
                   (evm-result-return-data invalid-result)))
       (is (= 0 (first (evm-result-stack oog-result))))
-      (is (bytes= (make-byte-vector 32)
+      (is (bytes= (byte-prefix-padded valid-input 32)
                   (evm-result-return-data oog-result))))))
 
 (deftest evm-call-sha256-precompile
@@ -1384,7 +1403,8 @@
                  (bytes-to-hex (evm-result-return-data result))))
     (is (= 0 (first (evm-result-stack oog-result))))
     (is (= 223 (evm-result-gas-used oog-result)))
-    (is (bytes= (make-byte-vector 32) (evm-result-return-data oog-result)))))
+    (is (bytes= (byte-prefix-padded #(97 98 99) 32)
+                (evm-result-return-data oog-result)))))
 
 (deftest evm-call-ripemd160-precompile
   (let* ((state (make-state-db))
@@ -1405,7 +1425,8 @@
                  (bytes-to-hex (evm-result-return-data result))))
     (is (= 0 (first (evm-result-stack oog-result))))
     (is (= 871 (evm-result-gas-used oog-result)))
-    (is (bytes= (make-byte-vector 32) (evm-result-return-data oog-result)))))
+    (is (bytes= (byte-prefix-padded #(97 98 99) 32)
+                (evm-result-return-data oog-result)))))
 
 (deftest evm-call-modexp-precompile
   (labels ((fixed32 (value)
@@ -1495,7 +1516,7 @@
             (concat-bytes field-prime-and-y g)))
          (result (execute-bytecode program :context context)))
     (is (= 0 (first (evm-result-stack result))))
-    (is (bytes= (make-byte-vector 64)
+    (is (bytes= (byte-prefix-padded field-prime-and-y 64)
                 (evm-result-return-data result)))))
 
 (defconstant +bn254-pairing-vector-fixture-path+
@@ -1815,13 +1836,13 @@
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data invalid-g2-subgroup-result)))
       (is (= 0 (first (evm-result-stack invalid-g1-coordinate-result))))
-      (is (bytes= (make-byte-vector 32)
+      (is (bytes= (byte-prefix-padded g1-coordinate-too-large 32)
                   (evm-result-return-data invalid-g1-coordinate-result)))
       (is (= 0 (first (evm-result-stack invalid-g1-curve-result))))
-      (is (bytes= (make-byte-vector 32)
+      (is (bytes= (byte-prefix-padded g1-off-curve 32)
                   (evm-result-return-data invalid-g1-curve-result)))
       (is (= 0 (first (evm-result-stack malformed-result))))
-      (is (bytes= (make-byte-vector 32)
+      (is (bytes= (byte-prefix-padded #(1) 32)
                   (evm-result-return-data malformed-result))))))
 
 (deftest evm-call-kzg-point-evaluation-rejects-malformed-inputs
@@ -1873,13 +1894,13 @@
                (ethereum-lisp.evm::evm-precompile-error (condition)
                  condition))))
       (is (= 0 (first (evm-result-stack short-result))))
-      (is (bytes= (make-byte-vector 32)
+      (is (bytes= (byte-prefix-padded short-input 32)
                   (evm-result-return-data short-result)))
       (is (= 0 (first (evm-result-stack mismatch-result))))
       (is (bytes= (make-byte-vector 32)
                   (evm-result-return-data mismatch-result)))
       (is (= 0 (first (evm-result-stack unverified-proof-result))))
-      (is (bytes= (make-byte-vector 32)
+      (is (bytes= (byte-prefix-padded unverified-proof-input 32)
                   (evm-result-return-data unverified-proof-result)))
       (is unverified-proof-error)
       (is (= ethereum-lisp.evm::+kzg-point-evaluation-gas+
@@ -1953,7 +1974,8 @@
                  (bytes-to-hex (evm-result-return-data result))))
     (is (= 0 (first (evm-result-stack oog-result))))
     (is (= 187 (evm-result-gas-used oog-result)))
-    (is (bytes= (make-byte-vector 64) (evm-result-return-data oog-result)))))
+    (is (bytes= (byte-prefix-padded input 64)
+                (evm-result-return-data oog-result)))))
 
 (deftest evm-call-blake2f-malformed-input-fails
   (let* ((state (make-state-db))
@@ -1979,12 +2001,12 @@
                              :context context)))
     (is (= 0 (first (evm-result-stack bad-flag-result))))
     (is (= 188 (evm-result-gas-used bad-flag-result)))
-    (is (bytes= (make-byte-vector 64)
+    (is (bytes= (byte-prefix-padded bad-flag-input 64)
                 (evm-result-return-data bad-flag-result)))
     (is (= 0 (first (evm-result-stack short-result))))
     (is (< (evm-result-gas-used short-result)
            (evm-result-gas-used bad-flag-result)))
-    (is (bytes= (make-byte-vector 64)
+    (is (bytes= (byte-prefix-padded (subseq short-input 1) 64)
                 (evm-result-return-data short-result)))))
 
 (deftest evm-callcode-and-delegatecall-identity-precompile
