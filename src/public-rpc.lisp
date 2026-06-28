@@ -1061,12 +1061,44 @@
      (list (cons "slotNumber"
                  (quantity-to-hex (block-header-slot-number header)))))))
 
+(defun eth-rpc-pending-block-tag-p (value)
+  (and (stringp value) (string= value "pending")))
+
+(defun eth-rpc-object-field (object name)
+  (assoc name object :test #'string=))
+
+(defun eth-rpc-set-object-field (object name value)
+  (let ((field (eth-rpc-object-field object name)))
+    (if field
+        (progn
+          (setf (cdr field) value)
+          object)
+        (append object (list (cons name value))))))
+
+(defun eth-rpc-pending-header-object (base-header)
+  (let ((object (eth-rpc-header-object base-header)))
+    (eth-rpc-set-object-field
+     object
+     "number"
+     (quantity-to-hex (1+ (block-header-number base-header))))
+    (eth-rpc-set-object-field object "parentHash"
+                              (hash32-to-hex
+                               (block-header-hash base-header)))
+    (eth-rpc-set-object-field object "hash" nil)
+    (eth-rpc-set-object-field object "nonce" nil)
+    object))
+
 (defun engine-rpc-handle-eth-get-header-by-number (params store)
-  (let* ((number (eth-rpc-block-number-param
-                  params store "eth_getHeaderByNumber"))
-         (block (chain-store-block-by-number store number)))
-    (when block
-      (eth-rpc-header-object (block-header block)))))
+  (if (and (= 1 (length params))
+           (eth-rpc-pending-block-tag-p (first params)))
+      (let ((block (chain-store-latest-block store)))
+        (when block
+          (eth-rpc-pending-header-object (block-header block))))
+      (let* ((number (eth-rpc-block-number-param
+                      params store "eth_getHeaderByNumber"))
+             (block (chain-store-block-by-number store number)))
+        (when block
+          (eth-rpc-header-object (block-header block))))))
 
 (defun eth-rpc-hash-param (params method label)
   (unless (= 1 (length params))
@@ -1170,17 +1202,6 @@
             (mapcar #'engine-rpc-withdrawal-object
                     (block-withdrawals block)))))))
 
-(defun eth-rpc-object-field (object name)
-  (assoc name object :test #'string=))
-
-(defun eth-rpc-set-object-field (object name value)
-  (let ((field (eth-rpc-object-field object name)))
-    (if field
-        (progn
-          (setf (cdr field) value)
-          object)
-        (append object (list (cons name value))))))
-
 (defun eth-rpc-pending-block-transactions-object
     (transactions full-transactions-p &key expected-chain-id)
   (eth-rpc-json-array
@@ -1203,6 +1224,9 @@
                               (quantity-to-hex
                                (1+ (block-header-number
                                     (block-header base-block)))))
+    (eth-rpc-set-object-field object "parentHash"
+                              (hash32-to-hex
+                               (block-hash base-block)))
     (eth-rpc-set-object-field object "hash" nil)
     (eth-rpc-set-object-field object "nonce" nil)
     (eth-rpc-set-object-field
@@ -1247,9 +1271,6 @@
 (defun eth-rpc-block-transaction-count (block)
   (when block
     (quantity-to-hex (length (block-transactions block)))))
-
-(defun eth-rpc-pending-block-tag-p (value)
-  (and (stringp value) (string= value "pending")))
 
 (defun eth-rpc-visible-pending-transactions (store expected-chain-id)
   (loop for transaction in (engine-payload-store-pending-transactions store)

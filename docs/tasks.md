@@ -778,10 +778,17 @@ ones.
   body instead of the latest committed block transaction list.
   - Result (2026-06-29): pending block objects now use the latest canonical
     head as their context while reporting a null block hash/nonce, the next
-    block number, and pending transactions. Hash-only mode returns pending
+    block number, the latest canonical hash as `parentHash`, and pending
+    transactions. Hash-only mode returns pending
     transaction hashes, full mode returns pending transaction objects with null
     block location fields, and non-pending block tags keep the canonical block
     lookup path.
+- [x] `PUBLIC-RPC-PENDING-HEADER`: Make
+  `eth_getHeaderByNumber("pending")` expose a pending-shaped header instead of
+  aliasing the latest committed header.
+  - Result (2026-06-29): pending header reads now report the next block number,
+    the latest canonical hash as `parentHash`, and null `hash`/`nonce` fields.
+    Non-pending header tags keep the existing canonical block lookup path.
 - [x] `DEVNET-RUNNER-PENDING-BLOCK-BODY`: Lock pending block body visibility at
   the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate's restored-database

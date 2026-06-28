@@ -1191,11 +1191,14 @@ first pass, but interfaces must not block that path.
   count, indexed transaction, raw transaction, null block hash, and restored
   txpool connection budget for process runners. `eth_getBlockByNumber` now
   also maps the `"pending"` tag to a pending txpool block body: the block
-  object reports no committed block hash/nonce, uses the next block number,
+  object reports no committed block hash/nonce, uses the next block number
+  with the latest canonical hash as `parentHash`,
   and returns pending transaction hashes or full pending transaction objects
   with null block location fields. The standalone devnet smoke gate verifies
   that block-body view through the restored public listener and reports the
-  pending block hash and transaction location fields. Txpool queued views now
+  pending block hash and transaction location fields. `eth_getHeaderByNumber`
+  now gives the `"pending"` tag the same pending-shaped next-block treatment
+  instead of aliasing the latest committed header. Txpool queued views now
   expose
   blob-subpool
   transactions through `txpool_content`, `txpool_contentFrom`, and
