@@ -568,20 +568,36 @@
     (format stream "Content-Length: ~D~%~%~A" (length body) body)))
 
 (defun devnet-cli-set-node-store-config (node store config)
-  (setf (ethereum-lisp.cli:devnet-node-store node) store
+  (let* ((old-config (ethereum-lisp.cli:devnet-node-config node))
+         (old-network-id (ethereum-lisp.cli::devnet-node-network-id node))
+         (default-network-id-p
+           (= old-network-id (chain-config-chain-id old-config)))
+         (effective-network-id
+           (if default-network-id-p
+               (chain-config-chain-id config)
+               old-network-id)))
+    (setf (ethereum-lisp.cli:devnet-node-store node) store
         (ethereum-lisp.cli:devnet-node-config node) config
+        (ethereum-lisp.cli::devnet-node-network-id node)
+        effective-network-id
         (engine-rpc-http-service-store
          (ethereum-lisp.cli:devnet-node-service node))
         store
         (engine-rpc-http-service-config
          (ethereum-lisp.cli:devnet-node-service node))
         config
+        (ethereum-lisp.core::engine-rpc-http-service-network-id
+         (ethereum-lisp.cli:devnet-node-service node))
+        effective-network-id
         (engine-rpc-http-service-store
          (ethereum-lisp.cli:devnet-node-public-service node))
         store
         (engine-rpc-http-service-config
          (ethereum-lisp.cli:devnet-node-public-service node))
-        config)
+        config
+        (ethereum-lisp.core::engine-rpc-http-service-network-id
+         (ethereum-lisp.cli:devnet-node-public-service node))
+        effective-network-id))
   node)
 
 (defun devnet-cli-engine-forkchoice-v2-request
@@ -648,7 +664,8 @@
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+
                 :port 8551
-                :public-port 8545))
+                :public-port 8545
+                :network-id 7331))
          (engine-service (ethereum-lisp.cli:devnet-node-service node))
          (public-service (ethereum-lisp.cli:devnet-node-public-service node))
          (engine-store (engine-rpc-http-service-store engine-service))
@@ -677,6 +694,19 @@
               "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"eth_chainId\",\"params\":[]}"
               engine-store
               engine-config
+              :network-id
+              (ethereum-lisp.core::engine-rpc-http-service-network-id
+               public-service)
+              :allowed-method-p public-filter)))
+          (network-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"net_version\",\"params\":[]}"
+              engine-store
+              engine-config
+              :network-id
+              (ethereum-lisp.core::engine-rpc-http-service-network-id
+               public-service)
               :allowed-method-p public-filter))))
       (is (= -32601
              (fixture-object-field
@@ -687,7 +717,9 @@
               (fixture-object-field public-response "error")
               "code")))
       (is (string= "0x539"
-                   (fixture-object-field chain-id-response "result"))))))
+                   (fixture-object-field chain-id-response "result")))
+      (is (string= "7331"
+                   (fixture-object-field network-response "result"))))))
 
 (deftest devnet-node-start-serves-engine-and-public-listeners
   (let* ((node (ethereum-lisp.cli:make-devnet-node

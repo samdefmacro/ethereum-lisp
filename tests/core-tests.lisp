@@ -13932,6 +13932,15 @@
                      (field (eighth responses) "result")))))
     (let* ((response-json
              (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"net_version\",\"params\":[]}"
+              (make-engine-payload-memory-store)
+              (make-chain-config :chain-id 1701)
+              :network-id 7331))
+           (response (parse-json response-json)))
+      (is (= 21 (field response "id")))
+      (is (string= "7331" (field response "result"))))
+    (let* ((response-json
+             (engine-rpc-handle-request-json
               "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"eth_syncing\",\"params\":[]}"
               (make-engine-payload-memory-store)
               (make-chain-config)))

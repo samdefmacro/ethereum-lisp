@@ -553,6 +553,13 @@ ones.
     other flags are compatibility no-ops because the current client has no P2P
     sync or IPC surface. CLI/script coverage verifies the geth-shaped
     invocation and help text without requiring socket serving.
+- [x] `DEVNET-RUNNER-NET-VERSION`: Route the devnet runner network id into
+  public RPC `net_version` without changing `eth_chainId`.
+  - Result (2026-06-28): split Engine/public HTTP services now carry an
+    optional non-negative `network-id`; public `net_version` reports that
+    runner-configured value while `eth_chainId` remains tied to the chain
+    config. CLI and core RPC regressions verify explicit `--networkid` output
+    for geth/Hive-shaped devnet invocations.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

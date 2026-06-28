@@ -167,6 +167,7 @@
          (genesis-block
            (genesis-block-from-state-genesis-json-file genesis-path
                                                        :config config))
+         (effective-network-id (or network-id (chain-config-chain-id config)))
          (store (make-engine-payload-memory-store))
          (jwt-secret (and jwt-secret-path
                           (devnet-cli-read-jwt-secret jwt-secret-path)))
@@ -176,6 +177,7 @@
             :port port
             :store store
             :config config
+            :network-id effective-network-id
             :jwt-secret jwt-secret
             :allowed-method-p #'engine-rpc-engine-method-p
             :telemetry-sink telemetry-sink))
@@ -185,6 +187,7 @@
             :port public-port
             :store store
             :config config
+            :network-id effective-network-id
             :allowed-method-p #'engine-rpc-public-method-p
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
@@ -216,7 +219,7 @@
      :log-path log-path
      :database-path database-path
      :pid-file-path pid-file-path
-     :network-id (or network-id (chain-config-chain-id config)))))
+     :network-id effective-network-id)))
 
 (defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)

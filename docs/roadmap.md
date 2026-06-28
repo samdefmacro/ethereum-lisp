@@ -1060,7 +1060,10 @@ first pass, but interfaces must not block that path.
   `--networkid` / `--network-id`, `--syncmode`, `--nodiscover`,
   `--ipcdisable`, and `--verbosity`; `networkId` is reported in summaries and
   lifecycle telemetry while the no-P2P/no-IPC flags remain compatibility
-  no-ops against the current split-service process. Failed devnet CLI
+  no-ops against the current split-service process. Public `net_version` now
+  follows the configured devnet `networkId` while `eth_chainId` remains tied
+  to the genesis chain config, matching geth-shaped runner expectations where
+  network id and chain id are separate process parameters. Failed devnet CLI
   startups with `--log-file` now append a structured `devnet.error` telemetry
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, and

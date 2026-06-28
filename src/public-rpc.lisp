@@ -24,10 +24,10 @@
     (block-validation-fail "web3_sha3 params must contain exactly one data value"))
   (bytes-to-hex (keccak-256 (engine-rpc-bytes (first params) "web3_sha3 data"))))
 
-(defun engine-rpc-handle-net-version (params config)
+(defun engine-rpc-handle-net-version (params config network-id)
   (when params
     (block-validation-fail "net_version params must be empty"))
-  (write-to-string (chain-config-chain-id config) :base 10))
+  (write-to-string (or network-id (chain-config-chain-id config)) :base 10))
 
 (defun engine-rpc-handle-net-listening (params)
   (when params
@@ -2500,7 +2500,8 @@
         t
         :false)))
 
-(defun engine-rpc-handle-public-method (id method params store config)
+(defun engine-rpc-handle-public-method
+    (id method params store config &key network-id)
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -2510,7 +2511,7 @@
       id :result (engine-rpc-handle-web3-sha3 params)))
     ((string= method "net_version")
      (engine-rpc-response
-      id :result (engine-rpc-handle-net-version params config)))
+      id :result (engine-rpc-handle-net-version params config network-id)))
     ((string= method "net_listening")
      (engine-rpc-response
       id :result (engine-rpc-handle-net-listening params)))

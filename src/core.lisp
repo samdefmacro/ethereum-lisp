@@ -6995,6 +6995,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-handle-request
     (request store config &key import-function
+                            network-id
                             (allowed-method-p #'engine-rpc-any-method-p))
   (let ((id (and (listp request)
                  (genesis-object-field request "id")))
@@ -7028,7 +7029,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           id method params store config
                           :import-function import-function)
                          (engine-rpc-handle-public-method
-                          id method params store config)
+                          id method params store config
+                          :network-id network-id)
                          (engine-rpc-response
                           id
                           :error
@@ -7055,11 +7057,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-handle-request-value
     (request store config &key import-function
+                            network-id
                             (allowed-method-p #'engine-rpc-any-method-p))
   (cond
     ((json-object-p request)
      (engine-rpc-handle-request request store config
                                 :import-function import-function
+                                :network-id network-id
                                 :allowed-method-p allowed-method-p))
     ((and (listp request) request)
      (loop for item in request
@@ -7067,6 +7071,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                               (engine-rpc-handle-request
                                item store config
                                :import-function import-function
+                               :network-id network-id
                                :allowed-method-p allowed-method-p)
                               (engine-rpc-invalid-request-response))
            when response
@@ -7075,6 +7080,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-handle-request-string
     (request-json store config &key import-function
+                                  network-id
                                   (allowed-method-p #'engine-rpc-any-method-p))
   (let ((request
           (handler-case
@@ -7087,15 +7093,18 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      store
      config
      :import-function import-function
+     :network-id network-id
      :allowed-method-p allowed-method-p)))
 
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function
+                                  network-id
                                   (allowed-method-p #'engine-rpc-any-method-p))
   (let ((response
           (engine-rpc-handle-request-string
            request-json store config
            :import-function import-function
+           :network-id network-id
            :allowed-method-p allowed-method-p)))
     (if response
         (json-encode response)
@@ -7119,7 +7128,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defstruct (engine-rpc-http-service
             (:constructor %make-engine-rpc-http-service
                 (&key host port store config jwt-secret now-provider
-                      import-function telemetry-sink allowed-method-p)))
+                      import-function telemetry-sink allowed-method-p
+                      network-id)))
   host
   port
   store
@@ -7128,7 +7138,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   now-provider
   import-function
   telemetry-sink
-  allowed-method-p)
+  allowed-method-p
+  network-id)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7162,6 +7173,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (now-provider (lambda () 0))
        (import-function (engine-rpc-default-import-function))
        (allowed-method-p #'engine-rpc-any-method-p)
+       network-id
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7183,6 +7195,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (block-validation-fail "Engine RPC HTTP import function must be a function"))
   (unless (functionp allowed-method-p)
     (block-validation-fail "Engine RPC HTTP method filter must be a function"))
+  (when (and network-id
+             (not (and (integerp network-id) (not (minusp network-id)))))
+    (block-validation-fail
+     "Engine RPC HTTP network id must be a non-negative integer"))
   (%make-engine-rpc-http-service
    :host host
    :port port
@@ -7192,7 +7208,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :now-provider now-provider
    :import-function import-function
    :telemetry-sink telemetry-sink
-   :allowed-method-p allowed-method-p))
+   :allowed-method-p allowed-method-p
+   :network-id network-id))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -7765,6 +7782,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-handle-http-request-string
     (request store config &key jwt-secret now import-function
+                               network-id
                                (allowed-method-p #'engine-rpc-any-method-p))
   (handler-case
       (multiple-value-bind (boundary boundary-length)
@@ -7809,6 +7827,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                    store
                    config
                    :import-function import-function
+                   :network-id network-id
                    :allowed-method-p allowed-method-p))))))))
     (error (condition)
       (engine-rpc-http-error-response
@@ -7818,6 +7837,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-http-stream
     (input-stream output-stream store config
      &key jwt-secret now import-function
+          network-id
           (allowed-method-p #'engine-rpc-any-method-p)
           telemetry-sink telemetry-fields)
   (let* ((request nil)
@@ -7832,6 +7852,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :jwt-secret jwt-secret
                  :now now
                  :import-function import-function
+                 :network-id network-id
                  :allowed-method-p allowed-method-p))
             (error (condition)
               (engine-rpc-http-error-response
@@ -7875,6 +7896,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           :jwt-secret (engine-rpc-http-service-jwt-secret service)
           :now (funcall (engine-rpc-http-service-now-provider service))
           :import-function (engine-rpc-http-service-import-function service)
+          :network-id (engine-rpc-http-service-network-id service)
           :allowed-method-p
           (engine-rpc-http-service-allowed-method-p service)
           :telemetry-sink sink
