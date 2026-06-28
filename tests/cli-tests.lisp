@@ -2375,6 +2375,41 @@
                       (fixture-object-field
                        report
                        "publicMalformedJsonErrorCode")))
+               (is (equal '("eth" "net")
+                          (fixture-object-field report
+                                                "publicApiAllowlist")))
+               (is (= 0
+                      (fixture-object-field
+                       report
+                       "publicApiAllowlistEngineConnections")))
+               (is (= 5
+                      (fixture-object-field
+                       report
+                       "publicApiAllowlistPublicConnections")))
+               (is (= 5
+                      (fixture-object-field
+                       report
+                       "publicApiAllowlistTotalConnections")))
+               (is (string= "0x539"
+                            (fixture-object-field
+                             report
+                             "publicApiAllowlistChainId")))
+               (is (string= "7331"
+                            (fixture-object-field
+                             report
+                             "publicApiAllowlistNetworkVersion")))
+               (is (= -32601
+                      (fixture-object-field
+                       report
+                       "publicApiBlockedWeb3ErrorCode")))
+               (is (= -32601
+                      (fixture-object-field
+                       report
+                       "publicApiBlockedTxpoolErrorCode")))
+               (is (= -32601
+                      (fixture-object-field
+                       report
+                       "publicApiBlockedEngineErrorCode")))
                (devnet-cli-assert-connection-contract report 1)
                (is (= (fixture-object-field ready-summary "processId")
                       (devnet-cli-pid-file-process-id pid-path)))

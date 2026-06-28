@@ -538,6 +538,14 @@ ones.
     public modules such as `web3_*` and `txpool_*` with JSON-RPC `-32601`.
     CLI regression coverage verifies the parsed modules and observable RPC
     rejection path without requiring socket serving.
+- [x] `DEVNET-RUNNER-HTTP-API-SMOKE`: Lock the `--http.api` public module
+  allowlist at the standalone devnet smoke-gate/process-boundary surface.
+  - Result (2026-06-28): `scripts/devnet-smoke-gate.lisp` now runs a dedicated
+    public listener allowlist probe for `eth,net`, requires `eth_chainId` and
+    `net_version` to remain available, and verifies omitted `web3`, `txpool`,
+    and Engine methods return JSON-RPC `-32601`. The smoke report exposes the
+    allowlist fields and connection counts, and CLI script coverage asserts
+    them from the runner-facing JSON output.
 - [x] `DEVNET-RUNNER-DATADIR-DATABASE`: Map geth/Hive-style `--datadir` onto
   a real devnet persistence path.
   - Result (2026-06-28): when `--database` is absent, `ethereum-lisp devnet`

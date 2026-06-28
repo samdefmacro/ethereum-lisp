@@ -1053,6 +1053,10 @@ first pass, but interfaces must not block that path.
   now parses comma-separated public module names and applies them to the
   public listener method filter, so omitted modules return JSON-RPC `-32601`
   while the authenticated Engine/public namespace split remains authoritative.
+  The standalone devnet smoke gate also probes that allowlist through the same
+  listener boundary and reports the allowed modules, accepted `eth`/`net`
+  calls, rejected `web3`/`txpool`/Engine calls, and connection counts for
+  runner-visible validation.
   `--datadir PATH` now
   maps to a concrete `PATH/ethereum-lisp-chain.sexp` KV chain-store path when
   `--database` is absent, while explicit `--database` remains authoritative.

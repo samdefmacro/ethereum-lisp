@@ -90,6 +90,9 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-total-connections+
   (+ +devnet-smoke-gate-engine-connections+
      +devnet-smoke-gate-public-connections+))
+(defparameter *devnet-smoke-gate-public-api-allowlist*
+  '("eth" "net"))
+(defconstant +devnet-smoke-gate-public-api-allowlist-connections+ 5)
 
 (defun devnet-smoke-gate-arguments ()
   #+sbcl
@@ -552,6 +555,138 @@ references/ checkouts.~%")
          (* case-count +devnet-smoke-gate-public-connections+))
    (cons "expectedTotalConnections"
          (* case-count +devnet-smoke-gate-total-connections+))))
+
+(defun devnet-smoke-gate-json-rpc-request (id method params)
+  (json-encode
+   (list (cons "jsonrpc" "2.0")
+         (cons "id" id)
+         (cons "method" method)
+         (cons "params" params))))
+
+(defun devnet-smoke-gate-error-code (rpc)
+  (fixture-object-field
+   (fixture-object-field rpc "error")
+   "code"))
+
+(defun devnet-smoke-gate-verify-public-api-allowlist ()
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-path
+            (namestring
+             (devnet-smoke-gate-reference-path
+              +devnet-cli-genesis-fixture+))
+            :port 8551
+            :public-port 8545
+            :network-id 7331
+            :public-allowed-method-p
+            (ethereum-lisp.cli::devnet-cli-public-api-method-filter
+             *devnet-smoke-gate-public-api-allowlist*)))
+         (chain-id-output (make-string-output-stream))
+         (network-output (make-string-output-stream))
+         (web3-output (make-string-output-stream))
+         (txpool-output (make-string-output-stream))
+         (engine-output (make-string-output-stream))
+         (public-requests
+           (list
+            (cons (devnet-smoke-gate-json-rpc-request
+                   301 "eth_chainId" '())
+                  chain-id-output)
+            (cons (devnet-smoke-gate-json-rpc-request
+                   302 "net_version" '())
+                  network-output)
+            (cons (devnet-smoke-gate-json-rpc-request
+                   303 "web3_clientVersion" '())
+                  web3-output)
+            (cons (devnet-smoke-gate-json-rpc-request
+                   304 "txpool_status" '())
+                  txpool-output)
+            (cons (devnet-smoke-gate-json-rpc-request
+                   305 "engine_exchangeCapabilities" (list '()))
+                  engine-output))))
+    (let ((summary
+            (ethereum-lisp.cli:start-devnet-node-listeners
+             node
+             (make-engine-rpc-http-listener
+              :endpoint "allowlist-engine"
+              :accept-function (lambda () nil)
+              :close-function (lambda () nil))
+             (make-engine-rpc-http-listener
+              :endpoint "allowlist-public"
+              :accept-function
+              (lambda ()
+                (when public-requests
+                  (destructuring-bind (body . output)
+                      (pop public-requests)
+                    (make-engine-rpc-http-connection
+                     :input-stream
+                     (make-string-input-stream
+                      (devnet-cli-json-rpc-http-request body))
+                     :output-stream output
+                     :close-function (lambda () nil)))))
+              :close-function (lambda () nil))
+             :max-connections
+             +devnet-smoke-gate-public-api-allowlist-connections+)))
+      (let* ((chain-id-response
+               (get-output-stream-string chain-id-output))
+             (network-response
+               (get-output-stream-string network-output))
+             (web3-response
+               (get-output-stream-string web3-output))
+             (txpool-response
+               (get-output-stream-string txpool-output))
+             (engine-response
+               (get-output-stream-string engine-output))
+             (chain-id-rpc (devnet-smoke-gate-rpc-body chain-id-response))
+             (network-rpc (devnet-smoke-gate-rpc-body network-response))
+             (web3-rpc (devnet-smoke-gate-rpc-body web3-response))
+             (txpool-rpc (devnet-smoke-gate-rpc-body txpool-response))
+             (engine-rpc (devnet-smoke-gate-rpc-body engine-response))
+             (chain-id (fixture-object-field chain-id-rpc "result"))
+             (network-version
+               (fixture-object-field network-rpc "result"))
+             (web3-error-code
+               (devnet-smoke-gate-error-code web3-rpc))
+             (txpool-error-code
+               (devnet-smoke-gate-error-code txpool-rpc))
+             (engine-error-code
+               (devnet-smoke-gate-error-code engine-rpc)))
+        (dolist (response (list chain-id-response network-response
+                                web3-response txpool-response
+                                engine-response))
+          (devnet-smoke-gate-require
+           (= 200 (devnet-cli-http-status response))
+           "Public API allowlist probe HTTP status mismatch"))
+        (devnet-smoke-gate-require
+         (= 0 (getf summary :engine-connections))
+         "Public API allowlist Engine connection count mismatch")
+        (devnet-smoke-gate-require
+         (= +devnet-smoke-gate-public-api-allowlist-connections+
+            (getf summary :public-connections))
+         "Public API allowlist public connection count mismatch")
+        (devnet-smoke-gate-require
+         (string= "0x539" chain-id)
+         "Public API allowlist eth_chainId mismatch")
+        (devnet-smoke-gate-require
+         (string= "7331" network-version)
+         "Public API allowlist net_version mismatch")
+        (dolist (code (list web3-error-code txpool-error-code
+                            engine-error-code))
+          (devnet-smoke-gate-require
+           (= -32601 code)
+           "Public API allowlist did not reject a blocked method"))
+        (list :allowed-modules
+              (copy-list *devnet-smoke-gate-public-api-allowlist*)
+              :engine-connections (getf summary :engine-connections)
+              :public-connections (getf summary :public-connections)
+              :total-connections (getf summary :total-connections)
+              :chain-id chain-id
+              :network-version network-version
+              :web3-error-code web3-error-code
+              :txpool-error-code txpool-error-code
+              :engine-error-code engine-error-code))))
+  #-sbcl
+  (error "Public API allowlist smoke verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-execution-spec-tests-source ()
   (list
@@ -5760,7 +5895,9 @@ references/ checkouts.~%")
                                :txpool-transactions txpool-transactions
                                :side-payload side-payload
                                :side-block side-block
-                               :child-block child-block))))
+                               :child-block child-block)))
+                       (public-api-allowlist-summary
+                         (devnet-smoke-gate-verify-public-api-allowlist)))
                  (devnet-smoke-gate-add-run-metadata
                   (list
                   (cons "status" "ok")
@@ -5774,6 +5911,33 @@ references/ checkouts.~%")
                         (getf summary :total-connections))
                   (cons "connectionContract"
                         (devnet-smoke-gate-connection-contract))
+                  (cons "publicApiAllowlist"
+                        (getf public-api-allowlist-summary
+                              :allowed-modules))
+                  (cons "publicApiAllowlistEngineConnections"
+                        (getf public-api-allowlist-summary
+                              :engine-connections))
+                  (cons "publicApiAllowlistPublicConnections"
+                        (getf public-api-allowlist-summary
+                              :public-connections))
+                  (cons "publicApiAllowlistTotalConnections"
+                        (getf public-api-allowlist-summary
+                              :total-connections))
+                  (cons "publicApiAllowlistChainId"
+                        (getf public-api-allowlist-summary
+                              :chain-id))
+                  (cons "publicApiAllowlistNetworkVersion"
+                        (getf public-api-allowlist-summary
+                              :network-version))
+                  (cons "publicApiBlockedWeb3ErrorCode"
+                        (getf public-api-allowlist-summary
+                              :web3-error-code))
+                  (cons "publicApiBlockedTxpoolErrorCode"
+                        (getf public-api-allowlist-summary
+                              :txpool-error-code))
+                  (cons "publicApiBlockedEngineErrorCode"
+                        (getf public-api-allowlist-summary
+                              :engine-error-code))
                   (cons "engineUnauthenticatedStatus"
                         (devnet-cli-http-status
                          unauthenticated-engine-response))
