@@ -1054,7 +1054,11 @@ first pass, but interfaces must not block that path.
   ready-file JSON, and lifecycle telemetry. The public listener returns
   configured `Access-Control-Allow-*` headers, answers allowed `OPTIONS`
   preflights with HTTP 204, supports wildcard `*`, and rejects disallowed
-  origins with HTTP 403. `--http.api LIST` now parses comma-separated public
+  origins with HTTP 403. The standalone devnet smoke gate now verifies that
+  CORS contract through real listener streams and exposes configured,
+  summary-reported, and telemetry-reported origins plus preflight/RPC/blocked
+  status codes for Hive-style runner checks. `--http.api LIST` now parses
+  comma-separated public
   module names and applies them to the public listener method filter, so
   omitted modules return JSON-RPC `-32601` while the authenticated
   Engine/public namespace split remains authoritative.

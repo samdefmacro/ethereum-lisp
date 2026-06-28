@@ -702,6 +702,15 @@ ones.
     headers to public RPC responses, supports wildcard `*`, and rejects
     disallowed origins with HTTP 403. The authenticated Engine/public
     namespace split remains unchanged.
+- [x] `DEVNET-RUNNER-PUBLIC-CORS-SMOKE`: Lock public RPC CORS behavior at the
+  standalone devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate now starts a
+    CORS-configured public listener and verifies allowed preflight HTTP 204,
+    allowed Origin JSON-RPC HTTP 200 with CORS/Vary headers, and disallowed
+    Origin HTTP 403 through real listener streams. The smoke report exposes
+    configured, summary-reported, and telemetry-reported origins plus the
+    CORS probe status and connection counts, and CLI smoke tests assert those
+    fields for both single-case and all-fixtures runner reports.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

@@ -83,6 +83,20 @@
     (is (= (fixture-object-field report "totalConnections")
            (fixture-object-field contract "expectedTotalConnections")))))
 
+(defun devnet-cli-assert-public-cors-smoke-report (report)
+  (is (equal '("https://runner.example" "https://observer.example")
+             (fixture-object-field report "publicCorsOrigins")))
+  (is (equal '("https://runner.example" "https://observer.example")
+             (fixture-object-field report "publicCorsReportedOrigins")))
+  (is (string= "https://runner.example,https://observer.example"
+               (fixture-object-field report "publicCorsTelemetryOrigins")))
+  (is (= 204 (fixture-object-field report "publicCorsPreflightStatus")))
+  (is (= 200 (fixture-object-field report "publicCorsRpcStatus")))
+  (is (= 403 (fixture-object-field report "publicCorsBlockedStatus")))
+  (is (= 0 (fixture-object-field report "publicCorsEngineConnections")))
+  (is (= 3 (fixture-object-field report "publicCorsPublicConnections")))
+  (is (= 3 (fixture-object-field report "publicCorsTotalConnections"))))
+
 (defun devnet-cli-temp-directory (name)
   (let ((path
           (merge-pathnames
@@ -2498,6 +2512,7 @@
                       (fixture-object-field
                        report
                        "publicApiBlockedEngineErrorCode")))
+               (devnet-cli-assert-public-cors-smoke-report report)
                (devnet-cli-assert-connection-contract report 1)
                (is (= (fixture-object-field ready-summary "processId")
                       (devnet-cli-pid-file-process-id pid-path)))
@@ -3002,6 +3017,7 @@
                           (fixture-object-field
                            case
                            "publicMalformedJsonErrorCode")))
+                   (devnet-cli-assert-public-cors-smoke-report case)
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")
