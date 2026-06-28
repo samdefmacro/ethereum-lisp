@@ -96,6 +96,12 @@ references/ checkouts.~%")
 (defparameter *devnet-smoke-gate-public-cors-origins*
   '("https://runner.example" "https://observer.example"))
 (defconstant +devnet-smoke-gate-public-cors-connections+ 3)
+(defparameter *devnet-smoke-gate-engine-vhosts*
+  '("engine.runner" "localhost"))
+(defparameter *devnet-smoke-gate-public-vhosts*
+  '("public.runner" "localhost"))
+(defconstant +devnet-smoke-gate-vhost-engine-connections+ 2)
+(defconstant +devnet-smoke-gate-vhost-public-connections+ 2)
 
 (defun devnet-smoke-gate-arguments ()
   #+sbcl
@@ -313,11 +319,11 @@ references/ checkouts.~%")
               return (subseq line (length prefix))))))
 
 (defun devnet-smoke-gate-http-request
-    (method target &key body origin content-type)
+    (method target &key body origin content-type (host "localhost"))
   (let ((body (or body "")))
     (with-output-to-string (stream)
-      (format stream "~A ~A HTTP/1.1~%Host: localhost~%"
-              method target)
+      (format stream "~A ~A HTTP/1.1~%Host: ~A~%"
+              method target host)
       (when origin
         (format stream "Origin: ~A~%" origin))
       (when content-type
@@ -876,6 +882,152 @@ references/ checkouts.~%")
               :total-connections (getf summary :total-connections)))))
   #-sbcl
   (error "Public CORS smoke verification requires SBCL threads"))
+
+(defun devnet-smoke-gate-verify-vhosts ()
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-path
+            (namestring
+             (devnet-smoke-gate-reference-path
+              +devnet-cli-genesis-fixture+))
+            :port 8551
+            :public-port 8545
+            :engine-vhosts *devnet-smoke-gate-engine-vhosts*
+            :public-vhosts *devnet-smoke-gate-public-vhosts*))
+         (engine-output (make-string-output-stream))
+         (blocked-engine-output (make-string-output-stream))
+         (public-output (make-string-output-stream))
+         (blocked-public-output (make-string-output-stream))
+         (engine-requests
+           (list
+            (cons
+             (devnet-smoke-gate-http-request
+              "POST" "/"
+              :host "engine.runner"
+              :content-type "application/json"
+              :body (devnet-smoke-gate-json-rpc-request
+                     501 "engine_getClientVersionV1"
+                     (list
+                      (list (cons "code" "TT")
+                            (cons "name" "test")
+                            (cons "version" "1.1.1")
+                            (cons "commit" "0x12345678")))))
+             engine-output)
+            (cons
+             (devnet-smoke-gate-http-request
+              "POST" "/"
+              :host "blocked.engine"
+              :content-type "application/json"
+              :body (devnet-smoke-gate-json-rpc-request
+                     502 "engine_getClientVersionV1" (list '())))
+             blocked-engine-output)))
+         (public-requests
+           (list
+            (cons
+             (devnet-smoke-gate-http-request
+              "POST" "/"
+              :host "public.runner"
+              :content-type "application/json"
+              :body (devnet-smoke-gate-json-rpc-request
+                     503 "eth_chainId" '()))
+             public-output)
+            (cons
+             (devnet-smoke-gate-http-request
+              "POST" "/"
+              :host "blocked.public"
+              :content-type "application/json"
+              :body (devnet-smoke-gate-json-rpc-request
+                     504 "eth_chainId" '()))
+             blocked-public-output))))
+    (dolist (request engine-requests)
+      (destructuring-bind (request-string . output) request
+        (engine-rpc-http-service-handle-stream
+         (ethereum-lisp.cli:devnet-node-service node)
+         (make-string-input-stream request-string)
+         output)))
+    (dolist (request public-requests)
+      (destructuring-bind (request-string . output) request
+        (engine-rpc-http-service-handle-stream
+         (ethereum-lisp.cli:devnet-node-public-service node)
+         (make-string-input-stream request-string)
+         output)))
+    (let ((engine-connection-count
+            +devnet-smoke-gate-vhost-engine-connections+)
+          (public-connection-count
+            +devnet-smoke-gate-vhost-public-connections+))
+      (let* ((engine-response (get-output-stream-string engine-output))
+             (blocked-engine-response
+               (get-output-stream-string blocked-engine-output))
+             (public-response (get-output-stream-string public-output))
+             (blocked-public-response
+               (get-output-stream-string blocked-public-output))
+             (summary-json
+               (ethereum-lisp.cli::devnet-node-summary-json-object node))
+             (telemetry-fields
+               (ethereum-lisp.cli::devnet-node-telemetry-fields node))
+             (reported-engine-vhosts
+               (cdr (assoc "engineVhosts" summary-json :test #'string=)))
+             (reported-public-vhosts
+               (cdr (assoc "publicVhosts" summary-json :test #'string=)))
+             (telemetry-engine-vhosts
+               (cdr (assoc "engineVhosts" telemetry-fields :test #'string=)))
+             (telemetry-public-vhosts
+               (cdr (assoc "publicVhosts" telemetry-fields :test #'string=))))
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status engine-response))
+         "Engine vhost allowed status mismatch")
+        (devnet-smoke-gate-require
+         (= 403 (devnet-cli-http-status blocked-engine-response))
+         "Engine vhost blocked status mismatch")
+        (devnet-smoke-gate-require
+         (= 200 (devnet-cli-http-status public-response))
+         "Public vhost allowed status mismatch")
+        (devnet-smoke-gate-require
+         (= 403 (devnet-cli-http-status blocked-public-response))
+         "Public vhost blocked status mismatch")
+        (devnet-smoke-gate-require
+         (= +devnet-smoke-gate-vhost-engine-connections+
+            engine-connection-count)
+         "Vhost Engine connection count mismatch")
+        (devnet-smoke-gate-require
+         (= +devnet-smoke-gate-vhost-public-connections+
+            public-connection-count)
+         "Vhost public connection count mismatch")
+        (devnet-smoke-gate-require
+         (equal *devnet-smoke-gate-engine-vhosts* reported-engine-vhosts)
+         "Vhost Engine summary mismatch")
+        (devnet-smoke-gate-require
+         (equal *devnet-smoke-gate-public-vhosts* reported-public-vhosts)
+         "Vhost public summary mismatch")
+        (devnet-smoke-gate-require
+         (string= "engine.runner,localhost" telemetry-engine-vhosts)
+         "Vhost Engine telemetry mismatch")
+        (devnet-smoke-gate-require
+         (string= "public.runner,localhost" telemetry-public-vhosts)
+         "Vhost public telemetry mismatch")
+        (list :engine-vhosts
+              (copy-list *devnet-smoke-gate-engine-vhosts*)
+              :public-vhosts
+              (copy-list *devnet-smoke-gate-public-vhosts*)
+              :reported-engine-vhosts reported-engine-vhosts
+              :reported-public-vhosts reported-public-vhosts
+              :telemetry-engine-vhosts telemetry-engine-vhosts
+              :telemetry-public-vhosts telemetry-public-vhosts
+              :engine-allowed-status
+              (devnet-cli-http-status engine-response)
+              :engine-blocked-status
+              (devnet-cli-http-status blocked-engine-response)
+              :public-allowed-status
+              (devnet-cli-http-status public-response)
+              :public-blocked-status
+              (devnet-cli-http-status blocked-public-response)
+              :engine-connections engine-connection-count
+              :public-connections public-connection-count
+              :total-connections
+              (+ engine-connection-count public-connection-count)))))
+  #-sbcl
+  (error "Vhost smoke verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-execution-spec-tests-source ()
   (list
@@ -6151,7 +6303,9 @@ references/ checkouts.~%")
                        (public-api-allowlist-summary
                          (devnet-smoke-gate-verify-public-api-allowlist))
                        (public-cors-summary
-                         (devnet-smoke-gate-verify-public-cors)))
+                         (devnet-smoke-gate-verify-public-cors))
+                       (vhost-summary
+                         (devnet-smoke-gate-verify-vhosts)))
                  (devnet-smoke-gate-add-run-metadata
                   (list
                   (cons "status" "ok")
@@ -6216,6 +6370,32 @@ references/ checkouts.~%")
                         (getf public-cors-summary :public-connections))
                   (cons "publicCorsTotalConnections"
                         (getf public-cors-summary :total-connections))
+                  (cons "engineVhosts"
+                        (getf vhost-summary :engine-vhosts))
+                  (cons "publicVhosts"
+                        (getf vhost-summary :public-vhosts))
+                  (cons "engineVhostsReported"
+                        (getf vhost-summary :reported-engine-vhosts))
+                  (cons "publicVhostsReported"
+                        (getf vhost-summary :reported-public-vhosts))
+                  (cons "engineVhostsTelemetry"
+                        (getf vhost-summary :telemetry-engine-vhosts))
+                  (cons "publicVhostsTelemetry"
+                        (getf vhost-summary :telemetry-public-vhosts))
+                  (cons "engineVhostAllowedStatus"
+                        (getf vhost-summary :engine-allowed-status))
+                  (cons "engineVhostBlockedStatus"
+                        (getf vhost-summary :engine-blocked-status))
+                  (cons "publicVhostAllowedStatus"
+                        (getf vhost-summary :public-allowed-status))
+                  (cons "publicVhostBlockedStatus"
+                        (getf vhost-summary :public-blocked-status))
+                  (cons "vhostEngineConnections"
+                        (getf vhost-summary :engine-connections))
+                  (cons "vhostPublicConnections"
+                        (getf vhost-summary :public-connections))
+                  (cons "vhostTotalConnections"
+                        (getf vhost-summary :total-connections))
                   (cons "engineUnauthenticatedStatus"
                         (devnet-cli-http-status
                          unauthenticated-engine-response))

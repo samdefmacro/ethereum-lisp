@@ -7129,7 +7129,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor %make-engine-rpc-http-service
                 (&key host port store config jwt-secret now-provider
                       import-function telemetry-sink allowed-method-p
-                      network-id rpc-prefix cors-origins)))
+                      network-id rpc-prefix cors-origins allowed-hosts)))
   host
   port
   store
@@ -7141,7 +7141,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   allowed-method-p
   network-id
   rpc-prefix
-  cors-origins)
+  cors-origins
+  allowed-hosts)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7178,6 +7179,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        network-id
        (rpc-prefix "/")
        cors-origins
+       allowed-hosts
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7212,6 +7214,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (every #'stringp cors-origins))))
     (block-validation-fail
      "Engine RPC HTTP CORS origins must be a string list"))
+  (when (and allowed-hosts
+             (not (and (listp allowed-hosts)
+                       (every #'stringp allowed-hosts))))
+    (block-validation-fail
+     "Engine RPC HTTP allowed hosts must be a string list"))
   (%make-engine-rpc-http-service
    :host host
    :port port
@@ -7224,7 +7231,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :allowed-method-p allowed-method-p
    :network-id network-id
    :rpc-prefix rpc-prefix
-   :cors-origins cors-origins))
+   :cors-origins cors-origins
+   :allowed-hosts allowed-hosts))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -7849,12 +7857,39 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           ("Access-Control-Allow-Headers" . "Authorization, Content-Type"))
         t)))))
 
+(defun engine-rpc-http-host-wildcard-p (hosts)
+  (member "*" hosts :test #'string=))
+
+(defun engine-rpc-http-host-name (host)
+  (let* ((host (and host (engine-rpc-http-trim host)))
+         (length (and host (length host))))
+    (cond
+      ((or (null host) (zerop length))
+       nil)
+      ((and (char= #\[ (char host 0))
+            (position #\] host))
+       (subseq host 0 (1+ (position #\] host))))
+      (t
+       (let ((colon (position #\: host :from-end t)))
+         (if colon
+             (subseq host 0 colon)
+             host))))))
+
+(defun engine-rpc-http-host-allowed-p (headers allowed-hosts)
+  (or (null allowed-hosts)
+      (engine-rpc-http-host-wildcard-p allowed-hosts)
+      (let ((host (engine-rpc-http-host-name
+                   (engine-rpc-http-header headers "host"))))
+        (and host
+             (member host allowed-hosts :test #'string-equal)))))
+
 (defun engine-rpc-handle-http-request-string
     (request store config &key jwt-secret now import-function
                                network-id
                                (rpc-prefix "/")
                                (allowed-method-p #'engine-rpc-any-method-p)
-                               cors-origins)
+                               cors-origins
+                               allowed-hosts)
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -7874,6 +7909,13 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                   (return-from engine-rpc-handle-http-request-string
                     (engine-rpc-http-error-response
                      403 "Forbidden" "origin is not allowed")))
+                (unless (engine-rpc-http-host-allowed-p
+                         headers
+                         allowed-hosts)
+                  (return-from engine-rpc-handle-http-request-string
+                    (engine-rpc-http-error-response
+                     403 "Forbidden" "host is not allowed"
+                     :extra-headers cors-headers)))
                 (unless (engine-rpc-http-target-allowed-p target rpc-prefix)
                   (return-from engine-rpc-handle-http-request-string
                     (engine-rpc-http-error-response
@@ -7935,6 +7977,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (rpc-prefix "/")
           (allowed-method-p #'engine-rpc-any-method-p)
           cors-origins
+          allowed-hosts
           telemetry-sink telemetry-fields)
   (let* ((request nil)
          (response
@@ -7951,7 +7994,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :network-id network-id
                  :rpc-prefix rpc-prefix
                  :allowed-method-p allowed-method-p
-                 :cors-origins cors-origins))
+                 :cors-origins cors-origins
+                 :allowed-hosts allowed-hosts))
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -7999,6 +8043,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           :allowed-method-p
           (engine-rpc-http-service-allowed-method-p service)
           :cors-origins (engine-rpc-http-service-cors-origins service)
+          :allowed-hosts (engine-rpc-http-service-allowed-hosts service)
           :telemetry-sink sink
           :telemetry-fields fields)
       (ethereum-lisp.telemetry:telemetry-metric

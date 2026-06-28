@@ -23818,6 +23818,49 @@ Access-Control-Request-Method: POST
               (make-chain-config)
               :cors-origins '("https://runner.example"))))
       (is (= 403 (http-status response))))
+    (let* ((body
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":120,"
+              "\"method\":\"engine_getClientVersionV1\","
+              "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+              "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+           (request
+             (format nil
+                     "POST / HTTP/1.1~%Host: runner.local:8551~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (response
+             (engine-rpc-handle-http-request-string
+              request
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :allowed-hosts '("runner.local")))
+           (rpc-response (parse-json (http-body response))))
+      (is (= 200 (http-status response)))
+      (is (= 120 (field rpc-response "id"))))
+    (let* ((response
+             (engine-rpc-handle-http-request-string
+              "POST / HTTP/1.1
+Host: blocked.local
+Content-Type: application/json
+
+{}"
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :allowed-hosts '("runner.local"))))
+      (is (= 403 (http-status response)))
+      (is (search "host is not allowed" response)))
+    (let* ((response
+             (engine-rpc-handle-http-request-string
+              "POST / HTTP/1.1
+Content-Type: application/json
+
+{}"
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :allowed-hosts '("*"))))
+      (is (= 200 (http-status response))))
     (let* ((body "{\"jsonrpc\":\"2.0\",\"id\":18,")
            (request
              (format nil

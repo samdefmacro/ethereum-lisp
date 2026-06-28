@@ -711,6 +711,16 @@ ones.
     configured, summary-reported, and telemetry-reported origins plus the
     CORS probe status and connection counts, and CLI smoke tests assert those
     fields for both single-case and all-fixtures runner reports.
+- [x] `DEVNET-RUNNER-VHOSTS`: Map geth/Hive-style `--authrpc.vhosts` and
+  `--http.vhosts` onto Engine/public HTTP Host allowlists.
+  - Result (2026-06-29): devnet startup now parses comma-separated Engine and
+    public vhost lists, reports them as `engineVhosts` / `publicVhosts` in
+    stdout summaries and ready-file JSON, and emits comma-separated telemetry
+    fields. The HTTP stream path accepts matching Host headers, strips a
+    `:port` suffix before comparison, supports wildcard `*`, and rejects
+    disallowed hosts with HTTP 403 before JWT or JSON-RPC dispatch. The
+    standalone smoke report now includes Engine/public allowed and blocked
+    vhost status probes plus summary/telemetry vhost reporting.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

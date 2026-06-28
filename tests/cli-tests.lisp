@@ -97,6 +97,27 @@
   (is (= 3 (fixture-object-field report "publicCorsPublicConnections")))
   (is (= 3 (fixture-object-field report "publicCorsTotalConnections"))))
 
+(defun devnet-cli-assert-vhost-smoke-report (report)
+  (is (equal '("engine.runner" "localhost")
+             (fixture-object-field report "engineVhosts")))
+  (is (equal '("public.runner" "localhost")
+             (fixture-object-field report "publicVhosts")))
+  (is (equal '("engine.runner" "localhost")
+             (fixture-object-field report "engineVhostsReported")))
+  (is (equal '("public.runner" "localhost")
+             (fixture-object-field report "publicVhostsReported")))
+  (is (string= "engine.runner,localhost"
+               (fixture-object-field report "engineVhostsTelemetry")))
+  (is (string= "public.runner,localhost"
+               (fixture-object-field report "publicVhostsTelemetry")))
+  (is (= 200 (fixture-object-field report "engineVhostAllowedStatus")))
+  (is (= 403 (fixture-object-field report "engineVhostBlockedStatus")))
+  (is (= 200 (fixture-object-field report "publicVhostAllowedStatus")))
+  (is (= 403 (fixture-object-field report "publicVhostBlockedStatus")))
+  (is (= 2 (fixture-object-field report "vhostEngineConnections")))
+  (is (= 2 (fixture-object-field report "vhostPublicConnections")))
+  (is (= 4 (fixture-object-field report "vhostTotalConnections"))))
+
 (defun devnet-cli-temp-directory (name)
   (let ((path
           (merge-pathnames
@@ -1888,13 +1909,13 @@
                          (format nil "--authrpc.jwtsecret=~A"
                                  (namestring jwt-path))
                          "--authrpc.rpcprefix=/engine"
-                         "--authrpc.vhosts=*"
+                         "--authrpc.vhosts=engine.runner,localhost"
                          "--http=false"
                          "--http.addr=192.0.2.31"
                          "--http.port=9645"
                          "--http.api=eth,net,web3,txpool"
                          "--http.rpcprefix=/rpc"
-                         "--http.vhosts=*"
+                         "--http.vhosts=public.runner,localhost"
                          "--http.corsdomain=https://runner.example,*"
                          "--ws=false"
                          "--ws.addr=192.0.2.32"
@@ -1949,7 +1970,11 @@
                                                 "publicApiModules")))
                (is (equal '("https://runner.example" "*")
                           (fixture-object-field summary
-                                                "publicCorsOrigins"))))
+                                                "publicCorsOrigins")))
+               (is (equal '("engine.runner" "localhost")
+                          (fixture-object-field summary "engineVhosts")))
+               (is (equal '("public.runner" "localhost")
+                          (fixture-object-field summary "publicVhosts"))))
              (dolist (log-record log-records)
                (let ((fields (getf log-record :fields)))
                  (is (string= "0x1ca3"
@@ -1966,6 +1991,12 @@
                                           :test #'string=))))
                  (is (string= "https://runner.example,*"
                               (cdr (assoc "publicCorsOrigins" fields
+                                          :test #'string=))))
+                 (is (string= "engine.runner,localhost"
+                              (cdr (assoc "engineVhosts" fields
+                                          :test #'string=))))
+                 (is (string= "public.runner,localhost"
+                              (cdr (assoc "publicVhosts" fields
                                           :test #'string=))))))))
       (when (probe-file jwt-path)
         (delete-file jwt-path))
@@ -2513,6 +2544,7 @@
                        report
                        "publicApiBlockedEngineErrorCode")))
                (devnet-cli-assert-public-cors-smoke-report report)
+               (devnet-cli-assert-vhost-smoke-report report)
                (devnet-cli-assert-connection-contract report 1)
                (is (= (fixture-object-field ready-summary "processId")
                       (devnet-cli-pid-file-process-id pid-path)))
@@ -3018,6 +3050,7 @@
                            case
                            "publicMalformedJsonErrorCode")))
                    (devnet-cli-assert-public-cors-smoke-report case)
+                   (devnet-cli-assert-vhost-smoke-report case)
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")

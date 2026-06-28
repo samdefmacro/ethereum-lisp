@@ -5,7 +5,8 @@
                 (&key genesis-path store config genesis-block service
                       public-service telemetry-sink jwt-secret-path log-path
                       database-path pid-file-path network-id
-                      public-api-modules public-cors-origins)))
+                      public-api-modules public-cors-origins
+                      engine-vhosts public-vhosts)))
   genesis-path
   store
   config
@@ -19,7 +20,9 @@
   pid-file-path
   network-id
   public-api-modules
-  public-cors-origins)
+  public-cors-origins
+  engine-vhosts
+  public-vhosts)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -166,6 +169,8 @@
        network-id
        public-api-modules
        public-cors-origins
+       engine-vhosts
+       public-vhosts
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
@@ -191,6 +196,7 @@
             :jwt-secret jwt-secret
             :rpc-prefix engine-rpc-prefix
             :allowed-method-p #'engine-rpc-engine-method-p
+            :allowed-hosts engine-vhosts
             :telemetry-sink telemetry-sink))
          (public-service
            (make-engine-rpc-http-service
@@ -202,6 +208,7 @@
             :rpc-prefix public-rpc-prefix
             :allowed-method-p public-allowed-method-p
             :cors-origins public-cors-origins
+            :allowed-hosts public-vhosts
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -236,7 +243,11 @@
      :public-api-modules (and public-api-modules
                               (copy-list public-api-modules))
      :public-cors-origins (and public-cors-origins
-                               (copy-list public-cors-origins)))))
+                               (copy-list public-cors-origins))
+     :engine-vhosts (and engine-vhosts
+                         (copy-list engine-vhosts))
+     :public-vhosts (and public-vhosts
+                         (copy-list public-vhosts)))))
 
 (defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)
@@ -294,6 +305,8 @@
           :network-id (devnet-node-network-id node)
           :public-api-modules (devnet-node-public-api-modules node)
           :public-cors-origins (devnet-node-public-cors-origins node)
+          :engine-vhosts (devnet-node-engine-vhosts node)
+          :public-vhosts (devnet-node-public-vhosts node)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -325,6 +338,8 @@
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("publicCorsOrigins" . ,(getf summary :public-cors-origins))
+      ("engineVhosts" . ,(getf summary :engine-vhosts))
+      ("publicVhosts" . ,(getf summary :public-vhosts))
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
@@ -524,6 +539,12 @@
         unless (zerop (length origin))
           collect origin))
 
+(defun devnet-cli-parse-vhost-list (value)
+  (loop for raw in (uiop:split-string value :separator ",")
+        for host = (string-trim '(#\Space #\Tab #\Newline #\Return) raw)
+        unless (zerop (length host))
+          collect host))
+
 (defun devnet-cli-parse-rpc-prefix (value option)
   (unless (and (stringp value)
                (plusp (length value))
@@ -564,6 +585,8 @@
         (network-id nil)
         (http-api-modules nil)
         (http-cors-origins nil)
+        (engine-vhosts nil)
+        (http-vhosts nil)
         (state-prune-before nil)
         (max-connections nil)
         (serve-p t)
@@ -662,9 +685,20 @@
                   (setf http-cors-origins
                         (devnet-cli-parse-cors-origin-list value)
                         args rest)))
+               ((string= option "--authrpc.vhosts")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf engine-vhosts
+                        (devnet-cli-parse-vhost-list value)
+                        args rest)))
+               ((string= option "--http.vhosts")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf http-vhosts
+                        (devnet-cli-parse-vhost-list value)
+                        args rest)))
                ((member option
-                        '("--http.vhosts"
-                          "--authrpc.vhosts" "--ws.addr" "--ws.port"
+                        '("--ws.addr" "--ws.port"
                           "--ws.api" "--ws.origins" "--graphql.addr"
                           "--graphql.port" "--graphql.vhosts"
                           "--graphql.corsdomain" "--syncmode"
@@ -726,6 +760,8 @@
           :network-id network-id
           :http-api-modules http-api-modules
           :http-cors-origins http-cors-origins
+          :engine-vhosts engine-vhosts
+          :http-vhosts http-vhosts
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -874,6 +910,14 @@
        ,(if (getf summary :public-cors-origins)
             (format nil "~{~A~^,~}" (getf summary :public-cors-origins))
             ""))
+      ("engineVhosts" .
+       ,(if (getf summary :engine-vhosts)
+            (format nil "~{~A~^,~}" (getf summary :engine-vhosts))
+            ""))
+      ("publicVhosts" .
+       ,(if (getf summary :public-vhosts)
+            (format nil "~{~A~^,~}" (getf summary :public-vhosts))
+            ""))
       ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
 
 (defun devnet-cli-log-event
@@ -998,6 +1042,10 @@
                           (getf options :http-api-modules)
                           :public-cors-origins
                           (getf options :http-cors-origins)
+                          :engine-vhosts
+                          (getf options :engine-vhosts)
+                          :public-vhosts
+                          (getf options :http-vhosts)
                           :public-allowed-method-p
                           (devnet-cli-public-api-method-filter
                            (getf options :http-api-modules))
