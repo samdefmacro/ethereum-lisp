@@ -731,6 +731,17 @@ ones.
     indexed pending transaction with null block location fields. Out-of-range
     pending indexes still return null, and non-pending block tags keep the
     existing canonical block lookup path.
+- [x] `DEVNET-RUNNER-PENDING-BLOCK-TAG-TXPOOL`: Lock pending block-tag txpool
+  visibility at the devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate's restored-database
+    txpool probe now sends
+    `eth_getBlockTransactionCountByNumber("pending")`,
+    `eth_getTransactionByBlockNumberAndIndex("pending", "0x0")`, and
+    `eth_getRawTransactionByBlockNumberAndIndex("pending", "0x0")` through
+    the public listener. The JSON/text report exposes the pending block-tag
+    count, indexed transaction hash, null block hash, raw transaction, and the
+    updated restored txpool public-connection count so runner-facing tests can
+    distinguish pending txpool visibility from canonical block reads.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

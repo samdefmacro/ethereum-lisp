@@ -1179,8 +1179,12 @@ first pass, but interfaces must not block that path.
   queries now expose the pending txpool: `eth_getBlockTransactionCountByNumber`,
   `eth_getTransactionByBlockNumberAndIndex`, and
   `eth_getRawTransactionByBlockNumberAndIndex` use pending transactions for the
-  `"pending"` tag while preserving null block location fields. Txpool queued
-  views now expose blob-subpool
+  `"pending"` tag while preserving null block location fields. The standalone
+  devnet smoke gate now also verifies those pending block-tag transaction
+  queries through the restored public listener/database path and reports the
+  count, indexed transaction, raw transaction, null block hash, and restored
+  txpool connection budget for process runners. Txpool queued views now expose
+  blob-subpool
   transactions through `txpool_content`, `txpool_contentFrom`, and
   `txpool_inspect` consistently with `txpool_status` queued counts. Txpool
   eviction for included transactions is now tied to canonicalization, so

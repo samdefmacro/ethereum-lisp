@@ -200,6 +200,17 @@
                (fixture-object-field report "databaseRpcTxpoolStatusPending")))
   (is (string= "0x2"
                (fixture-object-field report "databaseRpcTxpoolStatusQueued")))
+  (is (string= "0x1"
+               (fixture-object-field
+                report "databaseRpcTxpoolPendingBlockCount")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
+               (fixture-object-field
+                report "databaseRpcTxpoolPendingIndexHash")))
+  (is (null (fixture-object-field
+             report "databaseRpcTxpoolPendingIndexBlockHash")))
+  (is (string= (fixture-object-field report "txpoolPendingTransactionRaw")
+               (fixture-object-field
+                report "databaseRpcTxpoolPendingRawByIndex")))
   (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
                (fixture-object-field report "databaseRpcTxpoolContentHash")))
   (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
@@ -217,7 +228,7 @@
   (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
                (fixture-object-field
                 report "databaseRpcTxpoolQueuedContentFromHash")))
-  (is (= 8
+  (is (= 11
          (fixture-object-field report "databaseRpcTxpoolPublicConnections"))))
 
 (defun devnet-cli-assert-side-reorg-persistence (report)
