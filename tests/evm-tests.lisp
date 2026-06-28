@@ -1103,7 +1103,7 @@
     (state-db-set-account state caller (make-state-account :balance 3))
     (let ((result (execute-bytecode code :context context)))
       (is (= 0 (first (evm-result-stack result))))
-      (is (= 36617 (evm-result-gas-used result)))
+      (is (= 34317 (evm-result-gas-used result)))
       (is (= 3 (state-account-balance (state-db-get-account state caller))))
       (is (not (state-db-get-account state target))))))
 

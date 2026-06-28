@@ -680,12 +680,15 @@
              (bytes= (hash32-bytes (state-account-code-hash account))
                      (hash32-bytes +empty-code-hash+))))))
 
-(defun call-value-extra-gas (state callee value &key new-account-p)
+(defun call-value-extra-gas
+    (state callee value &key new-account-p early-failure-p)
   (let ((gas 0))
     (when (plusp value)
       (incf gas +call-value-transfer-gas+)
       (when (and new-account-p (empty-account-p state callee))
-        (incf gas +call-new-account-gas+)))
+        (incf gas +call-new-account-gas+))
+      (when early-failure-p
+        (setf gas (max 0 (- gas +call-stipend+)))))
     gas))
 
 (defun selfdestruct-extra-gas (state contract beneficiary)
@@ -2904,14 +2907,22 @@ kept stable while a library-backed pairing implementation is wired in."
                              (child-logs '())
                              (child-started-p nil)
                              (child-gas-limit 0)
-                             (child-gas-used 0))
+                             (child-gas-used 0)
+                             (insufficient-balance-p
+                               (and (plusp value)
+                                    (< (account-balance
+                                        state
+                                        (evm-context-address context))
+                                       value))))
                         (charge-account-access-gas
                          context
                          callee
                          #'charge-extra-gas)
                         (charge-extra-gas
                          (call-value-extra-gas state callee value
-                                               :new-account-p t))
+                                               :new-account-p t
+                                               :early-failure-p
+                                               insufficient-balance-p))
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used
@@ -3081,13 +3092,21 @@ kept stable while a library-backed pairing implementation is wired in."
                              (child-logs '())
                              (child-started-p nil)
                              (child-gas-limit 0)
-                             (child-gas-used 0))
+                             (child-gas-used 0)
+                             (insufficient-balance-p
+                               (and (plusp value)
+                                    (< (account-balance
+                                        state
+                                        (evm-context-address context))
+                                       value))))
                         (charge-account-access-gas
                          context
                          code-address
                          #'charge-extra-gas)
                         (charge-extra-gas
-                         (call-value-extra-gas state code-address value))
+                         (call-value-extra-gas
+                          state code-address value
+                          :early-failure-p insufficient-balance-p))
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used

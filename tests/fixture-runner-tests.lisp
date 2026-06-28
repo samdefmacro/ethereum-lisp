@@ -230,6 +230,8 @@
      . "engineNewPayloadV2")
     ("constantinople/eip1014_create2/test_create2_return_data.json/tests/constantinople/eip1014_create2/test_create_returndata.py::test_create2_return_data[fork_Shanghai-blockchain_test_engine_from_state_test-return_type_in_create_REVERT-return_type_REVERT-create_type_CREATE2-call_return_size_35]"
      . "engineNewPayloadV2")
+    ("frontier/opcodes/test_call_memory_expands_on_early_revert.json/tests/frontier/opcodes/test_call.py::test_call_memory_expands_on_early_revert[fork_Shanghai-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
     ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH1]"
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push[fork_Shanghai-blockchain_test_engine_from_state_test-PUSH2]"

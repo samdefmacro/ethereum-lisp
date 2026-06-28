@@ -281,6 +281,21 @@ ones.
     identity-precompile gas accounting cluster; the representative early
     revert selector currently replays 2300 gas over the official expected
     post-state gas accounting.
+- [x] `PINNED-V5.4.0-CALL-EARLY-REVERT-STIPEND`: Fix the official
+  `frontier/opcodes/test_call_memory_expands_on_early_revert.json` Engine
+  replay drift so CALL value-transfer early failure charges the same gas as
+  the upstream v5.4.0 fixture.
+  - Result (2026-06-28): CALL/CALLCODE value-transfer balance-shortage paths
+    now apply the official early-failure CALL cost by subtracting
+    `G_CALL_STIPEND` from the upfront value/new-account extra gas while still
+    expanding memory before the failed CALL. The targeted official selector now
+    classifies green and is pinned in the v5.4.0 blockchain replay guard. The
+    pinned smoke gate now covers 94 official state selectors, 53 official
+    Prague/EIP-7702 invalid transaction cases summarized, and 125 official
+    Shanghai `engineNewPayloadV2` blockchain selectors, for 272 total executed
+    fixture cases. A follow-up 128-candidate drift map reports 116 passing
+    candidates and 12 remaining `implementation-bug-candidate` records, with
+    the early-revert selector removed from the failure set.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

@@ -1225,22 +1225,24 @@ Detailed historical implementation notes for this section now live in
   semantics before block withdrawals are applied, so official EIP-4895
   withdrawal-to-selfdestructed-account cases align with the expected state
   root. The pinned `engine_newPayloadV2` blockchain replay table now includes
-  100 official Shanghai selectors after adding selector-probed Frontier PUSH
-  and DUP opcode cases, EIP-3651 warm-coinbase out-of-gas and EXTCODE
-  gas-usage variants, PUSH0 contract variants, EIP-3860 initcode boundary
-  cases, and EIP-4895 withdrawal ordering/root/many-withdrawals cases; the
-  pinned smoke gate executes 247 total fixture cases across state,
-  transaction, and blockchain suites.
+  125 official Shanghai selectors after adding selector-probed Frontier PUSH
+  and DUP opcode cases, the CALL value-transfer early-revert memory-expansion
+  boundary, EIP-3651 warm-coinbase out-of-gas and EXTCODE gas-usage variants,
+  PUSH0 contract variants, EIP-3860 initcode boundary cases, and EIP-4895
+  withdrawal ordering/root/many-withdrawals cases; the pinned smoke gate
+  executes 272 total fixture cases across state, transaction, and blockchain
+  suites.
   `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a
   bounded way to classify remaining discovered-but-unpinned official
   blockchain replay selectors into passing, implementation-bug-candidate,
   fixture-harness-error, and out-of-scope buckets with per-family summaries
   before choosing whether to fix implementation drift, record a blocker, or
   selectively widen the pinned table. The classifier also supports
-  `--failures-only` output for drift triage: the first 128 unpinned
-  v5.4.0 candidates classify as 113 passing and 15 implementation-bug
-  candidates, clustered around CALL/value-transfer/identity-precompile gas
-  accounting. The official v5.4.0 CREATE/CREATE2
+  `--failures-only` output for drift triage: after fixing and pinning the
+  CALL early-revert stipend boundary, the first 128 unpinned v5.4.0 candidates
+  classify as 116 passing and 12 implementation-bug candidates, still clustered
+  around CALL/value-transfer/identity-precompile gas accounting. The official
+  v5.4.0 CREATE/CREATE2
   returndata drift in
   `constantinople/eip1014_create2/test_create2_return_data.json` is closed:
   zero-length `CALLDATACOPY` / `RETURNDATACOPY` no longer expand memory for
