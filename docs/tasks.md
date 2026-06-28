@@ -388,6 +388,23 @@ ones.
     candidates and 2 remaining implementation-bug candidates:
     `berlin/eip2929_gas_cost_increases/test_call_insufficient_balance.json`
     and `frontier/opcodes/test_all_opcodes.json`.
+- [x] `PINNED-V5.4.0-EIP2929-INSUFFICIENT-BALANCE-WARMTH`: Fix the official
+  `berlin/eip2929_gas_cost_increases/test_call_insufficient_balance.json`
+  Engine replay drift so CALL-family callee address warming survives child
+  failure rollback.
+  - Result (2026-06-28): CALL, CALLCODE, DELEGATECALL, and STATICCALL now take
+    the access-list rollback snapshot after charging and marking the target
+    address warm, preserving the parent-frame EIP-2929 access update when a
+    child call reverts, runs out of gas, or fails before child execution due to
+    insufficient balance. A focused EVM regression locks the insufficient-
+    balance CALL plus subsequent `BALANCE` warm-cost boundary. The targeted
+    official v5.4.0 selector classifies 1/1 passing and is pinned in the
+    blockchain replay guard. The pinned smoke gate now covers 94 official
+    state selectors, 53 official Prague/EIP-7702 invalid transaction cases
+    summarized, and 179 official Shanghai `engineNewPayloadV2` blockchain
+    selectors, for 326 total executed fixture cases. The remaining 183-
+    candidate drift map reports 182 passing candidates and 1 remaining
+    implementation-bug candidate: `frontier/opcodes/test_all_opcodes.json`.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

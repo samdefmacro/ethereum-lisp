@@ -1114,6 +1114,39 @@
       (is (= 3 (state-account-balance (state-db-get-account state caller))))
       (is (not (state-db-get-account state target))))))
 
+(deftest evm-call-insufficient-balance-keeps-callee-warm
+  (let* ((state (make-state-db))
+         (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))
+         (target (address-from-hex "0x00000000000000000000000000000000000000cc"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000001"))
+         (rules (make-chain-rules :chain-id 1
+                                  :homestead-p t
+                                  :eip150-p t
+                                  :eip155-p t
+                                  :eip158-p t
+                                  :byzantium-p t
+                                  :constantinople-p t
+                                  :istanbul-p t
+                                  :berlin-p t
+                                  :london-p t
+                                  :shanghai-p t))
+         (context (make-evm-context :state state
+                                    :address caller
+                                    :chain-rules rules))
+         (code (concat-bytes
+                #(#x60 #x00 #x60 #x00 #x60 #x00 #x60 #x00 #x60 #x01 #x73)
+                (address-bytes target)
+                #(#x5a #xf1 #x60 #x00 #x55 #x5a #x73)
+                (address-bytes target)
+                #(#x31 #x5a #x90 #x50 #x90 #x03 #x60 #x05 #x90 #x03
+                  #x60 #x01 #x55 #x00))))
+    (state-db-set-account state caller (make-state-account :nonce 1))
+    (state-db-set-account state target (make-state-account :balance 1))
+    (let ((result (execute-bytecode code :context context :gas-limit 1000000)))
+      (is (eq :stopped (evm-result-status result)))
+      (is (= 100 (state-db-get-storage state caller slot))))))
+
 (deftest evm-call-with-value-adds-stipend-to-child-gas
   (let* ((state (make-state-db))
          (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))

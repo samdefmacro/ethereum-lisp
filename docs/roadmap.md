@@ -1243,17 +1243,21 @@ Detailed historical implementation notes for this section now live in
   execution gas above `G_CALL_STIPEND`, so the official Paris
   selfdestruct-balance security fixture preserves both post-state balances and
   gas accounting while active precompile value calls keep their existing
-  extra-gas stipend discount. The pinned `engine_newPayloadV2` blockchain
-  replay table now includes 178 official Shanghai selectors after adding
+  extra-gas stipend discount. CALL-family child-failure rollback now preserves
+  the parent-frame EIP-2929 target-address warming, closing the official
+  insufficient-balance CALL/BALANCE gas boundary. The pinned
+  `engine_newPayloadV2` blockchain replay table now includes 179 official
+  Shanghai selectors after adding
   selector-probed Frontier PUSH and DUP opcode
   cases, the identity precompile returndata/value-call family, the CALL
   value-transfer early-revert memory-expansion boundary, the value-transfer
   gas-shortage family, EIP-152 BLAKE2F malformed-input and huge-rounds OOG
   cases, EIP-7610 non-empty-balance CREATE/CREATE2 collision cases, the Paris
-  selfdestruct-balance stipend boundary, EIP-3651
+  selfdestruct-balance stipend boundary, the EIP-2929 insufficient-balance
+  CALL warmth boundary, EIP-3651
   warm-coinbase out-of-gas and EXTCODE gas-usage variants, PUSH0 contract
   variants, EIP-3860 initcode boundary cases, and EIP-4895 withdrawal
-  ordering/root/many-withdrawals cases; the pinned smoke gate executes 325
+  ordering/root/many-withdrawals cases; the pinned smoke gate executes 326
   total fixture cases across state,
   transaction, and blockchain suites.
   `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a

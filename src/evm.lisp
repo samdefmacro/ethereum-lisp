@@ -2957,6 +2957,8 @@ kept stable while a library-backed pairing implementation is wired in."
                          context
                          callee
                          #'charge-extra-gas)
+                        (setf accessed-addresses-snapshot
+                              (copy-accessed-addresses context))
                         (let* ((required-value-gas
                                   (call-value-extra-gas state callee value
                                                         :new-account-p t))
@@ -3168,6 +3170,8 @@ kept stable while a library-backed pairing implementation is wired in."
                          context
                          code-address
                          #'charge-extra-gas)
+                        (setf accessed-addresses-snapshot
+                              (copy-accessed-addresses context))
                         (let* ((required-value-gas
                                   (call-value-extra-gas state code-address value))
                                (stipend-discount-p
@@ -3360,6 +3364,8 @@ kept stable while a library-backed pairing implementation is wired in."
                          context
                          code-address
                          #'charge-extra-gas)
+                        (setf accessed-addresses-snapshot
+                              (copy-accessed-addresses context))
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used))
@@ -3528,6 +3534,8 @@ kept stable while a library-backed pairing implementation is wired in."
                          context
                          callee
                          #'charge-extra-gas)
+                        (setf accessed-addresses-snapshot
+                              (copy-accessed-addresses context))
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used))
