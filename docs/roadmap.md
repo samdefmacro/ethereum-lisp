@@ -1189,7 +1189,14 @@ first pass, but interfaces must not block that path.
   devnet smoke gate now also verifies those pending block-tag transaction
   queries through the restored public listener/database path and reports the
   count, indexed transaction, raw transaction, null block hash, and restored
-  txpool connection budget for process runners. Txpool queued views now expose
+  txpool connection budget for process runners. `eth_getBlockByNumber` now
+  also maps the `"pending"` tag to a pending txpool block body: the block
+  object reports no committed block hash/nonce, uses the next block number,
+  and returns pending transaction hashes or full pending transaction objects
+  with null block location fields. The standalone devnet smoke gate verifies
+  that block-body view through the restored public listener and reports the
+  pending block hash and transaction location fields. Txpool queued views now
+  expose
   blob-subpool
   transactions through `txpool_content`, `txpool_contentFrom`, and
   `txpool_inspect` consistently with `txpool_status` queued counts. Txpool

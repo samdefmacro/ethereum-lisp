@@ -1170,16 +1170,68 @@
             (mapcar #'engine-rpc-withdrawal-object
                     (block-withdrawals block)))))))
 
+(defun eth-rpc-object-field (object name)
+  (assoc name object :test #'string=))
+
+(defun eth-rpc-set-object-field (object name value)
+  (let ((field (eth-rpc-object-field object name)))
+    (if field
+        (progn
+          (setf (cdr field) value)
+          object)
+        (append object (list (cons name value))))))
+
+(defun eth-rpc-pending-block-transactions-object
+    (transactions full-transactions-p &key expected-chain-id)
+  (eth-rpc-json-array
+   (if full-transactions-p
+       (loop for transaction in transactions
+             collect (eth-rpc-pending-transaction-object
+                      transaction
+                      :expected-chain-id expected-chain-id))
+       (mapcar (lambda (transaction)
+                 (hash32-to-hex (transaction-hash transaction)))
+               transactions))))
+
+(defun eth-rpc-pending-block-object
+    (base-block transactions full-transactions-p &key expected-chain-id)
+  (let ((object
+          (eth-rpc-block-object
+           base-block full-transactions-p
+           :expected-chain-id expected-chain-id)))
+    (eth-rpc-set-object-field object "number"
+                              (quantity-to-hex
+                               (1+ (block-header-number
+                                    (block-header base-block)))))
+    (eth-rpc-set-object-field object "hash" nil)
+    (eth-rpc-set-object-field object "nonce" nil)
+    (eth-rpc-set-object-field
+     object
+     "transactions"
+     (eth-rpc-pending-block-transactions-object
+      transactions full-transactions-p
+      :expected-chain-id expected-chain-id))
+    object))
+
 (defun engine-rpc-handle-eth-get-block-by-number (params store config)
   (let* ((full-transactions-p
            (eth-rpc-block-full-transactions-param params "eth_getBlockByNumber"))
-         (number (eth-rpc-block-number-param
-                  (list (first params)) store "eth_getBlockByNumber"))
-         (block (chain-store-block-by-number store number)))
-    (when block
-      (eth-rpc-block-object
-       block full-transactions-p
-       :expected-chain-id (chain-config-chain-id config)))))
+         (expected-chain-id (chain-config-chain-id config)))
+    (if (eth-rpc-pending-block-tag-p (first params))
+        (let ((base-block (chain-store-latest-block store)))
+          (when base-block
+            (eth-rpc-pending-block-object
+             base-block
+             (eth-rpc-visible-pending-transactions store expected-chain-id)
+             full-transactions-p
+             :expected-chain-id expected-chain-id)))
+        (let* ((number (eth-rpc-block-number-param
+                        (list (first params)) store "eth_getBlockByNumber"))
+               (block (chain-store-block-by-number store number)))
+          (when block
+            (eth-rpc-block-object
+             block full-transactions-p
+             :expected-chain-id expected-chain-id))))))
 
 (defun engine-rpc-handle-eth-get-block-by-hash (params store config)
   (let* ((full-transactions-p

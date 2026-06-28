@@ -18688,6 +18688,11 @@
                          :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
            (raw-transaction (bytes-to-hex (transaction-encoding transaction)))
            (transaction-hash (hash32-to-hex (transaction-hash transaction)))
+           (base-block
+             (make-block
+              :header (make-block-header :number 14
+                                         :timestamp 140
+                                         :gas-limit 30000000)))
            (mined-block
              (make-block
               :header (make-block-header :number 15
@@ -18695,6 +18700,7 @@
                                          :gas-limit 30000000)
               :transactions (list transaction)))
            (config (make-chain-config)))
+      (engine-payload-store-put-block store base-block)
       (let* ((new-pending-filter-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -18804,6 +18810,18 @@
                (parse-json
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"eth_getRawTransactionByBlockNumberAndIndex\",\"params\":[\"pending\",\"0x0\"]}"
+                 store
+                 config)))
+             (pending-block-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":96,\"method\":\"eth_getBlockByNumber\",\"params\":[\"pending\",false]}"
+                 store
+                 config)))
+             (pending-full-block-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":97,\"method\":\"eth_getBlockByNumber\",\"params\":[\"pending\",true]}"
                  store
                  config)))
              (pending-out-of-range-response
@@ -18951,6 +18969,26 @@
           (is (null (field pending-index-transaction "transactionIndex"))))
         (is (string= raw-transaction
                      (field pending-raw-index-response "result")))
+        (let* ((pending-block (field pending-block-response "result"))
+               (transactions (field pending-block "transactions")))
+          (is (null (field pending-block "hash")))
+          (is (null (field pending-block "nonce")))
+          (is (string= (quantity-to-hex 15)
+                       (field pending-block "number")))
+          (is (= 1 (length transactions)))
+          (is (string= transaction-hash (first transactions))))
+        (let* ((pending-block (field pending-full-block-response "result"))
+               (transactions (field pending-block "transactions"))
+               (pending-transaction (first transactions)))
+          (is (null (field pending-block "hash")))
+          (is (string= (quantity-to-hex 15)
+                       (field pending-block "number")))
+          (is (= 1 (length transactions)))
+          (is (string= transaction-hash
+                       (field pending-transaction "hash")))
+          (is (null (field pending-transaction "blockHash")))
+          (is (null (field pending-transaction "blockNumber")))
+          (is (null (field pending-transaction "transactionIndex"))))
         (is (null (field pending-out-of-range-response "result")))
         (let ((pending-transactions (field pending-response "result")))
           (is (= 1 (length pending-transactions)))

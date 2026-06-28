@@ -3384,6 +3384,7 @@ references/ checkouts.~%")
          (basefee-raw-output (make-string-output-stream))
          (queued-raw-output (make-string-output-stream))
          (pending-block-count-output (make-string-output-stream))
+         (pending-block-output (make-string-output-stream))
          (pending-index-output (make-string-output-stream))
          (pending-raw-index-output (make-string-output-stream))
          (pending-output (make-string-output-stream))
@@ -3421,6 +3422,13 @@ references/ checkouts.~%")
                     (cons "method" "eth_getBlockTransactionCountByNumber")
                     (cons "params" (list "pending"))))
              pending-block-count-output)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 187)
+                    (cons "method" "eth_getBlockByNumber")
+                    (cons "params" (list "pending" t))))
+             pending-block-output)
             (cons
              (json-encode
               (list (cons "jsonrpc" "2.0")
@@ -3493,7 +3501,7 @@ references/ checkouts.~%")
                     :output-stream output
                     :close-function (lambda () nil)))))
              :close-function (lambda () nil))
-            :max-connections 11))
+            :max-connections 12))
          (raw-response (get-output-stream-string raw-output))
          (basefee-raw-response
            (get-output-stream-string basefee-raw-output))
@@ -3501,6 +3509,8 @@ references/ checkouts.~%")
            (get-output-stream-string queued-raw-output))
          (pending-block-count-response
            (get-output-stream-string pending-block-count-output))
+         (pending-block-response
+           (get-output-stream-string pending-block-output))
          (pending-index-response
            (get-output-stream-string pending-index-output))
          (pending-raw-index-response
@@ -3518,6 +3528,8 @@ references/ checkouts.~%")
            (devnet-smoke-gate-rpc-body queued-raw-response))
          (pending-block-count-rpc
            (devnet-smoke-gate-rpc-body pending-block-count-response))
+         (pending-block-rpc
+           (devnet-smoke-gate-rpc-body pending-block-response))
          (pending-index-rpc
            (devnet-smoke-gate-rpc-body pending-index-response))
          (pending-raw-index-rpc
@@ -3531,6 +3543,12 @@ references/ checkouts.~%")
          (pending-transactions
            (fixture-object-field pending-rpc "result"))
          (pending-object (first pending-transactions))
+         (pending-block
+           (fixture-object-field pending-block-rpc "result"))
+         (pending-block-transactions
+           (fixture-object-field pending-block "transactions"))
+         (pending-block-transaction
+           (first pending-block-transactions))
          (pending-index-transaction
            (fixture-object-field pending-index-rpc "result"))
          (status (fixture-object-field status-rpc "result"))
@@ -3573,12 +3591,12 @@ references/ checkouts.~%")
          (inspect-queued-transaction
            (fixture-object-field inspect-queued-sender queued-nonce-key)))
     (devnet-smoke-gate-require
-     (= 11 (getf summary :public-connections))
-     "Restored txpool probe expected 11 public connections, got ~S"
+     (= 12 (getf summary :public-connections))
+     "Restored txpool probe expected 12 public connections, got ~S"
      (getf summary :public-connections))
     (dolist (response (list raw-response basefee-raw-response
                             queued-raw-response pending-block-count-response
-                            pending-index-response
+                            pending-block-response pending-index-response
                             pending-raw-index-response pending-response
                             status-response content-response
                             content-from-response inspect-response))
@@ -3599,6 +3617,19 @@ references/ checkouts.~%")
     (devnet-smoke-gate-require
      (string= "0x1" (fixture-object-field pending-block-count-rpc "result"))
      "Restored pending block-tag transaction count mismatch")
+    (devnet-smoke-gate-require
+     (null (fixture-object-field pending-block "hash"))
+     "Restored pending block-tag block should not expose a block hash")
+    (devnet-smoke-gate-require
+     (= 1 (length pending-block-transactions))
+     "Restored pending block-tag block transaction count mismatch")
+    (devnet-smoke-gate-require
+     (string= transaction-hash-hex
+              (fixture-object-field pending-block-transaction "hash"))
+     "Restored pending block-tag block transaction hash mismatch")
+    (devnet-smoke-gate-require
+     (null (fixture-object-field pending-block-transaction "blockHash"))
+     "Restored pending block-tag block transaction should not have a block hash")
     (devnet-smoke-gate-require
      (string= transaction-hash-hex
               (fixture-object-field pending-index-transaction "hash"))
@@ -3678,6 +3709,12 @@ references/ checkouts.~%")
           (fixture-object-field status "queued")
           :txpool-pending-block-count
           (fixture-object-field pending-block-count-rpc "result")
+          :txpool-pending-block-hash
+          (fixture-object-field pending-block "hash")
+          :txpool-pending-block-transaction-hash
+          (fixture-object-field pending-block-transaction "hash")
+          :txpool-pending-block-transaction-block-hash
+          (fixture-object-field pending-block-transaction "blockHash")
           :txpool-pending-index-transaction-hash
           (fixture-object-field pending-index-transaction "hash")
           :txpool-pending-index-block-hash
@@ -5207,6 +5244,18 @@ references/ checkouts.~%")
                   (and txpool-rpc-summary
                        (getf txpool-rpc-summary
                              :txpool-pending-block-count))
+                  :rpc-txpool-pending-block-hash
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-pending-block-hash))
+                  :rpc-txpool-pending-block-transaction-hash
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-pending-block-transaction-hash))
+                  :rpc-txpool-pending-block-transaction-block-hash
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-pending-block-transaction-block-hash))
                   :rpc-txpool-pending-index-transaction-hash
                   (and txpool-rpc-summary
                        (getf txpool-rpc-summary
@@ -6881,6 +6930,21 @@ references/ checkouts.~%")
                         (if database-summary
                             (getf database-summary
                                   :rpc-txpool-pending-block-count)
+                            :false))
+                  (cons "databaseRpcTxpoolPendingBlockHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-pending-block-hash)
+                            :false))
+                  (cons "databaseRpcTxpoolPendingBlockTransactionHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-pending-block-transaction-hash)
+                            :false))
+                  (cons "databaseRpcTxpoolPendingBlockTransactionBlockHash"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-pending-block-transaction-block-hash)
                             :false))
                   (cons "databaseRpcTxpoolPendingIndexHash"
                         (if database-summary
@@ -8659,6 +8723,15 @@ references/ checkouts.~%")
         (format t "databaseRpcTxpoolPendingBlockCount=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcTxpoolPendingBlockCount"))
+        (format t "databaseRpcTxpoolPendingBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolPendingBlockHash"))
+        (format t "databaseRpcTxpoolPendingBlockTransactionHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolPendingBlockTransactionHash"))
+        (format t "databaseRpcTxpoolPendingBlockTransactionBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolPendingBlockTransactionBlockHash"))
         (format t "databaseRpcTxpoolPendingIndexHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcTxpoolPendingIndexHash"))
