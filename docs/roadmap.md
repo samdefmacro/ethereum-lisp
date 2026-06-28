@@ -1048,11 +1048,16 @@ first pass, but interfaces must not block that path.
   `--authrpc.port`, `--authrpc.jwtsecret`, `--http.addr`, and `--http.port`
   aliases, mapping them onto the existing authenticated Engine and public RPC
   listener fields without changing the split-service contract. It also accepts
-  geth-shaped `--http`, `--http.vhosts`, `--http.corsdomain`, and
-  `--authrpc.vhosts` runner flags as compatibility no-ops. `--http.api LIST`
-  now parses comma-separated public module names and applies them to the
-  public listener method filter, so omitted modules return JSON-RPC `-32601`
-  while the authenticated Engine/public namespace split remains authoritative.
+  geth-shaped `--http`, `--http.vhosts`, and `--authrpc.vhosts` runner flags
+  as compatibility no-ops. `--http.corsdomain LIST` now configures public RPC
+  CORS/preflight behavior and is reported as `publicCorsOrigins` in summaries,
+  ready-file JSON, and lifecycle telemetry. The public listener returns
+  configured `Access-Control-Allow-*` headers, answers allowed `OPTIONS`
+  preflights with HTTP 204, supports wildcard `*`, and rejects disallowed
+  origins with HTTP 403. `--http.api LIST` now parses comma-separated public
+  module names and applies them to the public listener method filter, so
+  omitted modules return JSON-RPC `-32601` while the authenticated
+  Engine/public namespace split remains authoritative.
   Common geth/Hive WebSocket launch flags (`--ws`, `--ws.addr`, `--ws.port`,
   `--ws.api`, and `--ws.origins`) are also accepted as compatibility no-ops so
   existing runner templates can start the Lisp client without implying a

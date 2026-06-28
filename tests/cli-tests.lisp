@@ -1881,7 +1881,7 @@
                          "--http.api=eth,net,web3,txpool"
                          "--http.rpcprefix=/rpc"
                          "--http.vhosts=*"
-                         "--http.corsdomain=*"
+                         "--http.corsdomain=https://runner.example,*"
                          "--ws=false"
                          "--ws.addr=192.0.2.32"
                          "--ws.port=9646"
@@ -1932,7 +1932,10 @@
                             (fixture-object-field summary "jwtSecretPath")))
                (is (equal '("eth" "net" "web3" "txpool")
                           (fixture-object-field summary
-                                                "publicApiModules"))))
+                                                "publicApiModules")))
+               (is (equal '("https://runner.example" "*")
+                          (fixture-object-field summary
+                                                "publicCorsOrigins"))))
              (dolist (log-record log-records)
                (let ((fields (getf log-record :fields)))
                  (is (string= "0x1ca3"
@@ -1946,6 +1949,9 @@
                                           :test #'string=))))
                  (is (string= "eth,net,web3,txpool"
                               (cdr (assoc "publicApiModules" fields
+                                          :test #'string=))))
+                 (is (string= "https://runner.example,*"
+                              (cdr (assoc "publicCorsOrigins" fields
                                           :test #'string=))))))))
       (when (probe-file jwt-path)
         (delete-file jwt-path))

@@ -692,6 +692,16 @@ ones.
     supported devnet surface remains authenticated Engine RPC plus public
     JSON-RPC. Usage text, equals-form parsing, missing-value rejection, and
     malformed boolean rejection have CLI coverage.
+- [x] `DEVNET-RUNNER-PUBLIC-CORS`: Map geth/Hive-style `--http.corsdomain`
+  onto the public RPC listener instead of treating it as a no-op.
+  - Result (2026-06-29): `ethereum-lisp devnet` now parses comma-separated
+    `--http.corsdomain` origins, reports them as `publicCorsOrigins` in stdout
+    summaries and ready-file JSON, and emits the same comma-separated field in
+    lifecycle telemetry. The public RPC listener answers CORS preflight
+    `OPTIONS` requests before JWT checks, adds `Access-Control-Allow-*`
+    headers to public RPC responses, supports wildcard `*`, and rejects
+    disallowed origins with HTTP 403. The authenticated Engine/public
+    namespace split remains unchanged.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

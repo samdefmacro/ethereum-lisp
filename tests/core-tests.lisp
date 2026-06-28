@@ -23768,6 +23768,56 @@ Content-Type: application/json
               (make-chain-config)
               :rpc-prefix "/engine")))
       (is (= 404 (http-status response))))
+    (let* ((response
+             (engine-rpc-handle-http-request-string
+              "OPTIONS / HTTP/1.1
+Origin: https://runner.example
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: Content-Type, Authorization
+
+"
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :cors-origins '("*"))))
+      (is (= 204 (http-status response)))
+      (is (search "Access-Control-Allow-Origin: *" response))
+      (is (search "Access-Control-Allow-Methods: GET, POST, OPTIONS"
+                  response))
+      (is (search "Access-Control-Allow-Headers: Authorization, Content-Type"
+                  response)))
+    (let* ((body
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":119,"
+              "\"method\":\"engine_getClientVersionV1\","
+              "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+              "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+           (request
+             (format nil
+                     "POST / HTTP/1.1~%Host: localhost~%Origin: https://runner.example~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (response
+             (engine-rpc-handle-http-request-string
+              request
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :cors-origins '("https://runner.example"))))
+      (is (= 200 (http-status response)))
+      (is (search "Access-Control-Allow-Origin: https://runner.example"
+                  response))
+      (is (search "Vary: Origin" response)))
+    (let* ((response
+             (engine-rpc-handle-http-request-string
+              "OPTIONS / HTTP/1.1
+Origin: https://other.example
+Access-Control-Request-Method: POST
+
+"
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :cors-origins '("https://runner.example"))))
+      (is (= 403 (http-status response))))
     (let* ((body "{\"jsonrpc\":\"2.0\",\"id\":18,")
            (request
              (format nil

@@ -7129,7 +7129,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor %make-engine-rpc-http-service
                 (&key host port store config jwt-secret now-provider
                       import-function telemetry-sink allowed-method-p
-                      network-id rpc-prefix)))
+                      network-id rpc-prefix cors-origins)))
   host
   port
   store
@@ -7140,7 +7140,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   telemetry-sink
   allowed-method-p
   network-id
-  rpc-prefix)
+  rpc-prefix
+  cors-origins)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7176,6 +7177,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (allowed-method-p #'engine-rpc-any-method-p)
        network-id
        (rpc-prefix "/")
+       cors-origins
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7205,6 +7207,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                (plusp (length rpc-prefix))
                (char= #\/ (char rpc-prefix 0)))
     (block-validation-fail "Engine RPC HTTP prefix must start with /"))
+  (when (and cors-origins
+             (not (and (listp cors-origins)
+                       (every #'stringp cors-origins))))
+    (block-validation-fail
+     "Engine RPC HTTP CORS origins must be a string list"))
   (%make-engine-rpc-http-service
    :host host
    :port port
@@ -7216,7 +7223,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :telemetry-sink telemetry-sink
    :allowed-method-p allowed-method-p
    :network-id network-id
-   :rpc-prefix rpc-prefix))
+   :rpc-prefix rpc-prefix
+   :cors-origins cors-origins))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -7788,26 +7796,65 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-http-response-string (status-code reason body
                                         &key
-                                          (content-type "application/json"))
+                                          (content-type "application/json")
+                                          extra-headers)
   (with-output-to-string (stream)
     (format stream "HTTP/1.1 ~D ~A~C~C" status-code reason
             #\Return #\Newline)
     (when content-type
       (format stream "Content-Type: ~A~C~C" content-type #\Return #\Newline))
+    (dolist (header extra-headers)
+      (format stream "~A: ~A~C~C"
+              (car header)
+              (cdr header)
+              #\Return #\Newline))
     (format stream "Connection: close~C~C" #\Return #\Newline)
     (format stream "Content-Length: ~D~C~C" (length body) #\Return #\Newline)
     (format stream "~C~C" #\Return #\Newline)
     (write-string body stream)))
 
-(defun engine-rpc-http-error-response (status-code reason message)
+(defun engine-rpc-http-error-response
+    (status-code reason message &key extra-headers)
   (engine-rpc-http-response-string
-   status-code reason message :content-type "text/plain"))
+   status-code reason message
+   :content-type "text/plain"
+   :extra-headers extra-headers))
+
+(defun engine-rpc-http-cors-wildcard-p (origins)
+  (member "*" origins :test #'string=))
+
+(defun engine-rpc-http-cors-response-headers (headers origins)
+  (let ((origin (engine-rpc-http-header headers "origin")))
+    (cond
+      ((null origins)
+       (values nil t))
+      ((engine-rpc-http-cors-wildcard-p origins)
+       (values
+        '(("Access-Control-Allow-Origin" . "*")
+          ("Access-Control-Allow-Methods" . "GET, POST, OPTIONS")
+          ("Access-Control-Allow-Headers" . "Authorization, Content-Type"))
+        t))
+      ((and origin (member origin origins :test #'string=))
+       (values
+        `(("Access-Control-Allow-Origin" . ,origin)
+          ("Access-Control-Allow-Methods" . "GET, POST, OPTIONS")
+          ("Access-Control-Allow-Headers" . "Authorization, Content-Type")
+          ("Vary" . "Origin"))
+        t))
+      (origin
+       (values nil nil))
+      (t
+       (values
+        '(("Access-Control-Allow-Methods" . "GET, POST, OPTIONS")
+          ("Access-Control-Allow-Headers" . "Authorization, Content-Type"))
+        t)))))
 
 (defun engine-rpc-handle-http-request-string
     (request store config &key jwt-secret now import-function
                                network-id
                                (rpc-prefix "/")
-                               (allowed-method-p #'engine-rpc-any-method-p))
+                               (allowed-method-p #'engine-rpc-any-method-p)
+                               cors-origins)
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -7819,43 +7866,63 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (multiple-value-bind (method target)
               (engine-rpc-http-request-target (first lines))
             (let ((headers (engine-rpc-http-headers (rest lines))))
-              (unless (engine-rpc-http-target-allowed-p target rpc-prefix)
-                (return-from engine-rpc-handle-http-request-string
-                  (engine-rpc-http-error-response
-                   404 "Not Found" "not found")))
-              (when jwt-secret
-                (handler-case
-                    (engine-rpc-http-authorized-p
-                     (engine-rpc-http-single-header headers "authorization")
-                     jwt-secret
-                     (or now 0))
-                  (block-validation-error (condition)
-                    (return-from engine-rpc-handle-http-request-string
-                      (engine-rpc-http-error-response
-                       401 "Unauthorized"
-                       (block-validation-error-message condition))))))
-              (cond
-                ((and (string= method "GET") (string= body ""))
-                 (engine-rpc-http-response-string
-                  200 "OK" "" :content-type nil))
-                ((not (string= method "POST"))
-                 (engine-rpc-http-error-response
-                  405 "Method Not Allowed" "method not allowed"))
-                ((not (engine-rpc-http-accepted-content-type-p
-                       (engine-rpc-http-header headers "content-type")))
-                 (engine-rpc-http-error-response
-                  415 "Unsupported Media Type"
-                  "invalid content type, only application/json is supported"))
-                (t
-                 (engine-rpc-http-response-string
-                  200 "OK"
-                  (engine-rpc-handle-request-json
-                   (engine-rpc-http-body body headers)
-                   store
-                   config
-                   :import-function import-function
-                   :network-id network-id
-                   :allowed-method-p allowed-method-p))))))))
+              (multiple-value-bind (cors-headers cors-origin-allowed-p)
+                  (engine-rpc-http-cors-response-headers
+                   headers
+                   cors-origins)
+                (unless cors-origin-allowed-p
+                  (return-from engine-rpc-handle-http-request-string
+                    (engine-rpc-http-error-response
+                     403 "Forbidden" "origin is not allowed")))
+                (unless (engine-rpc-http-target-allowed-p target rpc-prefix)
+                  (return-from engine-rpc-handle-http-request-string
+                    (engine-rpc-http-error-response
+                     404 "Not Found" "not found"
+                     :extra-headers cors-headers)))
+                (when (string= method "OPTIONS")
+                  (return-from engine-rpc-handle-http-request-string
+                    (engine-rpc-http-response-string
+                     204 "No Content" ""
+                     :content-type nil
+                     :extra-headers cors-headers)))
+                (when jwt-secret
+                  (handler-case
+                      (engine-rpc-http-authorized-p
+                       (engine-rpc-http-single-header headers "authorization")
+                       jwt-secret
+                       (or now 0))
+                    (block-validation-error (condition)
+                      (return-from engine-rpc-handle-http-request-string
+                        (engine-rpc-http-error-response
+                         401 "Unauthorized"
+                         (block-validation-error-message condition)
+                         :extra-headers cors-headers)))))
+                (cond
+                  ((and (string= method "GET") (string= body ""))
+                   (engine-rpc-http-response-string
+                    200 "OK" "" :content-type nil
+                    :extra-headers cors-headers))
+                  ((not (string= method "POST"))
+                   (engine-rpc-http-error-response
+                    405 "Method Not Allowed" "method not allowed"
+                    :extra-headers cors-headers))
+                  ((not (engine-rpc-http-accepted-content-type-p
+                         (engine-rpc-http-header headers "content-type")))
+                   (engine-rpc-http-error-response
+                    415 "Unsupported Media Type"
+                    "invalid content type, only application/json is supported"
+                    :extra-headers cors-headers))
+                  (t
+                   (engine-rpc-http-response-string
+                    200 "OK"
+                    (engine-rpc-handle-request-json
+                     (engine-rpc-http-body body headers)
+                     store
+                     config
+                     :import-function import-function
+                     :network-id network-id
+                     :allowed-method-p allowed-method-p)
+                    :extra-headers cors-headers))))))))
     (error (condition)
       (engine-rpc-http-error-response
        400 "Bad Request"
@@ -7867,6 +7934,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           network-id
           (rpc-prefix "/")
           (allowed-method-p #'engine-rpc-any-method-p)
+          cors-origins
           telemetry-sink telemetry-fields)
   (let* ((request nil)
          (response
@@ -7882,7 +7950,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :import-function import-function
                  :network-id network-id
                  :rpc-prefix rpc-prefix
-                 :allowed-method-p allowed-method-p))
+                 :allowed-method-p allowed-method-p
+                 :cors-origins cors-origins))
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -7929,6 +7998,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           :rpc-prefix (engine-rpc-http-service-rpc-prefix service)
           :allowed-method-p
           (engine-rpc-http-service-allowed-method-p service)
+          :cors-origins (engine-rpc-http-service-cors-origins service)
           :telemetry-sink sink
           :telemetry-fields fields)
       (ethereum-lisp.telemetry:telemetry-metric

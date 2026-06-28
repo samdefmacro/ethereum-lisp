@@ -5,7 +5,7 @@
                 (&key genesis-path store config genesis-block service
                       public-service telemetry-sink jwt-secret-path log-path
                       database-path pid-file-path network-id
-                      public-api-modules)))
+                      public-api-modules public-cors-origins)))
   genesis-path
   store
   config
@@ -18,7 +18,8 @@
   database-path
   pid-file-path
   network-id
-  public-api-modules)
+  public-api-modules
+  public-cors-origins)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -164,6 +165,7 @@
        pid-file-path
        network-id
        public-api-modules
+       public-cors-origins
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
@@ -199,6 +201,7 @@
             :network-id effective-network-id
             :rpc-prefix public-rpc-prefix
             :allowed-method-p public-allowed-method-p
+            :cors-origins public-cors-origins
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -231,7 +234,9 @@
      :pid-file-path pid-file-path
      :network-id effective-network-id
      :public-api-modules (and public-api-modules
-                              (copy-list public-api-modules)))))
+                              (copy-list public-api-modules))
+     :public-cors-origins (and public-cors-origins
+                               (copy-list public-cors-origins)))))
 
 (defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)
@@ -288,6 +293,7 @@
           :pid-file-path (devnet-node-pid-file-path node)
           :network-id (devnet-node-network-id node)
           :public-api-modules (devnet-node-public-api-modules node)
+          :public-cors-origins (devnet-node-public-cors-origins node)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -318,6 +324,7 @@
       ("pidFilePath" . ,(getf summary :pid-file-path))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
+      ("publicCorsOrigins" . ,(getf summary :public-cors-origins))
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
@@ -511,6 +518,12 @@
       (error "~A requires at least one API module" option))
     modules))
 
+(defun devnet-cli-parse-cors-origin-list (value)
+  (loop for raw in (uiop:split-string value :separator ",")
+        for origin = (string-trim '(#\Space #\Tab #\Newline #\Return) raw)
+        unless (zerop (length origin))
+          collect origin))
+
 (defun devnet-cli-parse-rpc-prefix (value option)
   (unless (and (stringp value)
                (plusp (length value))
@@ -550,6 +563,7 @@
         (datadir-path nil)
         (network-id nil)
         (http-api-modules nil)
+        (http-cors-origins nil)
         (state-prune-before nil)
         (max-connections nil)
         (serve-p t)
@@ -642,8 +656,14 @@
                   (setf http-api-modules
                         (devnet-cli-parse-http-api-list value option))
                   (setf args rest)))
+               ((string= option "--http.corsdomain")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf http-cors-origins
+                        (devnet-cli-parse-cors-origin-list value)
+                        args rest)))
                ((member option
-                        '("--http.vhosts" "--http.corsdomain"
+                        '("--http.vhosts"
                           "--authrpc.vhosts" "--ws.addr" "--ws.port"
                           "--ws.api" "--ws.origins" "--graphql.addr"
                           "--graphql.port" "--graphql.vhosts"
@@ -705,6 +725,7 @@
                                    datadir-path)))
           :network-id network-id
           :http-api-modules http-api-modules
+          :http-cors-origins http-cors-origins
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -849,6 +870,10 @@
        ,(if (getf summary :public-api-modules)
             (format nil "~{~A~^,~}" (getf summary :public-api-modules))
             ""))
+      ("publicCorsOrigins" .
+       ,(if (getf summary :public-cors-origins)
+            (format nil "~{~A~^,~}" (getf summary :public-cors-origins))
+            ""))
       ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
 
 (defun devnet-cli-log-event
@@ -971,6 +996,8 @@
                           :network-id (getf options :network-id)
                           :public-api-modules
                           (getf options :http-api-modules)
+                          :public-cors-origins
+                          (getf options :http-cors-origins)
                           :public-allowed-method-p
                           (devnet-cli-public-api-method-filter
                            (getf options :http-api-modules))
