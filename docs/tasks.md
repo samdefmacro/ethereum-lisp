@@ -681,6 +681,19 @@ ones.
     `engineCapabilityHasForkchoiceUpdatedV2`, and CLI coverage updates
     single-case, all-fixtures, and Phase A devnet connection budgets for the
     extra Engine workflow probe.
+- [x] `DEVNET-RUNNER-TRANSITION-CONFIG-SMOKE`: Extend the standalone devnet
+  smoke gate so authenticated Engine readiness probes include
+  `engine_exchangeTransitionConfigurationV1`.
+  - Result (2026-06-29): the listener-boundary smoke now sends an
+    authenticated `engine_exchangeTransitionConfigurationV1` request before
+    payload import, requires HTTP 200, and asserts the returned terminal total
+    difficulty, terminal block hash, and terminal block number match the local
+    post-Merge genesis configuration. The JSON/text report exposes
+    `engineTransitionTerminalTotalDifficulty`,
+    `engineTransitionTerminalBlockHash`, and
+    `engineTransitionTerminalBlockNumber`, and CLI/Phase A devnet coverage
+    updates the Engine workflow connection budget for the extra consensus
+    handshake probe.
 - [x] `DEVNET-RUNNER-GRAPHQL-NOOP-FLAGS`: Accept common geth/Hive GraphQL
   launch flags so process templates that enable or configure GraphQL do not
   fail before the current Engine/public RPC devnet process starts.

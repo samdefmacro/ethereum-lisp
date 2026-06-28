@@ -1129,7 +1129,10 @@ first pass, but interfaces must not block that path.
   separate HTTP 401 status fields for both cases. The authenticated Engine
   workflow now also probes `engine_exchangeCapabilities` before payload import
   and reports whether the expected V2 payload/forkchoice capabilities are
-  advertised at the process boundary. A runner-facing
+  advertised at the process boundary. It also probes
+  `engine_exchangeTransitionConfigurationV1` through the same authenticated
+  listener and reports the returned terminal total difficulty, block hash, and
+  block number for consensus-client handshake checks. A runner-facing
   `scripts/ethereum-lisp.lisp` script now provides a
   stable `sbcl --script` process entrypoint for the devnet CLI without writing
   ASDF fasl cache files, and subprocess coverage verifies both help discovery

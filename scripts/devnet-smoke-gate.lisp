@@ -76,7 +76,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 (defconstant +devnet-smoke-gate-engine-boundary-connections+ 2)
-(defconstant +devnet-smoke-gate-engine-workflow-connections+ 6)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 7)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
@@ -5503,6 +5503,8 @@ references/ checkouts.~%")
                   (unauthenticated-engine-output (make-string-output-stream))
                   (invalid-auth-engine-output (make-string-output-stream))
                   (capabilities-output (make-string-output-stream))
+                  (transition-configuration-output
+                    (make-string-output-stream))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
                   (prepare-payload-output (make-string-output-stream))
@@ -5609,6 +5611,21 @@ references/ checkouts.~%")
                                     (list "engine_newPayloadV2"
                                           "engine_forkchoiceUpdatedV2")))))
                       capabilities-output)
+                     (cons
+                      (json-encode
+                       (list
+                        (cons "jsonrpc" "2.0")
+                        (cons "id" 27)
+                        (cons "method"
+                              "engine_exchangeTransitionConfigurationV1")
+                        (cons "params"
+                              (list
+                               (list
+                                (cons "terminalTotalDifficulty" "0x0")
+                                (cons "terminalBlockHash"
+                                      (hash32-to-hex (zero-hash32)))
+                                (cons "terminalBlockNumber" "0x0"))))))
+                      transition-configuration-output)
                      (cons
                       (json-encode
                        (engine-fixture-payload-request 21 payload))
@@ -5898,6 +5915,9 @@ references/ checkouts.~%")
                   :connection-summary summary))
                (let* ((capabilities-response
                         (get-output-stream-string capabilities-output))
+                      (transition-configuration-response
+                        (get-output-stream-string
+                         transition-configuration-output))
                       (new-payload-response
                         (get-output-stream-string new-payload-output))
                       (unauthenticated-engine-response
@@ -5951,6 +5971,9 @@ references/ checkouts.~%")
                         (get-output-stream-string txpool-inspect-output))
                       (capabilities-rpc
                         (devnet-smoke-gate-rpc-body capabilities-response))
+                      (transition-configuration-rpc
+                        (devnet-smoke-gate-rpc-body
+                         transition-configuration-response))
                       (new-payload-rpc
                         (devnet-smoke-gate-rpc-body new-payload-response))
                       (forkchoice-rpc
@@ -5998,6 +6021,9 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body txpool-inspect-response))
                       (capabilities-result
                         (fixture-object-field capabilities-rpc "result"))
+                      (transition-configuration-result
+                        (fixture-object-field
+                         transition-configuration-rpc "result"))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -6112,6 +6138,10 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status capabilities-response))
                   "engine_exchangeCapabilities HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          transition-configuration-response))
+                  "engine_exchangeTransitionConfigurationV1 HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
                   "engine_newPayloadV2 HTTP status mismatch")
                  (devnet-smoke-gate-require
@@ -6202,6 +6232,24 @@ references/ checkouts.~%")
                           capabilities-result
                           :test #'string=)
                   "engine_exchangeCapabilities omitted engine_forkchoiceUpdatedV2")
+                 (devnet-smoke-gate-require
+                  (string= "0x0"
+                           (fixture-object-field
+                            transition-configuration-result
+                            "terminalTotalDifficulty"))
+                  "engine_exchangeTransitionConfigurationV1 terminalTotalDifficulty mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (hash32-to-hex (zero-hash32))
+                           (fixture-object-field
+                            transition-configuration-result
+                            "terminalBlockHash"))
+                  "engine_exchangeTransitionConfigurationV1 terminalBlockHash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x0"
+                           (fixture-object-field
+                            transition-configuration-result
+                            "terminalBlockNumber"))
+                  "engine_exchangeTransitionConfigurationV1 terminalBlockNumber mismatch")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
@@ -6496,6 +6544,18 @@ references/ checkouts.~%")
                                     :test #'string=)
                             t
                             :false))
+                  (cons "engineTransitionTerminalTotalDifficulty"
+                        (fixture-object-field
+                         transition-configuration-result
+                         "terminalTotalDifficulty"))
+                  (cons "engineTransitionTerminalBlockHash"
+                        (fixture-object-field
+                         transition-configuration-result
+                         "terminalBlockHash"))
+                  (cons "engineTransitionTerminalBlockNumber"
+                        (fixture-object-field
+                         transition-configuration-result
+                         "terminalBlockNumber"))
                   (cons "publicEngineNamespaceErrorCode"
                         (fixture-object-field
                          (fixture-object-field
@@ -8340,6 +8400,15 @@ references/ checkouts.~%")
                                          "engineInvalidAuthStatus"))
         (format t "engineCapabilityCount=~D~%"
                 (devnet-smoke-gate-field report "engineCapabilityCount"))
+        (format t "engineTransitionTerminalTotalDifficulty=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineTransitionTerminalTotalDifficulty"))
+        (format t "engineTransitionTerminalBlockHash=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineTransitionTerminalBlockHash"))
+        (format t "engineTransitionTerminalBlockNumber=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineTransitionTerminalBlockNumber"))
         (format t "newPayloadStatus=~A~%"
                 (devnet-smoke-gate-field report "newPayloadStatus"))
         (format t "latestValidHash=~A~%"
