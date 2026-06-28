@@ -1301,7 +1301,7 @@ Detailed historical implementation notes for this section now live in
   CALL warmth boundary, EIP-3651
   warm-coinbase out-of-gas and EXTCODE gas-usage variants, PUSH0 contract
   variants, EIP-3860 initcode boundary cases, and EIP-4895 withdrawal
-  ordering/root/many-withdrawals cases; the pinned smoke gate executes 375
+  ordering/root/many-withdrawals cases; the pinned smoke gate executes 385
   total fixture cases across state,
   transaction, and blockchain suites.
   `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a
@@ -1339,7 +1339,13 @@ Detailed historical implementation notes for this section now live in
   state-transition table now also includes all 48 London/Shanghai
   CREATE/CREATE2 returndata selectors from
   `constantinople/eip1014_create2/test_create2_return_data.json`, bringing
-  the pinned state count to 142 selectors.
+  the pinned state count to 142 selectors. A follow-up bounded drift
+  classification found no failing records across the first 256 unpinned
+  state-test candidates and no failing records across the first 128 unpinned
+  blockchain replay candidates; the state table now also pins 10
+  London/Shanghai CALL large-offset selectors covering zero-size CALL-family
+  output boundaries and high-offset MSTORE memory expansion, bringing the
+  pinned state count to 152 selectors.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

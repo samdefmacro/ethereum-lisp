@@ -694,6 +694,22 @@ ones.
     selectors, 53 official Prague/EIP-7702 invalid transaction cases, and 180
     official Shanghai `engineNewPayloadV2` blockchain selectors, for 375 total
     executed fixture cases.
+- [x] `PINNED-V5.4.0-STATE-CALL-LARGE-OFFSET`: Convert the classified official
+  CALL large-offset state-test boundary into a stable pinned Phase A guard.
+  - Result (2026-06-28): a bounded official v5.4.0 drift classification found
+    no failing records across the first 256 unpinned state-test candidates and
+    no failing records across the first 128 unpinned blockchain replay
+    candidates. The state selector table now pins the 10 London/Shanghai
+    `frontier/opcodes/test_call_large_args_offset_size_zero.json` and
+    `frontier/opcodes/test_call_large_offset_mstore.json` selectors covering
+    CALL, CALLCODE, DELEGATECALL, and STATICCALL large argument offsets with
+    zero copy size plus high-offset MSTORE memory expansion. The targeted
+    families classify 10/10 passing against the installed v5.4.0 fixture root
+    with no implementation-bug, harness-error, or out-of-scope records. The
+    pinned v5.4.0 smoke gate now covers 152 official state selectors, 53
+    official Prague/EIP-7702 invalid transaction cases, and 180 official
+    Shanghai `engineNewPayloadV2` blockchain selectors, for 385 total executed
+    fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

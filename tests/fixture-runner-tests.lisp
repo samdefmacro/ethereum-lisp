@@ -76,6 +76,22 @@
                                         create-type
                                         call-return-size)))))))
 
+(defun phase-a-eest-call-large-offset-state-test-v5.4.0-case-names ()
+  (append
+   (loop for fork in '("London" "Shanghai")
+         nconc
+         (loop for call-opcode in '("CALL" "CALLCODE" "DELEGATECALL" "STATICCALL")
+               collect
+               (format nil
+                       "frontier/opcodes/test_call_large_args_offset_size_zero.json/tests/frontier/opcodes/test_call.py::test_call_large_args_offset_size_zero[fork_~A-call_opcode_~A-evm_code_type_LEGACY-state_test]"
+                       fork
+                       call-opcode)))
+   (loop for fork in '("London" "Shanghai")
+         collect
+         (format nil
+                 "frontier/opcodes/test_call_large_offset_mstore.json/tests/frontier/opcodes/test_call.py::test_call_large_offset_mstore[fork_~A-state_test]"
+                 fork))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -172,7 +188,8 @@
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-CALLCODE]"
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-DELEGATECALL]"
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-STATICCALL]")
-   (phase-a-eest-create2-returndata-state-test-v5.4.0-case-names)))
+   (phase-a-eest-create2-returndata-state-test-v5.4.0-case-names)
+   (phase-a-eest-call-large-offset-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
