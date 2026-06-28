@@ -1053,6 +1053,10 @@ first pass, but interfaces must not block that path.
   now parses comma-separated public module names and applies them to the
   public listener method filter, so omitted modules return JSON-RPC `-32601`
   while the authenticated Engine/public namespace split remains authoritative.
+  Common geth/Hive WebSocket launch flags (`--ws`, `--ws.addr`, `--ws.port`,
+  `--ws.api`, and `--ws.origins`) are also accepted as compatibility no-ops so
+  existing runner templates can start the Lisp client without implying a
+  WebSocket transport.
   `--authrpc.rpcprefix PATH` and `--http.rpcprefix PATH` now configure real
   HTTP path-prefix filters on the Engine and public services, and the selected
   prefixes are reported through stdout summaries, readiness JSON, and

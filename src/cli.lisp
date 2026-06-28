@@ -637,13 +637,16 @@
                   (setf args rest)))
                ((member option
                         '("--http.vhosts" "--http.corsdomain"
-                          "--authrpc.vhosts" "--syncmode" "--verbosity")
+                          "--authrpc.vhosts" "--ws.addr" "--ws.port"
+                          "--ws.api" "--ws.origins" "--syncmode"
+                          "--verbosity")
                         :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
                   (declare (ignore value))
                   (setf args rest)))
-               ((member option '("--nodiscover" "--ipcdisable") :test #'string=)
+               ((member option '("--ws" "--nodiscover" "--ipcdisable")
+                        :test #'string=)
                 (setf args
                       (devnet-cli-consume-optional-boolean-value
                        args option)))
@@ -695,7 +698,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--verbosity LEVEL] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--verbosity LEVEL] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -863,6 +866,7 @@
                         "--authrpc.jwtsecret" "--authrpc.rpcprefix"
                         "--http.api" "--http.rpcprefix" "--http.vhosts"
                         "--http.corsdomain" "--authrpc.vhosts"
+                        "--ws.addr" "--ws.port" "--ws.api" "--ws.origins"
                         "--networkid" "--network-id" "--syncmode"
                         "--verbosity" "--database" "--datadir"
                         "--prune-state-before" "--max-connections"

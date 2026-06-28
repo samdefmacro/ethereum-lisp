@@ -1874,6 +1874,11 @@
                          "--http.rpcprefix=/rpc"
                          "--http.vhosts=*"
                          "--http.corsdomain=*"
+                         "--ws=false"
+                         "--ws.addr=192.0.2.32"
+                         "--ws.port=9646"
+                         "--ws.api=eth,net"
+                         "--ws.origins=*"
                          "--networkid=7331"
                          "--syncmode=full"
                          "--nodiscover=false"
@@ -4217,6 +4222,8 @@
     (is (search "--datadir PATH" stdout))
     (is (search "--networkid ID" stdout))
     (is (search "--syncmode MODE" stdout))
+    (is (search "--ws.api LIST" stdout))
+    (is (search "--ws.origins ORIGINS" stdout))
     (is (search "--nodiscover" stdout))
     (is (search "--ipcdisable" stdout))
     (is (search "--verbosity LEVEL" stdout))
@@ -4778,6 +4785,10 @@
                 (run-error (list "devnet"
                                  "--nodiscover"
                                  "maybe"
+                                 "--no-serve"))))
+    (is (search "--ws boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--ws=maybe"
                                  "--no-serve"))))
     (is (search "--http.rpcprefix requires a path beginning with /"
                 (run-error (list "devnet"

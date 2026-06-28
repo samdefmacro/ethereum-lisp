@@ -556,6 +556,15 @@ ones.
     Engine versus public RPC method filters remain authoritative. Usage text,
     malformed-option error telemetry scanning, and CLI/script coverage include
     the new flags.
+- [x] `DEVNET-RUNNER-WS-NOOP-FLAGS`: Accept common geth/Hive-style WebSocket
+  runner flags as compatibility no-ops.
+  - Result (2026-06-28): `ethereum-lisp devnet` now accepts `--ws`,
+    `--ws.addr`, `--ws.port`, `--ws.api`, and `--ws.origins` so geth-shaped
+    launch templates that include WebSocket settings do not fail before the
+    Lisp client process starts. These options intentionally do not create a
+    WebSocket transport; the existing authenticated Engine and public HTTP RPC
+    listeners remain the active devnet surfaces. Usage text, equals-form CLI
+    coverage, and invalid boolean flag validation cover the new options.
 - [x] `DEVNET-RUNNER-HTTP-API-FILTER`: Make geth/Hive-style `--http.api`
   affect the public RPC module surface instead of only being accepted.
   - Result (2026-06-28): `ethereum-lisp devnet --http.api LIST` now parses
