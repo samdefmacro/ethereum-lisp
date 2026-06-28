@@ -1068,7 +1068,10 @@ first pass, but interfaces must not block that path.
   The standalone devnet smoke gate also probes that allowlist through the same
   listener boundary and reports the allowed modules, accepted `eth`/`net`
   calls, rejected `web3`/`txpool`/Engine calls, and connection counts for
-  runner-visible validation.
+  runner-visible validation. Devnet startup summaries, readiness JSON, and
+  lifecycle telemetry now also report configured `publicApiModules`, so process
+  runners can correlate launch parameters with the advertised public RPC
+  method filter.
   `--datadir PATH` now
   maps to a concrete `PATH/ethereum-lisp-chain.sexp` KV chain-store path when
   `--database` is absent, while explicit `--database` remains authoritative.

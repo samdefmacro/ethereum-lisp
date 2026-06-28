@@ -647,6 +647,7 @@
     (is (getf summary :state-available-p))
     (is (not (getf summary :auth-required-p)))
     (is (not (getf summary :jwt-secret-path)))
+    (is (null (getf summary :public-api-modules)))
     (is (string= "/"
                  (engine-rpc-http-service-rpc-prefix
                   (ethereum-lisp.cli:devnet-node-service node))))
@@ -738,13 +739,20 @@
                 :genesis-path +devnet-cli-genesis-fixture+
                 :public-allowed-method-p
                 (ethereum-lisp.cli::devnet-cli-public-api-method-filter
-                 http-api-modules)))
+                 http-api-modules)
+                :public-api-modules http-api-modules))
          (public-service (ethereum-lisp.cli:devnet-node-public-service node))
+         (summary (ethereum-lisp.cli:devnet-node-summary node))
+         (summary-json
+           (ethereum-lisp.cli::devnet-node-summary-json-object node))
          (store (engine-rpc-http-service-store public-service))
          (config (engine-rpc-http-service-config public-service))
          (public-filter (engine-rpc-http-service-allowed-method-p
                          public-service)))
     (is (equal '("eth" "net") http-api-modules))
+    (is (equal '("eth" "net") (getf summary :public-api-modules)))
+    (is (equal '("eth" "net")
+               (cdr (assoc "publicApiModules" summary-json :test #'string=))))
     (is (funcall public-filter "eth_chainId"))
     (is (funcall public-filter "net_version"))
     (is (not (funcall public-filter "web3_clientVersion")))
@@ -1916,7 +1924,10 @@
                (is (= 7331 (fixture-object-field summary "networkId")))
                (is (eq t (fixture-object-field summary "authRequired")))
                (is (string= (namestring jwt-path)
-                            (fixture-object-field summary "jwtSecretPath"))))
+                            (fixture-object-field summary "jwtSecretPath")))
+               (is (equal '("eth" "net" "web3" "txpool")
+                          (fixture-object-field summary
+                                                "publicApiModules"))))
              (dolist (log-record log-records)
                (let ((fields (getf log-record :fields)))
                  (is (string= "0x1ca3"
@@ -1927,6 +1938,9 @@
                                           :test #'string=))))
                  (is (string= "/rpc"
                               (cdr (assoc "publicRpcPrefix" fields
+                                          :test #'string=))))
+                 (is (string= "eth,net,web3,txpool"
+                              (cdr (assoc "publicApiModules" fields
                                           :test #'string=))))))))
       (when (probe-file jwt-path)
         (delete-file jwt-path))

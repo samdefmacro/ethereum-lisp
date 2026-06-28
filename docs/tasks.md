@@ -640,6 +640,14 @@ ones.
     Engine/public RPC devnet surface starts. Usage text, equals-form value
     parsing, optional boolean values, and malformed boolean rejection have CLI
     coverage.
+- [x] `DEVNET-RUNNER-PUBLIC-API-REPORTING`: Report geth/Hive-style public RPC
+  module allowlists in runner-visible devnet startup artifacts.
+  - Result (2026-06-28): devnet nodes now preserve the parsed `--http.api`
+    module list and report it as `publicApiModules` in stdout JSON summaries
+    and ready-file JSON, plus a comma-separated `publicApiModules` telemetry
+    field in `devnet.ready` / `devnet.shutdown`. CLI coverage verifies direct
+    node summaries and geth-shaped runner invocations so process runners can
+    correlate configured public API modules with observed RPC method filters.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

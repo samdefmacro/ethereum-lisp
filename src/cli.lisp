@@ -4,7 +4,8 @@
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
                       public-service telemetry-sink jwt-secret-path log-path
-                      database-path pid-file-path network-id)))
+                      database-path pid-file-path network-id
+                      public-api-modules)))
   genesis-path
   store
   config
@@ -16,7 +17,8 @@
   log-path
   database-path
   pid-file-path
-  network-id)
+  network-id
+  public-api-modules)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -161,6 +163,7 @@
        database-path
        pid-file-path
        network-id
+       public-api-modules
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
@@ -226,7 +229,9 @@
      :log-path log-path
      :database-path database-path
      :pid-file-path pid-file-path
-     :network-id effective-network-id)))
+     :network-id effective-network-id
+     :public-api-modules (and public-api-modules
+                              (copy-list public-api-modules)))))
 
 (defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)
@@ -282,6 +287,7 @@
           :database-path (devnet-node-database-path node)
           :pid-file-path (devnet-node-pid-file-path node)
           :network-id (devnet-node-network-id node)
+          :public-api-modules (devnet-node-public-api-modules node)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -311,6 +317,7 @@
       ("databasePath" . ,(getf summary :database-path))
       ("pidFilePath" . ,(getf summary :pid-file-path))
       ("networkId" . ,(getf summary :network-id))
+      ("publicApiModules" . ,(getf summary :public-api-modules))
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
@@ -836,6 +843,10 @@
       ("logPath" . ,(or (getf summary :log-path) ""))
       ("databasePath" . ,(or (getf summary :database-path) ""))
       ("networkId" . ,(quantity-to-hex (getf summary :network-id)))
+      ("publicApiModules" .
+       ,(if (getf summary :public-api-modules)
+            (format nil "~{~A~^,~}" (getf summary :public-api-modules))
+            ""))
       ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
 
 (defun devnet-cli-log-event
@@ -954,6 +965,8 @@
                           :database-path (getf options :database-path)
                           :pid-file-path (getf options :pid-file)
                           :network-id (getf options :network-id)
+                          :public-api-modules
+                          (getf options :http-api-modules)
                           :public-allowed-method-p
                           (devnet-cli-public-api-method-filter
                            (getf options :http-api-modules))
