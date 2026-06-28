@@ -721,6 +721,68 @@
       (is (string= "7331"
                    (fixture-object-field network-response "result"))))))
 
+(deftest devnet-node-public-http-api-filter-limits-modules
+  (let* ((options
+           (ethereum-lisp.cli::devnet-cli-options
+            (list "devnet" "--http.api" "eth,net")))
+         (http-api-modules (getf options :http-api-modules))
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+
+                :public-allowed-method-p
+                (ethereum-lisp.cli::devnet-cli-public-api-method-filter
+                 http-api-modules)))
+         (public-service (ethereum-lisp.cli:devnet-node-public-service node))
+         (store (engine-rpc-http-service-store public-service))
+         (config (engine-rpc-http-service-config public-service))
+         (public-filter (engine-rpc-http-service-allowed-method-p
+                         public-service)))
+    (is (equal '("eth" "net") http-api-modules))
+    (is (funcall public-filter "eth_chainId"))
+    (is (funcall public-filter "net_version"))
+    (is (not (funcall public-filter "web3_clientVersion")))
+    (is (not (funcall public-filter "txpool_status")))
+    (is (not (funcall public-filter "engine_exchangeCapabilities")))
+    (let ((chain-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}"
+              store
+              config
+              :network-id
+              (ethereum-lisp.core::engine-rpc-http-service-network-id
+               public-service)
+              :allowed-method-p public-filter)))
+          (web3-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"web3_clientVersion\",\"params\":[]}"
+              store
+              config
+              :network-id
+              (ethereum-lisp.core::engine-rpc-http-service-network-id
+               public-service)
+              :allowed-method-p public-filter)))
+          (txpool-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"txpool_status\",\"params\":[]}"
+              store
+              config
+              :network-id
+              (ethereum-lisp.core::engine-rpc-http-service-network-id
+               public-service)
+              :allowed-method-p public-filter))))
+      (is (string= "0x539"
+                   (fixture-object-field chain-response "result")))
+      (is (= -32601
+             (fixture-object-field
+              (fixture-object-field web3-response "error")
+              "code")))
+      (is (= -32601
+             (fixture-object-field
+              (fixture-object-field txpool-response "error")
+              "code"))))))
+
 (deftest devnet-node-start-serves-engine-and-public-listeners
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+

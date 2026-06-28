@@ -1048,9 +1048,12 @@ first pass, but interfaces must not block that path.
   `--authrpc.port`, `--authrpc.jwtsecret`, `--http.addr`, and `--http.port`
   aliases, mapping them onto the existing authenticated Engine and public RPC
   listener fields without changing the split-service contract. It also accepts
-  geth-shaped `--http`, `--http.api`, `--http.vhosts`, `--http.corsdomain`,
-  and `--authrpc.vhosts` runner flags as compatibility no-ops, leaving the
-  current Engine/public method filters authoritative. `--datadir PATH` now
+  geth-shaped `--http`, `--http.vhosts`, `--http.corsdomain`, and
+  `--authrpc.vhosts` runner flags as compatibility no-ops. `--http.api LIST`
+  now parses comma-separated public module names and applies them to the
+  public listener method filter, so omitted modules return JSON-RPC `-32601`
+  while the authenticated Engine/public namespace split remains authoritative.
+  `--datadir PATH` now
   maps to a concrete `PATH/ethereum-lisp-chain.sexp` KV chain-store path when
   `--database` is absent, while explicit `--database` remains authoritative.
   Ready, pid, telemetry log, and error-log artifact paths now create their

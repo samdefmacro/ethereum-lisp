@@ -519,15 +519,25 @@ ones.
     CLI/script coverage verifies runner-visible endpoint and JWT summaries
     through the alias form.
 - [x] `DEVNET-RUNNER-GETH-STYLE-NOOP-FLAGS`: Accept common geth/Hive-style
-  public/auth listener toggle and allow-list flags that do not alter the
+  public/auth listener toggle and host-policy flags that do not alter the
   current Lisp split-service contract.
   - Result (2026-06-28): `ethereum-lisp devnet` now accepts `--http`,
-    `--http.api`, `--http.vhosts`, `--http.corsdomain`, and
+    `--http.vhosts`, `--http.corsdomain`, and
     `--authrpc.vhosts` so geth-shaped runner invocations do not fail before
     startup. These options are compatibility no-ops: the existing authenticated
     Engine versus public RPC method filters remain authoritative. Usage text,
     malformed-option error telemetry scanning, and CLI/script coverage include
     the new flags.
+- [x] `DEVNET-RUNNER-HTTP-API-FILTER`: Make geth/Hive-style `--http.api`
+  affect the public RPC module surface instead of only being accepted.
+  - Result (2026-06-28): `ethereum-lisp devnet --http.api LIST` now parses
+    comma-separated module names and applies them to the public listener's
+    method filter while preserving the Engine/public namespace split. Omitted
+    `--http.api` keeps the previous default public surface; an explicit list
+    such as `eth,net` allows `eth_*` / `net_*` methods and rejects omitted
+    public modules such as `web3_*` and `txpool_*` with JSON-RPC `-32601`.
+    CLI regression coverage verifies the parsed modules and observable RPC
+    rejection path without requiring socket serving.
 - [x] `DEVNET-RUNNER-DATADIR-DATABASE`: Map geth/Hive-style `--datadir` onto
   a real devnet persistence path.
   - Result (2026-06-28): when `--database` is absent, `ethereum-lisp devnet`

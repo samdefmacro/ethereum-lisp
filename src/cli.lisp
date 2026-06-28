@@ -159,9 +159,12 @@
        database-path
        pid-file-path
        network-id
+       (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
     (error "Devnet node requires a genesis JSON path"))
+  (unless (functionp public-allowed-method-p)
+    (error "Devnet public RPC method filter must be a function"))
   (let* ((config (chain-config-from-genesis-json-file genesis-path))
          (state (state-db-from-genesis-json-file genesis-path))
          (genesis-block
@@ -188,7 +191,7 @@
             :store store
             :config config
             :network-id effective-network-id
-            :allowed-method-p #'engine-rpc-public-method-p
+            :allowed-method-p public-allowed-method-p
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -449,6 +452,33 @@
       (error "~A must be non-negative" option))
     integer))
 
+(defun devnet-cli-parse-http-api-list (value option)
+  (let ((modules
+          (loop for raw in (uiop:split-string value :separator ",")
+                for module = (string-downcase
+                              (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                           raw))
+                unless (zerop (length module))
+                  collect module)))
+    (unless modules
+      (error "~A requires at least one API module" option))
+    modules))
+
+(defun devnet-cli-rpc-method-module (method)
+  (let ((separator (and (stringp method) (position #\_ method))))
+    (and separator
+         (subseq method 0 separator))))
+
+(defun devnet-cli-public-api-method-filter (modules)
+  (if (null modules)
+      #'engine-rpc-public-method-p
+      (let ((modules (copy-list modules)))
+        (lambda (method)
+          (and (engine-rpc-public-method-p method)
+               (let ((module (devnet-cli-rpc-method-module method)))
+                 (and module
+                      (member module modules :test #'string=))))))))
+
 (defun devnet-cli-options (args)
   (when (and args (string= "devnet" (first args)))
     (setf args (rest args)))
@@ -462,6 +492,7 @@
         (database-path nil)
         (datadir-path nil)
         (network-id nil)
+        (http-api-modules nil)
         (state-prune-before nil)
         (max-connections nil)
         (serve-p t)
@@ -534,8 +565,14 @@
                         args rest)))
                ((string= option "--http")
                 nil)
+               ((string= option "--http.api")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf http-api-modules
+                        (devnet-cli-parse-http-api-list value option))
+                  (setf args rest)))
                ((member option
-                        '("--http.api" "--http.vhosts" "--http.corsdomain"
+                        '("--http.vhosts" "--http.corsdomain"
                           "--authrpc.vhosts" "--syncmode" "--verbosity")
                         :test #'string=)
                 (multiple-value-bind (value rest)
@@ -570,6 +607,7 @@
                                   (devnet-cli-datadir-database-path
                                    datadir-path)))
           :network-id network-id
+          :http-api-modules http-api-modules
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -818,6 +856,9 @@
                           :database-path (getf options :database-path)
                           :pid-file-path (getf options :pid-file)
                           :network-id (getf options :network-id)
+                          :public-allowed-method-p
+                          (devnet-cli-public-api-method-filter
+                           (getf options :http-api-modules))
                           :telemetry-sink telemetry-sink)))
                    (when (getf options :pid-file)
                      (devnet-cli-write-pid-file (getf options :pid-file)))
