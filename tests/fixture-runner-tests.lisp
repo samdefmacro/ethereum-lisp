@@ -230,6 +230,14 @@
      . "engineNewPayloadV2")
     ("constantinople/eip1014_create2/test_create2_return_data.json/tests/constantinople/eip1014_create2/test_create_returndata.py::test_create2_return_data[fork_Shanghai-blockchain_test_engine_from_state_test-return_type_in_create_REVERT-return_type_REVERT-create_type_CREATE2-call_return_size_35]"
      . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2_precompile_delegatecall.json/tests/istanbul/eip152_blake2/test_blake2_delegatecall.py::test_blake2_precompile_delegatecall[fork_Shanghai-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-EIP-152-RFC-7693-zero-input-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-empty-input-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-invalid-final-block-flag-value-0x02-call_opcode_CALL]"
+     . "engineNewPayloadV2")
     ("frontier/opcodes/test_call_memory_expands_on_early_revert.json/tests/frontier/opcodes/test_call.py::test_call_memory_expands_on_early_revert[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
     ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_0-call_type_CALLCODE]"

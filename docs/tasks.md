@@ -313,6 +313,21 @@ ones.
     selectors, for 296 total executed fixture cases. A follow-up 128-candidate
     drift map reports 121 passing candidates and 7 remaining
     `implementation-bug-candidate` records.
+- [x] `PINNED-V5.4.0-BLAKE2F-INVALID-INPUT-GAS`: Fix the official
+  `istanbul/eip152_blake2` Engine replay drift so malformed BLAKE2F precompile
+  input lengths and final-block flags consume the full child-call gas budget,
+  matching EIP-152 fixture expectations.
+  - Result (2026-06-28): BLAKE2F invalid input lengths and invalid final-block
+    flags now report consume-all-child-gas precompile failures. Focused EVM
+    coverage locks the direct precompile error gas boundary, and a targeted
+    official v5.4.0 classifier run with `--prefix istanbul/eip152_blake2
+    --limit 4 --include-pinned` reports the BLAKE2 delegatecall, zero-input
+    CALL, empty-input CALL, and invalid-final-flag CALL selectors 4/4 passing.
+    Those 4 selectors are pinned in the v5.4.0 blockchain
+    replay guard, bringing the pinned smoke gate to 94 official state
+    selectors, 53 official Prague/EIP-7702 invalid transaction cases
+    summarized, and 153 official Shanghai `engineNewPayloadV2` blockchain
+    selectors, for 300 total executed fixture cases.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

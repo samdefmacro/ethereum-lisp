@@ -111,6 +111,7 @@
   (read-only-p nil :type boolean))
 
 (defconstant +word-modulus+ (expt 2 256))
+(defconstant +precompile-consume-all-child-gas+ (1- +word-modulus+))
 (defconstant +stack-limit+ 1024)
 (defconstant +max-account-nonce+ (1- (ash 1 64)))
 (defconstant +initcode-word-gas+ 2)
@@ -1788,7 +1789,8 @@ kept stable while a library-backed pairing implementation is wired in."
 (defun run-blake2f-precompile (input)
   (let ((input (ensure-byte-vector input)))
     (unless (= (length input) +blake2f-input-size+)
-      (fail-precompile 0 "BLAKE2F invalid input length"))
+      (fail-precompile +precompile-consume-all-child-gas+
+                       "BLAKE2F invalid input length"))
     (let ((rounds (load-big-endian-u32 input 0))
           (h (make-array 8))
           (m (make-array 16))
@@ -1797,7 +1799,8 @@ kept stable while a library-backed pairing implementation is wired in."
           (t1 (load-little-endian-u64 input 204))
           (final-p (= (aref input 212) 1)))
       (unless (member (aref input 212) '(0 1) :test #'=)
-        (fail-precompile rounds "BLAKE2F invalid final flag"))
+        (fail-precompile +precompile-consume-all-child-gas+
+                         "BLAKE2F invalid final flag"))
       (dotimes (i 8)
         (setf (aref h i) (load-little-endian-u64 input (+ 4 (* i 8)))
               (aref v i) (aref h i)

@@ -1999,12 +1999,33 @@
          (short-result
            (execute-bytecode (concat-bytes short-code short-input)
                              :context context)))
+    (let ((bad-flag-error
+            (handler-case
+                (progn
+                  (ethereum-lisp.evm::run-blake2f-precompile bad-flag-input)
+                  nil)
+              (ethereum-lisp.evm::evm-precompile-error (condition)
+                condition)))
+          (short-error
+            (handler-case
+                (progn
+                  (ethereum-lisp.evm::run-blake2f-precompile short-input)
+                  nil)
+              (ethereum-lisp.evm::evm-precompile-error (condition)
+                condition))))
+      (is bad-flag-error)
+      (is (= ethereum-lisp.evm::+precompile-consume-all-child-gas+
+             (ethereum-lisp.evm::evm-precompile-error-gas-used
+              bad-flag-error)))
+      (is short-error)
+      (is (= ethereum-lisp.evm::+precompile-consume-all-child-gas+
+             (ethereum-lisp.evm::evm-precompile-error-gas-used short-error))))
     (is (= 0 (first (evm-result-stack bad-flag-result))))
     (is (= 188 (evm-result-gas-used bad-flag-result)))
     (is (bytes= (byte-prefix-padded bad-flag-input 64)
                 (evm-result-return-data bad-flag-result)))
     (is (= 0 (first (evm-result-stack short-result))))
-    (is (< (evm-result-gas-used short-result)
+    (is (> (evm-result-gas-used short-result)
            (evm-result-gas-used bad-flag-result)))
     (is (bytes= (byte-prefix-padded (subseq short-input 1) 64)
                 (evm-result-return-data short-result)))))

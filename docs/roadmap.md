@@ -1232,14 +1232,17 @@ Detailed historical implementation notes for this section now live in
   the actual returned byte count instead of zero-padding short returndata over
   the full requested return-size, and active precompile value calls receive
   the same stipend discount required by the official value-transfer
-  early-failure boundary. The pinned `engine_newPayloadV2` blockchain replay
-  table now includes 149 official Shanghai selectors after adding
-  selector-probed Frontier PUSH and DUP opcode cases, the identity precompile
-  returndata/value-call family, the CALL value-transfer early-revert
-  memory-expansion boundary, EIP-3651 warm-coinbase out-of-gas and EXTCODE
-  gas-usage variants, PUSH0 contract variants, EIP-3860 initcode boundary
-  cases, and EIP-4895 withdrawal ordering/root/many-withdrawals cases; the
-  pinned smoke gate executes 296 total fixture cases across state,
+  early-failure boundary. BLAKE2F invalid input lengths and invalid final-block
+  flags now consume the full child-call gas budget, closing the official EIP-152
+  malformed-input drift. The pinned `engine_newPayloadV2` blockchain replay
+  table now includes 153 official Shanghai selectors after adding
+  selector-probed Frontier PUSH and DUP opcode
+  cases, the identity precompile returndata/value-call family, the CALL
+  value-transfer early-revert memory-expansion boundary, EIP-152 BLAKE2F
+  malformed-input cases, EIP-3651 warm-coinbase out-of-gas and EXTCODE gas-usage
+  variants, PUSH0 contract variants, EIP-3860 initcode boundary cases, and
+  EIP-4895 withdrawal ordering/root/many-withdrawals cases; the pinned smoke
+  gate executes 300 total fixture cases across state,
   transaction, and blockchain suites.
   `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a
   bounded way to classify remaining discovered-but-unpinned official
@@ -1248,10 +1251,9 @@ Detailed historical implementation notes for this section now live in
   before choosing whether to fix implementation drift, record a blocker, or
   selectively widen the pinned table. The classifier also supports
   `--failures-only` output for drift triage: after fixing and pinning the
-  identity precompile returndata/value-call family, the first 128 unpinned
-  v5.4.0 candidates classify as 121 passing and 7 implementation-bug
-  candidates, still clustered around CALL/value-transfer plus later
-  precompile gas/accounting boundaries. The official
+  identity precompile returndata/value-call family, the EIP-152 BLAKE2F
+  malformed-input boundary classifies 4/4 passing in the targeted
+  `istanbul/eip152_blake2` pinned window. The official
   v5.4.0 CREATE/CREATE2
   returndata drift in
   `constantinople/eip1014_create2/test_create2_return_data.json` is closed:
