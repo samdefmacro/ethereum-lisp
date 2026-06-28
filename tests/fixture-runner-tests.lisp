@@ -240,6 +240,22 @@
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_call_memory_expands_on_early_revert.json/tests/frontier/opcodes/test_call.py::test_call_memory_expands_on_early_revert[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
+    ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_0-callee_opcode_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_0-callee_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_0-callee_opcode_DELEGATECALL]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_0-callee_opcode_STATICCALL]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_1-callee_opcode_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_1-callee_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_1-callee_opcode_DELEGATECALL]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_1-callee_opcode_STATICCALL]"
+     . "engineNewPayloadV2")
     ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_0-call_type_CALLCODE]"
      . "engineNewPayloadV2")
     ("frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile[fork_Shanghai-blockchain_test_engine_from_state_test-identity_0-call_type_CALL]"

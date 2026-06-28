@@ -1953,6 +1953,12 @@ kept stable while a library-backed pairing implementation is wired in."
                (incf gas-used amount)
                (when (and gas-limit (> gas-used gas-limit))
                  (fail "EVM out of gas at pc ~D" pc)))
+             (charge-call-value-gas (required charged)
+               ;; The OOG boundary uses the undiscounted cost; the successful
+               ;; charge may still apply the value-call stipend discount.
+               (if (and gas-limit (> (+ gas-used required) gas-limit))
+                   (charge-extra-gas required)
+                   (charge-extra-gas charged)))
              (charge-memory-gas (offset size)
                (charge-extra-gas
                 (memory-expansion-gas memory offset size)))
@@ -2935,12 +2941,22 @@ kept stable while a library-backed pairing implementation is wired in."
                          context
                          callee
                          #'charge-extra-gas)
-                        (charge-extra-gas
-                         (call-value-extra-gas state callee value
-                                               :new-account-p t
-                                               :stipend-discount-p
-                                               (or insufficient-balance-p
-                                                   precompile-callee-p)))
+                        (let* ((required-value-gas
+                                  (call-value-extra-gas state callee value
+                                                        :new-account-p t))
+                               (stipend-discount-p
+                                 (or insufficient-balance-p
+                                     precompile-callee-p
+                                     (and (plusp value)
+                                          gas-limit
+                                          (= (+ gas-used required-value-gas)
+                                             gas-limit)))))
+                          (charge-call-value-gas
+                           required-value-gas
+                           (call-value-extra-gas state callee value
+                                                 :new-account-p t
+                                                 :stipend-discount-p
+                                                 stipend-discount-p)))
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used
@@ -3125,12 +3141,20 @@ kept stable while a library-backed pairing implementation is wired in."
                          context
                          code-address
                          #'charge-extra-gas)
-                        (charge-extra-gas
-                         (call-value-extra-gas
-                          state code-address value
-                          :stipend-discount-p
-                          (or insufficient-balance-p
-                              precompile-code-address-p)))
+                        (let* ((required-value-gas
+                                  (call-value-extra-gas state code-address value))
+                               (stipend-discount-p
+                                 (or insufficient-balance-p
+                                     precompile-code-address-p
+                                     (and (plusp value)
+                                          gas-limit
+                                          (= (+ gas-used required-value-gas)
+                                             gas-limit)))))
+                          (charge-call-value-gas
+                           required-value-gas
+                           (call-value-extra-gas
+                            state code-address value
+                            :stipend-discount-p stipend-discount-p)))
                         (setf child-gas-limit
                               (child-call-gas-limit
                                call-gas gas-limit gas-used

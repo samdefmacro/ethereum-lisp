@@ -328,6 +328,21 @@ ones.
     selectors, 53 official Prague/EIP-7702 invalid transaction cases
     summarized, and 153 official Shanghai `engineNewPayloadV2` blockchain
     selectors, for 300 total executed fixture cases.
+- [x] `PINNED-V5.4.0-VALUE-TRANSFER-STIPEND-CAP`: Fix the official
+  `frontier/opcodes/test_value_transfer_gas_calculation.json` Engine replay
+  drift so CALL/CALLCODE value-transfer gas-shortage boundaries preserve the
+  upstream state root and gas accounting.
+  - Result (2026-06-28): CALL/CALLCODE now check value-transfer upfront gas
+    against the undiscounted cost before applying the stipend-discounted
+    charge, so exact-gas value-call boundaries can use the stipend without
+    turning one-gas-short cases into successful calls. The targeted official
+    v5.4.0 classifier reports the `test_value_transfer_gas_calculation`
+    family 8/8 passing with no remaining implementation-bug candidates. Those
+    8 selectors are pinned in the v5.4.0 blockchain replay guard, bringing the
+    pinned smoke gate to 94 official state selectors, 53 official Prague/EIP-7702
+    invalid transaction cases summarized, and 161 official Shanghai
+    `engineNewPayloadV2` blockchain selectors, for 308 total executed fixture
+    cases.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

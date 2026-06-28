@@ -1234,15 +1234,19 @@ Detailed historical implementation notes for this section now live in
   the same stipend discount required by the official value-transfer
   early-failure boundary. BLAKE2F invalid input lengths and invalid final-block
   flags now consume the full child-call gas budget, closing the official EIP-152
-  malformed-input drift. The pinned `engine_newPayloadV2` blockchain replay
-  table now includes 153 official Shanghai selectors after adding
+  malformed-input drift. CALL/CALLCODE value-transfer gas-shortage boundaries
+  now check the undiscounted upfront gas before applying the stipend-discounted
+  charge, matching the official exact-gas and one-gas-short state roots. The
+  pinned `engine_newPayloadV2` blockchain replay table now includes 161
+  official Shanghai selectors after adding
   selector-probed Frontier PUSH and DUP opcode
   cases, the identity precompile returndata/value-call family, the CALL
-  value-transfer early-revert memory-expansion boundary, EIP-152 BLAKE2F
-  malformed-input cases, EIP-3651 warm-coinbase out-of-gas and EXTCODE gas-usage
-  variants, PUSH0 contract variants, EIP-3860 initcode boundary cases, and
-  EIP-4895 withdrawal ordering/root/many-withdrawals cases; the pinned smoke
-  gate executes 300 total fixture cases across state,
+  value-transfer early-revert memory-expansion boundary, the value-transfer
+  gas-shortage family, EIP-152 BLAKE2F malformed-input cases, EIP-3651
+  warm-coinbase out-of-gas and EXTCODE gas-usage variants, PUSH0 contract
+  variants, EIP-3860 initcode boundary cases, and EIP-4895 withdrawal
+  ordering/root/many-withdrawals cases; the pinned smoke gate executes 308
+  total fixture cases across state,
   transaction, and blockchain suites.
   `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a
   bounded way to classify remaining discovered-but-unpinned official
