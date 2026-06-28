@@ -536,6 +536,16 @@ ones.
     runner artifact paths, and malformed-option error telemetry work with both
     `--flag value` and `--flag=value` forms. CLI regressions cover successful
     geth-shaped startup and parse-error logging through equals-style options.
+- [x] `DEVNET-RUNNER-BOOLEAN-FLAG-VALUES`: Accept explicit boolean values on
+  devnet runner flags that may be emitted by geth-shaped invocations.
+  - Result (2026-06-28): `--http`, `--nodiscover`, `--ipcdisable`, `--json`,
+    and `--no-serve` now accept optional `true`/`false` or `1`/`0` values after
+    equals-form normalization. Compatibility no-op flags consume valid boolean
+    values without changing the split-service contract, while semantic flags
+    only enable JSON output or no-serve mode when the supplied value is true.
+    CLI tests cover accepted `--http=false`, `--nodiscover=false`,
+    `--ipcdisable=true`, `--json=true`, `--no-serve=1`, and invalid boolean
+    values.
 - [x] `DEVNET-RUNNER-GETH-STYLE-NOOP-FLAGS`: Accept common geth/Hive-style
   public/auth listener toggle and host-policy flags that do not alter the
   current Lisp split-service contract.

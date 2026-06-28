@@ -448,6 +448,26 @@
                          (subseq arg (1+ separator)))
                    (list arg))))
 
+(defun devnet-cli-parse-boolean-token (value option)
+  (let ((normalized (and (stringp value) (string-downcase value))))
+    (cond
+      ((member normalized '("true" "1") :test #'string=) t)
+      ((member normalized '("false" "0") :test #'string=) nil)
+      (t (error "~A boolean value must be true or false" option)))))
+
+(defun devnet-cli-optional-boolean-value (args option)
+  (if (and args
+           (not (devnet-cli-option-token-p (first args))))
+      (values (devnet-cli-parse-boolean-token (first args) option)
+              (rest args))
+      (values t args)))
+
+(defun devnet-cli-consume-optional-boolean-value (args option)
+  (multiple-value-bind (enabled-p rest)
+      (devnet-cli-optional-boolean-value args option)
+    (declare (ignore enabled-p))
+    rest))
+
 (defun devnet-cli-next-value (args option)
   (unless (and args
                (not (devnet-cli-option-token-p (first args))))
@@ -606,7 +626,9 @@
                         (devnet-cli-parse-non-negative-integer value option)
                         args rest)))
                ((string= option "--http")
-                nil)
+                (setf args
+                      (devnet-cli-consume-optional-boolean-value
+                       args option)))
                ((string= option "--http.api")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -622,11 +644,21 @@
                   (declare (ignore value))
                   (setf args rest)))
                ((member option '("--nodiscover" "--ipcdisable") :test #'string=)
-                nil)
+                (setf args
+                      (devnet-cli-consume-optional-boolean-value
+                       args option)))
                ((string= option "--no-serve")
-                (setf serve-p nil))
+                (multiple-value-bind (enabled-p rest)
+                    (devnet-cli-optional-boolean-value args option)
+                  (when enabled-p
+                    (setf serve-p nil))
+                  (setf args rest)))
                ((string= option "--json")
-                (setf summary-format :json))
+                (multiple-value-bind (enabled-p rest)
+                    (devnet-cli-optional-boolean-value args option)
+                  (when enabled-p
+                    (setf summary-format :json))
+                  (setf args rest)))
                ((string= option "--ready-file")
                 (multiple-value-setq (ready-file args)
                   (devnet-cli-next-value args option)))

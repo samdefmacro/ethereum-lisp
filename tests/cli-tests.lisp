@@ -1867,7 +1867,7 @@
                                  (namestring jwt-path))
                          "--authrpc.rpcprefix=/engine"
                          "--authrpc.vhosts=*"
-                         "--http"
+                         "--http=false"
                          "--http.addr=192.0.2.31"
                          "--http.port=9645"
                          "--http.api=eth,net,web3,txpool"
@@ -1876,15 +1876,15 @@
                          "--http.corsdomain=*"
                          "--networkid=7331"
                          "--syncmode=full"
-                         "--nodiscover"
-                         "--ipcdisable"
+                         "--nodiscover=false"
+                         "--ipcdisable=true"
                          "--verbosity=3"
                          (format nil "--ready-file=~A"
                                  (namestring ready-path))
                          (format nil "--log-file=~A"
                                  (namestring log-path))
-                         "--json"
-                         "--no-serve")
+                         "--json=true"
+                         "--no-serve=1")
                    :output-stream output
                    :error-stream errors)))
            (is (string= "" (get-output-stream-string errors)))
@@ -4715,6 +4715,25 @@
     (is (search "--genesis is required"
                 (get-output-stream-string errors)))))
 
+(deftest devnet-cli-boolean-flag-values-affect-semantic-flags
+  (let ((disabled
+          (ethereum-lisp.cli::devnet-cli-options
+           (list "devnet"
+                 "--json=false"
+                 "--no-serve=0"
+                 "--http=true"
+                 "--nodiscover=0"
+                 "--ipcdisable=1")))
+        (enabled
+          (ethereum-lisp.cli::devnet-cli-options
+           (list "devnet"
+                 "--json=1"
+                 "--no-serve=true"))))
+    (is (eq :sexp (getf disabled :summary-format)))
+    (is (getf disabled :serve-p))
+    (is (eq :json (getf enabled :summary-format)))
+    (is (not (getf enabled :serve-p)))))
+
 (deftest devnet-cli-rejects-malformed-options-before-loading-genesis
   (labels ((run-error (args)
              (let ((output (make-string-output-stream))
@@ -4750,6 +4769,15 @@
     (is (search "--authrpc.rpcprefix requires a path beginning with /"
                 (run-error (list "devnet"
                                  "--authrpc.rpcprefix=engine"
+                                 "--no-serve"))))
+    (is (search "--http boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--http=maybe"
+                                 "--no-serve"))))
+    (is (search "--nodiscover boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--nodiscover"
+                                 "maybe"
                                  "--no-serve"))))
     (is (search "--http.rpcprefix requires a path beginning with /"
                 (run-error (list "devnet"

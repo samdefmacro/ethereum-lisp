@@ -1058,7 +1058,9 @@ first pass, but interfaces must not block that path.
   prefixes are reported through stdout summaries, readiness JSON, and
   lifecycle telemetry for Hive-style runners. These runner options also accept
   geth-style `--option=value` spelling through the same validation path used by
-  space-separated option values.
+  space-separated option values, and boolean flags such as `--http`,
+  `--nodiscover`, `--ipcdisable`, `--json`, and `--no-serve` consume explicit
+  `true`/`false` or `1`/`0` values when geth-shaped launchers provide them.
   The standalone devnet smoke gate also probes that allowlist through the same
   listener boundary and reports the allowed modules, accepted `eth`/`net`
   calls, rejected `web3`/`txpool`/Engine calls, and connection counts for
