@@ -1329,7 +1329,13 @@ Detailed historical implementation notes for this section now live in
   before choosing whether to fix drift or widen the pinned state table. A
   bounded official v5.4.0 sample reports 945 materializable state selectors,
   94 pinned selectors, and the first 8 unpinned candidates passing with no
-  failing classifications.
+  failing classifications. That classifier exposed a MODEXP resource-safety
+  bug before selector widening: huge declared exponent lengths could allocate
+  padded multi-gigabyte vectors before child-call gas was checked. MODEXP now
+  computes required gas from the fixed header and bounded exponent head before
+  executing the precompile body, so insufficient-gas calls fail normally; a
+  follow-up 64-candidate official state-test classification reports 64/64
+  passing, including 50 unpinned EIP-198 MODEXP candidates.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

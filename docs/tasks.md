@@ -666,6 +666,20 @@ ones.
     passing across the Berlin insufficient-balance and Byzantium EIP-196 gas
     cost families, with no implementation-bug, harness-error, or out-of-scope
     records.
+- [x] `PINNED-V5.4.0-MODEXP-UPFRONT-GAS`: Fix the official state-test
+  classifier resource failure where large declared MODEXP input lengths were
+  allocated before checking child-call gas.
+  - Result (2026-06-28): MODEXP now derives its required gas from the 96-byte
+    header and at most the 32-byte exponent head before executing the
+    precompile body. CALL-family precompile dispatch checks that gas up front,
+    so huge declared lengths fail as normal precompile out-of-gas instead of
+    allocating padded multi-gigabyte byte vectors. A focused EVM regression
+    covers a declared 4 GiB exponent length with insufficient child gas. The
+    state-test classifier now completes a bounded official v5.4.0
+    `--limit 64 --failures-only --json` run with 64/64 passing candidates,
+    including 50 unpinned `byzantium/eip198_modexp_precompile/test_modexp.json`
+    candidates and no implementation-bug, harness-error, or out-of-scope
+    records.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

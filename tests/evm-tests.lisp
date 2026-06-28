@@ -1533,6 +1533,26 @@
       (is (= 357 (evm-result-gas-used oog-result)))
       (is (bytes= #(0) (evm-result-return-data oog-result))))))
 
+(deftest evm-modexp-precompile-checks-gas-before-large-allocation
+  (labels ((fixed32-integer (value)
+             (let ((bytes (make-byte-vector 32)))
+               (loop for index downfrom 31
+                     for current = value then (ash current -8)
+                     while (and (>= index 0) (plusp current))
+                     do (setf (aref bytes index) (logand current #xff)))
+               bytes)))
+    (let ((input
+            (concat-bytes
+             (fixed32-integer 0)
+             (fixed32-integer #x100000000)
+             (fixed32-integer 1))))
+      (signals ethereum-lisp.evm::evm-error
+        (ethereum-lisp.evm::ensure-precompile-upfront-gas
+         (ethereum-lisp.evm:precompile-address 5)
+         input
+         (make-chain-rules :byzantium-p t)
+         500000)))))
+
 (deftest evm-call-bn254-add-and-mul-precompiles
   (labels ((bn254-add-program (input)
              (concat-bytes

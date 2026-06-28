@@ -953,7 +953,7 @@
          (floor (* mult-complexity iteration-count)
                 +modexp-quad-divisor+))))
 
-(defun run-modexp-precompile (input)
+(defun modexp-input-shape (input)
   (let* ((base-len (bytes-to-integer (padded-data-slice input 0 32)))
          (exp-len (bytes-to-integer (padded-data-slice input 32 32)))
          (mod-len (bytes-to-integer (padded-data-slice input 64 32)))
@@ -966,6 +966,18 @@
                         (padded-data-slice body base-len exp-head-size))
                        0))
          (gas (modexp-gas base-len exp-len mod-len exp-head)))
+    (values base-len exp-len mod-len body exp-head gas)))
+
+(defun modexp-precompile-required-gas (input)
+  (multiple-value-bind (base-len exp-len mod-len body exp-head gas)
+      (modexp-input-shape (ensure-byte-vector input))
+    (declare (ignore base-len exp-len mod-len body exp-head))
+    gas))
+
+(defun run-modexp-precompile (input)
+  (multiple-value-bind (base-len exp-len mod-len body exp-head gas)
+      (modexp-input-shape input)
+    (declare (ignore exp-head))
     (if (and (zerop base-len) (zerop mod-len))
         (values (make-byte-vector 0) gas)
         (let* ((base (bytes-to-integer (padded-data-slice body 0 base-len)))
@@ -1860,11 +1872,17 @@ kept stable while a library-backed pairing implementation is wired in."
       (load-big-endian-u32 input 0))))
 
 (defun ensure-precompile-upfront-gas (address input rules child-gas-limit)
-  (when (and (= (address-to-word address) 9)
-             (active-precompile-address-number-p 9 rules))
-    (let ((required-gas (blake2f-precompile-required-gas input)))
-      (when (and required-gas (> required-gas child-gas-limit))
-        (fail "Precompile out of gas")))))
+  (case (address-to-word address)
+    (5
+     (when (active-precompile-address-number-p 5 rules)
+       (let ((required-gas (modexp-precompile-required-gas input)))
+         (when (> required-gas child-gas-limit)
+           (fail "Precompile out of gas")))))
+    (9
+     (when (active-precompile-address-number-p 9 rules)
+       (let ((required-gas (blake2f-precompile-required-gas input)))
+         (when (and required-gas (> required-gas child-gas-limit))
+           (fail "Precompile out of gas")))))))
 
 (defun all-zero-bytes-p (bytes start end)
   (loop for i from start below end
