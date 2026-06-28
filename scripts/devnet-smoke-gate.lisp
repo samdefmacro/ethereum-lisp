@@ -76,7 +76,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 (defconstant +devnet-smoke-gate-engine-boundary-connections+ 2)
-(defconstant +devnet-smoke-gate-engine-workflow-connections+ 7)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 8)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
@@ -5502,6 +5502,7 @@ references/ checkouts.~%")
                      0))
                   (unauthenticated-engine-output (make-string-output-stream))
                   (invalid-auth-engine-output (make-string-output-stream))
+                  (client-version-output (make-string-output-stream))
                   (capabilities-output (make-string-output-stream))
                   (transition-configuration-output
                     (make-string-output-stream))
@@ -5601,6 +5602,20 @@ references/ checkouts.~%")
                      queued-transaction))
                   (engine-requests
                     (list
+                     (cons
+                      (json-encode
+                       (list
+                        (cons "jsonrpc" "2.0")
+                        (cons "id" 18)
+                        (cons "method" "engine_getClientVersionV1")
+                        (cons "params"
+                              (list
+                               (list
+                                (cons "code" "CL")
+                                (cons "name" "ethereum-lisp-smoke")
+                                (cons "version" "0.0.0")
+                                (cons "commit" "0x00000000"))))))
+                      client-version-output)
                      (cons
                       (json-encode
                        (list (cons "jsonrpc" "2.0")
@@ -5915,6 +5930,8 @@ references/ checkouts.~%")
                   :connection-summary summary))
                (let* ((capabilities-response
                         (get-output-stream-string capabilities-output))
+                      (client-version-response
+                        (get-output-stream-string client-version-output))
                       (transition-configuration-response
                         (get-output-stream-string
                          transition-configuration-output))
@@ -5971,6 +5988,9 @@ references/ checkouts.~%")
                         (get-output-stream-string txpool-inspect-output))
                       (capabilities-rpc
                         (devnet-smoke-gate-rpc-body capabilities-response))
+                      (client-version-rpc
+                        (devnet-smoke-gate-rpc-body
+                         client-version-response))
                       (transition-configuration-rpc
                         (devnet-smoke-gate-rpc-body
                          transition-configuration-response))
@@ -6021,6 +6041,9 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body txpool-inspect-response))
                       (capabilities-result
                         (fixture-object-field capabilities-rpc "result"))
+                      (client-version-result
+                        (first (fixture-object-field
+                                client-version-rpc "result")))
                       (transition-configuration-result
                         (fixture-object-field
                          transition-configuration-rpc "result"))
@@ -6138,6 +6161,9 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status capabilities-response))
                   "engine_exchangeCapabilities HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status client-version-response))
+                  "engine_getClientVersionV1 HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status
                           transition-configuration-response))
                   "engine_exchangeTransitionConfigurationV1 HTTP status mismatch")
@@ -6232,6 +6258,22 @@ references/ checkouts.~%")
                           capabilities-result
                           :test #'string=)
                   "engine_exchangeCapabilities omitted engine_forkchoiceUpdatedV2")
+                 (devnet-smoke-gate-require
+                  (string= "CL"
+                           (fixture-object-field client-version-result "code"))
+                  "engine_getClientVersionV1 code mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "ethereum-lisp"
+                           (fixture-object-field client-version-result "name"))
+                  "engine_getClientVersionV1 name mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0.1.0"
+                           (fixture-object-field client-version-result "version"))
+                  "engine_getClientVersionV1 version mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x00000000"
+                           (fixture-object-field client-version-result "commit"))
+                  "engine_getClientVersionV1 commit mismatch")
                  (devnet-smoke-gate-require
                   (string= "0x0"
                            (fixture-object-field
@@ -6544,6 +6586,14 @@ references/ checkouts.~%")
                                     :test #'string=)
                             t
                             :false))
+                  (cons "engineClientVersionCode"
+                        (fixture-object-field client-version-result "code"))
+                  (cons "engineClientVersionName"
+                        (fixture-object-field client-version-result "name"))
+                  (cons "engineClientVersionVersion"
+                        (fixture-object-field client-version-result "version"))
+                  (cons "engineClientVersionCommit"
+                        (fixture-object-field client-version-result "commit"))
                   (cons "engineTransitionTerminalTotalDifficulty"
                         (fixture-object-field
                          transition-configuration-result
@@ -8400,6 +8450,14 @@ references/ checkouts.~%")
                                          "engineInvalidAuthStatus"))
         (format t "engineCapabilityCount=~D~%"
                 (devnet-smoke-gate-field report "engineCapabilityCount"))
+        (format t "engineClientVersionCode=~A~%"
+                (devnet-smoke-gate-field report "engineClientVersionCode"))
+        (format t "engineClientVersionName=~A~%"
+                (devnet-smoke-gate-field report "engineClientVersionName"))
+        (format t "engineClientVersionVersion=~A~%"
+                (devnet-smoke-gate-field report "engineClientVersionVersion"))
+        (format t "engineClientVersionCommit=~A~%"
+                (devnet-smoke-gate-field report "engineClientVersionCommit"))
         (format t "engineTransitionTerminalTotalDifficulty=~A~%"
                 (devnet-smoke-gate-field
                  report "engineTransitionTerminalTotalDifficulty"))

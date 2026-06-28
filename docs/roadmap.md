@@ -1127,9 +1127,10 @@ first pass, but interfaces must not block that path.
   drift. The Engine boundary probes now cover both missing authentication and
   a request signed with the wrong JWT secret, and the smoke report exposes
   separate HTTP 401 status fields for both cases. The authenticated Engine
-  workflow now also probes `engine_exchangeCapabilities` before payload import
-  and reports whether the expected V2 payload/forkchoice capabilities are
-  advertised at the process boundary. It also probes
+  workflow now also probes `engine_getClientVersionV1` and
+  `engine_exchangeCapabilities` before payload import, reporting the local
+  client identity and whether the expected V2 payload/forkchoice capabilities
+  are advertised at the process boundary. It also probes
   `engine_exchangeTransitionConfigurationV1` through the same authenticated
   listener and reports the returned terminal total difficulty, block hash, and
   block number for consensus-client handshake checks. A runner-facing

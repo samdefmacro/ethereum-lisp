@@ -681,6 +681,18 @@ ones.
     `engineCapabilityHasForkchoiceUpdatedV2`, and CLI coverage updates
     single-case, all-fixtures, and Phase A devnet connection budgets for the
     extra Engine workflow probe.
+- [x] `DEVNET-RUNNER-CLIENT-VERSION-SMOKE`: Extend the standalone devnet smoke
+  gate so authenticated Engine readiness probes include
+  `engine_getClientVersionV1`.
+  - Result (2026-06-29): the listener-boundary smoke now sends an
+    authenticated `engine_getClientVersionV1` request with a caller client
+    version object before payload import, requires HTTP 200, and asserts the
+    returned local identity reports the Lisp Engine code, name, version, and
+    commit marker. The JSON/text report exposes `engineClientVersionCode`,
+    `engineClientVersionName`, `engineClientVersionVersion`, and
+    `engineClientVersionCommit`, and CLI/Phase A devnet coverage updates the
+    Engine workflow connection budget for the extra client identity handshake
+    probe.
 - [x] `DEVNET-RUNNER-TRANSITION-CONFIG-SMOKE`: Extend the standalone devnet
   smoke gate so authenticated Engine readiness probes include
   `engine_exchangeTransitionConfigurationV1`.

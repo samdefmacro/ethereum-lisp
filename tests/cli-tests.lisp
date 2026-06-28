@@ -68,7 +68,7 @@
     (is (= case-count (fixture-object-field contract "caseCount")))
     (is (= (* 2 case-count)
            (fixture-object-field contract "engineBoundaryConnections")))
-    (is (= (* 7 case-count)
+    (is (= (* 8 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
     (is (= (* 5 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
@@ -82,6 +82,16 @@
            (fixture-object-field contract "expectedPublicConnections")))
     (is (= (fixture-object-field report "totalConnections")
            (fixture-object-field contract "expectedTotalConnections")))))
+
+(defun devnet-cli-assert-engine-client-version (report)
+  (is (string= "CL"
+               (fixture-object-field report "engineClientVersionCode")))
+  (is (string= "ethereum-lisp"
+               (fixture-object-field report "engineClientVersionName")))
+  (is (string= "0.1.0"
+               (fixture-object-field report "engineClientVersionVersion")))
+  (is (string= "0x00000000"
+               (fixture-object-field report "engineClientVersionCommit"))))
 
 (defun devnet-cli-assert-engine-transition-configuration (report)
   (is (string= "0x0"
@@ -2514,6 +2524,7 @@
                        (fixture-object-field
                         report
                         "engineCapabilityHasForkchoiceUpdatedV2")))
+               (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration report)
                (is (= -32601
                       (fixture-object-field
@@ -3023,11 +3034,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 9 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 10 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
                (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 25 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 26 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -3044,7 +3055,7 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 9 (fixture-object-field case "engineConnections")))
+                   (is (= 10 (fixture-object-field case "engineConnections")))
                    (is (= 16 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
@@ -3064,6 +3075,7 @@
                            (fixture-object-field
                             case
                             "engineCapabilityHasForkchoiceUpdatedV2")))
+                   (devnet-cli-assert-engine-client-version case)
                    (devnet-cli-assert-engine-transition-configuration case)
                    (is (= -32601
                           (fixture-object-field
@@ -3830,11 +3842,11 @@
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 9 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 10 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 25 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 26 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")
