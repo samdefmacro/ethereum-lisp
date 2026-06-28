@@ -328,6 +328,19 @@ ones.
     selectors, 53 official Prague/EIP-7702 invalid transaction cases
     summarized, and 153 official Shanghai `engineNewPayloadV2` blockchain
     selectors, for 300 total executed fixture cases.
+- [x] `PINNED-V5.4.0-BLAKE2F-UPFRONT-OOG-GAS`: Fix the official
+  `istanbul/eip152_blake2` Engine replay drift so valid BLAKE2F inputs whose
+  rounds exceed the child-call gas budget fail out-of-gas before executing the
+  compression loop.
+  - Result (2026-06-28): Active BLAKE2F precompile calls now compute the
+    EIP-152 rounds gas before invoking the precompile body across
+    CALL/CALLCODE/DELEGATECALL/STATICCALL. The
+    `oog-rounds-4294967295-call_opcode_CALL` official v5.4.0 selector
+    classifies 1/1 passing and is pinned in the blockchain replay guard,
+    bringing the pinned smoke gate to 94 official state selectors, 53 official
+    Prague/EIP-7702 invalid transaction cases summarized, and 162 official
+    Shanghai `engineNewPayloadV2` blockchain selectors, for 309 total executed
+    fixture cases.
 - [x] `PINNED-V5.4.0-VALUE-TRANSFER-STIPEND-CAP`: Fix the official
   `frontier/opcodes/test_value_transfer_gas_calculation.json` Engine replay
   drift so CALL/CALLCODE value-transfer gas-shortage boundaries preserve the

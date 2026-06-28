@@ -238,6 +238,8 @@
      . "engineNewPayloadV2")
     ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-invalid-final-block-flag-value-0x02-call_opcode_CALL]"
      . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-oog-rounds-4294967295-call_opcode_CALL]"
+     . "engineNewPayloadV2")
     ("frontier/opcodes/test_call_memory_expands_on_early_revert.json/tests/frontier/opcodes/test_call.py::test_call_memory_expands_on_early_revert[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_0-callee_opcode_CALLCODE]"

@@ -1837,6 +1837,19 @@ kept stable while a library-backed pairing implementation is wired in."
            (* i 8)))
         (values output rounds)))))
 
+(defun blake2f-precompile-required-gas (input)
+  (let ((input (ensure-byte-vector input)))
+    (when (and (= (length input) +blake2f-input-size+)
+               (member (aref input 212) '(0 1) :test #'=))
+      (load-big-endian-u32 input 0))))
+
+(defun ensure-precompile-upfront-gas (address input rules child-gas-limit)
+  (when (and (= (address-to-word address) 9)
+             (active-precompile-address-number-p 9 rules))
+    (let ((required-gas (blake2f-precompile-required-gas input)))
+      (when (and required-gas (> required-gas child-gas-limit))
+        (fail "Precompile out of gas")))))
+
 (defun all-zero-bytes-p (bytes start end)
   (loop for i from start below end
         always (zerop (aref bytes i))))
@@ -2971,6 +2984,14 @@ kept stable while a library-backed pairing implementation is wired in."
                                  (evm-context-address context)
                                  callee
                                  value))
+                              (when (active-precompile-address-p
+                                     callee
+                                     (evm-context-chain-rules context))
+                                (setf child-started-p t)
+                                (ensure-precompile-upfront-gas
+                                 callee args
+                                 (evm-context-chain-rules context)
+                                 child-gas-limit))
                               (multiple-value-bind
                                     (precompile-output precompile-gas precompile-p)
                                   (run-precompile callee args
@@ -3167,6 +3188,14 @@ kept stable while a library-backed pairing implementation is wired in."
                                                         (evm-context-address context))
                                        value)
                                 (fail "Insufficient balance for CALLCODE value"))
+                              (when (active-precompile-address-p
+                                     code-address
+                                     (evm-context-chain-rules context))
+                                (setf child-started-p t)
+                                (ensure-precompile-upfront-gas
+                                 code-address args
+                                 (evm-context-chain-rules context)
+                                 child-gas-limit))
                               (multiple-value-bind
                                     (precompile-output precompile-gas precompile-p)
                                   (run-precompile code-address args
@@ -3326,82 +3355,92 @@ kept stable while a library-backed pairing implementation is wired in."
                               (child-call-gas-limit
                                call-gas gas-limit gas-used))
                         (handler-case
-                            (multiple-value-bind
-                                  (precompile-output precompile-gas precompile-p)
-                                (run-precompile code-address args
-                                                (evm-context-chain-rules context))
-                              (if precompile-p
-                                  (progn
-                                    (setf child-started-p t)
-                                    (when (> precompile-gas child-gas-limit)
-                                      (fail "Precompile out of gas"))
-                                    (setf success 1
-                                          child-gas-used precompile-gas
-                                          child-return-data precompile-output))
-                                  (let ((callee-code
-                                          (evm-resolved-code state code-address)))
-                                    (if (zerop (length callee-code))
-                                        (setf success 1)
-                                        (let* ((child-context
-                                                 (make-evm-context
-                                                  :state state
-                                                  :address (evm-context-address context)
-                                                  :caller (evm-context-caller context)
-                                                  :origin (evm-context-origin context)
-                                                  :call-value (evm-context-call-value context)
-                                                  :gas-price (evm-context-gas-price context)
-                                                  :input args
-                                                  :coinbase (evm-context-coinbase context)
-                                                  :timestamp (evm-context-timestamp context)
-                                                  :block-number (evm-context-block-number context)
-                                                  :prev-randao (evm-context-prev-randao context)
-                                                  :difficulty (evm-context-difficulty context)
-                                                  :random-p (evm-context-random-p context)
-                                                  :gas-limit (evm-context-gas-limit context)
-                                                  :chain-id (evm-context-chain-id context)
-                                                  :chain-rules (evm-context-chain-rules context)
-                                                  :base-fee (evm-context-base-fee context)
-                                                  :blob-hashes (evm-context-blob-hashes context)
-                                                  :blob-base-fee (evm-context-blob-base-fee context)
-                                                  :transient-storage
-                                                  (evm-context-transient-storage context)
-                                                  :storage-originals
-                                                  (evm-context-storage-originals context)
-                                                  :storage-clears
-                                                  (evm-context-storage-clears context)
-                                                  :selfdestructed-addresses
-                                                  (evm-context-selfdestructed-addresses
-                                                   context)
-                                                  :accessed-storage
-                                                  (evm-context-accessed-storage context)
-                                                  :accessed-addresses
-                                                  (evm-context-accessed-addresses context)
-                                                  :block-hashes (evm-context-block-hashes context)
-                                                  :read-only-p (evm-context-read-only-p context)))
-                                               (child-result
-                                               (progn
-                                                 (setf child-started-p t)
-                                                 (execute-bytecode callee-code
-                                                                   :context child-context
-                                                                   :gas-limit child-gas-limit))))
-                                          (setf child-gas-used
-                                                (evm-result-gas-used child-result))
-                                          (setf child-return-data
-                                                (evm-result-return-data child-result))
-                                          (if (eq (evm-result-status child-result) :reverted)
-                                              (restore-execution-snapshot
-                                               state snapshot context transient-snapshot
-                                               storage-clears-snapshot
-                                               accessed-storage-snapshot
-                                               accessed-addresses-snapshot
-                                               selfdestructed-snapshot)
-                                              (progn
-                                                (incf refund-counter
-                                                      (evm-result-refund-counter
-                                                       child-result))
-                                                (setf success 1
-                                                      child-logs
-                                                      (evm-result-logs child-result)))))))))
+                            (progn
+                              (when (active-precompile-address-p
+                                     code-address
+                                     (evm-context-chain-rules context))
+                                (setf child-started-p t)
+                                (ensure-precompile-upfront-gas
+                                 code-address args
+                                 (evm-context-chain-rules context)
+                                 child-gas-limit))
+                              (multiple-value-bind
+                                    (precompile-output precompile-gas precompile-p)
+                                  (run-precompile code-address args
+                                                  (evm-context-chain-rules context))
+                                (if precompile-p
+                                    (progn
+                                      (setf child-started-p t)
+                                      (when (> precompile-gas child-gas-limit)
+                                        (fail "Precompile out of gas"))
+                                      (setf success 1
+                                            child-gas-used precompile-gas
+                                            child-return-data precompile-output))
+                                    (let ((callee-code
+                                            (evm-resolved-code state code-address)))
+                                      (if (zerop (length callee-code))
+                                          (setf success 1)
+                                          (let* ((child-context
+                                                   (make-evm-context
+                                                    :state state
+                                                    :address (evm-context-address context)
+                                                    :caller (evm-context-caller context)
+                                                    :origin (evm-context-origin context)
+                                                    :call-value (evm-context-call-value context)
+                                                    :gas-price (evm-context-gas-price context)
+                                                    :input args
+                                                    :coinbase (evm-context-coinbase context)
+                                                    :timestamp (evm-context-timestamp context)
+                                                    :block-number (evm-context-block-number context)
+                                                    :prev-randao (evm-context-prev-randao context)
+                                                    :difficulty (evm-context-difficulty context)
+                                                    :random-p (evm-context-random-p context)
+                                                    :gas-limit (evm-context-gas-limit context)
+                                                    :chain-id (evm-context-chain-id context)
+                                                    :chain-rules (evm-context-chain-rules context)
+                                                    :base-fee (evm-context-base-fee context)
+                                                    :blob-hashes (evm-context-blob-hashes context)
+                                                    :blob-base-fee (evm-context-blob-base-fee context)
+                                                    :transient-storage
+                                                    (evm-context-transient-storage context)
+                                                    :storage-originals
+                                                    (evm-context-storage-originals context)
+                                                    :storage-clears
+                                                    (evm-context-storage-clears context)
+                                                    :selfdestructed-addresses
+                                                    (evm-context-selfdestructed-addresses
+                                                     context)
+                                                    :accessed-storage
+                                                    (evm-context-accessed-storage context)
+                                                    :accessed-addresses
+                                                    (evm-context-accessed-addresses context)
+                                                    :block-hashes (evm-context-block-hashes context)
+                                                    :read-only-p (evm-context-read-only-p context)))
+                                                  (child-result
+                                                   (progn
+                                                     (setf child-started-p t)
+                                                     (execute-bytecode
+                                                      callee-code
+                                                      :context child-context
+                                                      :gas-limit child-gas-limit))))
+                                            (setf child-gas-used
+                                                  (evm-result-gas-used child-result))
+                                            (setf child-return-data
+                                                  (evm-result-return-data child-result))
+                                            (if (eq (evm-result-status child-result) :reverted)
+                                                (restore-execution-snapshot
+                                                 state snapshot context transient-snapshot
+                                                 storage-clears-snapshot
+                                                 accessed-storage-snapshot
+                                                 accessed-addresses-snapshot
+                                                 selfdestructed-snapshot)
+                                                (progn
+                                                  (incf refund-counter
+                                                        (evm-result-refund-counter
+                                                         child-result))
+                                                  (setf success 1
+                                                        child-logs
+                                                        (evm-result-logs child-result))))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
                              state snapshot context transient-snapshot
@@ -3484,80 +3523,90 @@ kept stable while a library-backed pairing implementation is wired in."
                               (child-call-gas-limit
                                call-gas gas-limit gas-used))
                         (handler-case
-                            (multiple-value-bind
-                                  (precompile-output precompile-gas precompile-p)
-                                (run-precompile callee args
-                                                (evm-context-chain-rules context))
-                              (if precompile-p
-                                  (progn
-                                    (setf child-started-p t)
-                                    (when (> precompile-gas child-gas-limit)
-                                      (fail "Precompile out of gas"))
-                                    (setf success 1
-                                          child-gas-used precompile-gas
-                                          child-return-data precompile-output))
-                                  (let ((callee-code
-                                          (evm-resolved-code state callee)))
-                                    (if (zerop (length callee-code))
-                                        (setf success 1)
-                                        (let* ((child-context
-                                                 (make-evm-context
-                                                  :state state
-                                                  :address callee
-                                                  :caller (evm-context-address context)
-                                                  :origin (evm-context-origin context)
-                                                  :call-value 0
-                                                  :gas-price (evm-context-gas-price context)
-                                                  :input args
-                                                  :coinbase (evm-context-coinbase context)
-                                                  :timestamp (evm-context-timestamp context)
-                                                  :block-number (evm-context-block-number context)
-                                                  :prev-randao (evm-context-prev-randao context)
-                                                  :difficulty (evm-context-difficulty context)
-                                                  :random-p (evm-context-random-p context)
-                                                  :gas-limit (evm-context-gas-limit context)
-                                                  :chain-id (evm-context-chain-id context)
-                                                  :chain-rules (evm-context-chain-rules context)
-                                                  :base-fee (evm-context-base-fee context)
-                                                  :blob-hashes (evm-context-blob-hashes context)
-                                                  :blob-base-fee (evm-context-blob-base-fee context)
-                                                  :transient-storage
-                                                  (evm-context-transient-storage context)
-                                                  :storage-originals
-                                                  (evm-context-storage-originals context)
-                                                  :storage-clears
-                                                  (evm-context-storage-clears context)
-                                                  :selfdestructed-addresses
-                                                  (evm-context-selfdestructed-addresses
-                                                   context)
-                                                  :accessed-storage
-                                                  (evm-context-accessed-storage context)
-                                                  :accessed-addresses
-                                                  (evm-context-accessed-addresses context)
-                                                  :block-hashes (evm-context-block-hashes context)
-                                                  :read-only-p t))
-                                               (child-result
-                                               (progn
-                                                 (setf child-started-p t)
-                                                 (execute-bytecode callee-code
-                                                                   :context child-context
-                                                                   :gas-limit child-gas-limit))))
-                                          (setf child-gas-used
-                                                (evm-result-gas-used child-result))
-                                          (setf child-return-data
-                                                (evm-result-return-data child-result))
-                                          (if (eq (evm-result-status child-result) :reverted)
-                                              (restore-execution-snapshot
-                                               state snapshot context transient-snapshot
-                                               storage-clears-snapshot
-                                               accessed-storage-snapshot
-                                               accessed-addresses-snapshot
-                                               selfdestructed-snapshot)
-                                              (progn
-                                                (incf refund-counter
-                                                      (evm-result-refund-counter
-                                                       child-result))
-                                                (setf success 1))))))))
+                            (progn
+                              (when (active-precompile-address-p
+                                     callee
+                                     (evm-context-chain-rules context))
+                                (setf child-started-p t)
+                                (ensure-precompile-upfront-gas
+                                 callee args
+                                 (evm-context-chain-rules context)
+                                 child-gas-limit))
+                              (multiple-value-bind
+                                    (precompile-output precompile-gas precompile-p)
+                                  (run-precompile callee args
+                                                  (evm-context-chain-rules context))
+                                (if precompile-p
+                                    (progn
+                                      (setf child-started-p t)
+                                      (when (> precompile-gas child-gas-limit)
+                                        (fail "Precompile out of gas"))
+                                      (setf success 1
+                                            child-gas-used precompile-gas
+                                            child-return-data precompile-output))
+                                    (let ((callee-code
+                                            (evm-resolved-code state callee)))
+                                      (if (zerop (length callee-code))
+                                          (setf success 1)
+                                          (let* ((child-context
+                                                   (make-evm-context
+                                                    :state state
+                                                    :address callee
+                                                    :caller (evm-context-address context)
+                                                    :origin (evm-context-origin context)
+                                                    :call-value 0
+                                                    :gas-price (evm-context-gas-price context)
+                                                    :input args
+                                                    :coinbase (evm-context-coinbase context)
+                                                    :timestamp (evm-context-timestamp context)
+                                                    :block-number (evm-context-block-number context)
+                                                    :prev-randao (evm-context-prev-randao context)
+                                                    :difficulty (evm-context-difficulty context)
+                                                    :random-p (evm-context-random-p context)
+                                                    :gas-limit (evm-context-gas-limit context)
+                                                    :chain-id (evm-context-chain-id context)
+                                                    :chain-rules (evm-context-chain-rules context)
+                                                    :base-fee (evm-context-base-fee context)
+                                                    :blob-hashes (evm-context-blob-hashes context)
+                                                    :blob-base-fee (evm-context-blob-base-fee context)
+                                                    :transient-storage
+                                                    (evm-context-transient-storage context)
+                                                    :storage-originals
+                                                    (evm-context-storage-originals context)
+                                                    :storage-clears
+                                                    (evm-context-storage-clears context)
+                                                    :selfdestructed-addresses
+                                                    (evm-context-selfdestructed-addresses
+                                                     context)
+                                                    :accessed-storage
+                                                    (evm-context-accessed-storage context)
+                                                    :accessed-addresses
+                                                    (evm-context-accessed-addresses context)
+                                                    :block-hashes (evm-context-block-hashes context)
+                                                    :read-only-p t))
+                                                  (child-result
+                                                   (progn
+                                                     (setf child-started-p t)
+                                                     (execute-bytecode
+                                                      callee-code
+                                                      :context child-context
+                                                      :gas-limit child-gas-limit))))
+                                            (setf child-gas-used
+                                                  (evm-result-gas-used child-result))
+                                            (setf child-return-data
+                                                  (evm-result-return-data child-result))
+                                            (if (eq (evm-result-status child-result) :reverted)
+                                                (restore-execution-snapshot
+                                                 state snapshot context transient-snapshot
+                                                 storage-clears-snapshot
+                                                 accessed-storage-snapshot
+                                                 accessed-addresses-snapshot
+                                                 selfdestructed-snapshot)
+                                                (progn
+                                                  (incf refund-counter
+                                                        (evm-result-refund-counter
+                                                         child-result))
+                                                  (setf success 1)))))))))
                           (evm-precompile-error (condition)
                             (restore-execution-snapshot
                              state snapshot context transient-snapshot

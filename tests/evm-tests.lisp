@@ -1958,6 +1958,10 @@
          (input
            (hex-to-bytes
             "0x0000000c48c9bdf267e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d182e6ad7f520e511f6c3e2b8c68059b6bbd41fbabd9831f79217e1319cde05b61626300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000001"))
+         (huge-rounds-input
+           (let ((copy (copy-seq input)))
+             (replace copy #(255 255 255 255) :start1 0)
+             copy))
          (copy-code #(97 0 213 96 24 95 57))
          (call-code #(96 64 95 97 0 213 95 95 96 9 96 12 241
                       96 64 95 243))
@@ -1967,7 +1971,11 @@
                                    :context context))
          (oog-result (execute-bytecode
                       (concat-bytes copy-code oog-call-code input)
-                      :context context)))
+                      :context context))
+         (huge-oog-result (execute-bytecode
+                            (concat-bytes copy-code oog-call-code
+                                          huge-rounds-input)
+                            :context context)))
     (is (= 1 (first (evm-result-stack result))))
     (is (= 188 (evm-result-gas-used result)))
     (is (string= "0xba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923"
@@ -1975,7 +1983,12 @@
     (is (= 0 (first (evm-result-stack oog-result))))
     (is (= 187 (evm-result-gas-used oog-result)))
     (is (bytes= (byte-prefix-padded input 64)
-                (evm-result-return-data oog-result)))))
+                (evm-result-return-data oog-result)))
+    (is (= 0 (first (evm-result-stack huge-oog-result))))
+    (is (= (evm-result-gas-used oog-result)
+           (evm-result-gas-used huge-oog-result)))
+    (is (bytes= (byte-prefix-padded huge-rounds-input 64)
+                (evm-result-return-data huge-oog-result)))))
 
 (deftest evm-call-blake2f-malformed-input-fails
   (let* ((state (make-state-db))
