@@ -57,8 +57,28 @@
 (defconstant +phase-a-eest-state-test-discovery-max-file-bytes+
   (* 2 1024 1024))
 
+(defun phase-a-eest-create2-returndata-state-test-v5.4.0-case-names ()
+  (loop for fork in '("London" "Shanghai")
+        nconc
+        (loop for return-type-in-create in '("RETURN" "REVERT")
+              nconc
+              (loop for return-type in '("RETURN" "REVERT")
+                    nconc
+                    (loop for create-type in '("CREATE" "CREATE2")
+                          nconc
+                          (loop for call-return-size in '(0 32 35)
+                                collect
+                                (format nil
+                                        "constantinople/eip1014_create2/test_create2_return_data.json/tests/constantinople/eip1014_create2/test_create_returndata.py::test_create2_return_data[fork_~A-state_test-return_type_in_create_~A-return_type_~A-create_type_~A-call_return_size_~D]"
+                                        fork
+                                        return-type-in-create
+                                        return-type
+                                        create-type
+                                        call-return-size)))))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
-  '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
+  (append
+   '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
     "berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_True-storage_key_warm_False]"
     "berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_True-storage_key_warm_True]"
     "berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_Shanghai-state_test-account_warm_False-storage_key_warm_False]"
@@ -151,7 +171,8 @@
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-CALL]"
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-CALLCODE]"
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-DELEGATECALL]"
-    "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-STATICCALL]"))
+    "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-STATICCALL]")
+   (phase-a-eest-create2-returndata-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")

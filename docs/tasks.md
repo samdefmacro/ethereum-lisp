@@ -680,6 +680,20 @@ ones.
     including 50 unpinned `byzantium/eip198_modexp_precompile/test_modexp.json`
     candidates and no implementation-bug, harness-error, or out-of-scope
     records.
+- [x] `PINNED-V5.4.0-STATE-CREATE2-RETURNDATA`: Convert the classified official
+  CREATE/CREATE2 returndata state-test family into a stable pinned Phase A
+  guard.
+  - Result (2026-06-28): the state selector table now generates and pins all 48
+    London/Shanghai
+    `constantinople/eip1014_create2/test_create2_return_data.json` selectors
+    covering CREATE versus CREATE2, RETURN versus REVERT inside initcode,
+    RETURN versus REVERT in the created contract, and call return sizes 0, 32,
+    and 35. The family classifies 48/48 passing against the installed v5.4.0
+    fixture root with no implementation-bug, harness-error, or out-of-scope
+    records. The pinned v5.4.0 smoke gate now covers 142 official state
+    selectors, 53 official Prague/EIP-7702 invalid transaction cases, and 180
+    official Shanghai `engineNewPayloadV2` blockchain selectors, for 375 total
+    executed fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
