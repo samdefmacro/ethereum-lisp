@@ -681,6 +681,17 @@ ones.
     `engineCapabilityHasForkchoiceUpdatedV2`, and CLI coverage updates
     single-case, all-fixtures, and Phase A devnet connection budgets for the
     extra Engine workflow probe.
+- [x] `DEVNET-RUNNER-GRAPHQL-NOOP-FLAGS`: Accept common geth/Hive GraphQL
+  launch flags so process templates that enable or configure GraphQL do not
+  fail before the current Engine/public RPC devnet process starts.
+  - Result (2026-06-29): `ethereum-lisp devnet` now accepts `--graphql` as an
+    optional boolean no-op plus `--graphql.addr`, `--graphql.port`,
+    `--graphql.vhosts`, and `--graphql.corsdomain` as value-bearing
+    compatibility options. These flags do not enable a GraphQL listener; they
+    preserve launch compatibility with geth-shaped runner templates while the
+    supported devnet surface remains authenticated Engine RPC plus public
+    JSON-RPC. Usage text, equals-form parsing, missing-value rejection, and
+    malformed boolean rejection have CLI coverage.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

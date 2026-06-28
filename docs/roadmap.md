@@ -1088,10 +1088,13 @@ first pass, but interfaces must not block that path.
   It also accepts common geth/Hive archive, mining, account, and diagnostics
   flags (`--gcmode`, cache sizing flags, tx history knobs, `--bootnodes`,
   mining/etherbase/gas-price flags, `--unlock`, `--password`, `--metrics`,
-  `--pprof`, and `--snapshot`) as explicit no-op compatibility options, so
-  geth-shaped runner templates can launch the current Lisp split Engine/public
-  process without implying mining, account management, metrics, profiling,
-  bootnode discovery, or archive-mode behavior.
+  `--pprof`, and `--snapshot`) as explicit no-op compatibility options, and
+  now accepts geth/Hive GraphQL launch flags (`--graphql`, `--graphql.addr`,
+  `--graphql.port`, `--graphql.vhosts`, and `--graphql.corsdomain`) as no-op
+  compatibility options as well. Geth-shaped runner templates can launch the
+  current Lisp split Engine/public process without implying mining, account
+  management, metrics, profiling, bootnode discovery, archive-mode behavior,
+  or a GraphQL listener.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

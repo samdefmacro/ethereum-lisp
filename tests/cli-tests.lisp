@@ -1887,6 +1887,11 @@
                          "--ws.port=9646"
                          "--ws.api=eth,net"
                          "--ws.origins=*"
+                         "--graphql=false"
+                         "--graphql.addr=192.0.2.33"
+                         "--graphql.port=9647"
+                         "--graphql.vhosts=*"
+                         "--graphql.corsdomain=*"
                          "--networkid=7331"
                          "--syncmode=full"
                          "--nodiscover=false"
@@ -4379,6 +4384,9 @@
     (is (search "--syncmode MODE" stdout))
     (is (search "--ws.api LIST" stdout))
     (is (search "--ws.origins ORIGINS" stdout))
+    (is (search "--graphql" stdout))
+    (is (search "--graphql.addr HOST" stdout))
+    (is (search "--graphql.port PORT" stdout))
     (is (search "--nodiscover" stdout))
     (is (search "--ipcdisable" stdout))
     (is (search "--verbosity LEVEL" stdout))
@@ -4897,6 +4905,7 @@
                  "--json=false"
                  "--no-serve=0"
                  "--http=true"
+                 "--graphql=0"
                  "--nodiscover=0"
                  "--ipcdisable=1"
                  "--mine=false"
@@ -5003,6 +5012,10 @@
                 (run-error (list "devnet"
                                  "--ws=maybe"
                                  "--no-serve"))))
+    (is (search "--graphql boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--graphql=maybe"
+                                 "--no-serve"))))
     (is (search "--allow-insecure-unlock boolean value must be true or false"
                 (run-error (list "devnet"
                                  "--allow-insecure-unlock=maybe"
@@ -5071,6 +5084,10 @@
     (is (search "--http.rpcprefix requires a value"
                 (run-error (list "devnet"
                                  "--http.rpcprefix"
+                                 "--no-serve"))))
+    (is (search "--graphql.addr requires a value"
+                (run-error (list "devnet"
+                                 "--graphql.addr"
                                  "--no-serve"))))
     (is (search "--database requires a value"
                 (run-error (list "devnet" "--database"))))
