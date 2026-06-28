@@ -744,6 +744,24 @@ ones.
     official Prague/EIP-7702 invalid transaction cases, and 180 official
     Shanghai `engineNewPayloadV2` blockchain selectors, for 385 total executed
     fixture cases.
+- [x] `PINNED-V5.4.0-EXPANDED-DRIFT-MAP`: Expand the official v5.4.0
+  discovered-but-unpinned classifier map before choosing more selector
+  widening or implementation fixes.
+  - Result (2026-06-29): ran the blockchain replay classifier against the
+    installed official v5.4.0 root with
+    `--limit 256 --failures-only --json`. The bounded map covered all 182
+    remaining unpinned materializable Shanghai `blockchain_tests_engine`
+    candidates after the 180 pinned selectors; all 182 classified as passing
+    with no implementation-bug-candidate, fixture-harness-error, or
+    out-of-scope records. Ran the state-test classifier with
+    `--limit 512 --failures-only --json`; it covered the first 512 unpinned
+    candidates after the 152 pinned state selectors, and all 512 classified as
+    passing with no implementation-bug-candidate, fixture-harness-error, or
+    out-of-scope records. This points the next high-value work back toward
+    Phase B devnet/process behavior, txpool/chain-store correctness, or a
+    deliberate pinned widening slice for already-classified passing families,
+    rather than another broad implementation-drift hunt in these bounded
+    ranges.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

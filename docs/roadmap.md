@@ -1356,7 +1356,12 @@ Detailed historical implementation notes for this section now live in
   blockchain replay candidates; the state table now also pins 10
   London/Shanghai CALL large-offset selectors covering zero-size CALL-family
   output boundaries and high-offset MSTORE memory expansion, bringing the
-  pinned state count to 152 selectors.
+  pinned state count to 152 selectors. A later expanded classifier pass
+  covered all 182 remaining unpinned materializable Shanghai
+  `blockchain_tests_engine` candidates and the first 512 unpinned state-test
+  candidates; every classified candidate passed, with no
+  implementation-bug-candidate, fixture-harness-error, or out-of-scope
+  records in those bounded ranges.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
