@@ -328,6 +328,14 @@ ones.
     JSON-RPC `-32601` respectively, records both outcomes in the smoke report,
     and updates CLI/Phase A aggregate assertions for the additional boundary
     connections.
+- [x] `DEVNET-RUNNER-PUBLIC-PARSE-BOUNDARY`: Extend the standalone devnet
+  smoke-gate runner contract so public RPC malformed JSON handling is checked
+  from the same listener/process surface as valid requests.
+  - Result (2026-06-28): the gate now sends a malformed JSON body through the
+    public RPC listener, requires an HTTP 200 JSON-RPC parse-error response
+    with code `-32700`, records `publicMalformedJsonErrorCode`, and updates
+    the connection contract so public boundary probes account for both
+    namespace isolation and malformed-body handling.
 - [x] `DEVNET-RUNNER-ERROR-TELEMETRY`: Tighten the devnet CLI process-runner
   failure contract so external runners can identify startup/option failures
   from structured logs instead of stderr alone.

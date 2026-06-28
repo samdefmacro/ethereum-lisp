@@ -81,7 +81,7 @@ references/ checkouts.~%")
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
 (defconstant +devnet-smoke-gate-public-canonical-read-connections+ 5)
-(defconstant +devnet-smoke-gate-public-boundary-connections+ 1)
+(defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
 (defconstant +devnet-smoke-gate-public-txpool-connections+ 9)
 (defconstant +devnet-smoke-gate-public-connections+
   (+ +devnet-smoke-gate-public-canonical-read-connections+
@@ -4953,6 +4953,8 @@ references/ checkouts.~%")
                   (invalid-public-output (make-string-output-stream))
                   (public-engine-namespace-output
                     (make-string-output-stream))
+                  (public-malformed-json-output
+                    (make-string-output-stream))
                   (send-raw-output (make-string-output-stream))
                   (send-basefee-output (make-string-output-stream))
                   (send-queued-output (make-string-output-stream))
@@ -5122,6 +5124,7 @@ references/ checkouts.~%")
                                (cons "method" "engine_exchangeCapabilities")
                                (cons "params" (list '()))))
                         public-engine-namespace-output)
+                       (cons "{" public-malformed-json-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
@@ -5328,6 +5331,9 @@ references/ checkouts.~%")
                       (public-engine-namespace-response
                         (get-output-stream-string
                          public-engine-namespace-output))
+                      (public-malformed-json-response
+                        (get-output-stream-string
+                         public-malformed-json-output))
                       (send-raw-response
                         (get-output-stream-string send-raw-output))
                       (send-basefee-response
@@ -5370,6 +5376,9 @@ references/ checkouts.~%")
                       (public-engine-namespace-rpc
                         (devnet-smoke-gate-rpc-body
                          public-engine-namespace-response))
+                      (public-malformed-json-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-malformed-json-response))
                       (send-raw-rpc
                         (devnet-smoke-gate-rpc-body send-raw-response))
                       (send-basefee-rpc
@@ -5484,8 +5493,10 @@ references/ checkouts.~%")
                   "Expected 6 Engine connections, got ~S"
                   (getf summary :engine-connections))
                  (devnet-smoke-gate-require
-                  (= 15 (getf summary :public-connections))
-                  "Expected 15 public RPC connections, got ~S"
+                  (= +devnet-smoke-gate-public-connections+
+                     (getf summary :public-connections))
+                  "Expected ~D public RPC connections, got ~S"
+                  +devnet-smoke-gate-public-connections+
                   (getf summary :public-connections))
                  (devnet-smoke-gate-require
                   (= 401 (devnet-cli-http-status
@@ -5526,6 +5537,10 @@ references/ checkouts.~%")
                           public-engine-namespace-response))
                   "Public Engine namespace probe HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          public-malformed-json-response))
+                  "Public malformed JSON probe HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= -32601
                      (fixture-object-field
                       (fixture-object-field
@@ -5533,6 +5548,14 @@ references/ checkouts.~%")
                        "error")
                       "code"))
                   "Public listener exposed Engine namespace")
+                 (devnet-smoke-gate-require
+                  (= -32700
+                     (fixture-object-field
+                      (fixture-object-field
+                       public-malformed-json-rpc
+                       "error")
+                      "code"))
+                  "Public listener malformed JSON did not return parse error")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status send-raw-response))
                   "eth_sendRawTransaction HTTP status mismatch")
@@ -5758,6 +5781,12 @@ references/ checkouts.~%")
                         (fixture-object-field
                          (fixture-object-field
                           public-engine-namespace-rpc
+                          "error")
+                         "code"))
+                  (cons "publicMalformedJsonErrorCode"
+                        (fixture-object-field
+                         (fixture-object-field
+                          public-malformed-json-rpc
                           "error")
                          "code"))
                   (cons "newPayloadStatus"

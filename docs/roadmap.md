@@ -192,8 +192,9 @@ fixes in those areas are allowed; expansion is not.
   Phase A gate. A standalone
   `scripts/devnet-smoke-gate.lisp` now exercises the local split
   Engine/public listener boundary with authenticated payload import,
-  forkchoice, public retained-state reads, and ready/shutdown telemetry for
-  both serving-style smoke runs and one-shot no-serve CLI runs. The development
+  forkchoice, public retained-state reads, malformed public JSON handling, and
+  ready/shutdown telemetry for both serving-style smoke runs and one-shot
+  no-serve CLI runs. The development
   Engine HTTP path rejects duplicate Authorization headers before JWT
   validation, keeping authenticated listener behavior single-valued, and HTTP
   responses explicitly advertise `Connection: close` to match the current

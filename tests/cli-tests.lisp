@@ -72,7 +72,7 @@
            (fixture-object-field contract "engineWorkflowConnections")))
     (is (= (* 5 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
-    (is (= case-count
+    (is (= (* 2 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
     (is (= (* 9 case-count)
            (fixture-object-field contract "publicTxpoolConnections")))
@@ -2102,6 +2102,10 @@
                       (fixture-object-field
                        report
                        "publicEngineNamespaceErrorCode")))
+               (is (= -32700
+                      (fixture-object-field
+                       report
+                       "publicMalformedJsonErrorCode")))
                (devnet-cli-assert-connection-contract report 1)
                (is (= (fixture-object-field ready-summary "processId")
                       (devnet-cli-pid-file-process-id pid-path)))
@@ -2559,9 +2563,9 @@
                 report cases prune-boundary)
                (is (= (* 6 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 15 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 22 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -2579,7 +2583,7 @@
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
                    (is (= 6 (fixture-object-field case "engineConnections")))
-                   (is (= 15 (fixture-object-field case "publicConnections")))
+                   (is (= 16 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -2588,6 +2592,10 @@
                           (fixture-object-field
                            case
                            "publicEngineNamespaceErrorCode")))
+                   (is (= -32700
+                          (fixture-object-field
+                           case
+                           "publicMalformedJsonErrorCode")))
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")
@@ -3343,9 +3351,9 @@
                          "databaseRpcSideReinsertedTransactionHashes")))))))
         (is (= (* 6 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 15 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 22 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")
