@@ -650,6 +650,22 @@ ones.
     CREATE/CREATE2 returndata family now classifies 24/24 passing against the
     installed v5.4.0 fixture root, and all 24 selectors are pinned in the
     v5.4.0 blockchain replay guard.
+- [x] `PINNED-V5.4.0-STATE-DRIFT-CLASSIFIER`: Add a repeatable
+  classification path for remaining official v5.4.0 state-test selectors so
+  future automation can map gaps before widening the pinned state table.
+  - Result (2026-06-28): added
+    `scripts/classify-state-test-selectors.lisp`. The script compares
+    discovered state selectors with the pinned v5.4.0 table, defaults to
+    unpinned candidates, and reports JSON/text counts plus per-selector
+    passing, implementation-bug-candidate, fixture-harness-error, and
+    out-of-scope classifications with per-family summaries. It supports
+    `--root`, `--prefix`, `--limit`, `--include-pinned`, and
+    `--failures-only`. A bounded run against the installed v5.4.0 root with
+    `--limit 8 --failures-only --json` reported 945 materializable state
+    selectors, 94 pinned selectors, and the first 8 unpinned candidates all
+    passing across the Berlin insufficient-balance and Byzantium EIP-196 gas
+    cost families, with no implementation-bug, harness-error, or out-of-scope
+    records.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

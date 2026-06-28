@@ -3518,6 +3518,7 @@
                  (is (search "--root" stderr)))))
       (dolist (script
                '("scripts/phase-a-fixture-report.lisp"
+                 "scripts/classify-state-test-selectors.lisp"
                  "scripts/list-state-test-selectors.lisp"
                  "scripts/list-transaction-test-selectors.lisp"
                  "scripts/list-blockchain-replay-selectors.lisp"))
@@ -3562,6 +3563,7 @@
       (dolist (script
                '("scripts/phase-a-fixture-report.lisp"
                  "scripts/phase-a-smoke-gate.lisp"
+                 "scripts/classify-state-test-selectors.lisp"
                  "scripts/list-state-test-selectors.lisp"
                  "scripts/list-transaction-test-selectors.lisp"
                  "scripts/list-blockchain-replay-selectors.lisp"))
@@ -4180,6 +4182,105 @@
              "tests/fixtures/execution-spec-tests-root/"
              "--prefix"
              "shanghai/phase-a"
+             "--limit"
+             "2"
+             "--failures-only"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (results (fixture-object-field report "results"))
+             (families (fixture-object-field report "families")))
+        (is (eq t (fixture-object-field report "failuresOnly")))
+        (is (= 2 (fixture-object-field report "classifiedCount")))
+        (is (= 2 (fixture-object-field report "passingCount")))
+        (is (= 0 (fixture-object-field report "failingCount")))
+        (is (= 0 (length results)))
+        (is (plusp (length families)))))))
+
+(deftest state-test-classifier-script-help-prints-without-loading-errors
+  #-sbcl
+  (skip-test "State test classifier script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/classify-state-test-selectors.lisp"
+             "--"
+             "--help"
+             "--unsupported-option")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (is (search "Usage: sbcl --script scripts/classify-state-test-selectors.lisp"
+                stdout))
+    (is (search "--prefix PREFIX" stdout))
+    (is (search "--limit NUMBER" stdout))
+    (is (search "--include-pinned" stdout))
+    (is (search "--failures-only" stdout))
+    (is (search "implementation-bug-candidate" stdout))))
+
+(deftest state-test-classifier-script-json-summarizes-families
+  #-sbcl
+  (skip-test "State test classifier script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/classify-state-test-selectors.lisp"
+             "--"
+             "--root"
+             "tests/fixtures/execution-spec-tests-root/"
+             "--prefix"
+             "london/phase-a"
+             "--limit"
+             "2"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (results (fixture-object-field report "results"))
+             (families (fixture-object-field report "families")))
+        (is (string= "unpinned-state-test-classification"
+                     (fixture-object-field report "mode")))
+        (is (= 2 (fixture-object-field report "classifiedCount")))
+        (is (= 2 (fixture-object-field report "passingCount")))
+        (is (= 0 (fixture-object-field report "failingCount")))
+        (is (= 0 (fixture-object-field
+                  report
+                  "implementationBugCandidateCount")))
+        (is (plusp (length families)))
+        (dolist (result results)
+          (is (string= "passing"
+                       (fixture-object-field result "classification")))
+          (is (fixture-object-field result "family")))))))
+
+(deftest state-test-classifier-script-json-filters-passing-results
+  #-sbcl
+  (skip-test "State test classifier script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/classify-state-test-selectors.lisp"
+             "--"
+             "--root"
+             "tests/fixtures/execution-spec-tests-root/"
+             "--prefix"
+             "london/phase-a"
              "--limit"
              "2"
              "--failures-only"

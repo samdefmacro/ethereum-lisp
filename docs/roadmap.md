@@ -1322,6 +1322,14 @@ Detailed historical implementation notes for this section now live in
   zero-length `CALLDATACOPY` / `RETURNDATACOPY` no longer expand memory for
   free, the family classifies 24/24 passing, and those selectors are now pinned
   in the v5.4.0 blockchain replay guard.
+  `scripts/classify-state-test-selectors.lisp` now gives automation the same
+  bounded classification path for discovered-but-unpinned official state-test
+  selectors, with passing, implementation-bug-candidate,
+  fixture-harness-error, and out-of-scope buckets plus per-family summaries
+  before choosing whether to fix drift or widen the pinned state table. A
+  bounded official v5.4.0 sample reports 945 materializable state selectors,
+  94 pinned selectors, and the first 8 unpinned candidates passing with no
+  failing classifications.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
