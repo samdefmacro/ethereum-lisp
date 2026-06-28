@@ -356,6 +356,21 @@ ones.
     invalid transaction cases summarized, and 161 official Shanghai
     `engineNewPayloadV2` blockchain selectors, for 308 total executed fixture
     cases.
+- [x] `PINNED-V5.4.0-EIP7610-BALANCE-COLLISION`: Fix the official
+  `paris/eip7610_create_collision` Engine replay drift so CREATE, CREATE2, and
+  top-level contract creation reject target accounts that are non-empty only by
+  balance or storage, not only nonce or code hash.
+  - Result (2026-06-28): contract-address collision checks now use full empty
+    account semantics across EVM-internal creation and execution-layer contract
+    creation. Focused unit coverage locks balance-only and storage-only target
+    accounts, and the official v5.4.0 classifier reports the
+    `paris/eip7610_create_collision` prefix 45/45 passing with no remaining
+    implementation-bug candidates. The non-empty-balance CREATE/CREATE2 and tx
+    type 0/1/2 collision matrix adds 15 selectors to the pinned blockchain
+    replay guard, bringing the pinned smoke gate to 94 official state
+    selectors, 53 official Prague/EIP-7702 invalid transaction cases
+    summarized, and 177 official Shanghai `engineNewPayloadV2` blockchain
+    selectors, for 324 total executed fixture cases.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

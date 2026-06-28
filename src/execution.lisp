@@ -429,9 +429,12 @@
 (defun execution-contract-address-collision-p (state address)
   (let ((account (state-db-get-account state address)))
     (and account
-         (or (plusp (state-account-nonce account))
-             (not (bytes= (hash32-bytes (state-account-code-hash account))
-                          (hash32-bytes +empty-code-hash+)))))))
+         (not (and (zerop (state-account-nonce account))
+                   (zerop (state-account-balance account))
+                   (bytes= (hash32-bytes (state-account-storage-root account))
+                           (hash32-bytes +empty-trie-hash+))
+                   (bytes= (hash32-bytes (state-account-code-hash account))
+                           (hash32-bytes +empty-code-hash+)))))))
 
 (defun execution-storage-access-key (address slot)
   (concat-bytes (address-bytes address)

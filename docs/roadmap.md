@@ -1240,15 +1240,15 @@ Detailed historical implementation notes for this section now live in
   boundaries now check the undiscounted upfront gas before applying the
   stipend-discounted charge, matching the official exact-gas and one-gas-short
   state roots. The pinned `engine_newPayloadV2` blockchain replay table now
-  includes 162 official Shanghai selectors after adding
+  includes 177 official Shanghai selectors after adding
   selector-probed Frontier PUSH and DUP opcode
   cases, the identity precompile returndata/value-call family, the CALL
   value-transfer early-revert memory-expansion boundary, the value-transfer
   gas-shortage family, EIP-152 BLAKE2F malformed-input and huge-rounds OOG
-  cases, EIP-3651
+  cases, EIP-7610 non-empty-balance CREATE/CREATE2 collision cases, EIP-3651
   warm-coinbase out-of-gas and EXTCODE gas-usage variants, PUSH0 contract
   variants, EIP-3860 initcode boundary cases, and EIP-4895 withdrawal
-  ordering/root/many-withdrawals cases; the pinned smoke gate executes 309
+  ordering/root/many-withdrawals cases; the pinned smoke gate executes 324
   total fixture cases across state,
   transaction, and blockchain suites.
   `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a

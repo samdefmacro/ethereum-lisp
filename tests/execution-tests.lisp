@@ -3060,6 +3060,60 @@
       (is (= 7 (state-account-balance (state-db-get-account state contract))))
       (is (bytes= #(0) (state-db-get-code state contract))))))
 
+(deftest legacy-message-contract-creation-rejects-balance-and-storage-collisions
+  (labels ((contract-address (sender)
+             (make-address
+              (subseq
+               (keccak-256
+                (rlp-encode
+                 (make-rlp-list (address-bytes sender) 0)))
+               12 32)))
+           (run-collision (prepare-target verify-target)
+             (let* ((state (make-state-db))
+                    (sender
+                      (address-from-hex
+                       "0x0000000000000000000000000000000000000001"))
+                    (contract (contract-address sender))
+                    (tx (make-legacy-transaction
+                         :nonce 0
+                         :gas-price 1
+                         :gas-limit 80000
+                         :to nil
+                         :data #(96 0 96 0 83 96 1 96 0 243))))
+               (state-db-set-account state sender
+                                     (make-state-account :balance 100000))
+               (funcall prepare-target state contract)
+               (let ((receipt (apply-legacy-message state sender tx)))
+                 (is (= 0 (receipt-status receipt)))
+                 (is (= 80000 (receipt-cumulative-gas-used receipt)))
+                 (is (= 1 (state-account-nonce
+                           (state-db-get-account state sender))))
+                 (is (= 20000 (state-account-balance
+                               (state-db-get-account state sender))))
+                 (funcall verify-target state contract)))))
+    (run-collision
+     (lambda (state address)
+       (state-db-set-account state address
+                             (make-state-account :balance 1)))
+     (lambda (state address)
+       (is (= 1 (state-account-balance
+                 (state-db-get-account state address))))))
+    (run-collision
+     (lambda (state address)
+       (state-db-set-storage
+        state
+        address
+        (hash32-from-hex
+         "0x0000000000000000000000000000000000000000000000000000000000000001")
+        2))
+     (lambda (state address)
+       (is (= 2
+              (state-db-get-storage
+               state
+               address
+               (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000001"))))))))
+
 (deftest legacy-message-contract-creation-retains-initcode-logs
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

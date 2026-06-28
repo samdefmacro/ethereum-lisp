@@ -2413,6 +2413,59 @@
       (is (= 1 (state-account-nonce
                 (state-db-get-account state expected-address)))))))
 
+(deftest evm-create-collision-rejects-balance-and-storage-accounts
+  (labels ((create-code ()
+             (concat-bytes
+              #(96 10 96 12 95 57 96 10 95 95 240 0)
+              #(96 0 96 0 83 96 1 96 0 243)))
+           (expected-create-address (creator)
+             (make-address
+              (subseq (keccak-256
+                       (rlp-encode
+                        (make-rlp-list (address-bytes creator) 0)))
+                      12 32)))
+           (run-collision (prepare-target verify-target)
+             (let* ((state (make-state-db))
+                    (creator
+                      (address-from-hex
+                       "0x00000000000000000000000000000000000000aa"))
+                    (context (make-evm-context :state state
+                                               :address creator))
+                    (expected-address (expected-create-address creator)))
+               (state-db-set-account state creator
+                                     (make-state-account :balance 10))
+               (funcall prepare-target state expected-address)
+               (let ((result (execute-bytecode (create-code)
+                                               :context context
+                                               :gas-limit 100000)))
+                 (is (= 0 (first (evm-result-stack result))))
+                 (is (= 98938 (evm-result-gas-used result)))
+                 (is (= 1 (state-account-nonce
+                           (state-db-get-account state creator))))
+                 (funcall verify-target state expected-address)))))
+    (run-collision
+     (lambda (state address)
+       (state-db-set-account state address
+                             (make-state-account :balance 1)))
+     (lambda (state address)
+       (is (= 1 (state-account-balance
+                 (state-db-get-account state address))))))
+    (run-collision
+     (lambda (state address)
+       (state-db-set-storage
+        state
+        address
+        (hash32-from-hex
+         "0x0000000000000000000000000000000000000000000000000000000000000001")
+        2))
+     (lambda (state address)
+       (is (= 2
+              (state-db-get-storage
+               state
+               address
+               (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000001"))))))))
+
 (deftest evm-create2-rejects-ef-prefixed-runtime-code
   (let* ((state (make-state-db))
          (creator (address-from-hex "0x00000000000000000000000000000000000000aa"))
