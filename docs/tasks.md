@@ -615,6 +615,15 @@ ones.
     runner-configured value while `eth_chainId` remains tied to the chain
     config. CLI and core RPC regressions verify explicit `--networkid` output
     for geth/Hive-shaped devnet invocations.
+- [x] `DEVNET-RUNNER-NODE-NOOP-FLAGS`: Accept additional geth/Hive node-level
+  runner flags that commonly appear in local launch templates.
+  - Result (2026-06-28): `ethereum-lisp devnet` now accepts `--maxpeers`,
+    `--nat`, `--identity`, and optional-boolean `--allow-insecure-unlock` as
+    compatibility no-ops. These flags do not enable P2P, NAT discovery, node
+    identity networking, or account unlocking; they only prevent geth-shaped
+    process templates from failing before the current split Engine/public RPC
+    devnet surface starts. Usage text and equals-form CLI coverage lock the
+    runner-visible behavior.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

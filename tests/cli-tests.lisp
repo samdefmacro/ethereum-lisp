@@ -1884,6 +1884,10 @@
                          "--nodiscover=false"
                          "--ipcdisable=true"
                          "--verbosity=3"
+                         "--maxpeers=0"
+                         "--nat=none"
+                         "--identity=ethereum-lisp-devnet"
+                         "--allow-insecure-unlock=false"
                          (format nil "--ready-file=~A"
                                  (namestring ready-path))
                          (format nil "--log-file=~A"
@@ -4227,6 +4231,10 @@
     (is (search "--nodiscover" stdout))
     (is (search "--ipcdisable" stdout))
     (is (search "--verbosity LEVEL" stdout))
+    (is (search "--maxpeers N" stdout))
+    (is (search "--nat MODE" stdout))
+    (is (search "--identity NAME" stdout))
+    (is (search "--allow-insecure-unlock" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-no-serve-json
@@ -4789,6 +4797,10 @@
     (is (search "--ws boolean value must be true or false"
                 (run-error (list "devnet"
                                  "--ws=maybe"
+                                 "--no-serve"))))
+    (is (search "--allow-insecure-unlock boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--allow-insecure-unlock=maybe"
                                  "--no-serve"))))
     (is (search "--http.rpcprefix requires a path beginning with /"
                 (run-error (list "devnet"

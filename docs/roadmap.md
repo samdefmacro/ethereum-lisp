@@ -1077,9 +1077,11 @@ first pass, but interfaces must not block that path.
   locations do not require a separate setup step. Devnet CLI invocations can
   also include common geth/Hive node-level flags:
   `--networkid` / `--network-id`, `--syncmode`, `--nodiscover`,
-  `--ipcdisable`, and `--verbosity`; `networkId` is reported in summaries and
-  lifecycle telemetry while the no-P2P/no-IPC flags remain compatibility
-  no-ops against the current split-service process. Public `net_version` now
+  `--ipcdisable`, `--verbosity`, `--maxpeers`, `--nat`, `--identity`, and
+  `--allow-insecure-unlock`; `networkId` is reported in summaries and
+  lifecycle telemetry while the no-P2P/no-IPC/node-identity/account-unlock
+  flags remain compatibility no-ops against the current split-service process.
+  Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
   network id and chain id are separate process parameters. Failed devnet CLI
