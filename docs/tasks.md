@@ -459,6 +459,12 @@ ones.
     failures launched from a temporary working directory exit with status 1,
     keep stdout empty, print usage on stderr, and append a single
     `devnet.error` record with the child process id and configured log path.
+  - Result (2026-06-29): the startup-failure `--log-file` pre-scan now skips a
+    value-bearing option's following token only when that token is an actual
+    value, not another option. A runner invocation such as a missing
+    `--public-port` value immediately before `--log-file` now still writes the
+    structured `devnet.error` record instead of losing the log path while
+    reporting the parse error.
 - [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
   gate's Engine/public listener accounting self-describing for Hive-style
   process runners.

@@ -1116,6 +1116,8 @@ first pass, but interfaces must not block that path.
   startups with `--log-file` now append a structured `devnet.error` telemetry
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, and
+  the `--log-file` pre-scan now preserves the log path when a malformed
+  value-bearing option is immediately followed by another option token, and
   runner-facing `scripts/ethereum-lisp.lisp` subprocess coverage verifies the
   same missing-genesis and malformed-option failure contract from temporary
   working directories, so process runners can classify failures without

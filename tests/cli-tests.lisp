@@ -4975,7 +4975,13 @@
            "--public-port"
            "not-a-port"
            "--no-serve")
-     "--public-port requires an integer value")))
+     "--public-port requires an integer value")
+    (devnet-cli-assert-script-error-telemetry
+     (list "devnet"
+           "--genesis"
+           genesis
+           "--public-port")
+     "--public-port requires a value")))
 
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))

@@ -966,7 +966,9 @@
                         "--prune-state-before" "--max-connections"
                         "--ready-file" "--pid-file")
                       :test #'string=)
-              (when args (pop args))))))
+              (when (and args
+                         (not (devnet-cli-option-token-p (first args))))
+                (pop args))))))
 
 (defun devnet-cli-log-error-event (args condition)
   (let ((log-file (devnet-cli-error-log-file args)))
