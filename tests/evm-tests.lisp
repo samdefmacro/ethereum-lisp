@@ -104,8 +104,9 @@
       (execute-bytecode #(#x48 0) :context istanbul))
     (is (= 7 (first (evm-result-stack
                      (execute-bytecode #(#x46 0) :context istanbul)))))
-    (is (= 13 (first (evm-result-stack
-                      (execute-bytecode #(#x47 0) :context istanbul)))))
+    (let ((selfbalance (execute-bytecode #(#x47 0) :context istanbul)))
+      (is (= 13 (first (evm-result-stack selfbalance))))
+      (is (= 5 (evm-result-gas-used selfbalance))))
     (is (= 11 (first (evm-result-stack
                       (execute-bytecode #(#x48 0) :context london)))))))
 
@@ -678,6 +679,29 @@
     (is (= 8 (first (evm-result-stack mulmod))))
     (is (= 1024 (first (evm-result-stack exp))))
     (is (= 0 (first (evm-result-stack zero-modulus))))))
+
+(deftest evm-exp-charges-fork-dependent-exponent-byte-gas
+  (let* ((legacy (make-evm-context
+                  :chain-rules (make-chain-rules :chain-id 1
+                                                  :homestead-p t
+                                                  :eip150-p t)))
+         (eip160 (make-evm-context
+                  :chain-rules (make-chain-rules :chain-id 1
+                                                  :homestead-p t
+                                                  :eip150-p t
+                                                  :eip158-p t)))
+         (legacy-one-byte (execute-bytecode #(96 1 96 1 #x0a 0)
+                                            :context legacy))
+         (eip160-one-byte (execute-bytecode #(96 1 96 1 #x0a 0)
+                                            :context eip160))
+         (eip160-zero (execute-bytecode #(96 0 96 1 #x0a 0)
+                                        :context eip160))
+         (eip160-two-byte (execute-bytecode #(97 1 0 96 1 #x0a 0)
+                                            :context eip160)))
+    (is (= 26 (evm-result-gas-used legacy-one-byte)))
+    (is (= 66 (evm-result-gas-used eip160-one-byte)))
+    (is (= 16 (evm-result-gas-used eip160-zero)))
+    (is (= 116 (evm-result-gas-used eip160-two-byte)))))
 
 (deftest evm-signed-arithmetic-and-comparison
   (let ((sdiv (execute-bytecode #(96 2 127

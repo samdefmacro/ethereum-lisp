@@ -405,6 +405,20 @@ ones.
     selectors, for 326 total executed fixture cases. The remaining 183-
     candidate drift map reports 182 passing candidates and 1 remaining
     implementation-bug candidate: `frontier/opcodes/test_all_opcodes.json`.
+- [x] `PINNED-V5.4.0-ALL-OPCODES-GAS`: Fix the official
+  `frontier/opcodes/test_all_opcodes.json` Engine replay drift so Shanghai
+  all-opcode gas accounting preserves the upstream state root.
+  - Result (2026-06-28): `EXP` now charges fork-dependent exponent-byte gas
+    (10 gas/byte before EIP-160, 50 gas/byte when EIP-158/Spurious Dragon
+    rules are active) and `SELFBALANCE` now charges its EIP-1884 5 gas base
+    cost instead of the 2 gas environment-opcode bucket. Focused EVM
+    regressions lock both boundaries. The targeted official v5.4.0 selector
+    classifies 1/1 passing and is pinned in the blockchain replay guard. The
+    pinned smoke gate now covers 94 official state selectors, 53 official
+    Prague/EIP-7702 invalid transaction cases summarized, and 180 official
+    Shanghai `engineNewPayloadV2` blockchain selectors, for 327 total executed
+    fixture cases. The remaining unpinned materializable candidate map has no
+    failing `implementation-bug-candidate` records.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

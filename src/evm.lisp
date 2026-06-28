@@ -116,6 +116,8 @@
 (defconstant +max-account-nonce+ (1- (ash 1 64)))
 (defconstant +initcode-word-gas+ 2)
 (defconstant +keccak256-word-gas+ 6)
+(defconstant +exp-byte-gas+ 10)
+(defconstant +exp-byte-gas-eip160+ 50)
 (defconstant +max-contract-code-size+ 24576)
 (defconstant +max-initcode-size+ 49152)
 (defconstant +amsterdam-max-contract-code-size+ 32768)
@@ -406,6 +408,16 @@
       0
       (logand #xff (ash value (* -8 (- 31 index))))))
 
+(defun exp-byte-count (exponent)
+  (if (zerop exponent)
+      0
+      (ceiling (integer-length exponent) 8)))
+
+(defun exp-byte-gas (rules)
+  (if (or (null rules) (chain-rules-eip158-p rules))
+      +exp-byte-gas-eip160+
+      +exp-byte-gas+))
+
 (defun code-position-p (code position)
   (loop with pc = 0
         while (< pc (length code))
@@ -435,10 +447,11 @@
     ((= op #x0b) 5)
     ((= op #x20) 30)
     ((member op '(#x30 #x32 #x33 #x34 #x36 #x38 #x3a #x3d
-                  #x41 #x42 #x43 #x44 #x45 #x46 #x47 #x48
+                  #x41 #x42 #x43 #x44 #x45 #x46 #x48
                   #x4a #x58 #x59 #x5a)
              :test #'=)
      2)
+    ((= op #x47) 5)
     ((= op #x49) 3)
     ((= op #x31) 100)
     ((member op '(#x3b #x3c #x3f) :test #'=) 100)
@@ -2024,7 +2037,13 @@ kept stable while a library-backed pairing implementation is wired in."
                              (if (zerop modulus) 0 (mod (* a b) modulus)))))
                     (incf pc))
                    ((= op #x0a)
-                    (binary #'modexp-word)
+                    (multiple-value-bind (base exponent rest) (pop2 stack)
+                      (charge-extra-gas
+                       (* (exp-byte-gas
+                           (and context (evm-context-chain-rules context)))
+                          (exp-byte-count exponent)))
+                      (setf stack
+                            (stack-push rest (modexp-word base exponent))))
                     (incf pc))
                    ((= op #x0b)
                     (binary #'signextend-word)

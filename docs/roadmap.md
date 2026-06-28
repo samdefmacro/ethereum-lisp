@@ -1245,10 +1245,13 @@ Detailed historical implementation notes for this section now live in
   gas accounting while active precompile value calls keep their existing
   extra-gas stipend discount. CALL-family child-failure rollback now preserves
   the parent-frame EIP-2929 target-address warming, closing the official
-  insufficient-balance CALL/BALANCE gas boundary. The pinned
-  `engine_newPayloadV2` blockchain replay table now includes 179 official
+  insufficient-balance CALL/BALANCE gas boundary. `EXP` now charges
+  fork-dependent exponent-byte gas and `SELFBALANCE` now charges its EIP-1884
+  5 gas base cost, closing the official all-opcodes Shanghai gas-accounting
+  drift. The pinned
+  `engine_newPayloadV2` blockchain replay table now includes 180 official
   Shanghai selectors after adding
-  selector-probed Frontier PUSH and DUP opcode
+  selector-probed Frontier all-opcodes, PUSH, and DUP opcode
   cases, the identity precompile returndata/value-call family, the CALL
   value-transfer early-revert memory-expansion boundary, the value-transfer
   gas-shortage family, EIP-152 BLAKE2F malformed-input and huge-rounds OOG
@@ -1257,7 +1260,7 @@ Detailed historical implementation notes for this section now live in
   CALL warmth boundary, EIP-3651
   warm-coinbase out-of-gas and EXTCODE gas-usage variants, PUSH0 contract
   variants, EIP-3860 initcode boundary cases, and EIP-4895 withdrawal
-  ordering/root/many-withdrawals cases; the pinned smoke gate executes 326
+  ordering/root/many-withdrawals cases; the pinned smoke gate executes 327
   total fixture cases across state,
   transaction, and blockchain suites.
   `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a
@@ -1265,7 +1268,9 @@ Detailed historical implementation notes for this section now live in
   blockchain replay selectors into passing, implementation-bug-candidate,
   fixture-harness-error, and out-of-scope buckets with per-family summaries
   before choosing whether to fix implementation drift, record a blocker, or
-  selectively widen the pinned table. The classifier also supports
+  selectively widen the pinned table. After closing the all-opcodes gas drift,
+  the remaining 182 unpinned materializable official candidates classify as
+  passing with no implementation-bug-candidate records. The classifier also supports
   `--failures-only` output for drift triage: after fixing and pinning the
   identity precompile returndata/value-call family, the EIP-152 BLAKE2F
   malformed-input boundary classifies 4/4 passing in the targeted
