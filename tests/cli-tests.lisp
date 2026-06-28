@@ -1644,6 +1644,51 @@
       (when (probe-file pid-path)
         (delete-file pid-path)))))
 
+(deftest devnet-cli-main-creates-artifact-parent-directories
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-artifact-parents"))
+         (ready-path
+           (merge-pathnames "ready/nested/devnet-ready.json" root))
+         (log-path
+           (merge-pathnames "logs/nested/devnet.log" root))
+         (pid-path
+           (merge-pathnames "pid/nested/devnet.pid" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--ready-file" (namestring ready-path)
+                         "--log-file" (namestring log-path)
+                         "--pid-file" (namestring pid-path)
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let* ((stdout-summary
+                    (parse-json (get-output-stream-string output)))
+                  (ready-summary
+                    (parse-json (devnet-cli-file-string ready-path)))
+                  (log-records (devnet-cli-file-forms log-path)))
+             (is (= (devnet-cli-current-process-id)
+                    (devnet-cli-pid-file-process-id pid-path)))
+             (dolist (summary (list stdout-summary ready-summary))
+               (is (string= (namestring log-path)
+                            (fixture-object-field summary "logPath")))
+               (is (string= (namestring pid-path)
+                            (fixture-object-field summary "pidFilePath"))))
+             (is (= 2 (length log-records)))))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path)))))
+
 (deftest devnet-cli-main-accepts-explicit-engine-endpoint-options
   (let ((ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
         (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
@@ -1868,9 +1913,11 @@
         (delete-file pid-path)))))
 
 (deftest devnet-cli-main-log-file-records-error-event
-  (let ((log-path (devnet-cli-temp-path "ethereum-lisp-devnet-error" "log"))
-        (output (make-string-output-stream))
-        (errors (make-string-output-stream)))
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-error-artifacts"))
+         (log-path (merge-pathnames "errors/nested/devnet-error.log" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
     (unwind-protect
          (let ((log-path-string (namestring log-path)))
            (is (= 1

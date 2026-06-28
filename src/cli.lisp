@@ -592,8 +592,13 @@
      :type type
      :defaults pathname)))
 
+(defun devnet-cli-ensure-path-parent-directory (path)
+  (ensure-directories-exist (pathname path))
+  path)
+
 (defun devnet-cli-write-ready-file
     (node path &key engine-endpoint rpc-endpoint)
+  (devnet-cli-ensure-path-parent-directory path)
   (let ((temp-path (devnet-cli-ready-temp-path path))
         (renamed-p nil))
     (unwind-protect
@@ -621,6 +626,7 @@
   (let ((process-id (devnet-process-id)))
     (unless process-id
       (error "Process id is not available on this Lisp implementation"))
+    (devnet-cli-ensure-path-parent-directory path)
     (let ((temp-path (devnet-cli-ready-temp-path path))
           (renamed-p nil))
       (unwind-protect
@@ -727,6 +733,7 @@
 (defun devnet-cli-log-error-event (args condition)
   (let ((log-file (devnet-cli-error-log-file args)))
     (when log-file
+      (devnet-cli-ensure-path-parent-directory log-file)
       (with-open-file (stream log-file
                               :direction :output
                               :if-exists :append
@@ -748,7 +755,8 @@
 (defun call-with-devnet-cli-telemetry-sink (options output-stream thunk)
   (let ((log-file (getf options :log-file)))
     (if log-file
-        (with-open-file (stream log-file
+        (with-open-file (stream (devnet-cli-ensure-path-parent-directory
+                                 log-file)
                                 :direction :output
                                 :if-exists :supersede
                                 :if-does-not-exist :create)

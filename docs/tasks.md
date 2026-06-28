@@ -537,6 +537,13 @@ ones.
     `--database` remains higher priority. CLI coverage verifies datadir-backed
     export/restore and the explicit database override without requiring socket
     serving.
+- [x] `DEVNET-RUNNER-ARTIFACT-DIRECTORIES`: Make runner artifact paths usable
+  when their parent directories do not exist yet.
+  - Result (2026-06-28): `ethereum-lisp devnet` now creates parent
+    directories before writing ready files, pid files, normal telemetry logs,
+    and error telemetry logs. CLI coverage verifies nested ready/log/pid
+    artifact paths on successful no-serve startup plus nested error-log output
+    for startup failures, without requiring socket serving.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

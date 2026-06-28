@@ -1053,7 +1053,9 @@ first pass, but interfaces must not block that path.
   current Engine/public method filters authoritative. `--datadir PATH` now
   maps to a concrete `PATH/ethereum-lisp-chain.sexp` KV chain-store path when
   `--database` is absent, while explicit `--database` remains authoritative.
-  Failed devnet CLI
+  Ready, pid, telemetry log, and error-log artifact paths now create their
+  parent directories before writing, so runner-provided nested artifact
+  locations do not require a separate setup step. Failed devnet CLI
   startups with `--log-file` now append a structured `devnet.error` telemetry
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, and
