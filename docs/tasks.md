@@ -371,6 +371,23 @@ ones.
     selectors, 53 official Prague/EIP-7702 invalid transaction cases
     summarized, and 177 official Shanghai `engineNewPayloadV2` blockchain
     selectors, for 324 total executed fixture cases.
+- [x] `PINNED-V5.4.0-SELFDESTRUCT-STIPEND-GAS`: Fix the official
+  `paris/security/test_tx_selfdestruct_balance_bug.json` Engine replay drift
+  so CALL/CALLCODE value-call child execution consumes the free value stipend
+  before charging caller gas.
+  - Result (2026-06-28): CALL/CALLCODE now charge only child execution gas
+    above `G_CALL_STIPEND` for non-precompile value calls, while active
+    precompiles retain the existing extra-gas stipend discount required by the
+    identity precompile fixtures. The targeted official v5.4.0 selector
+    `test_tx_selfdestruct_balance_bug[fork_Shanghai-blockchain_test_engine]`
+    classifies 1/1 passing and is pinned in the blockchain replay guard. The
+    pinned smoke gate now covers 94 official state selectors, 53 official
+    Prague/EIP-7702 invalid transaction cases summarized, and 178 official
+    Shanghai `engineNewPayloadV2` blockchain selectors, for 325 total executed
+    fixture cases. A follow-up 184-candidate drift map reports 182 passing
+    candidates and 2 remaining implementation-bug candidates:
+    `berlin/eip2929_gas_cost_increases/test_call_insufficient_balance.json`
+    and `frontier/opcodes/test_all_opcodes.json`.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.

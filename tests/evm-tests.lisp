@@ -1128,10 +1128,31 @@
     (state-db-set-code state callee callee-code)
     (let ((result (execute-bytecode caller-code :context context)))
       (is (= 1 (first (evm-result-stack result))))
-      (is (= 11642 (evm-result-gas-used result)))
+      (is (= 11625 (evm-result-gas-used result)))
       (is (= 2298 (bytes-to-integer (evm-result-return-data result))))
       (is (= 9 (state-account-balance (state-db-get-account state caller))))
       (is (= 1 (state-account-balance (state-db-get-account state callee)))))))
+
+(deftest evm-call-value-stipend-discounts-child-selfdestruct-gas
+  (let* ((state (make-state-db))
+         (caller (address-from-hex "0x00000000000000000000000000000000000000aa"))
+         (callee (address-from-hex "0x00000000000000000000000000000000000000bb"))
+         (context (make-evm-context :state state :address caller))
+         (callee-code #(#x30 #xff))
+         (caller-code #(95 95 95 95 96 1
+                        115 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 187
+                        97 #xff #xff #xf1 0)))
+    (state-db-set-account state caller (make-state-account :balance 10))
+    (state-db-set-code state callee callee-code)
+    (state-db-set-account state callee
+                          (make-state-account :code-hash
+                                              (keccak-256-hash callee-code)))
+    (let ((result (execute-bytecode caller-code :context context)))
+      (is (= 1 (first (evm-result-stack result))))
+      (is (= 14319 (evm-result-gas-used result)))
+      (is (= 9 (state-account-balance (state-db-get-account state caller))))
+      (is (= 1 (state-account-balance
+                (state-db-get-account state callee)))))))
 
 (deftest evm-call-revert-rolls-back-and-keeps-return-data
   (let* ((state (make-state-db))

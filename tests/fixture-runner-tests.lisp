@@ -270,6 +270,8 @@
      . "engineNewPayloadV2")
     ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_2-blockchain_test_engine_from_state_test-non-empty-balance-revert-initcode]"
      . "engineNewPayloadV2")
+    ("paris/security/test_tx_selfdestruct_balance_bug.json/tests/paris/security/test_selfdestruct_balance_bug.py::test_tx_selfdestruct_balance_bug[fork_Shanghai-blockchain_test_engine]"
+     . "engineNewPayloadV2")
     ("frontier/opcodes/test_call_memory_expands_on_early_revert.json/tests/frontier/opcodes/test_call.py::test_call_memory_expands_on_early_revert[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation[fork_Shanghai-blockchain_test_engine_from_state_test-gas_shortage_0-callee_opcode_CALLCODE]"

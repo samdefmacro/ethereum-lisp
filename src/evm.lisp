@@ -834,6 +834,11 @@
          (min requested (all-but-one-64th (remaining-gas gas-limit gas-used)))
          requested)))
 
+(defun call-child-gas-charge (child-gas-used value)
+  (if (plusp value)
+      (max 0 (- child-gas-used +call-stipend+))
+      child-gas-used))
+
 (defun child-create-gas-limit (gas-limit gas-used)
   (and gas-limit
        (all-but-one-64th (remaining-gas gas-limit gas-used))))
@@ -3092,7 +3097,10 @@ kept stable while a library-backed pairing implementation is wired in."
                                   child-gas-used (if child-started-p
                                                      child-gas-limit
                                                      child-gas-used))))
-                        (charge-extra-gas child-gas-used)
+                        (charge-extra-gas
+                         (if precompile-callee-p
+                             child-gas-used
+                             (call-child-gas-charge child-gas-used value)))
                         (setf return-data-buffer child-return-data
                               memory
                               (copy-into-memory
@@ -3296,7 +3304,10 @@ kept stable while a library-backed pairing implementation is wired in."
                                   child-gas-used (if child-started-p
                                                      child-gas-limit
                                                      child-gas-used))))
-                        (charge-extra-gas child-gas-used)
+                        (charge-extra-gas
+                         (if precompile-code-address-p
+                             child-gas-used
+                             (call-child-gas-charge child-gas-used value)))
                         (setf return-data-buffer child-return-data
                               memory
                               (copy-into-memory
