@@ -5030,7 +5030,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "5"
+                        "6"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -5061,8 +5061,17 @@
                       (fixture-object-field ready-summary "rpcEndpoint"))
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (wrong-token
+                      (engine-rpc-make-jwt-token
+                       (hex-to-bytes
+                        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                       0))
                     (engine-body
                       "{\"jsonrpc\":\"2.0\",\"id\":501,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
+                    (engine-public-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":507,\"method\":\"eth_chainId\",\"params\":[]}")
+                    (engine-capabilities-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":508,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     (public-body
                       "{\"jsonrpc\":\"2.0\",\"id\":502,\"method\":\"eth_chainId\",\"params\":[]}")
                     (public-client-version-body
@@ -5073,12 +5082,18 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":505,\"method\":\"net_listening\",\"params\":[]}")
                     (public-syncing-body
                       "{\"jsonrpc\":\"2.0\",\"id\":506,\"method\":\"eth_syncing\",\"params\":[]}")
+                    (public-engine-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":509,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     engine-response
+                    engine-public-response
+                    unauthenticated-engine-response
+                    invalid-auth-engine-response
                     public-response
                     public-client-version-response
                     public-net-version-response
                     public-net-listening-response
-                    public-syncing-response)
+                    public-syncing-response
+                    public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
                    (progn
@@ -5088,6 +5103,23 @@
                             (devnet-cli-json-rpc-http-request
                              engine-body
                              :token token)))
+                     (setf engine-public-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-public-body
+                             :token token)))
+                     (setf unauthenticated-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-capabilities-body)))
+                     (setf invalid-auth-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-capabilities-body
+                             :token wrong-token)))
                      (setf public-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -5111,11 +5143,21 @@
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
-                             public-syncing-body))))
+                             public-syncing-body)))
+                     (setf public-engine-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-engine-body))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status engine-response)))
+               (is (= 200 (devnet-cli-http-status engine-public-response)))
+               (is (= 401
+                      (devnet-cli-http-status unauthenticated-engine-response)))
+               (is (= 401
+                      (devnet-cli-http-status invalid-auth-engine-response)))
                (is (= 200 (devnet-cli-http-status public-response)))
                (is (= 200
                       (devnet-cli-http-status
@@ -5125,8 +5167,12 @@
                       (devnet-cli-http-status
                        public-net-listening-response)))
                (is (= 200 (devnet-cli-http-status public-syncing-response)))
+               (is (= 200 (devnet-cli-http-status public-engine-response)))
                (let* ((engine-json
                         (parse-json (devnet-cli-http-body engine-response)))
+                      (engine-public-json
+                        (parse-json
+                         (devnet-cli-http-body engine-public-response)))
                       (public-json
                         (parse-json (devnet-cli-http-body public-response)))
                       (public-client-version-json
@@ -5143,11 +5189,19 @@
                       (public-syncing-json
                         (parse-json
                          (devnet-cli-http-body public-syncing-response)))
+                      (public-engine-json
+                        (parse-json
+                         (devnet-cli-http-body public-engine-response)))
                       (client-version
                         (first (fixture-object-field engine-json "result"))))
                  (is (= 501 (fixture-object-field engine-json "id")))
                  (is (string= "ethereum-lisp"
                               (fixture-object-field client-version "name")))
+                 (is (= 507 (fixture-object-field engine-public-json "id")))
+                 (is (= -32601
+                        (fixture-object-field
+                         (fixture-object-field engine-public-json "error")
+                         "code")))
                  (is (= 502 (fixture-object-field public-json "id")))
                  (is (string= "0x539"
                               (fixture-object-field public-json "result")))
@@ -5166,7 +5220,12 @@
                             public-net-listening-json "result")))
                  (is (= 506 (fixture-object-field public-syncing-json "id")))
                  (is (null (fixture-object-field
-                            public-syncing-json "result"))))
+                            public-syncing-json "result")))
+                 (is (= 509 (fixture-object-field public-engine-json "id")))
+                 (is (= -32601
+                        (fixture-object-field
+                         (fixture-object-field public-engine-json "error")
+                         "code"))))
                (let ((status (devnet-cli-wait-process-exit process 10)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -5212,15 +5271,15 @@
                                                     :test #'string=))))))
                        (let ((shutdown-fields
                                (getf shutdown-record :fields)))
-                         (is (string= "1"
+                         (is (string= "4"
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "5"
+                         (is (string= "6"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "6"
+                         (is (string= "10"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

@@ -878,6 +878,14 @@ ones.
     public endpoint, verifies the local client version, default network id,
     explicit non-p2p listening status, and non-syncing status, and checks
     shutdown telemetry reports the five public connections.
+- [x] `DEVNET-RUNNER-SCRIPT-AUTH-BOUNDARY`: Lock Engine auth failures and
+  Engine/public namespace separation at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now verifies the Engine endpoint rejects missing and
+    wrong JWT credentials with HTTP 401, rejects public `eth_chainId` calls with
+    JSON-RPC `-32601`, verifies the public endpoint rejects
+    `engine_exchangeCapabilities` with JSON-RPC `-32601`, and checks shutdown
+    telemetry reports the four Engine and six public served connections.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

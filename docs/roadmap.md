@@ -1172,7 +1172,10 @@ first pass, but interfaces must not block that path.
   JWT-authenticated Engine `engine_getClientVersionV1` plus public `eth_chainId`,
   `web3_clientVersion`, `net_version`, `net_listening`, and `eth_syncing`
   requests through its ready-file endpoints, with shutdown telemetry accounting
-  for the externally served readiness connections. It is also covered receiving
+  for the externally served readiness connections. The same script subprocess
+  coverage now verifies missing/wrong JWT Engine requests fail with HTTP 401
+  and that Engine/public namespace separation is enforced in both directions at
+  the external process boundary. It is also covered receiving
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout
   JSON, ready-file JSON, and `devnet.ready` / `devnet.shutdown` telemetry with
