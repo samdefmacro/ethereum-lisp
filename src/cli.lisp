@@ -567,9 +567,10 @@
       (let ((modules (copy-list modules)))
         (lambda (method)
           (and (engine-rpc-public-method-p method)
-               (let ((module (devnet-cli-rpc-method-module method)))
-                 (and module
-                      (member module modules :test #'string=))))))))
+               (or (string= method "rpc_modules")
+                   (let ((module (devnet-cli-rpc-method-module method)))
+                     (and module
+                          (member module modules :test #'string=)))))))))
 
 (defun devnet-cli-options (args)
   (when (and args (string= "devnet" (first args)))

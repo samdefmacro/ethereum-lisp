@@ -109,7 +109,7 @@
            (fixture-object-field contract "engineBoundaryConnections")))
     (is (= (* 11 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
-    (is (= (* 15 case-count)
+    (is (= (* 16 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
     (is (= (* 2 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
@@ -1080,12 +1080,29 @@
               engine-store
               engine-config
               :allowed-method-p engine-filter)))
-          (public-response
+         (public-response
             (parse-json
              (engine-rpc-handle-request-json
               "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}"
               engine-store
               engine-config
+              :allowed-method-p public-filter)))
+          (engine-rpc-modules-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"rpc_modules\",\"params\":[]}"
+              engine-store
+              engine-config
+              :allowed-method-p engine-filter)))
+          (public-rpc-modules-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"rpc_modules\",\"params\":[]}"
+              engine-store
+              engine-config
+              :network-id
+              (ethereum-lisp.core::engine-rpc-http-service-network-id
+               public-service)
               :allowed-method-p public-filter)))
           (chain-id-response
             (parse-json
@@ -1115,6 +1132,17 @@
              (fixture-object-field
               (fixture-object-field public-response "error")
               "code")))
+      (is (= -32601
+             (fixture-object-field
+              (fixture-object-field engine-rpc-modules-response "error")
+              "code")))
+      (let ((modules
+              (fixture-object-field public-rpc-modules-response "result")))
+        (is (string= "1.0" (fixture-object-field modules "eth")))
+        (is (string= "1.0" (fixture-object-field modules "net")))
+        (is (string= "1.0" (fixture-object-field modules "rpc")))
+        (is (string= "1.0" (fixture-object-field modules "txpool")))
+        (is (string= "1.0" (fixture-object-field modules "web3"))))
       (is (string= "0x539"
                    (fixture-object-field chain-id-response "result")))
       (is (string= "7331"
@@ -1145,6 +1173,7 @@
                (cdr (assoc "publicApiModules" summary-json :test #'string=))))
     (is (funcall public-filter "eth_chainId"))
     (is (funcall public-filter "net_version"))
+    (is (funcall public-filter "rpc_modules"))
     (is (not (funcall public-filter "web3_clientVersion")))
     (is (not (funcall public-filter "txpool_status")))
     (is (not (funcall public-filter "engine_exchangeCapabilities")))
@@ -1168,6 +1197,16 @@
               (ethereum-lisp.core::engine-rpc-http-service-network-id
                public-service)
               :allowed-method-p public-filter)))
+          (rpc-modules-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"rpc_modules\",\"params\":[]}"
+              store
+              config
+              :network-id
+              (ethereum-lisp.core::engine-rpc-http-service-network-id
+               public-service)
+              :allowed-method-p public-filter)))
           (txpool-response
             (parse-json
              (engine-rpc-handle-request-json
@@ -1184,6 +1223,13 @@
              (fixture-object-field
               (fixture-object-field web3-response "error")
               "code")))
+      (let ((modules
+              (fixture-object-field rpc-modules-response "result")))
+        (is (string= "1.0" (fixture-object-field modules "eth")))
+        (is (string= "1.0" (fixture-object-field modules "net")))
+        (is (string= "1.0" (fixture-object-field modules "rpc")))
+        (is (not (fixture-object-field modules "txpool")))
+        (is (not (fixture-object-field modules "web3"))))
       (is (= -32601
              (fixture-object-field
               (fixture-object-field txpool-response "error")
@@ -3172,11 +3218,11 @@
                       (fixture-object-field
                        report
                        "publicApiAllowlistEngineConnections")))
-               (is (= 5
+               (is (= 6
                       (fixture-object-field
                        report
                        "publicApiAllowlistPublicConnections")))
-               (is (= 5
+               (is (= 6
                       (fixture-object-field
                        report
                        "publicApiAllowlistTotalConnections")))
@@ -3660,9 +3706,9 @@
                 report cases prune-boundary)
                (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 26 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 27 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 39 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 40 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -3680,7 +3726,7 @@
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
                    (is (= 13 (fixture-object-field case "engineConnections")))
-                   (is (= 26 (fixture-object-field case "publicConnections")))
+                   (is (= 27 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -4476,9 +4522,9 @@
                          "databaseRpcSideReinsertedTransactionHashes")))))))
         (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 26 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 27 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 39 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 40 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (devnet-cli-assert-public-readiness case)
@@ -5429,7 +5475,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "12"
+                        "13"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -5495,6 +5541,8 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":519,\"method\":\"eth_mining\",\"params\":[]}")
                     (public-hashrate-body
                       "{\"jsonrpc\":\"2.0\",\"id\":520,\"method\":\"eth_hashrate\",\"params\":[]}")
+                    (public-rpc-modules-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":521,\"method\":\"rpc_modules\",\"params\":[]}")
                     (public-batch-body
                       "[{\"jsonrpc\":\"2.0\",\"id\":510,\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":511,\"method\":\"net_version\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":512,\"method\":\"web3_clientVersion\",\"params\":[]}]")
                     (public-engine-body
@@ -5515,6 +5563,7 @@
                     public-coinbase-response
                     public-mining-response
                     public-hashrate-response
+                    public-rpc-modules-response
                     public-batch-response
                     public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
@@ -5604,6 +5653,11 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-hashrate-body)))
+                     (setf public-rpc-modules-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-rpc-modules-body)))
                      (setf public-batch-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -5641,6 +5695,8 @@
                (is (= 200 (devnet-cli-http-status public-coinbase-response)))
                (is (= 200 (devnet-cli-http-status public-mining-response)))
                (is (= 200 (devnet-cli-http-status public-hashrate-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-rpc-modules-response)))
                (is (= 200 (devnet-cli-http-status public-batch-response)))
                (is (= 200 (devnet-cli-http-status public-engine-response)))
                (let* ((engine-json
@@ -5693,6 +5749,12 @@
                       (public-hashrate-json
                         (parse-json
                          (devnet-cli-http-body public-hashrate-response)))
+                      (public-rpc-modules-json
+                        (parse-json
+                         (devnet-cli-http-body public-rpc-modules-response)))
+                      (public-rpc-modules
+                        (fixture-object-field public-rpc-modules-json
+                                              "result"))
                       (public-batch-json
                         (parse-json
                          (devnet-cli-http-body public-batch-response)))
@@ -5783,6 +5845,20 @@
                  (is (string= "0x0"
                               (fixture-object-field
                                public-hashrate-json "result")))
+                 (is (= 521
+                        (fixture-object-field public-rpc-modules-json "id")))
+                 (is (string= "1.0"
+                              (fixture-object-field public-rpc-modules "eth")))
+                 (is (string= "1.0"
+                              (fixture-object-field public-rpc-modules "net")))
+                 (is (string= "1.0"
+                              (fixture-object-field public-rpc-modules "rpc")))
+                 (is (string= "1.0"
+                              (fixture-object-field public-rpc-modules
+                                                    "txpool")))
+                 (is (string= "1.0"
+                              (fixture-object-field public-rpc-modules
+                                                    "web3")))
                  (is (= 3 (length public-batch-json)))
                  (is (= 510
                         (fixture-object-field
@@ -5856,11 +5932,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "12"
+                         (is (string= "13"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "18"
+                         (is (string= "19"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

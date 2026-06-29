@@ -922,6 +922,14 @@ ones.
     `web3_clientVersion`, verifies all three response bodies, reports the
     batch response count plus chain/network/client-version fields, and updates
     the public canonical-read connection contract for Hive-style runners.
+- [x] `DEVNET-RUNNER-PUBLIC-RPC-MODULES`: Expose public RPC module
+  self-description for runner readiness checks.
+  - Result (2026-06-29): public RPC now supports `rpc_modules`, keeps it
+    available for introspection when `--http.api` narrows the application
+    modules, and reports only the enabled public modules plus `rpc`. The
+    standalone devnet smoke gate and runner-facing script subprocess coverage
+    verify the method through real public listener requests and update the
+    served-connection contract.
 - [x] `DEVNET-RUNNER-SCRIPT-PUBLIC-READINESS`: Lock common public RPC readiness
   probes at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode

@@ -24,6 +24,18 @@
     (block-validation-fail "web3_sha3 params must contain exactly one data value"))
   (bytes-to-hex (keccak-256 (engine-rpc-bytes (first params) "web3_sha3 data"))))
 
+(defun engine-rpc-handle-rpc-modules (params allowed-method-p)
+  (when params
+    (block-validation-fail "rpc_modules params must be empty"))
+  (loop for (module . probe-method)
+          in '(("eth" . "eth_chainId")
+               ("net" . "net_version")
+               ("rpc" . "rpc_modules")
+               ("txpool" . "txpool_status")
+               ("web3" . "web3_clientVersion"))
+        when (funcall allowed-method-p probe-method)
+          collect (cons module "1.0")))
+
 (defun engine-rpc-handle-net-version (params config network-id)
   (when params
     (block-validation-fail "net_version params must be empty"))
@@ -2610,7 +2622,8 @@
         :false)))
 
 (defun engine-rpc-handle-public-method
-    (id method params store config &key network-id)
+    (id method params store config
+     &key network-id (allowed-method-p #'engine-rpc-any-method-p))
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -2618,6 +2631,9 @@
     ((string= method "web3_sha3")
      (engine-rpc-response
       id :result (engine-rpc-handle-web3-sha3 params)))
+    ((string= method "rpc_modules")
+     (engine-rpc-response
+      id :result (engine-rpc-handle-rpc-modules params allowed-method-p)))
     ((string= method "net_version")
      (engine-rpc-response
       id :result (engine-rpc-handle-net-version params config network-id)))

@@ -80,7 +80,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
-(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 15)
+(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 16)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
 (defconstant +devnet-smoke-gate-public-txpool-connections+ 9)
 (defconstant +devnet-smoke-gate-public-connections+
@@ -92,7 +92,7 @@ references/ checkouts.~%")
      +devnet-smoke-gate-public-connections+))
 (defparameter *devnet-smoke-gate-public-api-allowlist*
   '("eth" "net"))
-(defconstant +devnet-smoke-gate-public-api-allowlist-connections+ 5)
+(defconstant +devnet-smoke-gate-public-api-allowlist-connections+ 6)
 (defparameter *devnet-smoke-gate-public-cors-origins*
   '("https://runner.example" "https://observer.example"))
 (defconstant +devnet-smoke-gate-public-cors-connections+ 3)
@@ -624,6 +624,7 @@ references/ checkouts.~%")
             *devnet-smoke-gate-public-api-allowlist*))
          (chain-id-output (make-string-output-stream))
          (network-output (make-string-output-stream))
+         (rpc-modules-output (make-string-output-stream))
          (web3-output (make-string-output-stream))
          (txpool-output (make-string-output-stream))
          (engine-output (make-string-output-stream))
@@ -635,6 +636,9 @@ references/ checkouts.~%")
             (cons (devnet-smoke-gate-json-rpc-request
                    302 "net_version" '())
                   network-output)
+            (cons (devnet-smoke-gate-json-rpc-request
+                   306 "rpc_modules" '())
+                  rpc-modules-output)
             (cons (devnet-smoke-gate-json-rpc-request
                    303 "web3_clientVersion" '())
                   web3-output)
@@ -671,6 +675,8 @@ references/ checkouts.~%")
                (get-output-stream-string chain-id-output))
              (network-response
                (get-output-stream-string network-output))
+             (rpc-modules-response
+               (get-output-stream-string rpc-modules-output))
              (web3-response
                (get-output-stream-string web3-output))
              (txpool-response
@@ -679,6 +685,10 @@ references/ checkouts.~%")
                (get-output-stream-string engine-output))
              (chain-id-rpc (devnet-smoke-gate-rpc-body chain-id-response))
              (network-rpc (devnet-smoke-gate-rpc-body network-response))
+             (rpc-modules-rpc
+               (devnet-smoke-gate-rpc-body rpc-modules-response))
+             (rpc-modules
+               (fixture-object-field rpc-modules-rpc "result"))
              (web3-rpc (devnet-smoke-gate-rpc-body web3-response))
              (txpool-rpc (devnet-smoke-gate-rpc-body txpool-response))
              (engine-rpc (devnet-smoke-gate-rpc-body engine-response))
@@ -704,7 +714,8 @@ references/ checkouts.~%")
                            telemetry-fields
                            :test #'string=))))
         (dolist (response (list chain-id-response network-response
-                                web3-response txpool-response
+                                rpc-modules-response web3-response
+                                txpool-response
                                 engine-response))
           (devnet-smoke-gate-require
            (= 200 (devnet-cli-http-status response))
@@ -722,6 +733,21 @@ references/ checkouts.~%")
         (devnet-smoke-gate-require
          (string= "7331" network-version)
          "Public API allowlist net_version mismatch")
+        (devnet-smoke-gate-require
+         (string= "1.0" (fixture-object-field rpc-modules "eth"))
+         "Public API allowlist rpc_modules eth module mismatch")
+        (devnet-smoke-gate-require
+         (string= "1.0" (fixture-object-field rpc-modules "net"))
+         "Public API allowlist rpc_modules net module mismatch")
+        (devnet-smoke-gate-require
+         (string= "1.0" (fixture-object-field rpc-modules "rpc"))
+         "Public API allowlist rpc_modules rpc module mismatch")
+        (devnet-smoke-gate-require
+         (not (fixture-object-field rpc-modules "txpool"))
+         "Public API allowlist rpc_modules unexpectedly reported txpool")
+        (devnet-smoke-gate-require
+         (not (fixture-object-field rpc-modules "web3"))
+         "Public API allowlist rpc_modules unexpectedly reported web3")
         (dolist (code (list web3-error-code txpool-error-code
                             engine-error-code))
           (devnet-smoke-gate-require
@@ -738,6 +764,7 @@ references/ checkouts.~%")
               (copy-list *devnet-smoke-gate-public-api-allowlist*)
               :reported-modules reported-modules
               :telemetry-modules telemetry-modules
+              :rpc-modules rpc-modules
               :engine-connections (getf summary :engine-connections)
               :public-connections (getf summary :public-connections)
               :total-connections (getf summary :total-connections)
@@ -5852,6 +5879,7 @@ references/ checkouts.~%")
                   (public-coinbase-output (make-string-output-stream))
                   (public-mining-output (make-string-output-stream))
                   (public-hashrate-output (make-string-output-stream))
+                  (public-rpc-modules-output (make-string-output-stream))
                   (public-batch-output (make-string-output-stream))
                   (public-engine-namespace-output
                     (make-string-output-stream))
@@ -6165,6 +6193,13 @@ references/ checkouts.~%")
                         public-hashrate-output)
                        (cons
                         (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 58)
+                               (cons "method" "rpc_modules")
+                               (cons "params" '())))
+                        public-rpc-modules-output)
+                       (cons
+                        (json-encode
                          (list
                           (list (cons "jsonrpc" "2.0")
                                 (cons "id" 50)
@@ -6448,6 +6483,9 @@ references/ checkouts.~%")
                         (get-output-stream-string public-mining-output))
                       (public-hashrate-response
                         (get-output-stream-string public-hashrate-output))
+                      (public-rpc-modules-response
+                        (get-output-stream-string
+                         public-rpc-modules-output))
                       (public-batch-response
                         (get-output-stream-string public-batch-output))
                       (public-engine-namespace-response
@@ -6533,6 +6571,12 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body public-mining-response))
                       (public-hashrate-rpc
                         (devnet-smoke-gate-rpc-body public-hashrate-response))
+                      (public-rpc-modules-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-rpc-modules-response))
+                      (public-rpc-modules
+                        (fixture-object-field public-rpc-modules-rpc
+                                              "result"))
                       (public-batch-rpc
                         (devnet-smoke-gate-rpc-body public-batch-response))
                       (public-batch-chain-id-rpc (first public-batch-rpc))
@@ -7050,6 +7094,26 @@ references/ checkouts.~%")
                                                  "result"))
                   "eth_hashrate mismatch")
                  (devnet-smoke-gate-require
+                  (string= "1.0"
+                           (fixture-object-field public-rpc-modules "eth"))
+                  "rpc_modules eth module mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "1.0"
+                           (fixture-object-field public-rpc-modules "net"))
+                  "rpc_modules net module mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "1.0"
+                           (fixture-object-field public-rpc-modules "rpc"))
+                  "rpc_modules rpc module mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "1.0"
+                           (fixture-object-field public-rpc-modules "txpool"))
+                  "rpc_modules txpool module mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "1.0"
+                           (fixture-object-field public-rpc-modules "web3"))
+                  "rpc_modules web3 module mismatch")
+                 (devnet-smoke-gate-require
                   (= 3 (length public-batch-rpc))
                   "Public JSON-RPC batch response count mismatch")
                  (devnet-smoke-gate-require
@@ -7400,6 +7464,7 @@ references/ checkouts.~%")
                             :false))
                   (cons "publicHashrate"
                         (fixture-object-field public-hashrate-rpc "result"))
+                  (cons "publicRpcModules" public-rpc-modules)
                   (cons "publicBatchResponseCount"
                         (length public-batch-rpc))
                   (cons "publicBatchChainId"
@@ -9332,6 +9397,8 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field report "publicMining"))
         (format t "publicHashrate=~A~%"
                 (devnet-smoke-gate-field report "publicHashrate"))
+        (format t "publicRpcModules=~S~%"
+                (devnet-smoke-gate-field report "publicRpcModules"))
         (format t "publicBatchResponseCount=~D~%"
                 (devnet-smoke-gate-field
                  report "publicBatchResponseCount"))

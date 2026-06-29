@@ -6987,6 +6987,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (or (engine-rpc-string-prefix-p "eth_" method)
            (engine-rpc-string-prefix-p "net_" method)
            (engine-rpc-string-prefix-p "web3_" method)
+           (engine-rpc-string-prefix-p "rpc_" method)
            (engine-rpc-string-prefix-p "txpool_" method))))
 
 (defun engine-rpc-any-method-p (method)
@@ -7030,7 +7031,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           :import-function import-function)
                          (engine-rpc-handle-public-method
                           id method params store config
-                          :network-id network-id)
+                          :network-id network-id
+                          :allowed-method-p allowed-method-p)
                          (engine-rpc-response
                           id
                           :error
