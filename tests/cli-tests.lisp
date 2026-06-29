@@ -7921,24 +7921,51 @@
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL")
   #+sbcl
-  (let ((genesis (namestring (truename +devnet-cli-genesis-fixture+))))
-    (devnet-cli-assert-script-error-telemetry
-     (list "devnet" "--json" "--no-serve")
-     "--genesis is required")
-    (devnet-cli-assert-script-error-telemetry
-     (list "devnet"
-           "--genesis"
-           genesis
-           "--public-port"
-           "not-a-port"
-           "--no-serve")
-     "--public-port requires an integer value")
-    (devnet-cli-assert-script-error-telemetry
-     (list "devnet"
-           "--genesis"
-           genesis
-           "--public-port")
-     "--public-port requires a value")))
+  (let ((genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+        (bad-jwt-path
+          (devnet-cli-temp-path "ethereum-lisp-script-bad-jwt" "hex"))
+        (missing-jwt-path
+          (devnet-cli-temp-path "ethereum-lisp-script-missing-jwt" "hex")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file bad-jwt-path "not-hex")
+           (devnet-cli-assert-script-error-telemetry
+            (list "devnet" "--json" "--no-serve")
+            "--genesis is required")
+           (devnet-cli-assert-script-error-telemetry
+            (list "devnet"
+                  "--genesis"
+                  genesis
+                  "--public-port"
+                  "not-a-port"
+                  "--no-serve")
+            "--public-port requires an integer value")
+           (devnet-cli-assert-script-error-telemetry
+            (list "devnet"
+                  "--genesis"
+                  genesis
+                  "--public-port")
+            "--public-port requires a value")
+           (devnet-cli-assert-script-error-telemetry
+            (list "devnet"
+                  "--genesis"
+                  genesis
+                  "--authrpc.jwtsecret"
+                  (namestring bad-jwt-path)
+                  "--no-serve")
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret")
+           (devnet-cli-assert-script-error-telemetry
+            (list "devnet"
+                  "--genesis"
+                  genesis
+                  "--authrpc.jwtsecret"
+                  (namestring missing-jwt-path)
+                  "--no-serve")
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"))
+      (when (probe-file bad-jwt-path)
+        (delete-file bad-jwt-path))
+      (when (probe-file missing-jwt-path)
+        (delete-file missing-jwt-path)))))
 
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))

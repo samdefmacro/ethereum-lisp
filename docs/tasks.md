@@ -465,6 +465,12 @@ ones.
     `--public-port` value immediately before `--log-file` now still writes the
     structured `devnet.error` record instead of losing the log path while
     reporting the parse error.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
+    subprocess coverage now verifies malformed and missing
+    `--authrpc.jwtsecret` files fail before readiness with status 1, empty
+    stdout, usage on stderr, and exactly one `devnet.error` record. JWT secret
+    diagnostics now name both `--jwt-secret` and `--authrpc.jwtsecret` and use a
+    deterministic readable-file/32-byte-hex requirement for Hive launchers.
 - [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
   gate's Engine/public listener accounting self-describing for Hive-style
   process runners.

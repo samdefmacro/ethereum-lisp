@@ -1150,9 +1150,10 @@ first pass, but interfaces must not block that path.
   the `--log-file` pre-scan now preserves the log path when a malformed
   value-bearing option is immediately followed by another option token, and
   runner-facing `scripts/ethereum-lisp.lisp` subprocess coverage verifies the
-  same missing-genesis and malformed-option failure contract from temporary
-  working directories, so process runners can classify failures without
-  relying only on stderr. Listener startup failures before readiness now keep
+  same missing-genesis, malformed-option, and malformed/missing
+  `--authrpc.jwtsecret` failure contracts from temporary working directories,
+  so process runners can classify failures without relying only on stderr.
+  Listener startup failures before readiness now keep
   the lifecycle stream unambiguous: if the public RPC port cannot bind after
   the Engine listener was opened, the script process exits with status 1,
   emits a single `devnet.error` record, preserves the child pid artifact, and

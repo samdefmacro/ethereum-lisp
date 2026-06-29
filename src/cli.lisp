@@ -109,12 +109,26 @@
       (read-sequence string stream)
       string)))
 
+(defun devnet-cli-jwt-secret-file-error (path &optional condition)
+  (error
+   "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret: ~A~@[ (~A)~]"
+   path
+   condition))
+
 (defun devnet-cli-read-jwt-secret (path)
-  (let* ((text (devnet-cli-read-file-string path))
+  (let* ((text
+           (handler-case
+               (devnet-cli-read-file-string path)
+             (error (condition)
+               (devnet-cli-jwt-secret-file-error path condition))))
          (trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) text))
-         (secret (hex-to-bytes trimmed)))
+         (secret
+           (handler-case
+               (hex-to-bytes trimmed)
+             (error (condition)
+               (devnet-cli-jwt-secret-file-error path condition)))))
     (unless (= 32 (length secret))
-      (error "--jwt-secret must name a file containing a 32-byte hex secret"))
+      (devnet-cli-jwt-secret-file-error path))
     secret))
 
 (defun devnet-cli-empty-file-p (path)
