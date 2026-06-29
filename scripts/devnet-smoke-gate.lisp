@@ -76,7 +76,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 (defconstant +devnet-smoke-gate-engine-boundary-connections+ 2)
-(defconstant +devnet-smoke-gate-engine-workflow-connections+ 8)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 10)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
@@ -5610,6 +5610,10 @@ references/ checkouts.~%")
                     (make-string-output-stream))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
+                  (payload-bodies-by-hash-output
+                    (make-string-output-stream))
+                  (payload-bodies-by-range-output
+                    (make-string-output-stream))
                   (prepare-payload-output (make-string-output-stream))
                   (remote-payload-output (make-string-output-stream))
                   (invalid-payload-output (make-string-output-stream))
@@ -5754,6 +5758,30 @@ references/ checkouts.~%")
                         :safe (block-hash parent-block)
                         :finalized (block-hash parent-block)))
                       forkchoice-output)
+                     (cons
+                      (json-encode
+                       (list
+                        (cons "jsonrpc" "2.0")
+                        (cons "id" 28)
+                        (cons "method" "engine_getPayloadBodiesByHashV1")
+                        (cons "params"
+                              (list
+                               (list
+                                (hash32-to-hex (block-hash child-block)))))))
+                      payload-bodies-by-hash-output)
+                     (cons
+                      (json-encode
+                       (list
+                        (cons "jsonrpc" "2.0")
+                        (cons "id" 29)
+                        (cons "method" "engine_getPayloadBodiesByRangeV1")
+                        (cons "params"
+                              (list
+                               (quantity-to-hex
+                                (block-header-number
+                                 (block-header child-block)))
+                               "0x1"))))
+                      payload-bodies-by-range-output)
                      (cons
                       (json-encode
                        (devnet-smoke-gate-forkchoice-v2-payload-attributes-request
@@ -6047,6 +6075,12 @@ references/ checkouts.~%")
                          invalid-auth-engine-output))
                       (forkchoice-response
                         (get-output-stream-string forkchoice-output))
+                      (payload-bodies-by-hash-response
+                        (get-output-stream-string
+                         payload-bodies-by-hash-output))
+                      (payload-bodies-by-range-response
+                        (get-output-stream-string
+                         payload-bodies-by-range-output))
                       (prepare-payload-response
                         (get-output-stream-string prepare-payload-output))
                       (remote-payload-response
@@ -6100,6 +6134,12 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body new-payload-response))
                       (forkchoice-rpc
                         (devnet-smoke-gate-rpc-body forkchoice-response))
+                      (payload-bodies-by-hash-rpc
+                        (devnet-smoke-gate-rpc-body
+                         payload-bodies-by-hash-response))
+                      (payload-bodies-by-range-rpc
+                        (devnet-smoke-gate-rpc-body
+                         payload-bodies-by-range-response))
                       (prepare-payload-rpc
                         (devnet-smoke-gate-rpc-body prepare-payload-response))
                       (remote-payload-rpc
@@ -6155,6 +6195,24 @@ references/ checkouts.~%")
                         (fixture-object-field
                          (fixture-object-field forkchoice-rpc "result")
                          "payloadStatus"))
+                      (payload-bodies-by-hash-result
+                        (fixture-object-field
+                         payload-bodies-by-hash-rpc "result"))
+                      (payload-bodies-by-range-result
+                        (fixture-object-field
+                         payload-bodies-by-range-rpc "result"))
+                      (payload-body-by-hash
+                        (first payload-bodies-by-hash-result))
+                      (payload-body-by-range
+                        (first payload-bodies-by-range-result))
+                      (payload-body-by-hash-transactions
+                        (fixture-object-field
+                         payload-body-by-hash "transactions"))
+                      (payload-body-by-range-transactions
+                        (fixture-object-field
+                         payload-body-by-range "transactions"))
+                      (expected-payload-body-transaction-count
+                        (length (block-transactions child-block)))
                       (prepare-payload-result
                         (fixture-object-field prepare-payload-rpc "result"))
                       (prepare-payload-status
@@ -6276,6 +6334,14 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status forkchoice-response))
                   "engine_forkchoiceUpdatedV2 HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          payload-bodies-by-hash-response))
+                  "engine_getPayloadBodiesByHashV1 HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          payload-bodies-by-range-response))
+                  "engine_getPayloadBodiesByRangeV1 HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status prepare-payload-response))
                   "engine_forkchoiceUpdatedV2 payloadAttributes HTTP status mismatch")
                  (devnet-smoke-gate-require
@@ -6361,6 +6427,16 @@ references/ checkouts.~%")
                           :test #'string=)
                   "engine_exchangeCapabilities omitted engine_forkchoiceUpdatedV2")
                  (devnet-smoke-gate-require
+                  (member "engine_getPayloadBodiesByHashV1"
+                          capabilities-result
+                          :test #'string=)
+                  "engine_exchangeCapabilities omitted engine_getPayloadBodiesByHashV1")
+                 (devnet-smoke-gate-require
+                  (member "engine_getPayloadBodiesByRangeV1"
+                          capabilities-result
+                          :test #'string=)
+                  "engine_exchangeCapabilities omitted engine_getPayloadBodiesByRangeV1")
+                 (devnet-smoke-gate-require
                   (string= "CL"
                            (fixture-object-field client-version-result "code"))
                   "engine_getClientVersionV1 code mismatch")
@@ -6407,6 +6483,20 @@ references/ checkouts.~%")
                   (string= +payload-status-valid+
                            (fixture-object-field forkchoice-status "status"))
                   "engine_forkchoiceUpdatedV2 status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 1 (length payload-bodies-by-hash-result))
+                  "engine_getPayloadBodiesByHashV1 body count mismatch")
+                 (devnet-smoke-gate-require
+                  (= 1 (length payload-bodies-by-range-result))
+                  "engine_getPayloadBodiesByRangeV1 body count mismatch")
+                 (devnet-smoke-gate-require
+                  (= expected-payload-body-transaction-count
+                     (length payload-body-by-hash-transactions))
+                  "engine_getPayloadBodiesByHashV1 transaction count mismatch")
+                 (devnet-smoke-gate-require
+                  (= expected-payload-body-transaction-count
+                     (length payload-body-by-range-transactions))
+                  "engine_getPayloadBodiesByRangeV1 transaction count mismatch")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field prepare-payload-status
@@ -6725,6 +6815,14 @@ references/ checkouts.~%")
                   (cons "latestValidHash" expected-hash)
                   (cons "forkchoiceStatus"
                         (fixture-object-field forkchoice-status "status"))
+                  (cons "enginePayloadBodiesByHashCount"
+                        (length payload-bodies-by-hash-result))
+                  (cons "enginePayloadBodiesByHashTransactionCount"
+                        (length payload-body-by-hash-transactions))
+                  (cons "enginePayloadBodiesByRangeCount"
+                        (length payload-bodies-by-range-result))
+                  (cons "enginePayloadBodiesByRangeTransactionCount"
+                        (length payload-body-by-range-transactions))
                   (cons "preparedPayloadId" prepared-payload-id)
                   (cons "preparedPayloadParentHash"
                         (hash32-to-hex (block-hash child-block)))
@@ -8610,6 +8708,18 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field report "latestValidHash"))
         (format t "forkchoiceStatus=~A~%"
                 (devnet-smoke-gate-field report "forkchoiceStatus"))
+        (format t "enginePayloadBodiesByHashCount=~D~%"
+                (devnet-smoke-gate-field
+                 report "enginePayloadBodiesByHashCount"))
+        (format t "enginePayloadBodiesByHashTransactionCount=~D~%"
+                (devnet-smoke-gate-field
+                 report "enginePayloadBodiesByHashTransactionCount"))
+        (format t "enginePayloadBodiesByRangeCount=~D~%"
+                (devnet-smoke-gate-field
+                 report "enginePayloadBodiesByRangeCount"))
+        (format t "enginePayloadBodiesByRangeTransactionCount=~D~%"
+                (devnet-smoke-gate-field
+                 report "enginePayloadBodiesByRangeTransactionCount"))
         (format t "preparedPayloadId=~A~%"
                 (devnet-smoke-gate-field report "preparedPayloadId"))
         (format t "preparedPayloadParentHash=~A~%"

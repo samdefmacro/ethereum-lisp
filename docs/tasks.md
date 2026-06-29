@@ -804,6 +804,14 @@ ones.
     public listener, verifies its number and `parentHash` match the pending
     block view, verifies null committed `hash`/`nonce`, reports those fields,
     and updates the txpool public connection contract for process runners.
+- [x] `DEVNET-RUNNER-PAYLOAD-BODIES`: Lock authenticated Engine payload-body
+  retrieval at the devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate's authenticated
+    Engine workflow now calls `engine_getPayloadBodiesByHashV1` and
+    `engine_getPayloadBodiesByRangeV1` after importing and forkchoicing the
+    child payload, verifies both return exactly one body with the expected
+    transaction count, reports the body and transaction counts, and updates the
+    Engine workflow connection contract for Hive-style runners.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

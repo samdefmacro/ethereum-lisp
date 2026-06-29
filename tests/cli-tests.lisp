@@ -68,7 +68,7 @@
     (is (= case-count (fixture-object-field contract "caseCount")))
     (is (= (* 2 case-count)
            (fixture-object-field contract "engineBoundaryConnections")))
-    (is (= (* 8 case-count)
+    (is (= (* 10 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
     (is (= (* 5 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
@@ -103,6 +103,20 @@
   (is (string= "0x0"
                (fixture-object-field
                 report "engineTransitionTerminalBlockNumber"))))
+
+(defun devnet-cli-assert-engine-payload-bodies (report)
+  (is (= 1 (fixture-object-field report "enginePayloadBodiesByHashCount")))
+  (is (= 1 (fixture-object-field report "enginePayloadBodiesByRangeCount")))
+  (is (integerp
+       (fixture-object-field
+        report "enginePayloadBodiesByHashTransactionCount")))
+  (is (integerp
+       (fixture-object-field
+        report "enginePayloadBodiesByRangeTransactionCount")))
+  (is (= (fixture-object-field
+          report "enginePayloadBodiesByHashTransactionCount")
+         (fixture-object-field
+          report "enginePayloadBodiesByRangeTransactionCount"))))
 
 (defun devnet-cli-assert-public-cors-smoke-report (report)
   (is (equal '("https://runner.example" "https://observer.example")
@@ -2541,6 +2555,7 @@
                         "engineCapabilityHasForkchoiceUpdatedV2")))
                (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration report)
+               (devnet-cli-assert-engine-payload-bodies report)
                (is (= -32601
                       (fixture-object-field
                        report
@@ -3049,11 +3064,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 10 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 12 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
                (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 26 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 28 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -3070,7 +3085,7 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 10 (fixture-object-field case "engineConnections")))
+                   (is (= 12 (fixture-object-field case "engineConnections")))
                    (is (= 16 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
@@ -3092,6 +3107,7 @@
                             "engineCapabilityHasForkchoiceUpdatedV2")))
                    (devnet-cli-assert-engine-client-version case)
                    (devnet-cli-assert-engine-transition-configuration case)
+                   (devnet-cli-assert-engine-payload-bodies case)
                    (is (= -32601
                           (fixture-object-field
                            case
@@ -3857,11 +3873,11 @@
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 10 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 12 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 26 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 28 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (is (string= (fixture-object-field case "blockNumber")

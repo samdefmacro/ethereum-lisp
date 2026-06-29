@@ -1200,6 +1200,10 @@ first pass, but interfaces must not block that path.
   now gives the `"pending"` tag the same pending-shaped next-block treatment
   instead of aliasing the latest committed header, and the standalone devnet
   smoke gate verifies that header view through the restored public listener.
+  The authenticated Engine workflow in the standalone devnet smoke gate now
+  also verifies `engine_getPayloadBodiesByHashV1` and
+  `engine_getPayloadBodiesByRangeV1` over the listener boundary, reporting body
+  and transaction counts for runner contracts.
   Txpool queued views now
   expose
   blob-subpool
