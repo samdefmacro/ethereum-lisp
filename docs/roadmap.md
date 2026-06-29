@@ -1193,8 +1193,12 @@ first pass, but interfaces must not block that path.
   ready-file endpoints. Public RPC now also exposes `rpc_modules` for
   runner-facing namespace introspection, including narrowed `--http.api`
   reporting that keeps `rpc` visible while hiding disabled application
-  modules, with shutdown telemetry accounting for the externally served
-  readiness and local-status connections. The same script subprocess
+  modules. It also probes public fee and utility methods (`web3_sha3`,
+  `eth_protocolVersion`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`,
+  `eth_baseFee`, `eth_blobBaseFee`, and `eth_feeHistory`) through the
+  standalone gate and script process, with shutdown telemetry accounting for
+  the externally served readiness, local-status, module, and fee/utility
+  connections. The same script subprocess
   coverage now verifies missing/wrong JWT Engine requests fail with HTTP 401
   and that Engine/public namespace separation is enforced in both directions at
   the external process boundary. It also has external script-process coverage

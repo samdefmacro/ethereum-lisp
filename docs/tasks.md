@@ -930,6 +930,14 @@ ones.
     standalone devnet smoke gate and runner-facing script subprocess coverage
     verify the method through real public listener requests and update the
     served-connection contract.
+- [x] `DEVNET-RUNNER-PUBLIC-FEE-UTILITY-RPCS`: Lock public fee and utility RPCs
+  at the devnet process boundary.
+  - Result (2026-06-29): the standalone devnet smoke gate and runner-facing
+    script subprocess now probe `web3_sha3`, `eth_protocolVersion`,
+    `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_baseFee`,
+    `eth_blobBaseFee`, and `eth_feeHistory` through the public listener. The
+    gates assert deterministic Shanghai fee/hash results and update the public
+    canonical-read connection contract for process runners.
 - [x] `DEVNET-RUNNER-SCRIPT-PUBLIC-READINESS`: Lock common public RPC readiness
   probes at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode

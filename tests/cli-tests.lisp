@@ -109,7 +109,7 @@
            (fixture-object-field contract "engineBoundaryConnections")))
     (is (= (* 11 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
-    (is (= (* 16 case-count)
+    (is (= (* 23 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
     (is (= (* 2 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
@@ -3706,9 +3706,9 @@
                 report cases prune-boundary)
                (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 27 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 34 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 40 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 47 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -3726,7 +3726,7 @@
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
                    (is (= 13 (fixture-object-field case "engineConnections")))
-                   (is (= 27 (fixture-object-field case "publicConnections")))
+                   (is (= 34 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -4522,9 +4522,9 @@
                          "databaseRpcSideReinsertedTransactionHashes")))))))
         (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 27 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 34 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 40 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 47 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (devnet-cli-assert-public-readiness case)
@@ -5475,7 +5475,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "13"
+                        "20"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -5543,6 +5543,20 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":520,\"method\":\"eth_hashrate\",\"params\":[]}")
                     (public-rpc-modules-body
                       "{\"jsonrpc\":\"2.0\",\"id\":521,\"method\":\"rpc_modules\",\"params\":[]}")
+                    (public-protocol-version-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":522,\"method\":\"eth_protocolVersion\",\"params\":[]}")
+                    (public-web3-sha3-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":523,\"method\":\"web3_sha3\",\"params\":[\"0x68656c6c6f\"]}")
+                    (public-gas-price-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":524,\"method\":\"eth_gasPrice\",\"params\":[]}")
+                    (public-priority-fee-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":525,\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]}")
+                    (public-base-fee-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":526,\"method\":\"eth_baseFee\",\"params\":[]}")
+                    (public-blob-base-fee-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":527,\"method\":\"eth_blobBaseFee\",\"params\":[]}")
+                    (public-fee-history-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":528,\"method\":\"eth_feeHistory\",\"params\":[\"0x1\",\"latest\",[]]}")
                     (public-batch-body
                       "[{\"jsonrpc\":\"2.0\",\"id\":510,\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":511,\"method\":\"net_version\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":512,\"method\":\"web3_clientVersion\",\"params\":[]}]")
                     (public-engine-body
@@ -5564,6 +5578,13 @@
                     public-mining-response
                     public-hashrate-response
                     public-rpc-modules-response
+                    public-protocol-version-response
+                    public-web3-sha3-response
+                    public-gas-price-response
+                    public-priority-fee-response
+                    public-base-fee-response
+                    public-blob-base-fee-response
+                    public-fee-history-response
                     public-batch-response
                     public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
@@ -5658,6 +5679,41 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-rpc-modules-body)))
+                     (setf public-protocol-version-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-protocol-version-body)))
+                     (setf public-web3-sha3-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-web3-sha3-body)))
+                     (setf public-gas-price-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-gas-price-body)))
+                     (setf public-priority-fee-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-priority-fee-body)))
+                     (setf public-base-fee-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-base-fee-body)))
+                     (setf public-blob-base-fee-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-blob-base-fee-body)))
+                     (setf public-fee-history-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-fee-history-body)))
                      (setf public-batch-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -5697,6 +5753,21 @@
                (is (= 200 (devnet-cli-http-status public-hashrate-response)))
                (is (= 200
                       (devnet-cli-http-status public-rpc-modules-response)))
+               (is (= 200
+                      (devnet-cli-http-status
+                       public-protocol-version-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-web3-sha3-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-gas-price-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-priority-fee-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-base-fee-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-blob-base-fee-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-fee-history-response)))
                (is (= 200 (devnet-cli-http-status public-batch-response)))
                (is (= 200 (devnet-cli-http-status public-engine-response)))
                (let* ((engine-json
@@ -5754,6 +5825,32 @@
                          (devnet-cli-http-body public-rpc-modules-response)))
                       (public-rpc-modules
                         (fixture-object-field public-rpc-modules-json
+                                              "result"))
+                      (public-protocol-version-json
+                        (parse-json
+                         (devnet-cli-http-body
+                          public-protocol-version-response)))
+                      (public-web3-sha3-json
+                        (parse-json
+                         (devnet-cli-http-body public-web3-sha3-response)))
+                      (public-gas-price-json
+                        (parse-json
+                         (devnet-cli-http-body public-gas-price-response)))
+                      (public-priority-fee-json
+                        (parse-json
+                         (devnet-cli-http-body public-priority-fee-response)))
+                      (public-base-fee-json
+                        (parse-json
+                         (devnet-cli-http-body public-base-fee-response)))
+                      (public-blob-base-fee-json
+                        (parse-json
+                         (devnet-cli-http-body
+                          public-blob-base-fee-response)))
+                      (public-fee-history-json
+                        (parse-json
+                         (devnet-cli-http-body public-fee-history-response)))
+                      (public-fee-history
+                        (fixture-object-field public-fee-history-json
                                               "result"))
                       (public-batch-json
                         (parse-json
@@ -5859,6 +5956,53 @@
                  (is (string= "1.0"
                               (fixture-object-field public-rpc-modules
                                                     "web3")))
+                 (is (= 522
+                        (fixture-object-field
+                         public-protocol-version-json "id")))
+                 (is (string= (quantity-to-hex
+                               ethereum-lisp.core::+eth-protocol-version+)
+                              (fixture-object-field
+                               public-protocol-version-json "result")))
+                 (is (= 523
+                        (fixture-object-field public-web3-sha3-json "id")))
+                 (is (string= "0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"
+                              (fixture-object-field
+                               public-web3-sha3-json "result")))
+                 (is (= 524
+                        (fixture-object-field public-gas-price-json "id")))
+                 (is (string= "0x3b9aca00"
+                              (fixture-object-field
+                               public-gas-price-json "result")))
+                 (is (= 525
+                        (fixture-object-field public-priority-fee-json "id")))
+                 (is (string= "0x0"
+                              (fixture-object-field
+                               public-priority-fee-json "result")))
+                 (is (= 526
+                        (fixture-object-field public-base-fee-json "id")))
+                 (is (string= "0x342770c0"
+                              (fixture-object-field
+                               public-base-fee-json "result")))
+                 (is (= 527
+                        (fixture-object-field public-blob-base-fee-json "id")))
+                 (is (null (fixture-object-field
+                            public-blob-base-fee-json "result")))
+                 (is (= 528
+                        (fixture-object-field public-fee-history-json "id")))
+                 (is (string= "0x0"
+                              (fixture-object-field public-fee-history
+                                                    "oldestBlock")))
+                 (let ((base-fees
+                         (fixture-object-field public-fee-history
+                                               "baseFeePerGas"))
+                       (gas-ratios
+                         (fixture-object-field public-fee-history
+                                               "gasUsedRatio")))
+                   (is (= 2 (length base-fees)))
+                   (is (string= "0x3b9aca00" (first base-fees)))
+                   (is (string= "0x342770c0" (second base-fees)))
+                   (is (= 1 (length gas-ratios)))
+                   (is (= 0 (first gas-ratios))))
                  (is (= 3 (length public-batch-json)))
                  (is (= 510
                         (fixture-object-field
@@ -5932,11 +6076,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "13"
+                         (is (string= "20"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "19"
+                         (is (string= "26"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

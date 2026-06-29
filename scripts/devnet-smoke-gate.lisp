@@ -80,7 +80,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
-(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 16)
+(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 23)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
 (defconstant +devnet-smoke-gate-public-txpool-connections+ 9)
 (defconstant +devnet-smoke-gate-public-connections+
@@ -5880,6 +5880,15 @@ references/ checkouts.~%")
                   (public-mining-output (make-string-output-stream))
                   (public-hashrate-output (make-string-output-stream))
                   (public-rpc-modules-output (make-string-output-stream))
+                  (public-protocol-version-output
+                    (make-string-output-stream))
+                  (public-web3-sha3-output (make-string-output-stream))
+                  (public-gas-price-output (make-string-output-stream))
+                  (public-priority-fee-output (make-string-output-stream))
+                  (public-base-fee-output (make-string-output-stream))
+                  (public-blob-base-fee-output
+                    (make-string-output-stream))
+                  (public-fee-history-output (make-string-output-stream))
                   (public-batch-output (make-string-output-stream))
                   (public-engine-namespace-output
                     (make-string-output-stream))
@@ -6200,6 +6209,55 @@ references/ checkouts.~%")
                         public-rpc-modules-output)
                        (cons
                         (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 59)
+                               (cons "method" "eth_protocolVersion")
+                               (cons "params" '())))
+                        public-protocol-version-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 60)
+                               (cons "method" "web3_sha3")
+                               (cons "params" (list "0x68656c6c6f"))))
+                        public-web3-sha3-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 61)
+                               (cons "method" "eth_gasPrice")
+                               (cons "params" '())))
+                        public-gas-price-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 62)
+                               (cons "method" "eth_maxPriorityFeePerGas")
+                               (cons "params" '())))
+                        public-priority-fee-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 63)
+                               (cons "method" "eth_baseFee")
+                               (cons "params" '())))
+                        public-base-fee-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 64)
+                               (cons "method" "eth_blobBaseFee")
+                               (cons "params" '())))
+                        public-blob-base-fee-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 65)
+                               (cons "method" "eth_feeHistory")
+                               (cons "params" (list "0x1" "latest" '()))))
+                        public-fee-history-output)
+                       (cons
+                        (json-encode
                          (list
                           (list (cons "jsonrpc" "2.0")
                                 (cons "id" 50)
@@ -6486,6 +6544,21 @@ references/ checkouts.~%")
                       (public-rpc-modules-response
                         (get-output-stream-string
                          public-rpc-modules-output))
+                      (public-protocol-version-response
+                        (get-output-stream-string
+                         public-protocol-version-output))
+                      (public-web3-sha3-response
+                        (get-output-stream-string public-web3-sha3-output))
+                      (public-gas-price-response
+                        (get-output-stream-string public-gas-price-output))
+                      (public-priority-fee-response
+                        (get-output-stream-string public-priority-fee-output))
+                      (public-base-fee-response
+                        (get-output-stream-string public-base-fee-output))
+                      (public-blob-base-fee-response
+                        (get-output-stream-string public-blob-base-fee-output))
+                      (public-fee-history-response
+                        (get-output-stream-string public-fee-history-output))
                       (public-batch-response
                         (get-output-stream-string public-batch-output))
                       (public-engine-namespace-response
@@ -6576,6 +6649,28 @@ references/ checkouts.~%")
                          public-rpc-modules-response))
                       (public-rpc-modules
                         (fixture-object-field public-rpc-modules-rpc
+                                              "result"))
+                      (public-protocol-version-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-protocol-version-response))
+                      (public-web3-sha3-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-web3-sha3-response))
+                      (public-gas-price-rpc
+                        (devnet-smoke-gate-rpc-body public-gas-price-response))
+                      (public-priority-fee-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-priority-fee-response))
+                      (public-base-fee-rpc
+                        (devnet-smoke-gate-rpc-body public-base-fee-response))
+                      (public-blob-base-fee-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-blob-base-fee-response))
+                      (public-fee-history-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-fee-history-response))
+                      (public-fee-history
+                        (fixture-object-field public-fee-history-rpc
                                               "result"))
                       (public-batch-rpc
                         (devnet-smoke-gate-rpc-body public-batch-response))
@@ -6669,6 +6764,19 @@ references/ checkouts.~%")
                         (hash32-to-hex (block-hash remote-block)))
                       (expected-invalid-block-hash
                         (hash32-to-hex (block-hash invalid-block)))
+                      (expected-gas-price
+                        (quantity-to-hex
+                         (or (block-header-base-fee-per-gas
+                              (block-header child-block))
+                             0)))
+                      (expected-next-base-fee
+                        (quantity-to-hex
+                         (expected-base-fee-per-gas
+                          (block-header child-block)
+                          :london-parent-p
+                          (not (null
+                                (block-header-base-fee-per-gas
+                                 (block-header child-block)))))))
                       (txpool-status
                         (fixture-object-field txpool-status-rpc "result"))
                       (txpool-content-from
@@ -6832,8 +6940,36 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status public-mining-response))
                   "eth_mining HTTP status mismatch")
                  (devnet-smoke-gate-require
-                  (= 200 (devnet-cli-http-status public-hashrate-response))
+                 (= 200 (devnet-cli-http-status public-hashrate-response))
                   "eth_hashrate HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          public-rpc-modules-response))
+                  "rpc_modules HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          public-protocol-version-response))
+                  "eth_protocolVersion HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-web3-sha3-response))
+                  "web3_sha3 HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-gas-price-response))
+                  "eth_gasPrice HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          public-priority-fee-response))
+                  "eth_maxPriorityFeePerGas HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-base-fee-response))
+                  "eth_baseFee HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          public-blob-base-fee-response))
+                  "eth_blobBaseFee HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-fee-history-response))
+                  "eth_feeHistory HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status public-batch-response))
                   "Public JSON-RPC batch HTTP status mismatch")
@@ -7110,9 +7246,66 @@ references/ checkouts.~%")
                            (fixture-object-field public-rpc-modules "txpool"))
                   "rpc_modules txpool module mismatch")
                  (devnet-smoke-gate-require
-                  (string= "1.0"
-                           (fixture-object-field public-rpc-modules "web3"))
+                 (string= "1.0"
+                          (fixture-object-field public-rpc-modules "web3"))
                   "rpc_modules web3 module mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (quantity-to-hex
+                            ethereum-lisp.core::+eth-protocol-version+)
+                           (fixture-object-field
+                            public-protocol-version-rpc
+                            "result"))
+                  "eth_protocolVersion mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"
+                           (fixture-object-field public-web3-sha3-rpc
+                                                 "result"))
+                  "web3_sha3 mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-gas-price
+                           (fixture-object-field public-gas-price-rpc
+                                                 "result"))
+                  "eth_gasPrice mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (quantity-to-hex 0)
+                           (fixture-object-field public-priority-fee-rpc
+                                                 "result"))
+                  "eth_maxPriorityFeePerGas mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-next-base-fee
+                           (fixture-object-field public-base-fee-rpc
+                                                 "result"))
+                  "eth_baseFee mismatch")
+                 (devnet-smoke-gate-require
+                  (null (fixture-object-field public-blob-base-fee-rpc
+                                              "result"))
+                  "eth_blobBaseFee should be null before Cancun blob data")
+                 (devnet-smoke-gate-require
+                  (string= expected-block-number
+                           (fixture-object-field public-fee-history
+                                                 "oldestBlock"))
+                  "eth_feeHistory oldestBlock mismatch")
+                 (let ((base-fees
+                         (fixture-object-field public-fee-history
+                                               "baseFeePerGas"))
+                       (gas-ratios
+                         (fixture-object-field public-fee-history
+                                               "gasUsedRatio")))
+                   (devnet-smoke-gate-require
+                    (= 2 (length base-fees))
+                    "eth_feeHistory baseFeePerGas length mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-gas-price (first base-fees))
+                    "eth_feeHistory base fee mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-next-base-fee (second base-fees))
+                    "eth_feeHistory next base fee mismatch")
+                   (devnet-smoke-gate-require
+                    (= 1 (length gas-ratios))
+                    "eth_feeHistory gasUsedRatio length mismatch")
+                   (devnet-smoke-gate-require
+                    (realp (first gas-ratios))
+                    "eth_feeHistory gasUsedRatio must be numeric"))
                  (devnet-smoke-gate-require
                   (= 3 (length public-batch-rpc))
                   "Public JSON-RPC batch response count mismatch")
@@ -7465,6 +7658,33 @@ references/ checkouts.~%")
                   (cons "publicHashrate"
                         (fixture-object-field public-hashrate-rpc "result"))
                   (cons "publicRpcModules" public-rpc-modules)
+                  (cons "publicProtocolVersion"
+                        (fixture-object-field public-protocol-version-rpc
+                                              "result"))
+                  (cons "publicWeb3Sha3"
+                        (fixture-object-field public-web3-sha3-rpc "result"))
+                  (cons "publicGasPrice"
+                        (fixture-object-field public-gas-price-rpc "result"))
+                  (cons "publicMaxPriorityFeePerGas"
+                        (fixture-object-field public-priority-fee-rpc
+                                              "result"))
+                  (cons "publicBaseFee"
+                        (fixture-object-field public-base-fee-rpc "result"))
+                  (cons "publicBlobBaseFee"
+                        (or (fixture-object-field public-blob-base-fee-rpc
+                                                  "result")
+                            :false))
+                  (cons "publicFeeHistoryOldestBlock"
+                        (fixture-object-field public-fee-history
+                                              "oldestBlock"))
+                  (cons "publicFeeHistoryBaseFeeCount"
+                        (length
+                         (fixture-object-field public-fee-history
+                                               "baseFeePerGas")))
+                  (cons "publicFeeHistoryGasUsedRatioCount"
+                        (length
+                         (fixture-object-field public-fee-history
+                                               "gasUsedRatio")))
                   (cons "publicBatchResponseCount"
                         (length public-batch-rpc))
                   (cons "publicBatchChainId"
@@ -9399,6 +9619,22 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field report "publicHashrate"))
         (format t "publicRpcModules=~S~%"
                 (devnet-smoke-gate-field report "publicRpcModules"))
+        (format t "publicProtocolVersion=~A~%"
+                (devnet-smoke-gate-field report "publicProtocolVersion"))
+        (format t "publicWeb3Sha3=~A~%"
+                (devnet-smoke-gate-field report "publicWeb3Sha3"))
+        (format t "publicGasPrice=~A~%"
+                (devnet-smoke-gate-field report "publicGasPrice"))
+        (format t "publicMaxPriorityFeePerGas=~A~%"
+                (devnet-smoke-gate-field
+                 report "publicMaxPriorityFeePerGas"))
+        (format t "publicBaseFee=~A~%"
+                (devnet-smoke-gate-field report "publicBaseFee"))
+        (format t "publicBlobBaseFee=~A~%"
+                (devnet-smoke-gate-field report "publicBlobBaseFee"))
+        (format t "publicFeeHistoryOldestBlock=~A~%"
+                (devnet-smoke-gate-field
+                 report "publicFeeHistoryOldestBlock"))
         (format t "publicBatchResponseCount=~D~%"
                 (devnet-smoke-gate-field
                  report "publicBatchResponseCount"))
