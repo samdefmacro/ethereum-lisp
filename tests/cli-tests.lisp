@@ -6621,6 +6621,21 @@
                 (balance-body
                   (json-encode (engine-fixture-balance-request
                                 604 recipient)))
+                (safe-balance-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 622)
+                         (cons "method" "eth_getBalance")
+                         (cons "params"
+                               (list (address-to-hex recipient) "safe")))))
+                (finalized-balance-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 623)
+                         (cons "method" "eth_getBalance")
+                         (cons "params"
+                               (list (address-to-hex recipient)
+                                     "finalized")))))
                 (transaction-count-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
@@ -6635,6 +6650,18 @@
                          (cons "id" 608)
                          (cons "method" "eth_getBlockByNumber")
                          (cons "params" (list "latest" :false)))))
+                (safe-block-by-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 620)
+                         (cons "method" "eth_getBlockByNumber")
+                         (cons "params" (list "safe" :false)))))
+                (finalized-block-by-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 621)
+                         (cons "method" "eth_getBlockByNumber")
+                         (cons "params" (list "finalized" :false)))))
                 (post-status-block-by-number-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
@@ -6727,7 +6754,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "11"
+                        "15"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -6769,8 +6796,12 @@
                     block-number-response
                     post-status-block-number-response
                     balance-response
+                    safe-balance-response
+                    finalized-balance-response
                     transaction-count-response
                     block-by-number-response
+                    safe-block-by-number-response
+                    finalized-block-by-number-response
                     post-status-block-by-number-response
                     code-response
                     storage-response
@@ -6856,6 +6887,16 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              balance-body)))
+                     (setf safe-balance-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             safe-balance-body)))
+                     (setf finalized-balance-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             finalized-balance-body)))
                      (setf transaction-count-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -6866,6 +6907,16 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              block-by-number-body)))
+                     (setf safe-block-by-number-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             safe-block-by-number-body)))
+                     (setf finalized-block-by-number-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             finalized-block-by-number-body)))
                      (setf code-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -6918,10 +6969,16 @@
                (is (= 200 (devnet-cli-http-status
                             post-status-block-number-response)))
                (is (= 200 (devnet-cli-http-status balance-response)))
+               (is (= 200 (devnet-cli-http-status safe-balance-response)))
+               (is (= 200 (devnet-cli-http-status finalized-balance-response)))
                (is (= 200 (devnet-cli-http-status
                             transaction-count-response)))
                (is (= 200 (devnet-cli-http-status
                             block-by-number-response)))
+               (is (= 200 (devnet-cli-http-status
+                            safe-block-by-number-response)))
+               (is (= 200 (devnet-cli-http-status
+                            finalized-block-by-number-response)))
                (is (= 200 (devnet-cli-http-status
                             post-status-block-by-number-response)))
                (is (= 200 (devnet-cli-http-status code-response)))
@@ -6965,6 +7022,12 @@
                       (balance-rpc
                         (parse-json
                          (devnet-cli-http-body balance-response)))
+                      (safe-balance-rpc
+                        (parse-json
+                         (devnet-cli-http-body safe-balance-response)))
+                      (finalized-balance-rpc
+                        (parse-json
+                         (devnet-cli-http-body finalized-balance-response)))
                       (transaction-count-rpc
                         (parse-json
                          (devnet-cli-http-body
@@ -6973,6 +7036,14 @@
                         (parse-json
                          (devnet-cli-http-body
                           block-by-number-response)))
+                      (safe-block-by-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          safe-block-by-number-response)))
+                      (finalized-block-by-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          finalized-block-by-number-response)))
                       (post-status-block-by-number-rpc
                         (parse-json
                          (devnet-cli-http-body
@@ -7039,6 +7110,12 @@
                         (fixture-object-field invalid-payload-rpc "result"))
                       (block-by-number-result
                         (fixture-object-field block-by-number-rpc "result"))
+                      (safe-block-by-number-result
+                        (fixture-object-field safe-block-by-number-rpc
+                                              "result"))
+                      (finalized-block-by-number-result
+                        (fixture-object-field finalized-block-by-number-rpc
+                                              "result"))
                       (post-status-block-by-number-result
                         (fixture-object-field post-status-block-by-number-rpc
                                               "result"))
@@ -7084,6 +7161,12 @@
                  (is (= 617 (fixture-object-field receipt-rpc "id")))
                  (is (= 618 (fixture-object-field block-receipts-rpc "id")))
                  (is (= 619 (fixture-object-field logs-rpc "id")))
+                 (is (= 620 (fixture-object-field
+                              safe-block-by-number-rpc "id")))
+                 (is (= 621 (fixture-object-field
+                              finalized-block-by-number-rpc "id")))
+                 (is (= 622 (fixture-object-field safe-balance-rpc "id")))
+                 (is (= 623 (fixture-object-field finalized-balance-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -7140,6 +7223,12 @@
                                                     "recipientBalance")
                               (fixture-object-field balance-rpc
                                                     "result")))
+                 (is (string= "0x0"
+                              (fixture-object-field safe-balance-rpc
+                                                    "result")))
+                 (is (string= "0x0"
+                              (fixture-object-field finalized-balance-rpc
+                                                    "result")))
                  (is (string= (fixture-object-field expect "senderNonce")
                               (fixture-object-field transaction-count-rpc
                                                     "result")))
@@ -7149,6 +7238,22 @@
                  (is (string= (hash32-to-hex (block-hash child-block))
                               (fixture-object-field block-by-number-result
                                                     "hash")))
+                 (is (string= (fixture-object-field parent "number")
+                              (fixture-object-field
+                               safe-block-by-number-result
+                               "number")))
+                 (is (string= (hash32-to-hex (block-hash parent-block))
+                              (fixture-object-field
+                               safe-block-by-number-result
+                               "hash")))
+                 (is (string= (fixture-object-field parent "number")
+                              (fixture-object-field
+                               finalized-block-by-number-result
+                               "number")))
+                 (is (string= (hash32-to-hex (block-hash parent-block))
+                              (fixture-object-field
+                               finalized-block-by-number-result
+                               "hash")))
                  (is (string= (fixture-object-field payload-case "number")
                               (fixture-object-field
                                post-status-block-by-number-result
@@ -7245,11 +7350,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "11"
+                       (is (string= "15"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "19"
+                       (is (string= "23"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))

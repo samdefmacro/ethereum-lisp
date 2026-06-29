@@ -1019,6 +1019,15 @@ ones.
     listener. The checks compare transaction hash, block hash/number,
     receipt type/status, log address/topic/data, transaction/log indexes, and
     shutdown telemetry for the expanded Engine/public request counts.
+- [x] `DEVNET-RUNNER-SCRIPT-CHECKPOINT-TAGS`: Lock public safe/finalized
+  checkpoint reads at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now applies forkchoice with the imported child as head
+    and the parent as safe/finalized, then verifies public
+    `eth_getBlockByNumber("safe"/"finalized")` and
+    `eth_getBalance(..., "safe"/"finalized")` return the parent checkpoint view
+    while `latest` remains the imported child, with updated shutdown connection
+    accounting.
 - [x] `DEVNET-RUNNER-SCRIPT-ENGINE-STATUS-PAYLOADS`: Lock Engine orphan and
   invalid payload status handling at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
