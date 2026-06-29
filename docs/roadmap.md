@@ -1061,9 +1061,10 @@ first pass, but interfaces must not block that path.
   JWT-authenticated `engine_getClientVersionV1`, public `eth_chainId`, and
   shutdown connection counts across the external process boundary. The
   standalone process smoke also probes public `web3_clientVersion`,
-  `net_version`, `net_listening`, and `eth_syncing` over the listener, reports
-  those readiness fields, and keeps the connection contract aligned for
-  Hive-style runners. It now also sends a public JSON-RPC batch for
+  `net_version`, `net_listening`, `net_peerCount`, `eth_syncing`,
+  `eth_accounts`, `eth_coinbase`, `eth_mining`, and `eth_hashrate` over the
+  listener, reports those readiness fields, and keeps the connection contract
+  aligned for Hive-style runners. It now also sends a public JSON-RPC batch for
   `eth_chainId`, `net_version`, and `web3_clientVersion`, reports the batch
   result fields, and accounts for the extra public listener connection.
   `--authrpc.vhosts LIST` and

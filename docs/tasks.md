@@ -906,6 +906,15 @@ ones.
     explicit non-p2p listening status, and non-syncing status, reports those
     fields in JSON/text output, and updates the public canonical-read
     connection contract for Hive-style runners.
+- [x] `DEVNET-RUNNER-PUBLIC-LOCAL-STATUS`: Lock additional zero-state public
+  RPC status probes at the devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate now calls
+    `net_peerCount`, `eth_accounts`, `eth_coinbase`, `eth_mining`, and
+    `eth_hashrate` through the public listener after the authenticated Engine
+    workflow. The gate verifies and reports the current non-networked,
+    non-wallet, non-mining local node contract: zero peers, zero local account
+    count, zero coinbase, not mining, and zero hash rate, and updates the
+    public canonical-read connection contract for Hive-style runners.
 - [x] `DEVNET-RUNNER-PUBLIC-BATCH-READINESS`: Lock public JSON-RPC batch
   readiness at the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate now sends a public

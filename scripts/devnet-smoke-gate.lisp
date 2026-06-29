@@ -80,7 +80,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
-(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 10)
+(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 15)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
 (defconstant +devnet-smoke-gate-public-txpool-connections+ 9)
 (defconstant +devnet-smoke-gate-public-connections+
@@ -5846,6 +5846,12 @@ references/ checkouts.~%")
                   (public-net-version-output (make-string-output-stream))
                   (public-net-listening-output (make-string-output-stream))
                   (public-syncing-output (make-string-output-stream))
+                  (public-net-peer-count-output
+                    (make-string-output-stream))
+                  (public-accounts-output (make-string-output-stream))
+                  (public-coinbase-output (make-string-output-stream))
+                  (public-mining-output (make-string-output-stream))
+                  (public-hashrate-output (make-string-output-stream))
                   (public-batch-output (make-string-output-stream))
                   (public-engine-namespace-output
                     (make-string-output-stream))
@@ -6124,6 +6130,41 @@ references/ checkouts.~%")
                         public-syncing-output)
                        (cons
                         (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 53)
+                               (cons "method" "net_peerCount")
+                               (cons "params" '())))
+                        public-net-peer-count-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 54)
+                               (cons "method" "eth_accounts")
+                               (cons "params" '())))
+                        public-accounts-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 55)
+                               (cons "method" "eth_coinbase")
+                               (cons "params" '())))
+                        public-coinbase-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 56)
+                               (cons "method" "eth_mining")
+                               (cons "params" '())))
+                        public-mining-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 57)
+                               (cons "method" "eth_hashrate")
+                               (cons "params" '())))
+                        public-hashrate-output)
+                       (cons
+                        (json-encode
                          (list
                           (list (cons "jsonrpc" "2.0")
                                 (cons "id" 50)
@@ -6396,6 +6437,17 @@ references/ checkouts.~%")
                          public-net-listening-output))
                       (public-syncing-response
                         (get-output-stream-string public-syncing-output))
+                      (public-net-peer-count-response
+                        (get-output-stream-string
+                         public-net-peer-count-output))
+                      (public-accounts-response
+                        (get-output-stream-string public-accounts-output))
+                      (public-coinbase-response
+                        (get-output-stream-string public-coinbase-output))
+                      (public-mining-response
+                        (get-output-stream-string public-mining-output))
+                      (public-hashrate-response
+                        (get-output-stream-string public-hashrate-output))
                       (public-batch-response
                         (get-output-stream-string public-batch-output))
                       (public-engine-namespace-response
@@ -6470,6 +6522,17 @@ references/ checkouts.~%")
                          public-net-listening-response))
                       (public-syncing-rpc
                         (devnet-smoke-gate-rpc-body public-syncing-response))
+                      (public-net-peer-count-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-net-peer-count-response))
+                      (public-accounts-rpc
+                        (devnet-smoke-gate-rpc-body public-accounts-response))
+                      (public-coinbase-rpc
+                        (devnet-smoke-gate-rpc-body public-coinbase-response))
+                      (public-mining-rpc
+                        (devnet-smoke-gate-rpc-body public-mining-response))
+                      (public-hashrate-rpc
+                        (devnet-smoke-gate-rpc-body public-hashrate-response))
                       (public-batch-rpc
                         (devnet-smoke-gate-rpc-body public-batch-response))
                       (public-batch-chain-id-rpc (first public-batch-rpc))
@@ -6712,6 +6775,22 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status public-syncing-response))
                   "eth_syncing HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          public-net-peer-count-response))
+                  "net_peerCount HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-accounts-response))
+                  "eth_accounts HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-coinbase-response))
+                  "eth_coinbase HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-mining-response))
+                  "eth_mining HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-hashrate-response))
+                  "eth_hashrate HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status public-batch-response))
                   "Public JSON-RPC batch HTTP status mismatch")
                  (devnet-smoke-gate-require
@@ -6949,6 +7028,27 @@ references/ checkouts.~%")
                  (devnet-smoke-gate-require
                   (null (fixture-object-field public-syncing-rpc "result"))
                   "eth_syncing mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (quantity-to-hex 0)
+                           (fixture-object-field public-net-peer-count-rpc
+                                                 "result"))
+                  "net_peerCount mismatch")
+                 (devnet-smoke-gate-require
+                  (null (fixture-object-field public-accounts-rpc "result"))
+                  "eth_accounts mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (address-to-hex (zero-address))
+                           (fixture-object-field public-coinbase-rpc
+                                                 "result"))
+                  "eth_coinbase mismatch")
+                 (devnet-smoke-gate-require
+                  (null (fixture-object-field public-mining-rpc "result"))
+                  "eth_mining mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (quantity-to-hex 0)
+                           (fixture-object-field public-hashrate-rpc
+                                                 "result"))
+                  "eth_hashrate mismatch")
                  (devnet-smoke-gate-require
                   (= 3 (length public-batch-rpc))
                   "Public JSON-RPC batch response count mismatch")
@@ -7286,6 +7386,20 @@ references/ checkouts.~%")
                         (if (fixture-object-field public-syncing-rpc "result")
                             t
                             :false))
+                  (cons "publicNetPeerCount"
+                        (fixture-object-field public-net-peer-count-rpc
+                                              "result"))
+                  (cons "publicAccountCount"
+                        (length (fixture-object-field public-accounts-rpc
+                                                      "result")))
+                  (cons "publicCoinbase"
+                        (fixture-object-field public-coinbase-rpc "result"))
+                  (cons "publicMining"
+                        (if (fixture-object-field public-mining-rpc "result")
+                            t
+                            :false))
+                  (cons "publicHashrate"
+                        (fixture-object-field public-hashrate-rpc "result"))
                   (cons "publicBatchResponseCount"
                         (length public-batch-rpc))
                   (cons "publicBatchChainId"
@@ -9208,6 +9322,16 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field report "publicNetListening"))
         (format t "publicSyncing=~A~%"
                 (devnet-smoke-gate-field report "publicSyncing"))
+        (format t "publicNetPeerCount=~A~%"
+                (devnet-smoke-gate-field report "publicNetPeerCount"))
+        (format t "publicAccountCount=~D~%"
+                (devnet-smoke-gate-field report "publicAccountCount"))
+        (format t "publicCoinbase=~A~%"
+                (devnet-smoke-gate-field report "publicCoinbase"))
+        (format t "publicMining=~A~%"
+                (devnet-smoke-gate-field report "publicMining"))
+        (format t "publicHashrate=~A~%"
+                (devnet-smoke-gate-field report "publicHashrate"))
         (format t "publicBatchResponseCount=~D~%"
                 (devnet-smoke-gate-field
                  report "publicBatchResponseCount"))
