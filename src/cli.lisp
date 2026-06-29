@@ -709,11 +709,20 @@
                           "--verbosity" "--maxpeers" "--nat"
                           "--identity" "--gcmode" "--cache"
                           "--cache.database" "--cache.gc" "--cache.trie"
+                          "--state.scheme" "--db.engine"
+                          "--datadir.ancient"
                           "--txlookuplimit" "--history.transactions"
                           "--bootnodes" "--miner.etherbase" "--etherbase"
                           "--miner.gaslimit" "--miner.gasprice" "--unlock"
                           "--password" "--metrics.addr" "--metrics.port"
-                          "--pprof.addr" "--pprof.port")
+                          "--pprof.addr" "--pprof.port"
+                          "--txpool.locals" "--txpool.journal"
+                          "--txpool.rejournal" "--txpool.pricelimit"
+                          "--txpool.pricebump" "--txpool.accountslots"
+                          "--txpool.globalslots" "--txpool.accountqueue"
+                          "--txpool.globalqueue" "--txpool.lifetime"
+                          "--txpool.blobpool.datacap"
+                          "--txpool.blobpool.pricebump")
                         :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -721,7 +730,9 @@
                   (setf args rest)))
                ((member option '("--ws" "--graphql" "--nodiscover" "--ipcdisable"
                                   "--allow-insecure-unlock" "--mine"
-                                  "--metrics" "--pprof" "--snapshot")
+                                  "--metrics" "--pprof" "--snapshot"
+                                  "--rpc.allow-unprotected-txs"
+                                  "--txpool.nolocals" "--dev" "--nousb")
                         :test #'string=)
                 (setf args
                       (devnet-cli-consume-optional-boolean-value
@@ -777,7 +788,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--verbosity LEVEL] [--maxpeers N] [--nat MODE] [--identity NAME] [--gcmode MODE] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--verbosity LEVEL] [--maxpeers N] [--nat MODE] [--identity NAME] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
@@ -966,6 +977,21 @@
                         "--graphql.vhosts" "--graphql.corsdomain"
                         "--networkid" "--network-id" "--syncmode"
                         "--verbosity" "--maxpeers" "--nat" "--identity"
+                        "--gcmode" "--state.scheme" "--db.engine"
+                        "--datadir.ancient" "--cache" "--cache.database"
+                        "--cache.gc" "--cache.trie" "--txlookuplimit"
+                        "--history.transactions" "--bootnodes"
+                        "--miner.etherbase" "--etherbase"
+                        "--miner.gaslimit" "--miner.gasprice" "--unlock"
+                        "--password" "--metrics.addr" "--metrics.port"
+                        "--pprof.addr" "--pprof.port"
+                        "--txpool.locals" "--txpool.journal"
+                        "--txpool.rejournal" "--txpool.pricelimit"
+                        "--txpool.pricebump" "--txpool.accountslots"
+                        "--txpool.globalslots" "--txpool.accountqueue"
+                        "--txpool.globalqueue" "--txpool.lifetime"
+                        "--txpool.blobpool.datacap"
+                        "--txpool.blobpool.pricebump"
                         "--database" "--datadir"
                         "--prune-state-before" "--max-connections"
                         "--ready-file" "--pid-file")

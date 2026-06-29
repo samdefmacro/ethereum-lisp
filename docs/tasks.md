@@ -664,6 +664,19 @@ ones.
     Engine/public RPC devnet surface starts. Usage text, equals-form value
     parsing, optional boolean values, and malformed boolean rejection have CLI
     coverage.
+- [x] `DEVNET-RUNNER-TXPOOL-DATABASE-NOOP-FLAGS`: Accept additional
+  geth/Hive txpool, RPC, and database launch flags that commonly appear in
+  runner templates.
+  - Result (2026-06-29): `ethereum-lisp devnet` now accepts
+    `--rpc.allow-unprotected-txs`, `--txpool.locals`, `--txpool.nolocals`,
+    `--txpool.journal`, `--txpool.rejournal`, txpool price/slot/queue/lifetime
+    knobs, blobpool capacity/price-bump knobs, `--state.scheme`,
+    `--db.engine`, `--datadir.ancient`, `--dev`, and `--nousb` as compatibility
+    options. These flags do not alter the current in-memory txpool, database,
+    development-network, or USB behavior; they prevent geth-shaped process
+    templates from failing before the supported split Engine/public devnet
+    process starts. CLI coverage verifies a geth-shaped no-serve invocation and
+    malformed boolean/missing-value failures.
 - [x] `DEVNET-RUNNER-PUBLIC-API-REPORTING`: Report geth/Hive-style public RPC
   module allowlists in runner-visible devnet startup artifacts.
   - Result (2026-06-28): devnet nodes now preserve the parsed `--http.api`

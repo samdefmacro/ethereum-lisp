@@ -1120,7 +1120,12 @@ first pass, but interfaces must not block that path.
   compatibility options as well. Geth-shaped runner templates can launch the
   current Lisp split Engine/public process without implying mining, account
   management, metrics, profiling, bootnode discovery, archive-mode behavior,
-  or a GraphQL listener.
+  or a GraphQL listener. Additional geth/Hive txpool, RPC, and database
+  template flags are also accepted as compatibility no-ops, including
+  txpool price/slot/queue/lifetime knobs, `--rpc.allow-unprotected-txs`,
+  `--state.scheme`, `--db.engine`, `--datadir.ancient`, `--dev`, and
+  `--nousb`, so those launch templates reach the current split Engine/public
+  devnet surface instead of failing at argument parsing.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

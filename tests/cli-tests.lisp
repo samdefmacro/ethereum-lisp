@@ -2101,6 +2101,44 @@
       (when (probe-file log-path)
         (delete-file log-path)))))
 
+(deftest devnet-cli-main-accepts-geth-style-txpool-and-database-flags
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  (format nil "--genesis=~A" +devnet-cli-genesis-fixture+)
+                  "--db.engine=pebble"
+                  "--state.scheme=hash"
+                  "--datadir.ancient=/tmp/ethereum-lisp-ancient"
+                  "--rpc.allow-unprotected-txs=true"
+                  "--txpool.locals=0x0000000000000000000000000000000000000001"
+                  "--txpool.nolocals=false"
+                  "--txpool.journal=/tmp/ethereum-lisp-txpool.rlp"
+                  "--txpool.rejournal=1h"
+                  "--txpool.pricelimit=1"
+                  "--txpool.pricebump=10"
+                  "--txpool.accountslots=16"
+                  "--txpool.globalslots=5120"
+                  "--txpool.accountqueue=64"
+                  "--txpool.globalqueue=1024"
+                  "--txpool.lifetime=3h"
+                  "--txpool.blobpool.datacap=2684354560"
+                  "--txpool.blobpool.pricebump=100"
+                  "--dev=false"
+                  "--nousb=true"
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (string= "127.0.0.1:8551"
+                   (fixture-object-field summary "engineEndpoint")))
+      (is (string= "127.0.0.1:8545"
+                   (fixture-object-field summary "rpcEndpoint")))
+      (is (eq nil (fixture-object-field summary "authRequired"))))))
+
 (deftest devnet-cli-main-engine-host-does-not-rewrite-public-default
   (let ((engine-output (make-string-output-stream))
         (engine-errors (make-string-output-stream))
@@ -5499,6 +5537,22 @@
                 (run-error (list "devnet"
                                  "--snapshot=maybe"
                                  "--no-serve"))))
+    (is (search "--rpc.allow-unprotected-txs boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--rpc.allow-unprotected-txs=maybe"
+                                 "--no-serve"))))
+    (is (search "--txpool.nolocals boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--txpool.nolocals=maybe"
+                                 "--no-serve"))))
+    (is (search "--dev boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--dev=maybe"
+                                 "--no-serve"))))
+    (is (search "--nousb boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--nousb=maybe"
+                                 "--no-serve"))))
     (is (search "--http.rpcprefix requires a path beginning with /"
                 (run-error (list "devnet"
                                  "--http.rpcprefix"
@@ -5551,6 +5605,14 @@
     (is (search "--graphql.addr requires a value"
                 (run-error (list "devnet"
                                  "--graphql.addr"
+                                 "--no-serve"))))
+    (is (search "--txpool.pricebump requires a value"
+                (run-error (list "devnet"
+                                 "--txpool.pricebump"
+                                 "--no-serve"))))
+    (is (search "--db.engine requires a value"
+                (run-error (list "devnet"
+                                 "--db.engine"
                                  "--no-serve"))))
     (is (search "--database requires a value"
                 (run-error (list "devnet" "--database"))))
