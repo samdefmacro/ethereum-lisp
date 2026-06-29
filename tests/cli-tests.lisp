@@ -2435,6 +2435,53 @@
           while char
           do (write-char char output))))
 
+#+sbcl
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :sb-bsd-sockets))
+
+#+sbcl
+(defun devnet-cli-http-endpoint-host-port (endpoint)
+  (let* ((prefix "http://")
+         (start (if (and (<= (length prefix) (length endpoint))
+                         (string= prefix endpoint :end2 (length prefix)))
+                    (length prefix)
+                    0))
+         (colon (position #\: endpoint :start start :from-end t)))
+    (unless colon
+      (error "HTTP endpoint lacks a port: ~A" endpoint))
+    (values (subseq endpoint start colon)
+            (parse-integer endpoint :start (1+ colon)))))
+
+#+sbcl
+(defun devnet-cli-connect-stream (host port)
+  (let ((socket
+          (make-instance 'sb-bsd-sockets:inet-socket
+                         :type :stream
+                         :protocol :tcp)))
+    (sb-bsd-sockets:socket-connect
+     socket
+     (sb-bsd-sockets:make-inet-address host)
+     port)
+    (sb-bsd-sockets:socket-make-stream
+     socket
+     :input t
+     :output t
+     :element-type 'character
+     :external-format :utf-8
+     :buffering :none)))
+
+#+sbcl
+(defun devnet-cli-http-endpoint-request (endpoint request)
+  (multiple-value-bind (host port)
+      (devnet-cli-http-endpoint-host-port endpoint)
+    (let ((stream (devnet-cli-connect-stream host port)))
+      (unwind-protect
+           (progn
+             (write-string request stream)
+             (finish-output stream)
+             (devnet-cli-read-stream-string stream))
+        (close stream)))))
+
 (defun devnet-smoke-gate-launch-json-process ()
   (uiop:launch-program
    (list "sbcl"
@@ -4829,6 +4876,185 @@
           return (uiop:wait-process process)
         do (sleep 0.05)
         finally (return :timeout)))
+
+(deftest ethereum-lisp-script-serve-mode-serves-engine-and-public-rpc
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+        (jwt-path
+          (devnet-cli-temp-path "ethereum-lisp-script-serve-rpc" "jwt"))
+        (ready-path
+          (devnet-cli-temp-path "ethereum-lisp-script-serve-rpc-ready" "json"))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-script-serve-rpc" "log"))
+        (pid-path
+          (devnet-cli-temp-path "ethereum-lisp-script-serve-rpc" "pid"))
+        (process nil))
+    (unwind-protect
+         (progn
+           (with-open-file (stream jwt-path
+                                   :direction :output
+                                   :if-exists :supersede
+                                   :if-does-not-exist :create)
+             (write-string +devnet-cli-jwt-secret+ stream))
+           (setf process
+                 (uiop:launch-program
+                  (list "sbcl"
+                        "--script"
+                        script
+                        "--"
+                        "devnet"
+                        "--genesis"
+                        genesis
+                        "--engine-port"
+                        "0"
+                        "--public-port"
+                        "0"
+                        "--authrpc.jwtsecret"
+                        (namestring jwt-path)
+                        "--ready-file"
+                        (namestring ready-path)
+                        "--log-file"
+                        (namestring log-path)
+                        "--pid-file"
+                        (namestring pid-path)
+                        "--max-connections"
+                        "1"
+                        "--json")
+                  :directory #P"/private/tmp/"
+                  :output :stream
+                  :error-output :stream))
+           (unless (devnet-cli-wait-for-file ready-path 10)
+             (when (uiop:process-alive-p process)
+               (uiop:terminate-process process)
+               (devnet-cli-wait-process-exit process 5))
+             (let ((stdout
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-output process)))
+                   (stderr
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-error-output process))))
+               (when (search "Operation not permitted" stderr)
+                 (skip-test
+                  "Local socket bind is not permitted in this sandbox"))
+               (is (probe-file ready-path))
+               (is (string= "" stdout))
+               (is (string= "" stderr))))
+           (when (probe-file ready-path)
+             (let* ((ready-summary
+                      (parse-json (devnet-cli-file-string ready-path)))
+                    (pid (devnet-cli-pid-file-process-id pid-path))
+                    (engine-endpoint
+                      (fixture-object-field ready-summary "engineEndpoint"))
+                    (rpc-endpoint
+                      (fixture-object-field ready-summary "rpcEndpoint"))
+                    (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (engine-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":501,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
+                    (public-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":502,\"method\":\"eth_chainId\",\"params\":[]}")
+                    engine-response
+                    public-response)
+               (is (= pid (fixture-object-field ready-summary "processId")))
+               (handler-case
+                   (progn
+                     (setf engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :token token)))
+                     (setf public-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request public-body))))
+                 (sb-bsd-sockets:operation-not-permitted-error ()
+                   (skip-test
+                    "Local socket connect is not permitted in this sandbox")))
+               (is (= 200 (devnet-cli-http-status engine-response)))
+               (is (= 200 (devnet-cli-http-status public-response)))
+               (let* ((engine-json
+                        (parse-json (devnet-cli-http-body engine-response)))
+                      (public-json
+                        (parse-json (devnet-cli-http-body public-response)))
+                      (client-version
+                        (first (fixture-object-field engine-json "result"))))
+                 (is (= 501 (fixture-object-field engine-json "id")))
+                 (is (string= "ethereum-lisp"
+                              (fixture-object-field client-version "name")))
+                 (is (= 502 (fixture-object-field public-json "id")))
+                 (is (string= "0x539"
+                              (fixture-object-field public-json "result"))))
+               (let ((status (devnet-cli-wait-process-exit process 10)))
+                 (when (eq status :timeout)
+                   (uiop:terminate-process process))
+                 (is (not (eq status :timeout)))
+                 (is (and (numberp status) (= 0 status)))
+                 (let ((stdout
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-output process)))
+                       (stderr
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-error-output process))))
+                   (is (string= "" stderr))
+                   (when (and (numberp status) (= 0 status))
+                     (let* ((stdout-summary (parse-json stdout))
+                            (log-records (devnet-cli-file-forms log-path))
+                            (ready-record
+                              (find "devnet.ready" log-records
+                                    :test #'string=
+                                    :key (lambda (record)
+                                           (getf record :name))))
+                            (shutdown-record
+                              (find "devnet.shutdown" log-records
+                                    :test #'string=
+                                    :key (lambda (record)
+                                           (getf record :name)))))
+                       (is (= pid
+                              (fixture-object-field stdout-summary
+                                                    "processId")))
+                       (is (string= engine-endpoint
+                                    (fixture-object-field stdout-summary
+                                                          "engineEndpoint")))
+                       (is (string= rpc-endpoint
+                                    (fixture-object-field stdout-summary
+                                                          "rpcEndpoint")))
+                       (dolist (record (list ready-record shutdown-record))
+                         (is record)
+                         (let ((fields (getf record :fields)))
+                           (is (string= engine-endpoint
+                                        (cdr (assoc "engineEndpoint" fields
+                                                    :test #'string=))))
+                           (is (string= rpc-endpoint
+                                        (cdr (assoc "rpcEndpoint" fields
+                                                    :test #'string=))))))
+                       (let ((shutdown-fields
+                               (getf shutdown-record :fields)))
+                         (is (string= "1"
+                                      (cdr (assoc "engineConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))
+                         (is (string= "1"
+                                      (cdr (assoc "publicConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))
+                         (is (string= "2"
+                                      (cdr (assoc "totalConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))))))))))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path)))))
 
 (defun devnet-cli-assert-script-signal-shutdown (signal-name temp-name)
   (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))

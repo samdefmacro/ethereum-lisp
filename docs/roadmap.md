@@ -1048,7 +1048,12 @@ first pass, but interfaces must not block that path.
   `--authrpc.port`, `--authrpc.jwtsecret`, `--http.addr`, and `--http.port`
   aliases, mapping them onto the existing authenticated Engine and public RPC
   listener fields without changing the split-service contract. It also accepts
-  geth-shaped `--http` as a compatibility no-op. `--authrpc.vhosts LIST` and
+  geth-shaped `--http` as a compatibility no-op. Runner-facing script
+  serve-mode coverage now performs actual TCP JSON-RPC
+  calls against the ready-file Engine/public endpoints, proving
+  JWT-authenticated `engine_getClientVersionV1`, public `eth_chainId`, and
+  shutdown connection counts across the external process boundary.
+  `--authrpc.vhosts LIST` and
   `--http.vhosts LIST` now configure Engine/public HTTP Host allowlists,
   report `engineVhosts` / `publicVhosts` in summaries, ready-file JSON, and
   lifecycle telemetry, support wildcard `*`, and reject disallowed hosts with

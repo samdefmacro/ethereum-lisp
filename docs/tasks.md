@@ -500,6 +500,16 @@ ones.
     JSON, ready-file JSON, pid-file output, and `devnet.ready` /
     `devnet.shutdown` telemetry agree on bound endpoints, process id,
     lifecycle phases, zero connection counts, and retained-state availability.
+- [x] `DEVNET-RUNNER-SCRIPT-RPC-SERVE`: Lock runner-facing script serve mode
+  with real Engine/public TCP JSON-RPC calls.
+  - Result (2026-06-29): added subprocess coverage that launches
+    `scripts/ethereum-lisp.lisp -- devnet` from `/private/tmp`, waits for the
+    advertised ready-file endpoints, authenticates an
+    `engine_getClientVersionV1` request against the Engine listener, calls
+    `eth_chainId` on the public listener, verifies stdout plus
+    `devnet.ready` / `devnet.shutdown` telemetry report the same endpoints,
+    and requires shutdown telemetry to record one Engine, one public, two total
+    served connections.
 - [x] `DEVNET-RUNNER-SIGNAL-SHUTDOWN`: Lock the runner-facing script's external
   shutdown signal contract for long-running serve mode.
   - Result (2026-06-28): added subprocess coverage that launches
