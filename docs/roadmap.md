@@ -1090,9 +1090,10 @@ first pass, but interfaces must not block that path.
   and rejects disallowed origins with HTTP 403; the external script-process
   HTTP-shaping coverage also verifies Engine CORS preflight and authenticated
   Engine CORS response headers. The standalone devnet smoke gate now verifies
-  the public CORS contract through real listener streams and exposes configured,
-  summary-reported, and telemetry-reported origins plus preflight/RPC/blocked
-  status codes for Hive-style runner checks. `--http.api LIST` now parses
+  both authenticated Engine and public CORS contracts through real listener
+  streams and exposes configured, summary-reported, and telemetry-reported
+  origins plus preflight/RPC/blocked status codes for Hive-style runner checks.
+  `--http.api LIST` now parses
   comma-separated public
   module names and applies them to the public listener method filter, so
   omitted modules return JSON-RPC `-32601` while the authenticated

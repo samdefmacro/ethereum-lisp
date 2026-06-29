@@ -96,6 +96,9 @@ references/ checkouts.~%")
 (defparameter *devnet-smoke-gate-public-cors-origins*
   '("https://runner.example" "https://observer.example"))
 (defconstant +devnet-smoke-gate-public-cors-connections+ 3)
+(defparameter *devnet-smoke-gate-engine-cors-origins*
+  '("https://engine-runner.example" "https://engine-observer.example"))
+(defconstant +devnet-smoke-gate-engine-cors-connections+ 3)
 (defparameter *devnet-smoke-gate-engine-vhosts*
   '("engine.runner" "localhost"))
 (defparameter *devnet-smoke-gate-public-vhosts*
@@ -913,6 +916,190 @@ references/ checkouts.~%")
               :total-connections (getf summary :total-connections)))))
   #-sbcl
   (error "Public CORS smoke verification requires SBCL threads"))
+
+(defun devnet-smoke-gate-verify-engine-cors ()
+  #+sbcl
+  (let ((jwt-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-smoke-engine-cors-jwt"
+           "hex")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path
+                     (namestring
+                      (devnet-smoke-gate-reference-path
+                       +devnet-cli-genesis-fixture+))
+                     :port 8551
+                     :public-port 8545
+                     :jwt-secret-path (namestring jwt-path)
+                     :engine-cors-origins
+                     *devnet-smoke-gate-engine-cors-origins*))
+                  (secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                  (token (engine-rpc-make-jwt-token secret 0))
+                  (engine-body
+                    (devnet-smoke-gate-json-rpc-request
+                     451
+                     "engine_getClientVersionV1"
+                     (list
+                      (list (cons "code" "TT")
+                            (cons "name" "test")
+                            (cons "version" "1.1.1")
+                            (cons "commit" "0x12345678")))))
+                  (preflight-output (make-string-output-stream))
+                  (post-output (make-string-output-stream))
+                  (blocked-output (make-string-output-stream))
+                  (engine-served-count 0)
+                  (engine-done-p nil)
+                  (engine-requests
+                    (list
+                     (cons
+                      (devnet-smoke-gate-http-request
+                       "OPTIONS" "/" :origin
+                       "https://engine-runner.example")
+                      preflight-output)
+                     (cons
+                      (devnet-cli-json-rpc-http-request
+                       engine-body
+                       :token token
+                       :origin "https://engine-observer.example")
+                      post-output)
+                     (cons
+                      (devnet-smoke-gate-http-request
+                       "OPTIONS" "/" :origin
+                       "https://blocked-engine.example")
+                      blocked-output)))
+                  (summary
+                    (ethereum-lisp.cli:start-devnet-node-listeners
+                     node
+                     (make-engine-rpc-http-listener
+                      :endpoint "engine-cors-engine"
+                      :accept-function
+                      (lambda ()
+                        (when engine-requests
+                          (destructuring-bind (request . output)
+                              (pop engine-requests)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream request)
+                             :output-stream output
+                             :close-function
+                             (lambda ()
+                               (incf engine-served-count)
+                               (when (= engine-served-count
+                                        +devnet-smoke-gate-engine-cors-connections+)
+                                 (setf engine-done-p t)))))))
+                      :close-function (lambda () nil))
+                     (make-engine-rpc-http-listener
+                      :endpoint "engine-cors-public"
+                      :accept-function
+                      (lambda ()
+                        (loop until engine-done-p
+                              do (sleep 0.001))
+                        nil)
+                      :close-function (lambda () nil))
+                     :max-connections
+                     +devnet-smoke-gate-engine-cors-connections+))
+                  (preflight-response
+                    (get-output-stream-string preflight-output))
+                  (post-response
+                    (get-output-stream-string post-output))
+                  (blocked-response
+                    (get-output-stream-string blocked-output))
+                  (post-rpc
+                    (devnet-smoke-gate-rpc-body post-response))
+                  (post-result
+                    (first (fixture-object-field post-rpc "result")))
+                  (summary-json
+                    (ethereum-lisp.cli::devnet-node-summary-json-object
+                     node))
+                  (telemetry-fields
+                    (ethereum-lisp.cli::devnet-node-telemetry-fields node))
+                  (reported-origins
+                    (cdr (assoc "engineCorsOrigins"
+                                summary-json
+                                :test #'string=)))
+                  (telemetry-origins
+                    (cdr (assoc "engineCorsOrigins"
+                                telemetry-fields
+                                :test #'string=))))
+             (devnet-smoke-gate-require
+              (= 204 (devnet-cli-http-status preflight-response))
+              "Engine CORS preflight status mismatch")
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status post-response))
+              "Engine CORS JSON-RPC status mismatch")
+             (devnet-smoke-gate-require
+              (= 403 (devnet-cli-http-status blocked-response))
+              "Engine CORS blocked-origin status mismatch")
+             (devnet-smoke-gate-require
+              (string= "https://engine-runner.example"
+                       (devnet-smoke-gate-http-header
+                        preflight-response
+                        "Access-Control-Allow-Origin"))
+              "Engine CORS preflight origin header mismatch")
+             (devnet-smoke-gate-require
+              (string= "GET, POST, OPTIONS"
+                       (devnet-smoke-gate-http-header
+                        preflight-response
+                        "Access-Control-Allow-Methods"))
+              "Engine CORS preflight methods header mismatch")
+             (devnet-smoke-gate-require
+              (string= "Authorization, Content-Type"
+                       (devnet-smoke-gate-http-header
+                        preflight-response
+                        "Access-Control-Allow-Headers"))
+              "Engine CORS preflight allowed-headers mismatch")
+             (devnet-smoke-gate-require
+              (string= "https://engine-observer.example"
+                       (devnet-smoke-gate-http-header
+                        post-response
+                        "Access-Control-Allow-Origin"))
+              "Engine CORS JSON-RPC origin header mismatch")
+             (devnet-smoke-gate-require
+              (string= "Origin"
+                       (devnet-smoke-gate-http-header post-response "Vary"))
+              "Engine CORS JSON-RPC Vary header mismatch")
+             (devnet-smoke-gate-require
+              (string= "ethereum-lisp"
+                       (fixture-object-field post-result "name"))
+              "Engine CORS JSON-RPC client version mismatch")
+             (devnet-smoke-gate-require
+              (= +devnet-smoke-gate-engine-cors-connections+
+                 (getf summary :engine-connections))
+              "Engine CORS Engine connection count mismatch")
+             (devnet-smoke-gate-require
+              (= 0 (getf summary :public-connections))
+              "Engine CORS public connection count mismatch")
+             (devnet-smoke-gate-require
+              (equal *devnet-smoke-gate-engine-cors-origins*
+                     reported-origins)
+              "Engine CORS summary origins mismatch")
+             (devnet-smoke-gate-require
+              (string= "https://engine-runner.example,https://engine-observer.example"
+                       telemetry-origins)
+              "Engine CORS telemetry origins mismatch")
+             (list :origins
+                   (copy-list *devnet-smoke-gate-engine-cors-origins*)
+                   :reported-origins reported-origins
+                   :telemetry-origins telemetry-origins
+                   :preflight-status
+                   (devnet-cli-http-status preflight-response)
+                   :post-status (devnet-cli-http-status post-response)
+                   :blocked-status
+                   (devnet-cli-http-status blocked-response)
+                   :engine-connections
+                   (getf summary :engine-connections)
+                   :public-connections
+                   (getf summary :public-connections)
+                   :total-connections
+                   (getf summary :total-connections))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))))
+  #-sbcl
+  (error "Engine CORS smoke verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-verify-vhosts ()
   #+sbcl
@@ -7441,6 +7628,8 @@ references/ checkouts.~%")
                          (devnet-smoke-gate-verify-public-api-allowlist))
                        (public-cors-summary
                          (devnet-smoke-gate-verify-public-cors))
+                       (engine-cors-summary
+                         (devnet-smoke-gate-verify-engine-cors))
                        (vhost-summary
                          (devnet-smoke-gate-verify-vhosts))
                        (rpc-prefix-summary
@@ -7512,6 +7701,24 @@ references/ checkouts.~%")
                         (getf public-cors-summary :public-connections))
                   (cons "publicCorsTotalConnections"
                         (getf public-cors-summary :total-connections))
+                  (cons "engineCorsOrigins"
+                        (getf engine-cors-summary :origins))
+                  (cons "engineCorsReportedOrigins"
+                        (getf engine-cors-summary :reported-origins))
+                  (cons "engineCorsTelemetryOrigins"
+                        (getf engine-cors-summary :telemetry-origins))
+                  (cons "engineCorsPreflightStatus"
+                        (getf engine-cors-summary :preflight-status))
+                  (cons "engineCorsRpcStatus"
+                        (getf engine-cors-summary :post-status))
+                  (cons "engineCorsBlockedStatus"
+                        (getf engine-cors-summary :blocked-status))
+                  (cons "engineCorsEngineConnections"
+                        (getf engine-cors-summary :engine-connections))
+                  (cons "engineCorsPublicConnections"
+                        (getf engine-cors-summary :public-connections))
+                  (cons "engineCorsTotalConnections"
+                        (getf engine-cors-summary :total-connections))
                   (cons "engineVhosts"
                         (getf vhost-summary :engine-vhosts))
                   (cons "publicVhosts"

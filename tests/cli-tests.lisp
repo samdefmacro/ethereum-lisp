@@ -206,6 +206,22 @@
   (is (= 3 (fixture-object-field report "publicCorsPublicConnections")))
   (is (= 3 (fixture-object-field report "publicCorsTotalConnections"))))
 
+(defun devnet-cli-assert-engine-cors-smoke-report (report)
+  (is (equal '("https://engine-runner.example"
+               "https://engine-observer.example")
+             (fixture-object-field report "engineCorsOrigins")))
+  (is (equal '("https://engine-runner.example"
+               "https://engine-observer.example")
+             (fixture-object-field report "engineCorsReportedOrigins")))
+  (is (string= "https://engine-runner.example,https://engine-observer.example"
+               (fixture-object-field report "engineCorsTelemetryOrigins")))
+  (is (= 204 (fixture-object-field report "engineCorsPreflightStatus")))
+  (is (= 200 (fixture-object-field report "engineCorsRpcStatus")))
+  (is (= 403 (fixture-object-field report "engineCorsBlockedStatus")))
+  (is (= 3 (fixture-object-field report "engineCorsEngineConnections")))
+  (is (= 0 (fixture-object-field report "engineCorsPublicConnections")))
+  (is (= 3 (fixture-object-field report "engineCorsTotalConnections"))))
+
 (defun devnet-cli-assert-vhost-smoke-report (report)
   (is (equal '("engine.runner" "localhost")
              (fixture-object-field report "engineVhosts")))
@@ -3254,6 +3270,7 @@
                        report
                        "publicApiBlockedEngineErrorCode")))
                (devnet-cli-assert-public-cors-smoke-report report)
+               (devnet-cli-assert-engine-cors-smoke-report report)
                (devnet-cli-assert-vhost-smoke-report report)
                (devnet-cli-assert-rpc-prefix-smoke-report report)
                (devnet-cli-assert-connection-contract report 1)
@@ -3770,6 +3787,7 @@
                            case
                            "publicMalformedJsonErrorCode")))
                    (devnet-cli-assert-public-cors-smoke-report case)
+                   (devnet-cli-assert-engine-cors-smoke-report case)
                    (devnet-cli-assert-vhost-smoke-report case)
                    (devnet-cli-assert-rpc-prefix-smoke-report case)
                    (is (string= expected-block-number

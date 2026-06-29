@@ -814,6 +814,16 @@ ones.
     and lifecycle telemetry, and the external `scripts/ethereum-lisp.lisp`
     serve-mode HTTP-shaping regression verifies Engine CORS preflight plus
     authenticated CORS response headers through the advertised Engine endpoint.
+- [x] `DEVNET-RUNNER-ENGINE-CORS-SMOKE`: Lock authenticated Engine CORS
+  behavior at the standalone devnet process-boundary smoke surface.
+  - Result (2026-06-30): the standalone devnet smoke gate now starts a
+    CORS-configured Engine listener with a real JWT secret and verifies allowed
+    preflight HTTP 204, authenticated Origin JSON-RPC HTTP 200 with CORS/Vary
+    headers, and disallowed Origin HTTP 403 through listener streams. The
+    smoke report exposes configured, summary-reported, and telemetry-reported
+    Engine origins plus the Engine CORS probe status and connection counts,
+    and CLI smoke tests assert those fields for both single-case and
+    all-fixtures runner reports.
 - [x] `DEVNET-RUNNER-PUBLIC-CORS-SMOKE`: Lock public RPC CORS behavior at the
   standalone devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate now starts a
