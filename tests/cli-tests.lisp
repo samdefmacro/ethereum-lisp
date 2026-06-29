@@ -7064,6 +7064,22 @@
                                  (cons "topics"
                                        (list
                                         (fixture-object-field
+                                         expect "logTopic")))))))))
+                (logs-by-block-hash-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 642)
+                         (cons "method" "eth_getLogs")
+                         (cons "params"
+                               (list
+                                (list
+                                 (cons "blockHash" block-hash-hex)
+                                 (cons "address"
+                                       (fixture-object-field expect
+                                                             "logAddress"))
+                                 (cons "topics"
+                                       (list
+                                        (fixture-object-field
                                          expect "logTopic"))))))))))
            (devnet-cli-write-temp-file
             genesis-path
@@ -7104,7 +7120,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "33"
+                        "34"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -7175,7 +7191,8 @@
                     post-call-storage-response
                     receipt-response
                     block-receipts-response
-                    logs-response)
+                    logs-response
+                    logs-by-block-hash-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
                    (progn
@@ -7400,6 +7417,11 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              logs-body)))
+                     (setf logs-by-block-hash-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             logs-by-block-hash-body)))
                      (setf post-status-block-number-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -7477,6 +7499,8 @@
                (is (= 200 (devnet-cli-http-status receipt-response)))
                (is (= 200 (devnet-cli-http-status block-receipts-response)))
                (is (= 200 (devnet-cli-http-status logs-response)))
+               (is (= 200 (devnet-cli-http-status
+                            logs-by-block-hash-response)))
                (let* ((new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
@@ -7622,6 +7646,10 @@
                       (logs-rpc
                         (parse-json
                          (devnet-cli-http-body logs-response)))
+                      (logs-by-block-hash-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          logs-by-block-hash-response)))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -7743,6 +7771,11 @@
                       (filtered-logs
                         (fixture-object-field logs-rpc "result"))
                       (filtered-log (first filtered-logs))
+                      (block-hash-filtered-logs
+                        (fixture-object-field logs-by-block-hash-rpc
+                                              "result"))
+                      (block-hash-filtered-log
+                        (first block-hash-filtered-logs))
                       (expected-prepared-block-number
                         (quantity-to-hex
                          (1+ (block-header-number
@@ -7809,6 +7842,8 @@
                               full-block-by-number-rpc "id")))
                  (is (= 641 (fixture-object-field
                               full-block-by-hash-rpc "id")))
+                 (is (= 642 (fixture-object-field
+                              logs-by-block-hash-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -8036,8 +8071,10 @@
                                                     "transactionHash")))
                  (is (= (length receipt-logs) (length block-receipt-logs)))
                  (is (= (length receipt-logs) (length filtered-logs)))
+                 (is (= (length receipt-logs)
+                        (length block-hash-filtered-logs)))
                  (dolist (log (list receipt-log block-receipt-log
-                                    filtered-log))
+                                    filtered-log block-hash-filtered-log))
                    (is (string= (fixture-object-field expect "logAddress")
                                 (fixture-object-field log "address")))
                    (is (string= (fixture-object-field expect "logData")
@@ -8100,11 +8137,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "33"
+                       (is (string= "34"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "41"
+                       (is (string= "42"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))

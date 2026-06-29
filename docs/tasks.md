@@ -1025,6 +1025,14 @@ ones.
     listener. The checks compare transaction hash, block hash/number,
     receipt type/status, log address/topic/data, transaction/log indexes, and
     shutdown telemetry for the expanded Engine/public request counts.
+- [x] `DEVNET-RUNNER-SCRIPT-BLOCK-HASH-LOGS`: Lock block-hash log filtering at
+  the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now verifies `eth_getLogs` with an explicit
+    canonical `blockHash` filter after authenticated Engine import and
+    forkchoice. The assertion compares the block-hash-filtered log with the
+    receipt, block-receipt, and block-range log views, and updates shutdown
+    telemetry for the expanded public request count.
 - [x] `DEVNET-RUNNER-SCRIPT-CHECKPOINT-TAGS`: Lock public safe/finalized
   checkpoint reads at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode

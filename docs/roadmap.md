@@ -1214,7 +1214,8 @@ first pass, but interfaces must not block that path.
   state, and shutdown metadata for the imported child head. That script-process
   import now uses the log-producing Shanghai contract-call payload and verifies
   public `eth_getTransactionReceipt`, `eth_getBlockReceipts`, and filtered
-  `eth_getLogs` responses for the imported child. It also verifies public
+  `eth_getLogs` responses by both range and canonical block hash for the
+  imported child. It also verifies public
   `safe` and `finalized` checkpoint tag reads through
   `eth_getBlockByNumber` and `eth_getBalance` while `latest` remains on the
   imported child. The same script subprocess now verifies public
