@@ -1548,6 +1548,17 @@ reference-client drift.
     root, mode, count, structured selector entries, and selector strings, with
     transaction type counts and blockchain materialization kinds preserved for
     drift checks without text scraping.
+  - Progress: added `scripts/classify-transaction-test-selectors.lisp` so
+    transaction-test drift checks no longer depend on the local Phase A sample
+    selector list being present in the upstream root. The classifier discovers
+    selectors directly from `transaction_tests`, preserves the state/blockchain
+    classifier contract (`--root`, `--prefix`, `--limit`, `--include-pinned`,
+    `--failures-only`, and `--json`), and classifies valid materializable
+    selectors as passing while grouping Prague/EIP-7702 transaction-test
+    selectors as out-of-scope for the current Phase A valid-envelope contract.
+    Against the installed v5.4.0 stable root, it reports 53 discovered
+    selectors across 12 `eip7702_set_code_tx` families, all out-of-scope and
+    with no implementation-bug-candidate or fixture-harness-error records.
   - Progress: unified selector/report root argument handling with the smoke
     gate. `scripts/list-state-test-selectors.lisp`,
     `scripts/list-transaction-test-selectors.lisp`,

@@ -1532,6 +1532,14 @@ Detailed historical implementation notes for this section now live in
   outputs, large declared-length out-of-gas cases, and even-modulus
   trailing-zero-count cases; the pinned smoke gate executes 463 total fixture
   cases across state, transaction, and blockchain suites.
+  `scripts/classify-transaction-test-selectors.lisp` now fills the comparable
+  transaction-test drift tooling gap by discovering selectors directly from
+  `transaction_tests` instead of depending on the local Phase A sample
+  selectors. Against the installed v5.4.0 stable root, the current
+  transaction-test drift map is 53 discovered selectors across 12
+  `prague/eip7702_set_code_tx` families, all classified out-of-scope for the
+  current Phase A valid-envelope contract with no implementation-bug-candidate
+  or fixture-harness-error records.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
