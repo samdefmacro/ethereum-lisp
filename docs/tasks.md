@@ -510,6 +510,13 @@ ones.
     `devnet.ready` / `devnet.shutdown` telemetry report the same endpoints,
     and requires shutdown telemetry to record one Engine, one public, two total
     served connections.
+- [x] `DEVNET-RUNNER-SCRIPT-ENGINE-BATCH-READINESS`: Lock authenticated Engine
+  JSON-RPC batch readiness at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now sends a JWT-authenticated Engine batch
+    containing `engine_getClientVersionV1` and `engine_exchangeCapabilities`
+    through the ready-file Engine endpoint, verifies both response bodies, and
+    checks shutdown telemetry accounts for the extra Engine connection.
 - [x] `DEVNET-RUNNER-LISTENER-STARTUP-CLEANUP`: Close a successfully bound
   Engine listener if public listener construction fails during devnet startup.
   - Result (2026-06-29): `start-devnet-node` now registers the Engine listener
