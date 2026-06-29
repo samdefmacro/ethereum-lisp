@@ -109,7 +109,7 @@
            (fixture-object-field contract "engineBoundaryConnections")))
     (is (= (* 11 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
-    (is (= (* 9 case-count)
+    (is (= (* 10 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
     (is (= (* 2 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
@@ -149,7 +149,14 @@
   (is (every #'digit-char-p
              (fixture-object-field report "publicNetVersion")))
   (is (null (fixture-object-field report "publicNetListening")))
-  (is (null (fixture-object-field report "publicSyncing"))))
+  (is (null (fixture-object-field report "publicSyncing")))
+  (is (= 3 (fixture-object-field report "publicBatchResponseCount")))
+  (is (string= (fixture-object-field report "publicBatchChainId")
+               (fixture-object-field report "chainId")))
+  (is (string= (fixture-object-field report "publicBatchNetVersion")
+               (fixture-object-field report "publicNetVersion")))
+  (is (search "ethereum-lisp"
+              (fixture-object-field report "publicBatchClientVersion"))))
 
 (defun devnet-cli-assert-engine-payload-bodies (report)
   (is (= 1 (fixture-object-field report "enginePayloadBodiesByHashCount")))
@@ -3607,9 +3614,9 @@
                 report cases prune-boundary)
                (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 20 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 33 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 34 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -3627,7 +3634,7 @@
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
                    (is (= 13 (fixture-object-field case "engineConnections")))
-                   (is (= 20 (fixture-object-field case "publicConnections")))
+                   (is (= 21 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -4423,9 +4430,9 @@
                          "databaseRpcSideReinsertedTransactionHashes")))))))
         (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 20 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 21 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 33 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 34 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (devnet-cli-assert-public-readiness case)

@@ -1063,7 +1063,9 @@ first pass, but interfaces must not block that path.
   standalone process smoke also probes public `web3_clientVersion`,
   `net_version`, `net_listening`, and `eth_syncing` over the listener, reports
   those readiness fields, and keeps the connection contract aligned for
-  Hive-style runners.
+  Hive-style runners. It now also sends a public JSON-RPC batch for
+  `eth_chainId`, `net_version`, and `web3_clientVersion`, reports the batch
+  result fields, and accounts for the extra public listener connection.
   `--authrpc.vhosts LIST` and
   `--http.vhosts LIST` now configure Engine/public HTTP Host allowlists,
   report `engineVhosts` / `publicVhosts` in summaries, ready-file JSON, and

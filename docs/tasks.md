@@ -879,6 +879,13 @@ ones.
     explicit non-p2p listening status, and non-syncing status, reports those
     fields in JSON/text output, and updates the public canonical-read
     connection contract for Hive-style runners.
+- [x] `DEVNET-RUNNER-PUBLIC-BATCH-READINESS`: Lock public JSON-RPC batch
+  readiness at the devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate now sends a public
+    listener batch containing `eth_chainId`, `net_version`, and
+    `web3_clientVersion`, verifies all three response bodies, reports the
+    batch response count plus chain/network/client-version fields, and updates
+    the public canonical-read connection contract for Hive-style runners.
 - [x] `DEVNET-RUNNER-SCRIPT-PUBLIC-READINESS`: Lock common public RPC readiness
   probes at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode

@@ -80,7 +80,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
-(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 9)
+(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 10)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
 (defconstant +devnet-smoke-gate-public-txpool-connections+ 9)
 (defconstant +devnet-smoke-gate-public-connections+
@@ -5846,6 +5846,7 @@ references/ checkouts.~%")
                   (public-net-version-output (make-string-output-stream))
                   (public-net-listening-output (make-string-output-stream))
                   (public-syncing-output (make-string-output-stream))
+                  (public-batch-output (make-string-output-stream))
                   (public-engine-namespace-output
                     (make-string-output-stream))
                   (public-malformed-json-output
@@ -6123,6 +6124,22 @@ references/ checkouts.~%")
                         public-syncing-output)
                        (cons
                         (json-encode
+                         (list
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 50)
+                                (cons "method" "eth_chainId")
+                                (cons "params" '()))
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 51)
+                                (cons "method" "net_version")
+                                (cons "params" '()))
+                          (list (cons "jsonrpc" "2.0")
+                                (cons "id" 52)
+                                (cons "method" "web3_clientVersion")
+                                (cons "params" '()))))
+                        public-batch-output)
+                       (cons
+                        (json-encode
                          (list (cons "jsonrpc" "2.0")
                                (cons "id" 45)
                                (cons "method" "engine_exchangeCapabilities")
@@ -6379,6 +6396,8 @@ references/ checkouts.~%")
                          public-net-listening-output))
                       (public-syncing-response
                         (get-output-stream-string public-syncing-output))
+                      (public-batch-response
+                        (get-output-stream-string public-batch-output))
                       (public-engine-namespace-response
                         (get-output-stream-string
                          public-engine-namespace-output))
@@ -6451,6 +6470,11 @@ references/ checkouts.~%")
                          public-net-listening-response))
                       (public-syncing-rpc
                         (devnet-smoke-gate-rpc-body public-syncing-response))
+                      (public-batch-rpc
+                        (devnet-smoke-gate-rpc-body public-batch-response))
+                      (public-batch-chain-id-rpc (first public-batch-rpc))
+                      (public-batch-network-rpc (second public-batch-rpc))
+                      (public-batch-client-version-rpc (third public-batch-rpc))
                       (public-engine-namespace-rpc
                         (devnet-smoke-gate-rpc-body
                          public-engine-namespace-response))
@@ -6688,6 +6712,9 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status public-syncing-response))
                   "eth_syncing HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-batch-response))
+                  "Public JSON-RPC batch HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status
                           public-engine-namespace-response))
                   "Public Engine namespace probe HTTP status mismatch")
@@ -6923,6 +6950,30 @@ references/ checkouts.~%")
                   (null (fixture-object-field public-syncing-rpc "result"))
                   "eth_syncing mismatch")
                  (devnet-smoke-gate-require
+                  (= 3 (length public-batch-rpc))
+                  "Public JSON-RPC batch response count mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (quantity-to-hex
+                             (chain-config-chain-id config))
+                           (fixture-object-field
+                            public-batch-chain-id-rpc
+                            "result"))
+                  "Public batch eth_chainId mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (write-to-string
+                             (ethereum-lisp.cli::devnet-node-network-id node)
+                             :base 10)
+                           (fixture-object-field
+                            public-batch-network-rpc
+                            "result"))
+                  "Public batch net_version mismatch")
+                 (devnet-smoke-gate-require
+                  (search "ethereum-lisp"
+                          (fixture-object-field
+                           public-batch-client-version-rpc
+                           "result"))
+                  "Public batch web3_clientVersion mismatch")
+                 (devnet-smoke-gate-require
                  (string= pending-transaction-hash-hex
                            (fixture-object-field send-raw-rpc "result"))
                   "eth_sendRawTransaction hash mismatch")
@@ -7042,6 +7093,9 @@ references/ checkouts.~%")
                   (cons "status" "ok")
                   (cons "mode" "devnet-listener-boundary")
                   (cons "fixtureCase" case-name)
+                  (cons "chainId"
+                        (quantity-to-hex
+                         (chain-config-chain-id config)))
                   (cons "engineConnections"
                         (getf summary :engine-connections))
                   (cons "publicConnections"
@@ -7232,6 +7286,18 @@ references/ checkouts.~%")
                         (if (fixture-object-field public-syncing-rpc "result")
                             t
                             :false))
+                  (cons "publicBatchResponseCount"
+                        (length public-batch-rpc))
+                  (cons "publicBatchChainId"
+                        (fixture-object-field public-batch-chain-id-rpc
+                                              "result"))
+                  (cons "publicBatchNetVersion"
+                        (fixture-object-field public-batch-network-rpc
+                                              "result"))
+                  (cons "publicBatchClientVersion"
+                        (fixture-object-field
+                         public-batch-client-version-rpc
+                         "result"))
                   (cons "newPayloadStatus"
                         (fixture-object-field new-payload-result "status"))
                   (cons "latestValidHash" expected-hash)
@@ -9142,6 +9208,16 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field report "publicNetListening"))
         (format t "publicSyncing=~A~%"
                 (devnet-smoke-gate-field report "publicSyncing"))
+        (format t "publicBatchResponseCount=~D~%"
+                (devnet-smoke-gate-field
+                 report "publicBatchResponseCount"))
+        (format t "publicBatchChainId=~A~%"
+                (devnet-smoke-gate-field report "publicBatchChainId"))
+        (format t "publicBatchNetVersion=~A~%"
+                (devnet-smoke-gate-field report "publicBatchNetVersion"))
+        (format t "publicBatchClientVersion=~A~%"
+                (devnet-smoke-gate-field
+                 report "publicBatchClientVersion"))
         (format t "newPayloadStatus=~A~%"
                 (devnet-smoke-gate-field report "newPayloadStatus"))
         (format t "latestValidHash=~A~%"
