@@ -150,6 +150,12 @@
              (fixture-object-field report "publicNetVersion")))
   (is (null (fixture-object-field report "publicNetListening")))
   (is (null (fixture-object-field report "publicSyncing")))
+  (is (string= "0x0" (fixture-object-field report "publicNetPeerCount")))
+  (is (= 0 (fixture-object-field report "publicAccountCount")))
+  (is (string= (address-to-hex (zero-address))
+               (fixture-object-field report "publicCoinbase")))
+  (is (null (fixture-object-field report "publicMining")))
+  (is (string= "0x0" (fixture-object-field report "publicHashrate")))
   (is (= 3 (fixture-object-field report "publicBatchResponseCount")))
   (is (string= (fixture-object-field report "publicBatchChainId")
                (fixture-object-field report "chainId")))
@@ -5389,7 +5395,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "7"
+                        "12"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -5445,6 +5451,16 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":505,\"method\":\"net_listening\",\"params\":[]}")
                     (public-syncing-body
                       "{\"jsonrpc\":\"2.0\",\"id\":506,\"method\":\"eth_syncing\",\"params\":[]}")
+                    (public-net-peer-count-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":516,\"method\":\"net_peerCount\",\"params\":[]}")
+                    (public-accounts-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":517,\"method\":\"eth_accounts\",\"params\":[]}")
+                    (public-coinbase-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":518,\"method\":\"eth_coinbase\",\"params\":[]}")
+                    (public-mining-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":519,\"method\":\"eth_mining\",\"params\":[]}")
+                    (public-hashrate-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":520,\"method\":\"eth_hashrate\",\"params\":[]}")
                     (public-batch-body
                       "[{\"jsonrpc\":\"2.0\",\"id\":510,\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":511,\"method\":\"net_version\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":512,\"method\":\"web3_clientVersion\",\"params\":[]}]")
                     (public-engine-body
@@ -5460,6 +5476,11 @@
                     public-net-version-response
                     public-net-listening-response
                     public-syncing-response
+                    public-net-peer-count-response
+                    public-accounts-response
+                    public-coinbase-response
+                    public-mining-response
+                    public-hashrate-response
                     public-batch-response
                     public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
@@ -5524,6 +5545,31 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-syncing-body)))
+                     (setf public-net-peer-count-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-net-peer-count-body)))
+                     (setf public-accounts-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-accounts-body)))
+                     (setf public-coinbase-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-coinbase-body)))
+                     (setf public-mining-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-mining-body)))
+                     (setf public-hashrate-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-hashrate-body)))
                      (setf public-batch-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -5554,6 +5600,13 @@
                       (devnet-cli-http-status
                        public-net-listening-response)))
                (is (= 200 (devnet-cli-http-status public-syncing-response)))
+               (is (= 200
+                      (devnet-cli-http-status
+                       public-net-peer-count-response)))
+               (is (= 200 (devnet-cli-http-status public-accounts-response)))
+               (is (= 200 (devnet-cli-http-status public-coinbase-response)))
+               (is (= 200 (devnet-cli-http-status public-mining-response)))
+               (is (= 200 (devnet-cli-http-status public-hashrate-response)))
                (is (= 200 (devnet-cli-http-status public-batch-response)))
                (is (= 200 (devnet-cli-http-status public-engine-response)))
                (let* ((engine-json
@@ -5590,6 +5643,22 @@
                       (public-syncing-json
                         (parse-json
                          (devnet-cli-http-body public-syncing-response)))
+                      (public-net-peer-count-json
+                        (parse-json
+                         (devnet-cli-http-body
+                          public-net-peer-count-response)))
+                      (public-accounts-json
+                        (parse-json
+                         (devnet-cli-http-body public-accounts-response)))
+                      (public-coinbase-json
+                        (parse-json
+                         (devnet-cli-http-body public-coinbase-response)))
+                      (public-mining-json
+                        (parse-json
+                         (devnet-cli-http-body public-mining-response)))
+                      (public-hashrate-json
+                        (parse-json
+                         (devnet-cli-http-body public-hashrate-response)))
                       (public-batch-json
                         (parse-json
                          (devnet-cli-http-body public-batch-response)))
@@ -5661,6 +5730,25 @@
                  (is (= 506 (fixture-object-field public-syncing-json "id")))
                  (is (null (fixture-object-field
                             public-syncing-json "result")))
+                 (is (= 516
+                        (fixture-object-field
+                         public-net-peer-count-json "id")))
+                 (is (string= "0x0"
+                              (fixture-object-field
+                               public-net-peer-count-json "result")))
+                 (is (= 517 (fixture-object-field public-accounts-json "id")))
+                 (is (null (fixture-object-field
+                            public-accounts-json "result")))
+                 (is (= 518 (fixture-object-field public-coinbase-json "id")))
+                 (is (string= (address-to-hex (zero-address))
+                              (fixture-object-field
+                               public-coinbase-json "result")))
+                 (is (= 519 (fixture-object-field public-mining-json "id")))
+                 (is (null (fixture-object-field public-mining-json "result")))
+                 (is (= 520 (fixture-object-field public-hashrate-json "id")))
+                 (is (string= "0x0"
+                              (fixture-object-field
+                               public-hashrate-json "result")))
                  (is (= 3 (length public-batch-json)))
                  (is (= 510
                         (fixture-object-field
@@ -5734,11 +5822,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "7"
+                         (is (string= "12"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "13"
+                         (is (string= "18"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

@@ -937,6 +937,14 @@ ones.
     `eth_chainId`, `net_version`, and `web3_clientVersion` through the
     ready-file RPC endpoint, verifies all three response bodies, and checks
     shutdown telemetry accounts for the extra public connection.
+- [x] `DEVNET-RUNNER-SCRIPT-PUBLIC-LOCAL-STATUS`: Lock zero-state public RPC
+  status probes at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now calls `net_peerCount`, `eth_accounts`,
+    `eth_coinbase`, `eth_mining`, and `eth_hashrate` through the advertised
+    public endpoint, verifies the non-networked/non-wallet/non-mining local
+    node contract, and checks shutdown telemetry accounts for the five extra
+    public connections.
 - [x] `DEVNET-RUNNER-SCRIPT-AUTH-BOUNDARY`: Lock Engine auth failures and
   Engine/public namespace separation at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
