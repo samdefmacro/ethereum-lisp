@@ -2440,6 +2440,28 @@
   (require :sb-bsd-sockets))
 
 #+sbcl
+(defun devnet-cli-open-loopback-socket (&key (port 0))
+  (let ((socket
+          (make-instance 'sb-bsd-sockets:inet-socket
+                         :type :stream
+                         :protocol :tcp)))
+    (setf (sb-bsd-sockets:sockopt-reuse-address socket) t)
+    (handler-case
+        (progn
+          (sb-bsd-sockets:socket-bind
+           socket
+           (sb-bsd-sockets:make-inet-address "127.0.0.1")
+           port)
+          (sb-bsd-sockets:socket-listen socket 1)
+          (multiple-value-bind (address bound-port)
+              (sb-bsd-sockets:socket-name socket)
+            (declare (ignore address))
+            (values socket bound-port)))
+      (error (condition)
+        (ignore-errors (sb-bsd-sockets:socket-close socket))
+        (error condition)))))
+
+#+sbcl
 (defun devnet-cli-http-endpoint-host-port (endpoint)
   (let* ((prefix "http://")
          (start (if (and (<= (length prefix) (length endpoint))
@@ -2481,6 +2503,45 @@
              (finish-output stream)
              (devnet-cli-read-stream-string stream))
         (close stream)))))
+
+(deftest devnet-node-start-closes-engine-socket-on-public-bind-error
+  #-sbcl
+  (skip-test "Devnet socket bind cleanup requires SBCL sockets")
+  #+sbcl
+  (let ((engine-probe nil)
+        (public-socket nil)
+        (rebound-socket nil)
+        (engine-port nil)
+        (public-port nil)
+        (rebound-port nil))
+    (handler-case
+        (unwind-protect
+             (progn
+               (multiple-value-setq (engine-probe engine-port)
+                 (devnet-cli-open-loopback-socket))
+               (sb-bsd-sockets:socket-close engine-probe)
+               (setf engine-probe nil)
+               (multiple-value-setq (public-socket public-port)
+                 (devnet-cli-open-loopback-socket))
+               (let ((node (ethereum-lisp.cli:make-devnet-node
+                            :genesis-path +devnet-cli-genesis-fixture+
+                            :port engine-port
+                            :public-port public-port)))
+                 (signals error
+                   (ethereum-lisp.cli:start-devnet-node
+                    node
+                    :max-connections 0)))
+               (multiple-value-setq (rebound-socket rebound-port)
+                 (devnet-cli-open-loopback-socket :port engine-port))
+               (is (= engine-port rebound-port)))
+          (when engine-probe
+            (ignore-errors (sb-bsd-sockets:socket-close engine-probe)))
+          (when public-socket
+            (ignore-errors (sb-bsd-sockets:socket-close public-socket)))
+          (when rebound-socket
+            (ignore-errors (sb-bsd-sockets:socket-close rebound-socket))))
+      (sb-bsd-sockets:operation-not-permitted-error ()
+        (skip-test "Local socket bind is not permitted in this sandbox")))))
 
 (defun devnet-smoke-gate-launch-json-process ()
   (uiop:launch-program

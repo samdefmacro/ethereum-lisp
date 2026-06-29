@@ -1034,7 +1034,10 @@ first pass, but interfaces must not block that path.
   to infer startup versus exit records solely from event names. The same
   lifecycle records now expose `engineConnections`, `publicConnections`, and
   `totalConnections`, with serve-mode shutdown logs recording the actual split
-  listener summary for runner accounting. The standalone devnet gate now also
+  listener summary for runner accounting. Devnet startup now closes a
+  successfully bound Engine socket when public listener construction fails, so
+  startup errors do not leave the configured Engine port occupied inside
+  embedded devnet processes. The standalone devnet gate now also
   reports concrete HTTP loopback `engineEndpoint` / `rpcEndpoint` values and
   validates that ready files and lifecycle telemetry carry those same endpoints
   rather than placeholder listener names, and it probes the same runner surface

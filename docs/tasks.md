@@ -510,6 +510,14 @@ ones.
     `devnet.ready` / `devnet.shutdown` telemetry report the same endpoints,
     and requires shutdown telemetry to record one Engine, one public, two total
     served connections.
+- [x] `DEVNET-RUNNER-LISTENER-STARTUP-CLEANUP`: Close a successfully bound
+  Engine listener if public listener construction fails during devnet startup.
+  - Result (2026-06-29): `start-devnet-node` now registers the Engine listener
+    with the shutdown controller immediately after binding it, before
+    constructing the public listener. If the public bind fails, the unwind path
+    closes the Engine socket instead of leaving the configured Engine port
+    occupied inside the process. Socket coverage binds a conflicting public
+    port, forces startup failure, then proves the Engine port can be rebound.
 - [x] `DEVNET-RUNNER-SIGNAL-SHUTDOWN`: Lock the runner-facing script's external
   shutdown signal contract for long-running serve mode.
   - Result (2026-06-28): added subprocess coverage that launches

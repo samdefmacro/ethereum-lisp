@@ -439,10 +439,14 @@
          (progn
            (setf engine-listener
                  (make-engine-rpc-http-socket-listener
-                  (devnet-node-service node))
-                 public-listener
+                  (devnet-node-service node)))
+           (devnet-shutdown-controller-register-listeners
+            shutdown-controller engine-listener nil)
+           (setf public-listener
                  (make-engine-rpc-http-socket-listener
                   (devnet-node-public-service node)))
+           (devnet-shutdown-controller-register-listeners
+            shutdown-controller engine-listener public-listener)
            (prog1
                (flet ((serve ()
                         (start-devnet-node-listeners
