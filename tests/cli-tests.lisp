@@ -5470,6 +5470,9 @@
                 (expect (fixture-object-field case "expect"))
                 (recipient (fixture-address-field expect "recipient"))
                 (sender (fixture-address-field expect "sender"))
+                (code-address (fixture-address-field expect "codeAddress"))
+                (storage-address
+                  (fixture-address-field expect "storageAddress"))
                 (prepare-payload-attributes
                   (devnet-cli-payload-attributes-v2
                    child-block
@@ -5482,6 +5485,25 @@
                     602 (block-hash child-block)
                     :safe (block-hash parent-block)
                     :finalized (block-hash parent-block))))
+                (payload-bodies-by-hash-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 609)
+                         (cons "method" "engine_getPayloadBodiesByHashV1")
+                         (cons "params"
+                               (list
+                                (list
+                                 (hash32-to-hex
+                                  (block-hash child-block))))))))
+                (payload-bodies-by-range-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 610)
+                         (cons "method" "engine_getPayloadBodiesByRangeV1")
+                         (cons "params"
+                               (list
+                                (fixture-object-field payload-case "number")
+                                "0x1")))))
                 (prepare-payload-body
                   (json-encode
                    (devnet-cli-engine-forkchoice-v2-payload-attributes-request
@@ -5512,7 +5534,25 @@
                    (list (cons "jsonrpc" "2.0")
                          (cons "id" 608)
                          (cons "method" "eth_getBlockByNumber")
-                         (cons "params" (list "latest" :false))))))
+                         (cons "params" (list "latest" :false)))))
+                (code-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 611)
+                         (cons "method" "eth_getCode")
+                         (cons "params"
+                               (list (address-to-hex code-address)
+                                     "latest")))))
+                (storage-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 612)
+                         (cons "method" "eth_getStorageAt")
+                         (cons "params"
+                               (list (address-to-hex storage-address)
+                                     (fixture-object-field expect
+                                                           "storageKey")
+                                     "latest"))))))
            (devnet-cli-write-temp-file
             genesis-path
             (json-encode
@@ -5552,7 +5592,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "4"
+                        "6"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -5585,12 +5625,16 @@
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
                     new-payload-response
                     forkchoice-response
+                    payload-bodies-by-hash-response
+                    payload-bodies-by-range-response
                     prepare-payload-response
                     get-payload-response
                     block-number-response
                     balance-response
                     transaction-count-response
-                    block-by-number-response)
+                    block-by-number-response
+                    code-response
+                    storage-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
                    (progn
@@ -5605,6 +5649,18 @@
                             engine-endpoint
                             (devnet-cli-json-rpc-http-request
                              forkchoice-body
+                             :token token)))
+                     (setf payload-bodies-by-hash-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             payload-bodies-by-hash-body
+                             :token token)))
+                     (setf payload-bodies-by-range-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             payload-bodies-by-range-body
                              :token token)))
                      (setf prepare-payload-response
                            (devnet-cli-http-endpoint-request
@@ -5655,12 +5711,26 @@
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
-                             block-by-number-body))))
+                             block-by-number-body)))
+                     (setf code-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             code-body)))
+                     (setf storage-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             storage-body))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status new-payload-response)))
                (is (= 200 (devnet-cli-http-status forkchoice-response)))
+               (is (= 200 (devnet-cli-http-status
+                            payload-bodies-by-hash-response)))
+               (is (= 200 (devnet-cli-http-status
+                            payload-bodies-by-range-response)))
                (is (= 200 (devnet-cli-http-status prepare-payload-response)))
                (is (= 200 (devnet-cli-http-status get-payload-response)))
                (is (= 200 (devnet-cli-http-status block-number-response)))
@@ -5669,12 +5739,22 @@
                             transaction-count-response)))
                (is (= 200 (devnet-cli-http-status
                             block-by-number-response)))
+               (is (= 200 (devnet-cli-http-status code-response)))
+               (is (= 200 (devnet-cli-http-status storage-response)))
                (let* ((new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
                       (forkchoice-rpc
                         (parse-json
                          (devnet-cli-http-body forkchoice-response)))
+                      (payload-bodies-by-hash-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          payload-bodies-by-hash-response)))
+                      (payload-bodies-by-range-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          payload-bodies-by-range-response)))
                       (prepare-payload-rpc
                         (parse-json
                          (devnet-cli-http-body prepare-payload-response)))
@@ -5695,12 +5775,34 @@
                         (parse-json
                          (devnet-cli-http-body
                           block-by-number-response)))
+                      (code-rpc
+                        (parse-json
+                         (devnet-cli-http-body code-response)))
+                      (storage-rpc
+                        (parse-json
+                         (devnet-cli-http-body storage-response)))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
                         (fixture-object-field
                          (fixture-object-field forkchoice-rpc "result")
                          "payloadStatus"))
+                      (payload-bodies-by-hash-result
+                        (fixture-object-field
+                         payload-bodies-by-hash-rpc "result"))
+                      (payload-bodies-by-range-result
+                        (fixture-object-field
+                         payload-bodies-by-range-rpc "result"))
+                      (payload-body-by-hash-transactions
+                        (fixture-object-field
+                         (first payload-bodies-by-hash-result)
+                         "transactions"))
+                      (payload-body-by-range-transactions
+                        (fixture-object-field
+                         (first payload-bodies-by-range-result)
+                         "transactions"))
+                      (expected-payload-body-transaction-count
+                        (length (block-transactions child-block)))
                       (prepare-payload-result
                         (fixture-object-field prepare-payload-rpc "result"))
                       (prepare-payload-status
@@ -5735,6 +5837,12 @@
                  (is (= 607 (fixture-object-field
                               transaction-count-rpc "id")))
                  (is (= 608 (fixture-object-field block-by-number-rpc "id")))
+                 (is (= 609 (fixture-object-field
+                              payload-bodies-by-hash-rpc "id")))
+                 (is (= 610 (fixture-object-field
+                              payload-bodies-by-range-rpc "id")))
+                 (is (= 611 (fixture-object-field code-rpc "id")))
+                 (is (= 612 (fixture-object-field storage-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -5744,6 +5852,12 @@
                  (is (string= +payload-status-valid+
                               (fixture-object-field forkchoice-status
                                                     "status")))
+                 (is (= 1 (length payload-bodies-by-hash-result)))
+                 (is (= 1 (length payload-bodies-by-range-result)))
+                 (is (= expected-payload-body-transaction-count
+                        (length payload-body-by-hash-transactions)))
+                 (is (= expected-payload-body-transaction-count
+                        (length payload-body-by-range-transactions)))
                  (is (string= +payload-status-valid+
                               (fixture-object-field prepare-payload-status
                                                     "status")))
@@ -5775,7 +5889,11 @@
                                                     "number")))
                  (is (string= (hash32-to-hex (block-hash child-block))
                               (fixture-object-field block-by-number-result
-                                                    "hash"))))
+                                                    "hash")))
+                 (is (string= (fixture-object-field expect "code")
+                              (fixture-object-field code-rpc "result")))
+                 (is (string= (fixture-object-field expect "storageValue")
+                              (fixture-object-field storage-rpc "result"))))
                (let ((status (devnet-cli-wait-process-exit process 10)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -5817,15 +5935,15 @@
                                     (cdr (assoc "headHash"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "4"
+                       (is (string= "6"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "4"
+                       (is (string= "6"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "8"
+                       (is (string= "12"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))

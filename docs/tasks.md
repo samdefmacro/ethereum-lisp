@@ -918,6 +918,14 @@ ones.
     payload's parent hash and block number, and verifies the public listener
     still serves canonical retained-state reads while shutdown telemetry
     reports four Engine plus four public served connections.
+- [x] `DEVNET-RUNNER-SCRIPT-PAYLOAD-BODIES`: Lock authenticated Engine
+  payload-body retrieval at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now calls `engine_getPayloadBodiesByHashV1`
+    and `engine_getPayloadBodiesByRangeV1` after importing and forkchoicing the
+    fixture child, verifies each returns exactly one body with the expected
+    transaction count, and balances the six-request Engine workflow with
+    public retained-state balance, nonce, block, code, and storage reads.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
