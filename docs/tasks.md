@@ -960,11 +960,16 @@ ones.
     `--limit 512 --failures-only --json`; it covered the first 512 unpinned
     candidates after the 152 pinned state selectors, and all 512 classified as
     passing with no implementation-bug-candidate, fixture-harness-error, or
-    out-of-scope records. This points the next high-value work back toward
-    Phase B devnet/process behavior, txpool/chain-store correctness, or a
-    deliberate pinned widening slice for already-classified passing families,
-    rather than another broad implementation-drift hunt in these bounded
-    ranges.
+    out-of-scope records. A follow-up run with
+    `--limit 1000 --failures-only --json` covered all 793 remaining unpinned
+    materializable state-test candidates after the 152 pinned selectors; all
+    793 classified as passing with zero implementation-bug-candidate,
+    fixture-harness-error, or out-of-scope records. This points the next
+    high-value work back toward Phase B devnet/process behavior,
+    txpool/chain-store correctness, or a deliberate pinned widening slice for
+    already-classified passing families, rather than another broad
+    implementation-drift hunt in the currently materializable official v5.4.0
+    candidate set.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

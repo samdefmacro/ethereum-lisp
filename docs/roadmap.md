@@ -1435,7 +1435,12 @@ Detailed historical implementation notes for this section now live in
   `blockchain_tests_engine` candidates and the first 512 unpinned state-test
   candidates; every classified candidate passed, with no
   implementation-bug-candidate, fixture-harness-error, or out-of-scope
-  records in those bounded ranges.
+  records in those bounded ranges. A later state-test classifier run covered
+  all 793 remaining unpinned materializable official v5.4.0 state-test
+  candidates after the 152 pinned selectors; all passed with no
+  implementation-bug-candidate, fixture-harness-error, or out-of-scope records,
+  so the currently materializable official v5.4.0 drift map has no remaining
+  classifier-visible implementation-bug candidates.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
