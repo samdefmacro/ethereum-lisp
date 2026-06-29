@@ -664,6 +664,15 @@ ones.
     `ethereum-lisp --datadir PATH devnet --json --no-serve` work. Direct CLI
     and runner-facing script coverage verify pre-command `--datadir` plus an
     option value named `init`.
+- [x] `DEVNET-RUNNER-SCRIPT-DATADIR-SERVE`: Lock the initialized-datadir
+  lifecycle at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    subprocess coverage now initializes a temporary datadir with
+    `--datadir PATH init GENESIS`, starts serve mode with
+    `--datadir PATH devnet` and no explicit `--genesis`, probes both Engine
+    and public JSON-RPC listeners, and verifies stdout/readiness/log metadata
+    report the stored genesis, derived database path, process id, endpoints,
+    and split connection counts.
 - [x] `DEVNET-RUNNER-ARTIFACT-DIRECTORIES`: Make runner artifact paths usable
   when their parent directories do not exist yet.
   - Result (2026-06-28): `ethereum-lisp devnet` now creates parent

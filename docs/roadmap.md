@@ -1125,7 +1125,11 @@ first pass, but interfaces must not block that path.
   PATH GENESIS` or geth-shaped `ethereum-lisp --datadir PATH init GENESIS`;
   the command stores `PATH/genesis.json`, seeds the derived chain database, and
   lets later `ethereum-lisp devnet --datadir PATH` startups load the stored
-  genesis without repeating `--genesis`.
+  genesis without repeating `--genesis`. The external script-process contract
+  now covers that full lifecycle in serve mode by initializing a temporary
+  datadir, starting `--datadir PATH devnet` without `--genesis`, probing both
+  Engine and public JSON-RPC listeners, and checking readiness/stdout/log
+  metadata for the stored genesis and derived database path.
   Command dispatch also supports geth-shaped pre-command flags such as
   `ethereum-lisp --datadir PATH devnet ...` while skipping known option values,
   so runner-provided values like `--identity init` do not accidentally switch
