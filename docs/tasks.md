@@ -897,6 +897,17 @@ ones.
     network-id-backed `net_version`, reported ready/stdout/log metadata, and
     shutdown telemetry for the three Engine and six public served
     connections.
+- [x] `DEVNET-RUNNER-SCRIPT-IMPORT-FORKCHOICE`: Lock Engine payload import,
+  forkchoice, and public retained-state reads at the external script process
+  boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now starts from a temporary genesis derived from the
+    existing Shanghai Engine fixture parent, imports the child over
+    authenticated `engine_newPayloadV2`, applies `engine_forkchoiceUpdatedV2`,
+    reads `eth_blockNumber` and `eth_getBalance` over the public listener,
+    verifies startup stdout reports the parent head while shutdown telemetry
+    reports the post-forkchoice child head, and checks two Engine plus two
+    public served connections.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

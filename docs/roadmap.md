@@ -1180,7 +1180,11 @@ first pass, but interfaces must not block that path.
   non-root Engine/public RPC prefixes, Engine/public vhost allowlists, public
   CORS origins, `--http.api eth,net` filtering, network-id-backed
   `net_version`, and the resulting ready/stdout/lifecycle metadata plus
-  shutdown connection accounting. It is also covered receiving
+  shutdown connection accounting. It also has external script-process coverage
+  for a fixture-derived Engine `engine_newPayloadV2` import,
+  `engine_forkchoiceUpdatedV2`, public `eth_blockNumber` / `eth_getBalance`
+  reads against the post-forkchoice retained state, and shutdown metadata for
+  the imported child head. It is also covered receiving
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout
   JSON, ready-file JSON, and `devnet.ready` / `devnet.shutdown` telemetry with

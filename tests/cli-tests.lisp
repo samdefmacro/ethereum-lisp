@@ -686,6 +686,115 @@
          (payload (fixture-object-field case "payload")))
     (fixture-object-field payload "number")))
 
+(defun devnet-cli-engine-fixture-parent-genesis-config (case)
+  (let ((config (fixture-object-field case "config")))
+    (list
+     (cons "chainId" (fixture-object-field case "chainId"))
+     (cons "terminalTotalDifficulty" "0x0")
+     (cons "homesteadBlock" "0x0")
+     (cons "eip150Block" "0x0")
+     (cons "eip155Block" "0x0")
+     (cons "eip158Block" "0x0")
+     (cons "byzantiumBlock" "0x0")
+     (cons "constantinopleBlock" "0x0")
+     (cons "petersburgBlock" "0x0")
+     (cons "istanbulBlock" "0x0")
+     (cons "berlinBlock" (fixture-object-field config "berlinBlock"))
+     (cons "londonBlock" (fixture-object-field config "londonBlock"))
+     (cons "shanghaiTime" (fixture-object-field config "shanghaiTime")))))
+
+(defun devnet-cli-engine-fixture-genesis-account (account)
+  (let ((fields
+          (list (cons "balance" (fixture-object-field account "balance"))
+                (cons "nonce" (fixture-object-field account "nonce")))))
+    (when (fixture-object-field account "code")
+      (setf fields (append fields
+                           (list (cons "code"
+                                       (fixture-object-field account
+                                                             "code"))))))
+    (when (fixture-object-field account "storage")
+      (setf fields (append fields
+                           (list (cons "storage"
+                                       (fixture-object-field account
+                                                             "storage"))))))
+    (cons (fixture-object-field account "address") fields)))
+
+(defun devnet-cli-engine-fixture-parent-genesis-object (case)
+  (let* ((parent (fixture-object-field case "parent"))
+         (parent-state (engine-fixture-parent-state parent)))
+    (list
+     (cons "format" "ethereum-lisp/engine-fixture-parent-genesis-v1")
+     (cons "config" (devnet-cli-engine-fixture-parent-genesis-config case))
+     (cons "parentHash"
+           "0x0000000000000000000000000000000000000000000000000000000000000000")
+     (cons "number" (fixture-object-field parent "number"))
+     (cons "nonce" "0x0")
+     (cons "timestamp" (fixture-object-field parent "timestamp"))
+     (cons "extraData" "0x")
+     (cons "gasLimit" (fixture-object-field parent "gasLimit"))
+     (cons "gasUsed" (fixture-object-field parent "gasUsed"))
+     (cons "difficulty" "0x0")
+     (cons "mixHash"
+           "0x0000000000000000000000000000000000000000000000000000000000000000")
+     (cons "coinbase" (fixture-object-field parent "feeRecipient"))
+     (cons "baseFeePerGas" (fixture-object-field parent "baseFeePerGas"))
+     (cons "stateRoot" (hash32-to-hex (state-db-root parent-state)))
+     (cons "alloc"
+           (mapcar #'devnet-cli-engine-fixture-genesis-account
+                   (fixture-object-field parent "accounts"))))))
+
+(defun devnet-cli-engine-fixture-parent-block (case)
+  (let* ((parent (fixture-object-field case "parent"))
+         (parent-state (engine-fixture-parent-state parent))
+         (fee-recipient (fixture-address-field parent "feeRecipient"))
+         (parent-header
+           (make-block-header
+            :parent-hash (zero-hash32)
+            :beneficiary fee-recipient
+            :state-root (state-db-root parent-state)
+            :mix-hash (zero-hash32)
+            :number (fixture-quantity-field parent "number")
+            :gas-limit (fixture-quantity-field parent "gasLimit")
+            :gas-used (fixture-quantity-field parent "gasUsed")
+            :timestamp (fixture-quantity-field parent "timestamp")
+            :base-fee-per-gas (fixture-quantity-field parent "baseFeePerGas")
+            :withdrawals-root (withdrawal-list-root '()))))
+    (make-block :header parent-header)))
+
+(defun devnet-cli-engine-fixture-child-block (case)
+  (let* ((config (engine-fixture-chain-config case))
+         (parent (fixture-object-field case "parent"))
+         (payload-case (fixture-object-field case "payload"))
+         (parent-state (engine-fixture-parent-state parent))
+         (fee-recipient (fixture-address-field parent "feeRecipient"))
+         (transactions
+           (mapcar (lambda (raw)
+                     (transaction-from-encoding (hex-to-bytes raw)))
+                   (fixture-object-field payload-case "transactions")))
+         (withdrawals
+           (mapcar #'engine-fixture-withdrawal
+                   (fixture-object-field payload-case "withdrawals")))
+         (parent-block (devnet-cli-engine-fixture-parent-block case))
+         (child-state (state-db-copy parent-state))
+         (child-header
+           (make-block-header
+            :parent-hash (block-hash parent-block)
+            :beneficiary fee-recipient
+            :mix-hash (zero-hash32)
+            :number (fixture-quantity-field payload-case "number")
+            :gas-limit (fixture-quantity-field payload-case "gasLimit")
+            :gas-used 0
+            :timestamp (fixture-quantity-field payload-case "timestamp")
+            :base-fee-per-gas
+            (fixture-quantity-field payload-case "baseFeePerGas"))))
+    (execute-signed-block
+     child-state
+     transactions
+     :expected-chain-id (chain-config-chain-id config)
+     :header child-header
+     :chain-config config
+     :withdrawals withdrawals)))
+
 (defun devnet-cli-http-body (response)
   (let ((boundary (search (format nil "~C~C~C~C"
                                   #\Return #\Newline
@@ -5308,6 +5417,263 @@
         (delete-file log-path))
       (when (probe-file pid-path)
         (delete-file pid-path)))))
+
+(deftest ethereum-lisp-script-serve-mode-imports-payload-and-serves-public-state
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (jwt-path
+          (devnet-cli-temp-path "ethereum-lisp-script-payload" "jwt"))
+        (genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-script-payload-genesis" "json"))
+        (ready-path
+          (devnet-cli-temp-path "ethereum-lisp-script-payload-ready" "json"))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-script-payload" "log"))
+        (pid-path
+          (devnet-cli-temp-path "ethereum-lisp-script-payload" "pid"))
+        (process nil))
+    (unwind-protect
+         (let* ((case
+                  (select-engine-newpayload-v2-fixture-case
+                   +engine-newpayload-v2-fixture-path+
+                   "shanghai-one-transfer-with-withdrawal"))
+                (parent-block (devnet-cli-engine-fixture-parent-block case))
+                (child-block (devnet-cli-engine-fixture-child-block case))
+                (payload
+                  (execution-payload-envelope-execution-payload
+                   (block-to-executable-data child-block)))
+                (parent (fixture-object-field case "parent"))
+                (payload-case (fixture-object-field case "payload"))
+                (expect (fixture-object-field case "expect"))
+                (recipient (fixture-address-field expect "recipient"))
+                (new-payload-body
+                  (json-encode (engine-fixture-payload-request 601 payload)))
+                (forkchoice-body
+                  (json-encode
+                   (devnet-cli-engine-forkchoice-v2-request
+                    602 (block-hash child-block)
+                    :safe (block-hash parent-block)
+                    :finalized (block-hash parent-block))))
+                (block-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 603)
+                         (cons "method" "eth_blockNumber")
+                         (cons "params" '()))))
+                (balance-body
+                  (json-encode (engine-fixture-balance-request
+                                604 recipient))))
+           (devnet-cli-write-temp-file
+            genesis-path
+            (json-encode
+             (devnet-cli-engine-fixture-parent-genesis-object case)))
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path (namestring genesis-path)
+                     :port 0
+                     :public-port 0))
+                  (script-genesis
+                    (ethereum-lisp.cli::devnet-node-genesis-block node)))
+             (is (string= (hash32-to-hex (block-hash parent-block))
+                          (hash32-to-hex (block-hash script-genesis))))
+             (is (= (fixture-quantity-field payload-case "number")
+                    (1+ (block-header-number
+                         (block-header script-genesis))))))
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (setf process
+                 (uiop:launch-program
+                  (list "sbcl"
+                        "--script"
+                        script
+                        "--"
+                        "devnet"
+                        "--genesis"
+                        (namestring genesis-path)
+                        "--engine-port"
+                        "0"
+                        "--public-port"
+                        "0"
+                        "--authrpc.jwtsecret"
+                        (namestring jwt-path)
+                        "--ready-file"
+                        (namestring ready-path)
+                        "--log-file"
+                        (namestring log-path)
+                        "--pid-file"
+                        (namestring pid-path)
+                        "--max-connections"
+                        "2"
+                        "--json")
+                  :directory #P"/private/tmp/"
+                  :output :stream
+                  :error-output :stream))
+           (unless (devnet-cli-wait-for-file ready-path 10)
+             (when (uiop:process-alive-p process)
+               (uiop:terminate-process process)
+               (devnet-cli-wait-process-exit process 5))
+             (let ((stdout
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-output process)))
+                   (stderr
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-error-output process))))
+               (when (search "Operation not permitted" stderr)
+                 (skip-test
+                  "Local socket bind is not permitted in this sandbox"))
+               (is (probe-file ready-path))
+               (is (string= "" stdout))
+               (is (string= "" stderr))))
+           (when (probe-file ready-path)
+             (let* ((ready-summary
+                      (parse-json (devnet-cli-file-string ready-path)))
+                    (pid (devnet-cli-pid-file-process-id pid-path))
+                    (engine-endpoint
+                      (fixture-object-field ready-summary "engineEndpoint"))
+                    (rpc-endpoint
+                      (fixture-object-field ready-summary "rpcEndpoint"))
+                    (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    new-payload-response
+                    forkchoice-response
+                    block-number-response
+                    balance-response)
+               (is (= pid (fixture-object-field ready-summary "processId")))
+               (handler-case
+                   (progn
+                     (setf new-payload-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             new-payload-body
+                             :token token)))
+                     (setf forkchoice-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             forkchoice-body
+                             :token token)))
+                     (setf block-number-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             block-number-body)))
+                     (setf balance-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             balance-body))))
+                 (sb-bsd-sockets:operation-not-permitted-error ()
+                   (skip-test
+                    "Local socket connect is not permitted in this sandbox")))
+               (is (= 200 (devnet-cli-http-status new-payload-response)))
+               (is (= 200 (devnet-cli-http-status forkchoice-response)))
+               (is (= 200 (devnet-cli-http-status block-number-response)))
+               (is (= 200 (devnet-cli-http-status balance-response)))
+               (let* ((new-payload-rpc
+                        (parse-json
+                         (devnet-cli-http-body new-payload-response)))
+                      (forkchoice-rpc
+                        (parse-json
+                         (devnet-cli-http-body forkchoice-response)))
+                      (block-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body block-number-response)))
+                      (balance-rpc
+                        (parse-json
+                         (devnet-cli-http-body balance-response)))
+                      (new-payload-result
+                        (fixture-object-field new-payload-rpc "result"))
+                      (forkchoice-status
+                        (fixture-object-field
+                         (fixture-object-field forkchoice-rpc "result")
+                         "payloadStatus")))
+                 (is (= 601 (fixture-object-field new-payload-rpc "id")))
+                 (is (= 602 (fixture-object-field forkchoice-rpc "id")))
+                 (is (= 603 (fixture-object-field block-number-rpc "id")))
+                 (is (= 604 (fixture-object-field balance-rpc "id")))
+                 (is (string= +payload-status-valid+
+                              (fixture-object-field new-payload-result
+                                                    "status")))
+                 (is (string= (hash32-to-hex (block-hash child-block))
+                              (fixture-object-field new-payload-result
+                                                    "latestValidHash")))
+                 (is (string= +payload-status-valid+
+                              (fixture-object-field forkchoice-status
+                                                    "status")))
+                 (is (string= (fixture-object-field payload-case "number")
+                              (fixture-object-field block-number-rpc
+                                                    "result")))
+                 (is (string= (fixture-object-field expect
+                                                    "recipientBalance")
+                              (fixture-object-field balance-rpc
+                                                    "result"))))
+               (let ((status (devnet-cli-wait-process-exit process 10)))
+                 (when (eq status :timeout)
+                   (uiop:terminate-process process))
+                 (is (not (eq status :timeout)))
+                 (is (and (numberp status) (= 0 status)))
+                 (let ((stdout
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-output process)))
+                       (stderr
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-error-output process))))
+                   (is (string= "" stderr))
+                   (when (and (numberp status) (= 0 status))
+                     (let* ((stdout-summary (parse-json stdout))
+                            (log-records (devnet-cli-file-forms log-path))
+                            (shutdown-record
+                              (find "devnet.shutdown" log-records
+                                    :test #'string=
+                                    :key (lambda (record)
+                                           (getf record :name))))
+                            (shutdown-fields
+                              (getf shutdown-record :fields)))
+                       (is (= pid
+                              (fixture-object-field stdout-summary
+                                                    "processId")))
+                       (is (= (fixture-quantity-field parent "number")
+                              (fixture-object-field stdout-summary
+                                                    "headNumber")))
+                       (is (string= (hash32-to-hex (block-hash parent-block))
+                                    (fixture-object-field stdout-summary
+                                                          "headHash")))
+                       (is shutdown-record)
+                       (is (string= (fixture-object-field payload-case
+                                                          "number")
+                                    (cdr (assoc "headNumber"
+                                                shutdown-fields
+                                                :test #'string=))))
+                       (is (string= (hash32-to-hex (block-hash child-block))
+                                    (cdr (assoc "headHash"
+                                                shutdown-fields
+                                                :test #'string=))))
+                       (is (string= "2"
+                                    (cdr (assoc "engineConnections"
+                                                shutdown-fields
+                                                :test #'string=))))
+                       (is (string= "2"
+                                    (cdr (assoc "publicConnections"
+                                                shutdown-fields
+                                                :test #'string=))))
+                       (is (string= "4"
+                                    (cdr (assoc "totalConnections"
+                                                shutdown-fields
+                                                :test #'string=))))))))))))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path))))
 
 (deftest ethereum-lisp-script-serve-mode-honors-runner-http-shaping
   #-sbcl
