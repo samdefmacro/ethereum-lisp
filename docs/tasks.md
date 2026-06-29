@@ -894,6 +894,13 @@ ones.
     public endpoint, verifies the local client version, default network id,
     explicit non-p2p listening status, and non-syncing status, and checks
     shutdown telemetry reports the five public connections.
+- [x] `DEVNET-RUNNER-SCRIPT-PUBLIC-BATCH-READINESS`: Lock public JSON-RPC
+  batch readiness at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now sends a public batch containing
+    `eth_chainId`, `net_version`, and `web3_clientVersion` through the
+    ready-file RPC endpoint, verifies all three response bodies, and checks
+    shutdown telemetry accounts for the extra public connection.
 - [x] `DEVNET-RUNNER-SCRIPT-AUTH-BOUNDARY`: Lock Engine auth failures and
   Engine/public namespace separation at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode

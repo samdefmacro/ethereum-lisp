@@ -5383,7 +5383,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "6"
+                        "7"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -5435,6 +5435,8 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":505,\"method\":\"net_listening\",\"params\":[]}")
                     (public-syncing-body
                       "{\"jsonrpc\":\"2.0\",\"id\":506,\"method\":\"eth_syncing\",\"params\":[]}")
+                    (public-batch-body
+                      "[{\"jsonrpc\":\"2.0\",\"id\":510,\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":511,\"method\":\"net_version\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":512,\"method\":\"web3_clientVersion\",\"params\":[]}]")
                     (public-engine-body
                       "{\"jsonrpc\":\"2.0\",\"id\":509,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     engine-response
@@ -5446,6 +5448,7 @@
                     public-net-version-response
                     public-net-listening-response
                     public-syncing-response
+                    public-batch-response
                     public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
@@ -5497,6 +5500,11 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-syncing-body)))
+                     (setf public-batch-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-batch-body)))
                      (setf public-engine-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -5520,6 +5528,7 @@
                       (devnet-cli-http-status
                        public-net-listening-response)))
                (is (= 200 (devnet-cli-http-status public-syncing-response)))
+               (is (= 200 (devnet-cli-http-status public-batch-response)))
                (is (= 200 (devnet-cli-http-status public-engine-response)))
                (let* ((engine-json
                         (parse-json (devnet-cli-http-body engine-response)))
@@ -5542,6 +5551,15 @@
                       (public-syncing-json
                         (parse-json
                          (devnet-cli-http-body public-syncing-response)))
+                      (public-batch-json
+                        (parse-json
+                         (devnet-cli-http-body public-batch-response)))
+                      (public-batch-chain-id-json
+                        (first public-batch-json))
+                      (public-batch-net-version-json
+                        (second public-batch-json))
+                      (public-batch-client-version-json
+                        (third public-batch-json))
                       (public-engine-json
                         (parse-json
                          (devnet-cli-http-body public-engine-response)))
@@ -5574,6 +5592,25 @@
                  (is (= 506 (fixture-object-field public-syncing-json "id")))
                  (is (null (fixture-object-field
                             public-syncing-json "result")))
+                 (is (= 3 (length public-batch-json)))
+                 (is (= 510
+                        (fixture-object-field
+                         public-batch-chain-id-json "id")))
+                 (is (string= "0x539"
+                              (fixture-object-field
+                               public-batch-chain-id-json "result")))
+                 (is (= 511
+                        (fixture-object-field
+                         public-batch-net-version-json "id")))
+                 (is (string= "1337"
+                              (fixture-object-field
+                               public-batch-net-version-json "result")))
+                 (is (= 512
+                        (fixture-object-field
+                         public-batch-client-version-json "id")))
+                 (is (search "ethereum-lisp"
+                             (fixture-object-field
+                              public-batch-client-version-json "result")))
                  (is (= 509 (fixture-object-field public-engine-json "id")))
                  (is (= -32601
                         (fixture-object-field
@@ -5628,11 +5665,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "6"
+                         (is (string= "7"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "10"
+                         (is (string= "11"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))
