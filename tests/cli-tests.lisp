@@ -6535,7 +6535,7 @@
          (let* ((case
                   (select-engine-newpayload-v2-fixture-case
                    +engine-newpayload-v2-fixture-path+
-                   "shanghai-one-transfer-with-withdrawal"))
+                   "shanghai-log-contract-call-with-withdrawal"))
                 (parent-block (devnet-cli-engine-fixture-parent-block case))
                 (child-block (devnet-cli-engine-fixture-child-block case))
                 (remote-block (devnet-cli-remote-block child-block))
@@ -6557,6 +6557,10 @@
                 (code-address (fixture-address-field expect "codeAddress"))
                 (storage-address
                   (fixture-address-field expect "storageAddress"))
+                (transaction-hash-hex
+                  (hash32-to-hex
+                   (transaction-hash
+                    (first (block-transactions child-block)))))
                 (prepare-payload-attributes
                   (devnet-cli-payload-attributes-v2
                    child-block
@@ -6654,7 +6658,36 @@
                                (list (address-to-hex storage-address)
                                      (fixture-object-field expect
                                                            "storageKey")
-                                     "latest"))))))
+                                     "latest")))))
+                (receipt-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 617)
+                         (cons "method" "eth_getTransactionReceipt")
+                         (cons "params" (list transaction-hash-hex)))))
+                (block-receipts-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 618)
+                         (cons "method" "eth_getBlockReceipts")
+                         (cons "params" (list "latest")))))
+                (logs-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 619)
+                         (cons "method" "eth_getLogs")
+                         (cons "params"
+                               (list
+                                (list
+                                 (cons "fromBlock" "latest")
+                                 (cons "toBlock" "latest")
+                                 (cons "address"
+                                       (fixture-object-field expect
+                                                             "logAddress"))
+                                 (cons "topics"
+                                       (list
+                                        (fixture-object-field
+                                         expect "logTopic"))))))))))
            (devnet-cli-write-temp-file
             genesis-path
             (json-encode
@@ -6694,7 +6727,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "8"
+                        "11"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -6740,7 +6773,10 @@
                     block-by-number-response
                     post-status-block-by-number-response
                     code-response
-                    storage-response)
+                    storage-response
+                    receipt-response
+                    block-receipts-response
+                    logs-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
                    (progn
@@ -6840,6 +6876,21 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              storage-body)))
+                     (setf receipt-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             receipt-body)))
+                     (setf block-receipts-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             block-receipts-body)))
+                     (setf logs-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             logs-body)))
                      (setf post-status-block-number-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -6875,6 +6926,9 @@
                             post-status-block-by-number-response)))
                (is (= 200 (devnet-cli-http-status code-response)))
                (is (= 200 (devnet-cli-http-status storage-response)))
+               (is (= 200 (devnet-cli-http-status receipt-response)))
+               (is (= 200 (devnet-cli-http-status block-receipts-response)))
+               (is (= 200 (devnet-cli-http-status logs-response)))
                (let* ((new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
@@ -6929,6 +6983,15 @@
                       (storage-rpc
                         (parse-json
                          (devnet-cli-http-body storage-response)))
+                      (receipt-rpc
+                        (parse-json
+                         (devnet-cli-http-body receipt-response)))
+                      (block-receipts-rpc
+                        (parse-json
+                         (devnet-cli-http-body block-receipts-response)))
+                      (logs-rpc
+                        (parse-json
+                         (devnet-cli-http-body logs-response)))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -6979,6 +7042,20 @@
                       (post-status-block-by-number-result
                         (fixture-object-field post-status-block-by-number-rpc
                                               "result"))
+                      (receipt
+                        (fixture-object-field receipt-rpc "result"))
+                      (receipt-logs
+                        (fixture-object-field receipt "logs"))
+                      (receipt-log (first receipt-logs))
+                      (block-receipts
+                        (fixture-object-field block-receipts-rpc "result"))
+                      (block-receipt (first block-receipts))
+                      (block-receipt-logs
+                        (fixture-object-field block-receipt "logs"))
+                      (block-receipt-log (first block-receipt-logs))
+                      (filtered-logs
+                        (fixture-object-field logs-rpc "result"))
+                      (filtered-log (first filtered-logs))
                       (expected-prepared-block-number
                         (quantity-to-hex
                          (1+ (block-header-number
@@ -7004,6 +7081,9 @@
                               post-status-block-number-rpc "id")))
                  (is (= 616 (fixture-object-field
                               post-status-block-by-number-rpc "id")))
+                 (is (= 617 (fixture-object-field receipt-rpc "id")))
+                 (is (= 618 (fixture-object-field block-receipts-rpc "id")))
+                 (is (= 619 (fixture-object-field logs-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -7080,7 +7160,46 @@
                  (is (string= (fixture-object-field expect "code")
                               (fixture-object-field code-rpc "result")))
                  (is (string= (fixture-object-field expect "storageValue")
-                              (fixture-object-field storage-rpc "result"))))
+                              (fixture-object-field storage-rpc "result")))
+                 (is (string= transaction-hash-hex
+                              (fixture-object-field receipt
+                                                    "transactionHash")))
+                 (is (string= (fixture-object-field payload-case "number")
+                              (fixture-object-field receipt "blockNumber")))
+                 (is (string= (hash32-to-hex (block-hash child-block))
+                              (fixture-object-field receipt "blockHash")))
+                 (is (string= (fixture-object-field expect "receiptType")
+                              (fixture-object-field receipt "type")))
+                 (is (string= (fixture-object-field expect "receiptStatus")
+                              (fixture-object-field receipt "status")))
+                 (is (= (hex-to-quantity
+                         (fixture-object-field expect "logCount"))
+                        (length receipt-logs)))
+                 (is (= 1 (length block-receipts)))
+                 (is (string= transaction-hash-hex
+                              (fixture-object-field block-receipt
+                                                    "transactionHash")))
+                 (is (= (length receipt-logs) (length block-receipt-logs)))
+                 (is (= (length receipt-logs) (length filtered-logs)))
+                 (dolist (log (list receipt-log block-receipt-log
+                                    filtered-log))
+                   (is (string= (fixture-object-field expect "logAddress")
+                                (fixture-object-field log "address")))
+                   (is (string= (fixture-object-field expect "logData")
+                                (fixture-object-field log "data")))
+                   (is (equal (list (fixture-object-field expect "logTopic"))
+                              (fixture-object-field log "topics")))
+                   (is (string= transaction-hash-hex
+                                (fixture-object-field log "transactionHash")))
+                   (is (string= (hash32-to-hex (block-hash child-block))
+                                (fixture-object-field log "blockHash")))
+                   (is (string= (fixture-object-field payload-case "number")
+                                (fixture-object-field log "blockNumber")))
+                   (is (string= "0x0"
+                                (fixture-object-field log
+                                                      "transactionIndex")))
+                   (is (string= "0x0"
+                                (fixture-object-field log "logIndex"))))
                (let ((status (devnet-cli-wait-process-exit process 10)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -7126,11 +7245,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "8"
+                       (is (string= "11"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "16"
+                       (is (string= "19"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))
@@ -7145,7 +7264,7 @@
       (when (probe-file log-path)
         (delete-file log-path))
       (when (probe-file pid-path)
-        (delete-file pid-path))))
+        (delete-file pid-path)))))
 
 (deftest ethereum-lisp-script-serve-mode-honors-runner-http-shaping
   #-sbcl

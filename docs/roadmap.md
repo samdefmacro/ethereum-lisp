@@ -1210,8 +1210,11 @@ first pass, but interfaces must not block that path.
   for a fixture-derived Engine `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, authenticated payload-body retrieval by hash
   and range, public retained-state reads against the post-forkchoice retained
-  state, and shutdown metadata for the imported child head. The script process
-  also covers orphan `engine_newPayloadV2` returning `SYNCING`, known-parent
+  state, and shutdown metadata for the imported child head. That script-process
+  import now uses the log-producing Shanghai contract-call payload and verifies
+  public `eth_getTransactionReceipt`, `eth_getBlockReceipts`, and filtered
+  `eth_getLogs` responses for the imported child. The script process also
+  covers orphan `engine_newPayloadV2` returning `SYNCING`, known-parent
   timestamp-invalid `engine_newPayloadV2` returning `INVALID`, and unchanged
   public canonical `latest` reads after those status paths. The script process
   also covers prepared-payload retrieval through payload-attributes

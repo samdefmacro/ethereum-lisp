@@ -987,10 +987,11 @@ ones.
     subprocess coverage now starts from a temporary genesis derived from the
     existing Shanghai Engine fixture parent, imports the child over
     authenticated `engine_newPayloadV2`, applies `engine_forkchoiceUpdatedV2`,
-    reads `eth_blockNumber` and `eth_getBalance` over the public listener,
-    verifies startup stdout reports the parent head while shutdown telemetry
-    reports the post-forkchoice child head, and checks two Engine plus two
-    public served connections.
+    reads public retained-state data over the public listener, and verifies
+    startup stdout reports the parent head while shutdown telemetry reports the
+    post-forkchoice child head. Later runner-script tasks extend this same
+    subprocess scenario with payload bodies, status paths, and receipt/log RPC
+    visibility.
 - [x] `DEVNET-RUNNER-SCRIPT-GET-PAYLOAD`: Lock prepared payload retrieval at
   the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
@@ -1009,6 +1010,15 @@ ones.
     fixture child, verifies each returns exactly one body with the expected
     transaction count, and balances the six-request Engine workflow with
     public retained-state balance, nonce, block, code, and storage reads.
+- [x] `DEVNET-RUNNER-SCRIPT-LOG-RECEIPT-RPCS`: Lock log-producing payload
+  receipt and log visibility at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now imports the Shanghai log-contract fixture, applies
+    forkchoice, and verifies `eth_getTransactionReceipt`,
+    `eth_getBlockReceipts`, and filtered `eth_getLogs` through the public
+    listener. The checks compare transaction hash, block hash/number,
+    receipt type/status, log address/topic/data, transaction/log indexes, and
+    shutdown telemetry for the expanded Engine/public request counts.
 - [x] `DEVNET-RUNNER-SCRIPT-ENGINE-STATUS-PAYLOADS`: Lock Engine orphan and
   invalid payload status handling at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
