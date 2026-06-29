@@ -1233,6 +1233,19 @@ ones.
     Prague/EIP-7702 invalid transaction cases, and 180 official Shanghai
     `engineNewPayloadV2` blockchain selectors, for 463 total executed fixture
     cases.
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-ACCESS-LIST-EC-GAS-WIDEN`: Convert
+  classified official Berlin access-list and Byzantium EC precompile gas
+  Engine replay families into stable pinned Phase A guards.
+  - Result (2026-06-30): added 20 official Shanghai
+    `engineNewPayloadV2` replay selectors covering Berlin access-list
+    warm/cold account/storage behavior, EIP-2930 transaction intrinsic-gas
+    access-list shapes, and Byzantium ECADD/ECMUL/ECPAIRING gas pass/fail
+    boundaries. The targeted classifier window reports 20/20 passing against
+    the installed v5.4.0 fixture root with no implementation-bug,
+    harness-error, or out-of-scope records. The pinned v5.4.0 smoke gate now
+    covers 230 official state selectors, 53 official Prague/EIP-7702 invalid
+    transaction cases, and 200 official Shanghai `engineNewPayloadV2`
+    blockchain selectors, for 483 total executed fixture cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

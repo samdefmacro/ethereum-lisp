@@ -300,6 +300,46 @@
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_all_opcodes.json/tests/frontier/opcodes/test_all_opcodes.py::test_all_opcodes[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_Shanghai-blockchain_test_engine_from_state_test-account_warm_False-storage_key_warm_False]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_Shanghai-blockchain_test_engine_from_state_test-account_warm_True-storage_key_warm_False]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-empty_access_list]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-multiple_addresses_first_address_no_storage_keys]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-multiple_addresses_first_address_single_storage_key]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-multiple_addresses_second_address_multiple_storage_keys]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-multiple_addresses_second_address_no_storage_keys]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-multiple_addresses_second_address_single_storage_key]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-repeated_address_multiple_storage_keys]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-repeated_address_no_storage_keys]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-repeated_address_single_storage_key]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-single_address_multiple_no_storage_keys]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-single_address_multiple_storage_keys]"
+     . "engineNewPayloadV2")
+    ("berlin/eip2930_access_list/test_transaction_intrinsic_gas_cost.json/tests/berlin/eip2930_access_list/test_acl.py::test_transaction_intrinsic_gas_cost[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas-single_address_single_storage_key]"
+     . "engineNewPayloadV2")
+    ("byzantium/eip196_ec_add_mul/test_gas_costs.json/tests/byzantium/eip196_ec_add_mul/test_gas.py::test_gas_costs[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas_False-ecadd]"
+     . "engineNewPayloadV2")
+    ("byzantium/eip196_ec_add_mul/test_gas_costs.json/tests/byzantium/eip196_ec_add_mul/test_gas.py::test_gas_costs[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas_False-ecmul]"
+     . "engineNewPayloadV2")
+    ("byzantium/eip196_ec_add_mul/test_gas_costs.json/tests/byzantium/eip196_ec_add_mul/test_gas.py::test_gas_costs[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas_True-ecadd]"
+     . "engineNewPayloadV2")
+    ("byzantium/eip196_ec_add_mul/test_gas_costs.json/tests/byzantium/eip196_ec_add_mul/test_gas.py::test_gas_costs[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas_True-ecmul]"
+     . "engineNewPayloadV2")
+    ("byzantium/eip197_ec_pairing/test_gas_costs.json/tests/byzantium/eip197_ec_pairing/test_gas.py::test_gas_costs[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas_False-ecpairing]"
+     . "engineNewPayloadV2")
+    ("byzantium/eip197_ec_pairing/test_gas_costs.json/tests/byzantium/eip197_ec_pairing/test_gas.py::test_gas_costs[fork_Shanghai-blockchain_test_engine_from_state_test-enough_gas_True-ecpairing]"
+     . "engineNewPayloadV2")
     ("constantinople/eip1014_create2/test_create2_return_data.json/tests/constantinople/eip1014_create2/test_create_returndata.py::test_create2_return_data[fork_Shanghai-blockchain_test_engine_from_state_test-return_type_in_create_RETURN-return_type_RETURN-create_type_CREATE-call_return_size_0]"
      . "engineNewPayloadV2")
     ("constantinople/eip1014_create2/test_create2_return_data.json/tests/constantinople/eip1014_create2/test_create_returndata.py::test_create2_return_data[fork_Shanghai-blockchain_test_engine_from_state_test-return_type_in_create_RETURN-return_type_RETURN-create_type_CREATE-call_return_size_32]"

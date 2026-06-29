@@ -1466,18 +1466,20 @@ Detailed historical implementation notes for this section now live in
   fork-dependent exponent-byte gas and `SELFBALANCE` now charges its EIP-1884
   5 gas base cost, closing the official all-opcodes Shanghai gas-accounting
   drift. The pinned
-  `engine_newPayloadV2` blockchain replay table now includes 180 official
+  `engine_newPayloadV2` blockchain replay table now includes 200 official
   Shanghai selectors after adding
   selector-probed Frontier all-opcodes, PUSH, and DUP opcode
   cases, the identity precompile returndata/value-call family, the CALL
   value-transfer early-revert memory-expansion boundary, the value-transfer
-  gas-shortage family, EIP-152 BLAKE2F malformed-input and huge-rounds OOG
-  cases, EIP-7610 non-empty-balance CREATE/CREATE2 collision cases, the Paris
+  gas-shortage family, Berlin access-list warm/cold and intrinsic-gas
+  boundaries, Byzantium ECADD/ECMUL/ECPAIRING gas boundaries, EIP-152 BLAKE2F
+  malformed-input and huge-rounds OOG cases, EIP-7610 non-empty-balance
+  CREATE/CREATE2 collision cases, the Paris
   selfdestruct-balance stipend boundary, the EIP-2929 insufficient-balance
   CALL warmth boundary, EIP-3651
   warm-coinbase out-of-gas and EXTCODE gas-usage variants, PUSH0 contract
   variants, EIP-3860 initcode boundary cases, and EIP-4895 withdrawal
-  ordering/root/many-withdrawals cases; the pinned smoke gate executes 385
+  ordering/root/many-withdrawals cases; the pinned smoke gate executes 405
   total fixture cases across state,
   transaction, and blockchain suites.
   `scripts/classify-blockchain-replay-selectors.lisp` now gives automation a
@@ -1535,7 +1537,8 @@ Detailed historical implementation notes for this section now live in
   also includes the full 78-selector London/Shanghai EIP-198 MODEXP family,
   covering reference cases, declared-length variants, zero/small modulus
   outputs, large declared-length out-of-gas cases, and even-modulus
-  trailing-zero-count cases; the pinned smoke gate executes 463 total fixture
+  trailing-zero-count cases; after the access-list and EC precompile Engine
+  replay widening, the pinned smoke gate executes 483 total fixture
   cases across state, transaction, and blockchain suites.
   `scripts/classify-transaction-test-selectors.lisp` now fills the comparable
   transaction-test drift tooling gap by discovering selectors directly from
