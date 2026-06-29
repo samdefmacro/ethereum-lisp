@@ -6557,10 +6557,17 @@
                 (code-address (fixture-address-field expect "codeAddress"))
                 (storage-address
                   (fixture-address-field expect "storageAddress"))
+                (transaction
+                  (first (block-transactions child-block)))
+                (block-hash-hex
+                  (hash32-to-hex (block-hash child-block)))
                 (transaction-hash-hex
                   (hash32-to-hex
-                   (transaction-hash
-                    (first (block-transactions child-block)))))
+                   (transaction-hash transaction)))
+                (raw-transaction-hex
+                  (devnet-cli-transaction-raw transaction))
+                (expected-transaction-count-hex
+                  (quantity-to-hex (length (block-transactions child-block))))
                 (prepare-payload-attributes
                   (devnet-cli-payload-attributes-v2
                    child-block
@@ -6650,6 +6657,74 @@
                          (cons "id" 608)
                          (cons "method" "eth_getBlockByNumber")
                          (cons "params" (list "latest" :false)))))
+                (block-by-hash-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 624)
+                         (cons "method" "eth_getBlockByHash")
+                         (cons "params" (list block-hash-hex :false)))))
+                (block-transaction-count-by-hash-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 625)
+                         (cons "method"
+                               "eth_getBlockTransactionCountByHash")
+                         (cons "params" (list block-hash-hex)))))
+                (block-transaction-count-by-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 626)
+                         (cons "method"
+                               "eth_getBlockTransactionCountByNumber")
+                         (cons "params"
+                               (list (fixture-object-field payload-case
+                                                           "number"))))))
+                (transaction-by-hash-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 627)
+                         (cons "method" "eth_getTransactionByHash")
+                         (cons "params" (list transaction-hash-hex)))))
+                (transaction-by-block-hash-and-index-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 628)
+                         (cons "method"
+                               "eth_getTransactionByBlockHashAndIndex")
+                         (cons "params" (list block-hash-hex "0x0")))))
+                (transaction-by-block-number-and-index-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 629)
+                         (cons "method"
+                               "eth_getTransactionByBlockNumberAndIndex")
+                         (cons "params"
+                               (list (fixture-object-field payload-case
+                                                           "number")
+                                     "0x0")))))
+                (raw-transaction-by-hash-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 630)
+                         (cons "method" "eth_getRawTransactionByHash")
+                         (cons "params" (list transaction-hash-hex)))))
+                (raw-transaction-by-block-hash-and-index-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 631)
+                         (cons "method"
+                               "eth_getRawTransactionByBlockHashAndIndex")
+                         (cons "params" (list block-hash-hex "0x0")))))
+                (raw-transaction-by-block-number-and-index-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 632)
+                         (cons "method"
+                               "eth_getRawTransactionByBlockNumberAndIndex")
+                         (cons "params"
+                               (list (fixture-object-field payload-case
+                                                           "number")
+                                     "0x0")))))
                 (safe-block-by-number-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
@@ -6754,7 +6829,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "15"
+                        "24"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -6800,6 +6875,15 @@
                     finalized-balance-response
                     transaction-count-response
                     block-by-number-response
+                    block-by-hash-response
+                    block-transaction-count-by-hash-response
+                    block-transaction-count-by-number-response
+                    transaction-by-hash-response
+                    transaction-by-block-hash-and-index-response
+                    transaction-by-block-number-and-index-response
+                    raw-transaction-by-hash-response
+                    raw-transaction-by-block-hash-and-index-response
+                    raw-transaction-by-block-number-and-index-response
                     safe-block-by-number-response
                     finalized-block-by-number-response
                     post-status-block-by-number-response
@@ -6907,6 +6991,51 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              block-by-number-body)))
+                     (setf block-by-hash-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             block-by-hash-body)))
+                     (setf block-transaction-count-by-hash-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             block-transaction-count-by-hash-body)))
+                     (setf block-transaction-count-by-number-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             block-transaction-count-by-number-body)))
+                     (setf transaction-by-hash-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transaction-by-hash-body)))
+                     (setf transaction-by-block-hash-and-index-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transaction-by-block-hash-and-index-body)))
+                     (setf transaction-by-block-number-and-index-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transaction-by-block-number-and-index-body)))
+                     (setf raw-transaction-by-hash-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             raw-transaction-by-hash-body)))
+                     (setf raw-transaction-by-block-hash-and-index-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             raw-transaction-by-block-hash-and-index-body)))
+                     (setf raw-transaction-by-block-number-and-index-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             raw-transaction-by-block-number-and-index-body)))
                      (setf safe-block-by-number-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -6976,6 +7105,24 @@
                (is (= 200 (devnet-cli-http-status
                             block-by-number-response)))
                (is (= 200 (devnet-cli-http-status
+                            block-by-hash-response)))
+               (is (= 200 (devnet-cli-http-status
+                            block-transaction-count-by-hash-response)))
+               (is (= 200 (devnet-cli-http-status
+                            block-transaction-count-by-number-response)))
+               (is (= 200 (devnet-cli-http-status
+                            transaction-by-hash-response)))
+               (is (= 200 (devnet-cli-http-status
+                            transaction-by-block-hash-and-index-response)))
+               (is (= 200 (devnet-cli-http-status
+                            transaction-by-block-number-and-index-response)))
+               (is (= 200 (devnet-cli-http-status
+                            raw-transaction-by-hash-response)))
+               (is (= 200 (devnet-cli-http-status
+                            raw-transaction-by-block-hash-and-index-response)))
+               (is (= 200 (devnet-cli-http-status
+                            raw-transaction-by-block-number-and-index-response)))
+               (is (= 200 (devnet-cli-http-status
                             safe-block-by-number-response)))
                (is (= 200 (devnet-cli-http-status
                             finalized-block-by-number-response)))
@@ -7036,6 +7183,42 @@
                         (parse-json
                          (devnet-cli-http-body
                           block-by-number-response)))
+                      (block-by-hash-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          block-by-hash-response)))
+                      (block-transaction-count-by-hash-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          block-transaction-count-by-hash-response)))
+                      (block-transaction-count-by-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          block-transaction-count-by-number-response)))
+                      (transaction-by-hash-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transaction-by-hash-response)))
+                      (transaction-by-block-hash-and-index-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transaction-by-block-hash-and-index-response)))
+                      (transaction-by-block-number-and-index-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transaction-by-block-number-and-index-response)))
+                      (raw-transaction-by-hash-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          raw-transaction-by-hash-response)))
+                      (raw-transaction-by-block-hash-and-index-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          raw-transaction-by-block-hash-and-index-response)))
+                      (raw-transaction-by-block-number-and-index-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          raw-transaction-by-block-number-and-index-response)))
                       (safe-block-by-number-rpc
                         (parse-json
                          (devnet-cli-http-body
@@ -7110,6 +7293,17 @@
                         (fixture-object-field invalid-payload-rpc "result"))
                       (block-by-number-result
                         (fixture-object-field block-by-number-rpc "result"))
+                      (block-by-hash-result
+                        (fixture-object-field block-by-hash-rpc "result"))
+                      (transaction-by-hash-result
+                        (fixture-object-field transaction-by-hash-rpc
+                                              "result"))
+                      (transaction-by-block-hash-and-index-result
+                        (fixture-object-field
+                         transaction-by-block-hash-and-index-rpc "result"))
+                      (transaction-by-block-number-and-index-result
+                        (fixture-object-field
+                         transaction-by-block-number-and-index-rpc "result"))
                       (safe-block-by-number-result
                         (fixture-object-field safe-block-by-number-rpc
                                               "result"))
@@ -7167,6 +7361,25 @@
                               finalized-block-by-number-rpc "id")))
                  (is (= 622 (fixture-object-field safe-balance-rpc "id")))
                  (is (= 623 (fixture-object-field finalized-balance-rpc "id")))
+                 (is (= 624 (fixture-object-field block-by-hash-rpc "id")))
+                 (is (= 625 (fixture-object-field
+                              block-transaction-count-by-hash-rpc "id")))
+                 (is (= 626 (fixture-object-field
+                              block-transaction-count-by-number-rpc "id")))
+                 (is (= 627 (fixture-object-field
+                              transaction-by-hash-rpc "id")))
+                 (is (= 628 (fixture-object-field
+                              transaction-by-block-hash-and-index-rpc "id")))
+                 (is (= 629 (fixture-object-field
+                              transaction-by-block-number-and-index-rpc "id")))
+                 (is (= 630 (fixture-object-field
+                              raw-transaction-by-hash-rpc "id")))
+                 (is (= 631 (fixture-object-field
+                              raw-transaction-by-block-hash-and-index-rpc
+                              "id")))
+                 (is (= 632 (fixture-object-field
+                              raw-transaction-by-block-number-and-index-rpc
+                              "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -7238,6 +7451,53 @@
                  (is (string= (hash32-to-hex (block-hash child-block))
                               (fixture-object-field block-by-number-result
                                                     "hash")))
+                 (is (equal (list transaction-hash-hex)
+                            (fixture-object-field block-by-number-result
+                                                  "transactions")))
+                 (is (string= (fixture-object-field payload-case "number")
+                              (fixture-object-field block-by-hash-result
+                                                    "number")))
+                 (is (string= block-hash-hex
+                              (fixture-object-field block-by-hash-result
+                                                    "hash")))
+                 (is (equal (list transaction-hash-hex)
+                            (fixture-object-field block-by-hash-result
+                                                  "transactions")))
+                 (is (string= expected-transaction-count-hex
+                              (fixture-object-field
+                               block-transaction-count-by-hash-rpc
+                               "result")))
+                 (is (string= expected-transaction-count-hex
+                              (fixture-object-field
+                               block-transaction-count-by-number-rpc
+                               "result")))
+                 (dolist (transaction-result
+                          (list transaction-by-hash-result
+                                transaction-by-block-hash-and-index-result
+                                transaction-by-block-number-and-index-result))
+                   (is (string= transaction-hash-hex
+                                (fixture-object-field transaction-result
+                                                      "hash")))
+                   (is (string= block-hash-hex
+                                (fixture-object-field transaction-result
+                                                      "blockHash")))
+                   (is (string= (fixture-object-field payload-case "number")
+                                (fixture-object-field transaction-result
+                                                      "blockNumber")))
+                   (is (string= "0x0"
+                                (fixture-object-field transaction-result
+                                                      "transactionIndex"))))
+                 (is (string= raw-transaction-hex
+                              (fixture-object-field raw-transaction-by-hash-rpc
+                                                    "result")))
+                 (is (string= raw-transaction-hex
+                              (fixture-object-field
+                               raw-transaction-by-block-hash-and-index-rpc
+                               "result")))
+                 (is (string= raw-transaction-hex
+                              (fixture-object-field
+                               raw-transaction-by-block-number-and-index-rpc
+                               "result")))
                  (is (string= (fixture-object-field parent "number")
                               (fixture-object-field
                                safe-block-by-number-result
@@ -7350,11 +7610,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "15"
+                       (is (string= "24"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "23"
+                       (is (string= "32"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))

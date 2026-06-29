@@ -1034,6 +1034,15 @@ ones.
     `eth_getBalance(..., "safe"/"finalized")` return the parent checkpoint view
     while `latest` remains the imported child, with updated shutdown connection
     accounting.
+- [x] `DEVNET-RUNNER-SCRIPT-PUBLIC-LOOKUPS`: Lock public block and transaction
+  lookup RPCs at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now verifies `eth_getBlockByHash`, block transaction
+    counts by hash/number, transaction lookup by hash and block/index, and raw
+    transaction lookup by hash and block/index after authenticated Engine import
+    and forkchoice. The assertions cover block hash/number linkage, transaction
+    hashes, indexes, raw encodings, and shutdown telemetry for the expanded
+    public request count.
 - [x] `DEVNET-RUNNER-SCRIPT-ENGINE-STATUS-PAYLOADS`: Lock Engine orphan and
   invalid payload status handling at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`

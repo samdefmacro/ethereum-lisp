@@ -1217,7 +1217,11 @@ first pass, but interfaces must not block that path.
   `eth_getLogs` responses for the imported child. It also verifies public
   `safe` and `finalized` checkpoint tag reads through
   `eth_getBlockByNumber` and `eth_getBalance` while `latest` remains on the
-  imported child. The script process also
+  imported child. The same script subprocess now verifies public
+  `eth_getBlockByHash`, block transaction counts by hash/number,
+  transaction-by-hash and transaction-by-block/index lookups, and raw
+  transaction lookups for the imported child through the advertised public
+  listener. The script process also
   covers orphan `engine_newPayloadV2` returning `SYNCING`, known-parent
   timestamp-invalid `engine_newPayloadV2` returning `INVALID`, and unchanged
   public canonical `latest` reads after those status paths. The script process
