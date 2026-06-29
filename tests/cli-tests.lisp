@@ -6249,6 +6249,12 @@
                            (cons "id" 708)
                            (cons "method" "txpool_status")
                            (cons "params" '()))))
+                  (txpool-content-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 716)
+                           (cons "method" "txpool_content")
+                           (cons "params" '()))))
                   (txpool-content-from-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -6281,7 +6287,7 @@
                           "--pid-file"
                           (namestring pid-path)
                           "--max-connections"
-                          "15"
+                          "16"
                           "--json")
                     :directory #P"/private/tmp/"
                     :output :stream
@@ -6321,6 +6327,7 @@
                       pending-block-response
                       pending-header-response
                       txpool-status-response
+                      txpool-content-response
                       txpool-content-from-response
                       txpool-inspect-response)
                  (is (= pid (fixture-object-field ready-summary "processId")))
@@ -6391,6 +6398,11 @@
                               rpc-endpoint
                               (devnet-cli-json-rpc-http-request
                                txpool-status-body)))
+                       (setf txpool-content-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               txpool-content-body)))
                        (setf txpool-content-from-response
                              (devnet-cli-http-endpoint-request
                               rpc-endpoint
@@ -6418,6 +6430,7 @@
                                 pending-block-response
                                 pending-header-response
                                 txpool-status-response
+                                txpool-content-response
                                 txpool-content-from-response
                                 txpool-inspect-response))
                    (is (= 200 (devnet-cli-http-status response))))
@@ -6464,6 +6477,9 @@
                         (txpool-status-rpc
                           (parse-json
                            (devnet-cli-http-body txpool-status-response)))
+                        (txpool-content-rpc
+                          (parse-json
+                           (devnet-cli-http-body txpool-content-response)))
                         (txpool-content-from-rpc
                           (parse-json
                            (devnet-cli-http-body
@@ -6494,6 +6510,25 @@
                           (first pending-block-transactions))
                         (txpool-status
                           (fixture-object-field txpool-status-rpc "result"))
+                        (txpool-content
+                          (fixture-object-field txpool-content-rpc "result"))
+                        (content-pending
+                          (fixture-object-field txpool-content "pending"))
+                        (content-queued
+                          (fixture-object-field txpool-content "queued"))
+                        (content-pending-sender
+                          (fixture-object-field content-pending sender-hex))
+                        (content-queued-sender
+                          (fixture-object-field content-queued sender-hex))
+                        (content-pending-transaction
+                          (fixture-object-field content-pending-sender
+                                                pending-nonce))
+                        (content-basefee-transaction
+                          (fixture-object-field content-queued-sender
+                                                basefee-nonce))
+                        (content-queued-transaction
+                          (fixture-object-field content-queued-sender
+                                                queued-nonce))
                         (txpool-content-from
                           (fixture-object-field
                            txpool-content-from-rpc "result"))
@@ -6531,6 +6566,7 @@
                                pending-raw-transaction-by-index-rpc "id")))
                    (is (= 714 (fixture-object-field pending-block-rpc "id")))
                    (is (= 715 (fixture-object-field pending-header-rpc "id")))
+                   (is (= 716 (fixture-object-field txpool-content-rpc "id")))
                    (is (string= pending-hash
                                 (fixture-object-field
                                  send-pending-rpc "result")))
@@ -6599,6 +6635,15 @@
                                                       "queued")))
                    (is (string= pending-hash
                                 (fixture-object-field
+                                 content-pending-transaction "hash")))
+                   (is (string= basefee-hash
+                                (fixture-object-field
+                                 content-basefee-transaction "hash")))
+                   (is (string= queued-hash
+                                (fixture-object-field
+                                 content-queued-transaction "hash")))
+                   (is (string= pending-hash
+                                (fixture-object-field
                                  content-from-pending-transaction "hash")))
                    (is (string= basefee-hash
                                 (fixture-object-field
@@ -6648,11 +6693,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "15"
+                         (is (string= "16"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "15"
+                         (is (string= "16"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=)))))))))))))

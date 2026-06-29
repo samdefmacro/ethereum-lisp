@@ -1241,8 +1241,9 @@ first pass, but interfaces must not block that path.
   admission is also covered at the script-process boundary: a fixture-derived
   genesis funds a local sender, raw pending/basefee/queued submissions go
   through the advertised public listener, and hash lookup plus
-  `eth_pendingTransactions`, `txpool_status`, `txpool_contentFrom`, and
-  `txpool_inspect` stay visible with shutdown connection accounting. That
+  `eth_pendingTransactions`, `txpool_status`, `txpool_content`,
+  `txpool_contentFrom`, and `txpool_inspect` stay visible with shutdown
+  connection accounting. That
   same runner-facing txpool subprocess now also verifies pending block-tag
   transaction count, indexed transaction lookup, raw transaction lookup,
   full pending block body, and pending header reads through the advertised
