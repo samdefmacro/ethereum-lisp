@@ -698,13 +698,28 @@
          (status-line (subseq response 0 line-end)))
     (parse-integer status-line :start 9 :end 12)))
 
-(defun devnet-cli-json-rpc-http-request (body &key token (target "/"))
+(defun devnet-cli-json-rpc-http-request
+    (body &key token (target "/") (host "localhost") origin)
   (with-output-to-string (stream)
-    (format stream "POST ~A HTTP/1.1~%Host: localhost~%" target)
+    (format stream "POST ~A HTTP/1.1~%Host: ~A~%" target host)
     (format stream "Content-Type: application/json~%")
+    (when origin
+      (format stream "Origin: ~A~%" origin))
     (when token
       (format stream "Authorization: Bearer ~A~%" token))
     (format stream "Content-Length: ~D~%~%~A" (length body) body)))
+
+(defun devnet-cli-options-http-request
+    (&key (target "/") (host "localhost") origin
+       (request-method "POST") request-headers)
+  (with-output-to-string (stream)
+    (format stream "~A ~A HTTP/1.1~%Host: ~A~%"
+            request-method target host)
+    (when origin
+      (format stream "Origin: ~A~%" origin))
+    (dolist (header request-headers)
+      (format stream "~A: ~A~%" (car header) (cdr header)))
+    (format stream "Content-Length: 0~%~%")))
 
 (defun devnet-cli-set-node-store-config (node store config)
   (let* ((old-config (ethereum-lisp.cli:devnet-node-config node))
@@ -5280,6 +5295,343 @@
                                                   shutdown-fields
                                                   :test #'string=))))
                          (is (string= "10"
+                                      (cdr (assoc "totalConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))))))))))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path)))))
+
+(deftest ethereum-lisp-script-serve-mode-honors-runner-http-shaping
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+        (jwt-path
+          (devnet-cli-temp-path "ethereum-lisp-script-http-shape" "jwt"))
+        (ready-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-script-http-shape-ready" "json"))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-script-http-shape" "log"))
+        (pid-path
+          (devnet-cli-temp-path "ethereum-lisp-script-http-shape" "pid"))
+        (process nil))
+    (unwind-protect
+         (progn
+           (with-open-file (stream jwt-path
+                                   :direction :output
+                                   :if-exists :supersede
+                                   :if-does-not-exist :create)
+             (write-string +devnet-cli-jwt-secret+ stream))
+           (setf process
+                 (uiop:launch-program
+                  (list "sbcl"
+                        "--script"
+                        script
+                        "--"
+                        "devnet"
+                        "--genesis"
+                        genesis
+                        "--authrpc.addr"
+                        "127.0.0.1"
+                        "--authrpc.port"
+                        "0"
+                        "--http.addr"
+                        "127.0.0.1"
+                        "--http.port"
+                        "0"
+                        "--authrpc.jwtsecret"
+                        (namestring jwt-path)
+                        "--authrpc.rpcprefix"
+                        "/engine"
+                        "--http.rpcprefix"
+                        "/rpc"
+                        "--authrpc.vhosts"
+                        "engine.runner,localhost"
+                        "--http.vhosts"
+                        "public.runner,localhost"
+                        "--http.corsdomain"
+                        "https://runner.example"
+                        "--http.api"
+                        "eth,net"
+                        "--networkid"
+                        "4242"
+                        "--ready-file"
+                        (namestring ready-path)
+                        "--log-file"
+                        (namestring log-path)
+                        "--pid-file"
+                        (namestring pid-path)
+                        "--max-connections"
+                        "6"
+                        "--json")
+                  :directory #P"/private/tmp/"
+                  :output :stream
+                  :error-output :stream))
+           (unless (devnet-cli-wait-for-file ready-path 10)
+             (when (uiop:process-alive-p process)
+               (uiop:terminate-process process)
+               (devnet-cli-wait-process-exit process 5))
+             (let ((stdout
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-output process)))
+                   (stderr
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-error-output process))))
+               (when (search "Operation not permitted" stderr)
+                 (skip-test
+                  "Local socket bind is not permitted in this sandbox"))
+               (is (probe-file ready-path))
+               (is (string= "" stdout))
+               (is (string= "" stderr))))
+           (when (probe-file ready-path)
+             (let* ((ready-summary
+                      (parse-json (devnet-cli-file-string ready-path)))
+                    (pid (devnet-cli-pid-file-process-id pid-path))
+                    (engine-endpoint
+                      (fixture-object-field ready-summary "engineEndpoint"))
+                    (rpc-endpoint
+                      (fixture-object-field ready-summary "rpcEndpoint"))
+                    (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (engine-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":601,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"shape-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
+                    (public-chain-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":602,\"method\":\"eth_chainId\",\"params\":[]}")
+                    (public-net-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":603,\"method\":\"net_version\",\"params\":[]}")
+                    (public-web3-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":604,\"method\":\"web3_clientVersion\",\"params\":[]}")
+                    engine-prefixed-response
+                    engine-root-response
+                    engine-blocked-host-response
+                    public-prefixed-response
+                    public-net-response
+                    public-blocked-host-response
+                    public-root-response
+                    public-web3-response
+                    public-preflight-response)
+               (is (= pid (fixture-object-field ready-summary "processId")))
+               (dolist (summary-field
+                         '(("engineRpcPrefix" . "/engine")
+                           ("publicRpcPrefix" . "/rpc")))
+                 (is (string= (cdr summary-field)
+                              (fixture-object-field
+                               ready-summary
+                               (car summary-field)))))
+               (is (= 4242 (fixture-object-field ready-summary "networkId")))
+               (is (equal '("eth" "net")
+                          (fixture-object-field
+                           ready-summary "publicApiModules")))
+               (is (equal '("https://runner.example")
+                          (fixture-object-field
+                           ready-summary "publicCorsOrigins")))
+               (is (equal '("engine.runner" "localhost")
+                          (fixture-object-field ready-summary
+                                                "engineVhosts")))
+               (is (equal '("public.runner" "localhost")
+                          (fixture-object-field ready-summary
+                                                "publicVhosts")))
+               (handler-case
+                   (progn
+                     (setf engine-prefixed-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :target "/engine"
+                             :host "engine.runner"
+                             :token token)))
+                     (setf engine-root-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :target "/"
+                             :host "engine.runner"
+                             :token token)))
+                     (setf engine-blocked-host-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :target "/engine"
+                             :host "blocked.engine"
+                             :token token)))
+                     (setf public-prefixed-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-chain-body
+                             :target "/rpc"
+                             :host "public.runner"
+                             :origin "https://runner.example")))
+                     (setf public-net-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-net-body
+                             :target "/rpc"
+                             :host "public.runner")))
+                     (setf public-blocked-host-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-chain-body
+                             :target "/rpc"
+                             :host "blocked.public")))
+                     (setf public-root-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-chain-body
+                             :target "/"
+                             :host "public.runner")))
+                     (setf public-web3-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-web3-body
+                             :target "/rpc"
+                             :host "public.runner")))
+                     (setf public-preflight-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-options-http-request
+                             :target "/rpc"
+                             :host "public.runner"
+                             :origin "https://runner.example"
+                             :request-method "OPTIONS"
+                             :request-headers
+                             '(("Access-Control-Request-Method" . "POST")
+                               ("Access-Control-Request-Headers" .
+                                "content-type"))))))
+                 (sb-bsd-sockets:operation-not-permitted-error ()
+                   (skip-test
+                    "Local socket connect is not permitted in this sandbox")))
+               (is (= 200 (devnet-cli-http-status engine-prefixed-response)))
+               (is (= 404 (devnet-cli-http-status engine-root-response)))
+               (is (= 403
+                      (devnet-cli-http-status
+                       engine-blocked-host-response)))
+               (is (= 200 (devnet-cli-http-status public-prefixed-response)))
+               (is (search "Access-Control-Allow-Origin: https://runner.example"
+                           public-prefixed-response))
+               (is (= 200 (devnet-cli-http-status public-net-response)))
+               (is (= 403
+                      (devnet-cli-http-status
+                       public-blocked-host-response)))
+               (is (= 404 (devnet-cli-http-status public-root-response)))
+               (is (= 200 (devnet-cli-http-status public-web3-response)))
+               (is (= 204 (devnet-cli-http-status public-preflight-response)))
+               (let* ((engine-json
+                        (parse-json
+                         (devnet-cli-http-body engine-prefixed-response)))
+                      (public-json
+                        (parse-json
+                         (devnet-cli-http-body public-prefixed-response)))
+                      (public-net-json
+                        (parse-json
+                         (devnet-cli-http-body public-net-response)))
+                      (public-web3-json
+                        (parse-json
+                         (devnet-cli-http-body public-web3-response)))
+                      (client-version
+                        (first (fixture-object-field engine-json "result"))))
+                 (is (= 601 (fixture-object-field engine-json "id")))
+                 (is (string= "ethereum-lisp"
+                              (fixture-object-field client-version "name")))
+                 (is (= 602 (fixture-object-field public-json "id")))
+                 (is (string= "0x539"
+                              (fixture-object-field public-json "result")))
+                 (is (= 603 (fixture-object-field public-net-json "id")))
+                 (is (string= "4242"
+                              (fixture-object-field
+                               public-net-json "result")))
+                 (is (= 604 (fixture-object-field public-web3-json "id")))
+                 (is (= -32601
+                        (fixture-object-field
+                         (fixture-object-field public-web3-json "error")
+                         "code"))))
+               (let ((status (devnet-cli-wait-process-exit process 10)))
+                 (when (eq status :timeout)
+                   (uiop:terminate-process process))
+                 (is (not (eq status :timeout)))
+                 (is (and (numberp status) (= 0 status)))
+                 (let ((stdout
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-output process)))
+                       (stderr
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-error-output process))))
+                   (is (string= "" stderr))
+                   (when (and (numberp status) (= 0 status))
+                     (let* ((stdout-summary (parse-json stdout))
+                            (log-records (devnet-cli-file-forms log-path))
+                            (ready-record
+                              (find "devnet.ready" log-records
+                                    :test #'string=
+                                    :key (lambda (record)
+                                           (getf record :name))))
+                            (shutdown-record
+                              (find "devnet.shutdown" log-records
+                                    :test #'string=
+                                    :key (lambda (record)
+                                           (getf record :name)))))
+                       (dolist (summary (list stdout-summary ready-summary))
+                         (is (string= "/engine"
+                                      (fixture-object-field
+                                       summary "engineRpcPrefix")))
+                         (is (string= "/rpc"
+                                      (fixture-object-field
+                                       summary "publicRpcPrefix")))
+                         (is (equal '("eth" "net")
+                                    (fixture-object-field
+                                     summary "publicApiModules")))
+                         (is (equal '("https://runner.example")
+                                    (fixture-object-field
+                                     summary "publicCorsOrigins"))))
+                       (dolist (record (list ready-record shutdown-record))
+                         (is record)
+                         (let ((fields (getf record :fields)))
+                           (is (string= "/engine"
+                                        (cdr (assoc "engineRpcPrefix" fields
+                                                    :test #'string=))))
+                           (is (string= "/rpc"
+                                        (cdr (assoc "publicRpcPrefix" fields
+                                                    :test #'string=))))
+                           (is (string= "eth,net"
+                                        (cdr (assoc "publicApiModules" fields
+                                                    :test #'string=))))
+                           (is (string= "https://runner.example"
+                                        (cdr (assoc "publicCorsOrigins" fields
+                                                    :test #'string=))))
+                           (is (string= "engine.runner,localhost"
+                                        (cdr (assoc "engineVhosts" fields
+                                                    :test #'string=))))
+                           (is (string= "public.runner,localhost"
+                                        (cdr (assoc "publicVhosts" fields
+                                                    :test #'string=))))))
+                       (let ((shutdown-fields
+                               (getf shutdown-record :fields)))
+                         (is (string= "3"
+                                      (cdr (assoc "engineConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))
+                         (is (string= "6"
+                                      (cdr (assoc "publicConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))
+                         (is (string= "9"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

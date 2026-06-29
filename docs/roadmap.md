@@ -1175,7 +1175,12 @@ first pass, but interfaces must not block that path.
   for the externally served readiness connections. The same script subprocess
   coverage now verifies missing/wrong JWT Engine requests fail with HTTP 401
   and that Engine/public namespace separation is enforced in both directions at
-  the external process boundary. It is also covered receiving
+  the external process boundary. It also has external script-process coverage
+  for geth/Hive-style HTTP shaping flags: `--authrpc.*` / `--http.*` aliases,
+  non-root Engine/public RPC prefixes, Engine/public vhost allowlists, public
+  CORS origins, `--http.api eth,net` filtering, network-id-backed
+  `net_version`, and the resulting ready/stdout/lifecycle metadata plus
+  shutdown connection accounting. It is also covered receiving
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout
   JSON, ready-file JSON, and `devnet.ready` / `devnet.shutdown` telemetry with

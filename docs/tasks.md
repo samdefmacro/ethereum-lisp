@@ -886,6 +886,17 @@ ones.
     JSON-RPC `-32601`, verifies the public endpoint rejects
     `engine_exchangeCapabilities` with JSON-RPC `-32601`, and checks shutdown
     telemetry reports the four Engine and six public served connections.
+- [x] `DEVNET-RUNNER-SCRIPT-HTTP-SHAPING`: Lock geth/Hive-style HTTP shaping
+  flags at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now launches with `--authrpc.*` / `--http.*` aliases,
+    non-root Engine/public RPC prefixes, Engine/public vhost allowlists, public
+    CORS origins, and `--http.api eth,net`. The test verifies accepted
+    prefixed requests, rejected root-path and blocked-host requests, public
+    CORS preflight/response headers, public API filtering of omitted `web3`,
+    network-id-backed `net_version`, reported ready/stdout/log metadata, and
+    shutdown telemetry for the three Engine and six public served
+    connections.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
