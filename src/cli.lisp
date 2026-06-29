@@ -5,7 +5,8 @@
                 (&key genesis-path store config genesis-block service
                       public-service telemetry-sink jwt-secret-path log-path
                       database-path pid-file-path network-id
-                      public-api-modules public-cors-origins
+                      public-api-modules engine-cors-origins
+                      public-cors-origins
                       engine-vhosts public-vhosts)))
   genesis-path
   store
@@ -20,6 +21,7 @@
   pid-file-path
   network-id
   public-api-modules
+  engine-cors-origins
   public-cors-origins
   engine-vhosts
   public-vhosts)
@@ -182,6 +184,7 @@
        pid-file-path
        network-id
        public-api-modules
+       engine-cors-origins
        public-cors-origins
        engine-vhosts
        public-vhosts
@@ -210,6 +213,7 @@
             :jwt-secret jwt-secret
             :rpc-prefix engine-rpc-prefix
             :allowed-method-p #'engine-rpc-engine-method-p
+            :cors-origins engine-cors-origins
             :allowed-hosts engine-vhosts
             :telemetry-sink telemetry-sink))
          (public-service
@@ -256,6 +260,8 @@
      :network-id effective-network-id
      :public-api-modules (and public-api-modules
                               (copy-list public-api-modules))
+     :engine-cors-origins (and engine-cors-origins
+                               (copy-list engine-cors-origins))
      :public-cors-origins (and public-cors-origins
                                (copy-list public-cors-origins))
      :engine-vhosts (and engine-vhosts
@@ -318,6 +324,7 @@
           :pid-file-path (devnet-node-pid-file-path node)
           :network-id (devnet-node-network-id node)
           :public-api-modules (devnet-node-public-api-modules node)
+          :engine-cors-origins (devnet-node-engine-cors-origins node)
           :public-cors-origins (devnet-node-public-cors-origins node)
           :engine-vhosts (devnet-node-engine-vhosts node)
           :public-vhosts (devnet-node-public-vhosts node)
@@ -351,6 +358,7 @@
       ("pidFilePath" . ,(getf summary :pid-file-path))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
+      ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
       ("publicCorsOrigins" . ,(getf summary :public-cors-origins))
       ("engineVhosts" . ,(getf summary :engine-vhosts))
       ("publicVhosts" . ,(getf summary :public-vhosts))
@@ -604,6 +612,7 @@
         (datadir-path nil)
         (network-id nil)
         (http-api-modules nil)
+        (authrpc-cors-origins nil)
         (http-cors-origins nil)
         (engine-vhosts nil)
         (http-vhosts nil)
@@ -712,6 +721,12 @@
                   (setf http-cors-origins
                         (devnet-cli-parse-cors-origin-list value)
                         args rest)))
+               ((string= option "--authrpc.corsdomain")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf authrpc-cors-origins
+                        (devnet-cli-parse-cors-origin-list value)
+                        args rest)))
                ((string= option "--authrpc.vhosts")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -799,6 +814,7 @@
                                    datadir-path)))
           :network-id network-id
           :http-api-modules http-api-modules
+          :authrpc-cors-origins authrpc-cors-origins
           :http-cors-origins http-cors-origins
           :engine-vhosts engine-vhosts
           :http-vhosts http-vhosts
@@ -813,7 +829,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--verbosity LEVEL] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--verbosity LEVEL] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-top-level-help (stream)
   (format stream "Usage: ethereum-lisp COMMAND [options]~%")
@@ -977,6 +993,10 @@
        ,(if (getf summary :public-api-modules)
             (format nil "~{~A~^,~}" (getf summary :public-api-modules))
             ""))
+      ("engineCorsOrigins" .
+       ,(if (getf summary :engine-cors-origins)
+            (format nil "~{~A~^,~}" (getf summary :engine-cors-origins))
+            ""))
       ("publicCorsOrigins" .
        ,(if (getf summary :public-cors-origins)
             (format nil "~{~A~^,~}" (getf summary :public-cors-origins))
@@ -1028,6 +1048,7 @@
                         "--authrpc.jwtsecret" "--authrpc.rpcprefix"
                         "--http.api" "--http.rpcprefix" "--http.vhosts"
                         "--http.corsdomain" "--authrpc.vhosts"
+                        "--authrpc.corsdomain"
                         "--ws.addr" "--ws.port" "--ws.api" "--ws.origins"
                         "--graphql.addr" "--graphql.port"
                         "--graphql.vhosts" "--graphql.corsdomain"
@@ -1138,6 +1159,8 @@
                              :network-id (getf options :network-id)
                              :public-api-modules
                              (getf options :http-api-modules)
+                             :engine-cors-origins
+                             (getf options :authrpc-cors-origins)
                              :public-cors-origins
                              (getf options :http-cors-origins)
                              :engine-vhosts

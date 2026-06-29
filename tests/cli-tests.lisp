@@ -2311,6 +2311,7 @@
                                  (namestring jwt-path))
                          "--authrpc.rpcprefix=/engine"
                          "--authrpc.vhosts=engine.runner,localhost"
+                         "--authrpc.corsdomain=https://engine.runner"
                          "--http=false"
                          "--http.addr=192.0.2.31"
                          "--http.port=9645"
@@ -2375,6 +2376,9 @@
                (is (equal '("eth" "net" "web3" "txpool")
                           (fixture-object-field summary
                                                 "publicApiModules")))
+               (is (equal '("https://engine.runner")
+                          (fixture-object-field summary
+                                                "engineCorsOrigins")))
                (is (equal '("https://runner.example" "*")
                           (fixture-object-field summary
                                                 "publicCorsOrigins")))
@@ -2395,6 +2399,9 @@
                                           :test #'string=))))
                  (is (string= "eth,net,web3,txpool"
                               (cdr (assoc "publicApiModules" fields
+                                          :test #'string=))))
+                 (is (string= "https://engine.runner"
+                              (cdr (assoc "engineCorsOrigins" fields
                                           :test #'string=))))
                  (is (string= "https://runner.example,*"
                               (cdr (assoc "publicCorsOrigins" fields
@@ -8423,6 +8430,8 @@
                         (namestring jwt-path)
                         "--authrpc.rpcprefix"
                         "/engine"
+                        "--authrpc.corsdomain"
+                        "https://engine.runner"
                         "--http.rpcprefix"
                         "/rpc"
                         "--authrpc.vhosts"
@@ -8482,6 +8491,7 @@
                     (public-web3-body
                       "{\"jsonrpc\":\"2.0\",\"id\":604,\"method\":\"web3_clientVersion\",\"params\":[]}")
                     engine-prefixed-response
+                    engine-preflight-response
                     engine-root-response
                     engine-blocked-host-response
                     public-prefixed-response
@@ -8502,6 +8512,9 @@
                (is (equal '("eth" "net")
                           (fixture-object-field
                            ready-summary "publicApiModules")))
+               (is (equal '("https://engine.runner")
+                          (fixture-object-field
+                           ready-summary "engineCorsOrigins")))
                (is (equal '("https://runner.example")
                           (fixture-object-field
                            ready-summary "publicCorsOrigins")))
@@ -8520,7 +8533,20 @@
                              engine-body
                              :target "/engine"
                              :host "engine.runner"
+                             :origin "https://engine.runner"
                              :token token)))
+                     (setf engine-preflight-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-options-http-request
+                             :target "/engine"
+                             :host "engine.runner"
+                             :origin "https://engine.runner"
+                             :request-method "OPTIONS"
+                             :request-headers
+                             '(("Access-Control-Request-Method" . "POST")
+                               ("Access-Control-Request-Headers" .
+                                "authorization, content-type")))))
                      (setf engine-root-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -8589,6 +8615,11 @@
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status engine-prefixed-response)))
+               (is (search "Access-Control-Allow-Origin: https://engine.runner"
+                           engine-prefixed-response))
+               (is (= 204 (devnet-cli-http-status engine-preflight-response)))
+               (is (search "Access-Control-Allow-Origin: https://engine.runner"
+                           engine-preflight-response))
                (is (= 404 (devnet-cli-http-status engine-root-response)))
                (is (= 403
                       (devnet-cli-http-status
@@ -8667,6 +8698,9 @@
                          (is (equal '("eth" "net")
                                     (fixture-object-field
                                      summary "publicApiModules")))
+                         (is (equal '("https://engine.runner")
+                                    (fixture-object-field
+                                     summary "engineCorsOrigins")))
                          (is (equal '("https://runner.example")
                                     (fixture-object-field
                                      summary "publicCorsOrigins"))))
@@ -8682,6 +8716,9 @@
                            (is (string= "eth,net"
                                         (cdr (assoc "publicApiModules" fields
                                                     :test #'string=))))
+                           (is (string= "https://engine.runner"
+                                        (cdr (assoc "engineCorsOrigins" fields
+                                                    :test #'string=))))
                            (is (string= "https://runner.example"
                                         (cdr (assoc "publicCorsOrigins" fields
                                                     :test #'string=))))
@@ -8693,7 +8730,7 @@
                                                     :test #'string=))))))
                        (let ((shutdown-fields
                                (getf shutdown-record :fields)))
-                         (is (string= "3"
+                         (is (string= "4"
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
@@ -8701,7 +8738,7 @@
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "9"
+                         (is (string= "10"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

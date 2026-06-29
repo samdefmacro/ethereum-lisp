@@ -1082,13 +1082,15 @@ first pass, but interfaces must not block that path.
   RPC prefixes by accepting `/engine` and `/rpc` requests, rejecting root-path
   requests with HTTP 404, and exposing configured, summary-reported, and
   telemetry-reported prefix fields for runner checks.
-  `--http.corsdomain LIST` now configures public RPC
-  CORS/preflight behavior and is reported as `publicCorsOrigins` in summaries,
-  ready-file JSON, and lifecycle telemetry. The public listener returns
-  configured `Access-Control-Allow-*` headers, answers allowed `OPTIONS`
-  preflights with HTTP 204, supports wildcard `*`, and rejects disallowed
-  origins with HTTP 403. The standalone devnet smoke gate now verifies that
-  CORS contract through real listener streams and exposes configured,
+  `--authrpc.corsdomain LIST` and `--http.corsdomain LIST` now configure
+  Engine/public RPC CORS behavior and are reported as `engineCorsOrigins` /
+  `publicCorsOrigins` in summaries, ready-file JSON, and lifecycle telemetry.
+  The public listener returns configured `Access-Control-Allow-*` headers,
+  answers allowed `OPTIONS` preflights with HTTP 204, supports wildcard `*`,
+  and rejects disallowed origins with HTTP 403; the external script-process
+  HTTP-shaping coverage also verifies Engine CORS preflight and authenticated
+  Engine CORS response headers. The standalone devnet smoke gate now verifies
+  the public CORS contract through real listener streams and exposes configured,
   summary-reported, and telemetry-reported origins plus preflight/RPC/blocked
   status codes for Hive-style runner checks. `--http.api LIST` now parses
   comma-separated public

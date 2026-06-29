@@ -806,6 +806,14 @@ ones.
     headers to public RPC responses, supports wildcard `*`, and rejects
     disallowed origins with HTTP 403. The authenticated Engine/public
     namespace split remains unchanged.
+- [x] `DEVNET-RUNNER-ENGINE-CORS`: Map geth/Hive-style
+  `--authrpc.corsdomain` onto the authenticated Engine listener.
+  - Result (2026-06-30): `ethereum-lisp devnet` now parses comma-separated
+    `--authrpc.corsdomain` origins, wires them into the Engine HTTP service,
+    reports them as `engineCorsOrigins` in stdout summaries, ready-file JSON,
+    and lifecycle telemetry, and the external `scripts/ethereum-lisp.lisp`
+    serve-mode HTTP-shaping regression verifies Engine CORS preflight plus
+    authenticated CORS response headers through the advertised Engine endpoint.
 - [x] `DEVNET-RUNNER-PUBLIC-CORS-SMOKE`: Lock public RPC CORS behavior at the
   standalone devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate now starts a
