@@ -5030,7 +5030,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "1"
+                        "5"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -5065,8 +5065,20 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":501,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     (public-body
                       "{\"jsonrpc\":\"2.0\",\"id\":502,\"method\":\"eth_chainId\",\"params\":[]}")
+                    (public-client-version-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":503,\"method\":\"web3_clientVersion\",\"params\":[]}")
+                    (public-net-version-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":504,\"method\":\"net_version\",\"params\":[]}")
+                    (public-net-listening-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":505,\"method\":\"net_listening\",\"params\":[]}")
+                    (public-syncing-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":506,\"method\":\"eth_syncing\",\"params\":[]}")
                     engine-response
-                    public-response)
+                    public-response
+                    public-client-version-response
+                    public-net-version-response
+                    public-net-listening-response
+                    public-syncing-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
                    (progn
@@ -5079,16 +5091,58 @@
                      (setf public-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
-                            (devnet-cli-json-rpc-http-request public-body))))
+                            (devnet-cli-json-rpc-http-request public-body)))
+                     (setf public-client-version-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-client-version-body)))
+                     (setf public-net-version-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-net-version-body)))
+                     (setf public-net-listening-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-net-listening-body)))
+                     (setf public-syncing-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-syncing-body))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status engine-response)))
                (is (= 200 (devnet-cli-http-status public-response)))
+               (is (= 200
+                      (devnet-cli-http-status
+                       public-client-version-response)))
+               (is (= 200 (devnet-cli-http-status public-net-version-response)))
+               (is (= 200
+                      (devnet-cli-http-status
+                       public-net-listening-response)))
+               (is (= 200 (devnet-cli-http-status public-syncing-response)))
                (let* ((engine-json
                         (parse-json (devnet-cli-http-body engine-response)))
                       (public-json
                         (parse-json (devnet-cli-http-body public-response)))
+                      (public-client-version-json
+                        (parse-json
+                         (devnet-cli-http-body
+                          public-client-version-response)))
+                      (public-net-version-json
+                        (parse-json
+                         (devnet-cli-http-body public-net-version-response)))
+                      (public-net-listening-json
+                        (parse-json
+                         (devnet-cli-http-body
+                          public-net-listening-response)))
+                      (public-syncing-json
+                        (parse-json
+                         (devnet-cli-http-body public-syncing-response)))
                       (client-version
                         (first (fixture-object-field engine-json "result"))))
                  (is (= 501 (fixture-object-field engine-json "id")))
@@ -5096,7 +5150,23 @@
                               (fixture-object-field client-version "name")))
                  (is (= 502 (fixture-object-field public-json "id")))
                  (is (string= "0x539"
-                              (fixture-object-field public-json "result"))))
+                              (fixture-object-field public-json "result")))
+                 (is (= 503
+                        (fixture-object-field public-client-version-json "id")))
+                 (is (search "ethereum-lisp"
+                             (fixture-object-field
+                              public-client-version-json "result")))
+                 (is (= 504 (fixture-object-field public-net-version-json "id")))
+                 (is (string= "1337"
+                              (fixture-object-field
+                               public-net-version-json "result")))
+                 (is (= 505
+                        (fixture-object-field public-net-listening-json "id")))
+                 (is (null (fixture-object-field
+                            public-net-listening-json "result")))
+                 (is (= 506 (fixture-object-field public-syncing-json "id")))
+                 (is (null (fixture-object-field
+                            public-syncing-json "result"))))
                (let ((status (devnet-cli-wait-process-exit process 10)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -5146,11 +5216,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "1"
+                         (is (string= "5"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "2"
+                         (is (string= "6"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

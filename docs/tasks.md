@@ -870,6 +870,14 @@ ones.
     explicit non-p2p listening status, and non-syncing status, reports those
     fields in JSON/text output, and updates the public canonical-read
     connection contract for Hive-style runners.
+- [x] `DEVNET-RUNNER-SCRIPT-PUBLIC-READINESS`: Lock common public RPC readiness
+  probes at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now probes `eth_chainId`, `web3_clientVersion`,
+    `net_version`, `net_listening`, and `eth_syncing` through the advertised
+    public endpoint, verifies the local client version, default network id,
+    explicit non-p2p listening status, and non-syncing status, and checks
+    shutdown telemetry reports the five public connections.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
