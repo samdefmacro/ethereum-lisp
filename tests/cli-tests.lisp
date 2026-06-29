@@ -5234,6 +5234,82 @@
         (is (= 0 (length results)))
         (is (plusp (length families)))))))
 
+(deftest phase-a-drift-map-script-help-prints-without-loading-errors
+  #-sbcl
+  (skip-test "Phase A drift map script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-drift-map.lisp"
+             "--"
+             "--help"
+             "--unsupported-option")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (is (search "Usage: sbcl --script scripts/phase-a-drift-map.lisp"
+                stdout))
+    (is (search "--state-limit NUMBER" stdout))
+    (is (search "--transaction-limit NUMBER" stdout))
+    (is (search "--blockchain-limit NUMBER" stdout))
+    (is (search "known-implementation-drift" stdout))
+    (is (search "out-of-scope-fork-feature" stdout))))
+
+(deftest phase-a-drift-map-script-json-summarizes-suites
+  #-sbcl
+  (skip-test "Phase A drift map script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-drift-map.lisp"
+             "--"
+             "--root"
+             "tests/fixtures/execution-spec-tests-root/"
+             "--limit"
+             "1"
+             "--failures-only"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (overall (fixture-object-field report "overall"))
+             (suites (fixture-object-field report "suites")))
+        (is (string= "phase-a-drift-map"
+                     (fixture-object-field report "mode")))
+        (is (eq t (fixture-object-field report "failuresOnly")))
+        (is (= 3 (length suites)))
+        (is (= 3 (fixture-object-field overall "suiteCount")))
+        (is (= 3 (fixture-object-field overall "candidateCount")))
+        (is (= 3 (fixture-object-field overall "classifiedCount")))
+        (is (= 0
+               (fixture-object-field
+                overall
+                "knownImplementationDriftCount")))
+        (is (= 0
+               (fixture-object-field
+                overall
+                "fixtureHarnessErrorCount")))
+        (is (eq t (fixture-object-field
+                   overall
+                   "phaseAMaterializableClear")))
+        (dolist (suite suites)
+          (is (member (fixture-object-field suite "suite")
+                      '("state" "transaction" "blockchain")
+                      :test #'string=))
+          (is (= 1 (fixture-object-field suite "candidateCount")))
+          (is (= 1 (fixture-object-field suite "classifiedCount")))
+          (is (fixture-object-field suite "families")))))))
+
 (deftest ethereum-lisp-script-dispatches-devnet-help
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL")

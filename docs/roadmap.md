@@ -1548,6 +1548,13 @@ Detailed historical implementation notes for this section now live in
   `prague/eip7702_set_code_tx` families, all classified out-of-scope for the
   current Phase A valid-envelope contract with no implementation-bug-candidate
   or fixture-harness-error records.
+  `scripts/phase-a-drift-map.lisp` now consolidates the state, transaction,
+  and blockchain classifiers into one drift-map runner with canonical buckets
+  for passing, known implementation drift, out-of-scope fork/feature, and
+  implementation-bug candidates while keeping fixture harness errors separate.
+  A bounded check against the installed v5.4.0 root keeps the current signal:
+  sampled remaining state and blockchain candidates pass, and the remaining
+  transaction selectors are Prague/EIP-7702 out-of-scope for Phase A.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

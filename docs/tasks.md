@@ -1246,6 +1246,20 @@ ones.
     covers 230 official state selectors, 53 official Prague/EIP-7702 invalid
     transaction cases, and 200 official Shanghai `engineNewPayloadV2`
     blockchain selectors, for 483 total executed fixture cases.
+- [x] `PHASE-A-V5.4.0-DRIFT-MAP`: Add a consolidated official-fixture drift
+  map runner so automation can classify remaining materializable selectors
+  before widening pinned coverage.
+  - Result (2026-06-30): added `scripts/phase-a-drift-map.lisp`, which
+    orchestrates the state-test, transaction-test, and blockchain replay
+    classifiers and reports canonical buckets for passing,
+    known-implementation-drift, out-of-scope-fork-feature, and
+    implementation-bug-candidate results while preserving fixture-harness
+    errors separately. Bounded validation against the installed v5.4.0 root
+    showed the first 40 unpinned state selectors and first 40 unpinned
+    blockchain replay selectors passing, while all 53 remaining transaction
+    selectors classify as Prague/EIP-7702 out-of-scope for Phase A. This gives
+    future runs a single drift-map gate instead of mechanically pinning already
+    passing selectors.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
