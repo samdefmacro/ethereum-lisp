@@ -6643,6 +6643,35 @@
                          (cons "params"
                                (list (address-to-hex recipient)
                                      "finalized")))))
+                (proof-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 633)
+                         (cons "method" "eth_getProof")
+                         (cons "params"
+                               (list (address-to-hex storage-address)
+                                     (list (fixture-object-field expect
+                                                                 "storageKey"))
+                                     "latest")))))
+                (block-hash-balance-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 634)
+                         (cons "method" "eth_getBalance")
+                         (cons "params"
+                               (list
+                                (address-to-hex recipient)
+                                (list (cons "blockHash" block-hash-hex)))))))
+                (require-canonical-balance-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 635)
+                         (cons "method" "eth_getBalance")
+                         (cons "params"
+                               (list
+                                (address-to-hex recipient)
+                                (list (cons "blockHash" block-hash-hex)
+                                      (cons "requireCanonical" t)))))))
                 (transaction-count-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
@@ -6829,7 +6858,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "24"
+                        "27"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -6873,6 +6902,9 @@
                     balance-response
                     safe-balance-response
                     finalized-balance-response
+                    proof-response
+                    block-hash-balance-response
+                    require-canonical-balance-response
                     transaction-count-response
                     block-by-number-response
                     block-by-hash-response
@@ -6981,6 +7013,21 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              finalized-balance-body)))
+                     (setf proof-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             proof-body)))
+                     (setf block-hash-balance-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             block-hash-balance-body)))
+                     (setf require-canonical-balance-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             require-canonical-balance-body)))
                      (setf transaction-count-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -7100,6 +7147,11 @@
                (is (= 200 (devnet-cli-http-status balance-response)))
                (is (= 200 (devnet-cli-http-status safe-balance-response)))
                (is (= 200 (devnet-cli-http-status finalized-balance-response)))
+               (is (= 200 (devnet-cli-http-status proof-response)))
+               (is (= 200 (devnet-cli-http-status
+                            block-hash-balance-response)))
+               (is (= 200 (devnet-cli-http-status
+                            require-canonical-balance-response)))
                (is (= 200 (devnet-cli-http-status
                             transaction-count-response)))
                (is (= 200 (devnet-cli-http-status
@@ -7175,6 +7227,16 @@
                       (finalized-balance-rpc
                         (parse-json
                          (devnet-cli-http-body finalized-balance-response)))
+                      (proof-rpc
+                        (parse-json
+                         (devnet-cli-http-body proof-response)))
+                      (block-hash-balance-rpc
+                        (parse-json
+                         (devnet-cli-http-body block-hash-balance-response)))
+                      (require-canonical-balance-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          require-canonical-balance-response)))
                       (transaction-count-rpc
                         (parse-json
                          (devnet-cli-http-body
@@ -7304,6 +7366,11 @@
                       (transaction-by-block-number-and-index-result
                         (fixture-object-field
                          transaction-by-block-number-and-index-rpc "result"))
+                      (proof-result
+                        (fixture-object-field proof-rpc "result"))
+                      (proof-storage
+                        (first (fixture-object-field proof-result
+                                                     "storageProof")))
                       (safe-block-by-number-result
                         (fixture-object-field safe-block-by-number-rpc
                                               "result"))
@@ -7380,6 +7447,11 @@
                  (is (= 632 (fixture-object-field
                               raw-transaction-by-block-number-and-index-rpc
                               "id")))
+                 (is (= 633 (fixture-object-field proof-rpc "id")))
+                 (is (= 634 (fixture-object-field
+                              block-hash-balance-rpc "id")))
+                 (is (= 635 (fixture-object-field
+                              require-canonical-balance-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -7442,6 +7514,14 @@
                  (is (string= "0x0"
                               (fixture-object-field finalized-balance-rpc
                                                     "result")))
+                 (is (string= (fixture-object-field expect
+                                                    "recipientBalance")
+                              (fixture-object-field block-hash-balance-rpc
+                                                    "result")))
+                 (is (string= (fixture-object-field expect
+                                                    "recipientBalance")
+                              (fixture-object-field
+                               require-canonical-balance-rpc "result")))
                  (is (string= (fixture-object-field expect "senderNonce")
                               (fixture-object-field transaction-count-rpc
                                                     "result")))
@@ -7498,6 +7578,17 @@
                               (fixture-object-field
                                raw-transaction-by-block-number-and-index-rpc
                                "result")))
+                 (is (string= (address-to-hex storage-address)
+                              (fixture-object-field proof-result "address")))
+                 (is (listp (fixture-object-field proof-result
+                                                  "accountProof")))
+                 (is (string= (fixture-object-field expect "storageKey")
+                              (fixture-object-field proof-storage "key")))
+                 (is (string= (quantity-to-hex
+                               (hex-to-quantity
+                                (fixture-object-field expect "storageValue")))
+                              (fixture-object-field proof-storage "value")))
+                 (is (listp (fixture-object-field proof-storage "proof")))
                  (is (string= (fixture-object-field parent "number")
                               (fixture-object-field
                                safe-block-by-number-result
@@ -7610,11 +7701,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "24"
+                       (is (string= "27"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "32"
+                       (is (string= "35"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))

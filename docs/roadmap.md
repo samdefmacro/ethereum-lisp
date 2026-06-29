@@ -1221,7 +1221,10 @@ first pass, but interfaces must not block that path.
   `eth_getBlockByHash`, block transaction counts by hash/number,
   transaction-by-hash and transaction-by-block/index lookups, and raw
   transaction lookups for the imported child through the advertised public
-  listener. The script process also
+  listener. It also verifies `eth_getProof` and canonical EIP-1898
+  `eth_getBalance` block-hash reads through that external public listener, so
+  proof and hash-pinned retained-state reads are covered at the runner process
+  boundary. The script process also
   covers orphan `engine_newPayloadV2` returning `SYNCING`, known-parent
   timestamp-invalid `engine_newPayloadV2` returning `INVALID`, and unchanged
   public canonical `latest` reads after those status paths. The script process

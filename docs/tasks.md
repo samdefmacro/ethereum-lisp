@@ -1043,6 +1043,15 @@ ones.
     and forkchoice. The assertions cover block hash/number linkage, transaction
     hashes, indexes, raw encodings, and shutdown telemetry for the expanded
     public request count.
+- [x] `DEVNET-RUNNER-SCRIPT-PROOF-EIP1898`: Lock retained-state proof and
+  canonical block-hash reads at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now verifies public `eth_getProof` plus EIP-1898
+    `eth_getBalance` by canonical `blockHash` with and without
+    `requireCanonical` after authenticated Engine import and forkchoice. The
+    assertions cover proof address, storage key/value, proof-list shape,
+    canonical hash-pinned balance, and shutdown telemetry for the expanded
+    public request count.
 - [x] `DEVNET-RUNNER-SCRIPT-ENGINE-STATUS-PAYLOADS`: Lock Engine orphan and
   invalid payload status handling at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
