@@ -1221,7 +1221,11 @@ first pass, but interfaces must not block that path.
   `eth_getBlockByHash`, block transaction counts by hash/number,
   transaction-by-hash and transaction-by-block/index lookups, and raw
   transaction lookups for the imported child through the advertised public
-  listener. It also verifies `eth_getProof` and canonical EIP-1898
+  listener. It now also verifies full transaction-object block lookups through
+  `eth_getBlockByNumber("latest", true)` and `eth_getBlockByHash(..., true)`,
+  covering transaction object hash, block hash/number, and transaction index
+  linkage at the runner process boundary. It also verifies `eth_getProof` and
+  canonical EIP-1898
   `eth_getBalance` block-hash reads through that external public listener, so
   proof and hash-pinned retained-state reads are covered at the runner process
   boundary. It now also verifies retained-state simulation RPCs (`eth_call`,

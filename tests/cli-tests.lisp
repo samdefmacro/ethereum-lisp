@@ -6850,6 +6850,18 @@
                          (cons "id" 624)
                          (cons "method" "eth_getBlockByHash")
                          (cons "params" (list block-hash-hex :false)))))
+                (full-block-by-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 640)
+                         (cons "method" "eth_getBlockByNumber")
+                         (cons "params" (list "latest" t)))))
+                (full-block-by-hash-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 641)
+                         (cons "method" "eth_getBlockByHash")
+                         (cons "params" (list block-hash-hex t)))))
                 (block-transaction-count-by-hash-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
@@ -7047,7 +7059,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "31"
+                        "33"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -7097,6 +7109,8 @@
                     transaction-count-response
                     block-by-number-response
                     block-by-hash-response
+                    full-block-by-number-response
+                    full-block-by-hash-response
                     block-transaction-count-by-hash-response
                     block-transaction-count-by-number-response
                     transaction-by-hash-response
@@ -7236,6 +7250,16 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              block-by-hash-body)))
+                     (setf full-block-by-number-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             full-block-by-number-body)))
+                     (setf full-block-by-hash-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             full-block-by-hash-body)))
                      (setf block-transaction-count-by-hash-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -7372,6 +7396,10 @@
                (is (= 200 (devnet-cli-http-status
                             block-by-hash-response)))
                (is (= 200 (devnet-cli-http-status
+                            full-block-by-number-response)))
+               (is (= 200 (devnet-cli-http-status
+                            full-block-by-hash-response)))
+               (is (= 200 (devnet-cli-http-status
                             block-transaction-count-by-hash-response)))
                (is (= 200 (devnet-cli-http-status
                             block-transaction-count-by-number-response)))
@@ -7468,6 +7496,14 @@
                         (parse-json
                          (devnet-cli-http-body
                           block-by-hash-response)))
+                      (full-block-by-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          full-block-by-number-response)))
+                      (full-block-by-hash-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          full-block-by-hash-response)))
                       (block-transaction-count-by-hash-rpc
                         (parse-json
                          (devnet-cli-http-body
@@ -7590,6 +7626,22 @@
                         (fixture-object-field block-by-number-rpc "result"))
                       (block-by-hash-result
                         (fixture-object-field block-by-hash-rpc "result"))
+                      (full-block-by-number-result
+                        (fixture-object-field full-block-by-number-rpc
+                                              "result"))
+                      (full-block-by-hash-result
+                        (fixture-object-field full-block-by-hash-rpc
+                                              "result"))
+                      (full-block-by-number-transactions
+                        (fixture-object-field full-block-by-number-result
+                                              "transactions"))
+                      (full-block-by-hash-transactions
+                        (fixture-object-field full-block-by-hash-result
+                                              "transactions"))
+                      (full-block-by-number-transaction
+                        (first full-block-by-number-transactions))
+                      (full-block-by-hash-transaction
+                        (first full-block-by-hash-transactions))
                       (transaction-by-hash-result
                         (fixture-object-field transaction-by-hash-rpc
                                               "result"))
@@ -7708,6 +7760,10 @@
                  (is (= 637 (fixture-object-field estimate-gas-rpc "id")))
                  (is (= 638 (fixture-object-field create-access-list-rpc "id")))
                  (is (= 639 (fixture-object-field post-call-storage-rpc "id")))
+                 (is (= 640 (fixture-object-field
+                              full-block-by-number-rpc "id")))
+                 (is (= 641 (fixture-object-field
+                              full-block-by-hash-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -7799,6 +7855,34 @@
                  (is (equal (list transaction-hash-hex)
                             (fixture-object-field block-by-hash-result
                                                   "transactions")))
+                 (dolist (full-block-result
+                          (list full-block-by-number-result
+                                full-block-by-hash-result))
+                   (is (string= (fixture-object-field payload-case "number")
+                                (fixture-object-field full-block-result
+                                                      "number")))
+                   (is (string= block-hash-hex
+                                (fixture-object-field full-block-result
+                                                      "hash"))))
+                 (dolist (transactions
+                          (list full-block-by-number-transactions
+                                full-block-by-hash-transactions))
+                   (is (= 1 (length transactions))))
+                 (dolist (full-block-transaction
+                          (list full-block-by-number-transaction
+                                full-block-by-hash-transaction))
+                   (is (string= transaction-hash-hex
+                                (fixture-object-field full-block-transaction
+                                                      "hash")))
+                   (is (string= block-hash-hex
+                                (fixture-object-field full-block-transaction
+                                                      "blockHash")))
+                   (is (string= (fixture-object-field payload-case "number")
+                                (fixture-object-field full-block-transaction
+                                                      "blockNumber")))
+                   (is (string= "0x0"
+                                (fixture-object-field full-block-transaction
+                                                      "transactionIndex"))))
                  (is (string= expected-transaction-count-hex
                               (fixture-object-field
                                block-transaction-count-by-hash-rpc
@@ -7971,11 +8055,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "31"
+                       (is (string= "33"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "39"
+                       (is (string= "41"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))

@@ -1043,6 +1043,16 @@ ones.
     and forkchoice. The assertions cover block hash/number linkage, transaction
     hashes, indexes, raw encodings, and shutdown telemetry for the expanded
     public request count.
+- [x] `DEVNET-RUNNER-SCRIPT-FULL-BLOCK-LOOKUPS`: Lock full block transaction
+  objects at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now verifies
+    `eth_getBlockByNumber("latest", true)` and
+    `eth_getBlockByHash(..., true)` after authenticated Engine import and
+    forkchoice. The assertions cover full transaction-object hash, block hash,
+    block number, transaction index, block hash/number linkage, transaction
+    count, and updated shutdown telemetry for the expanded public request
+    count.
 - [x] `DEVNET-RUNNER-SCRIPT-PROOF-EIP1898`: Lock retained-state proof and
   canonical block-hash reads at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
