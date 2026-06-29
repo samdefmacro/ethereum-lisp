@@ -1142,7 +1142,12 @@ first pass, but interfaces must not block that path.
   runner-facing `scripts/ethereum-lisp.lisp` subprocess coverage verifies the
   same missing-genesis and malformed-option failure contract from temporary
   working directories, so process runners can classify failures without
-  relying only on stderr. The
+  relying only on stderr. Listener startup failures before readiness now keep
+  the lifecycle stream unambiguous: if the public RPC port cannot bind after
+  the Engine listener was opened, the script process exits with status 1,
+  emits a single `devnet.error` record, preserves the child pid artifact, and
+  does not emit a ready file, stdout summary, `devnet.ready`, or
+  `devnet.shutdown` record. The
   standalone devnet smoke gate now also emits and enforces an explicit
   `connectionContract`, breaking down expected Engine boundary/workflow probes
   and public canonical-read/boundary/txpool probes so Hive-style runners can

@@ -518,6 +518,15 @@ ones.
     closes the Engine socket instead of leaving the configured Engine port
     occupied inside the process. Socket coverage binds a conflicting public
     port, forces startup failure, then proves the Engine port can be rebound.
+- [x] `DEVNET-RUNNER-BIND-FAILURE-TELEMETRY`: Keep runner-facing lifecycle
+  telemetry unambiguous when listener startup fails before readiness.
+  - Result (2026-06-29): serve-mode CLI cleanup now emits `devnet.shutdown`
+    only after readiness was published or serving returned a connection
+    summary. Runner-facing `scripts/ethereum-lisp.lisp` subprocess coverage
+    binds a conflicting public RPC port, verifies startup exits with status 1,
+    leaves no ready file or stdout summary, writes the child pid file, and
+    records exactly one `devnet.error` log record with no `devnet.ready` or
+    `devnet.shutdown` lifecycle records.
 - [x] `DEVNET-RUNNER-SIGNAL-SHUTDOWN`: Lock the runner-facing script's external
   shutdown signal contract for long-running serve mode.
   - Result (2026-06-28): added subprocess coverage that launches

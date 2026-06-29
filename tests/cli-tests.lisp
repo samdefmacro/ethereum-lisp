@@ -2793,6 +2793,110 @@
       (sb-bsd-sockets:operation-not-permitted-error ()
         (skip-test "Local socket bind is not permitted in this sandbox")))))
 
+(deftest ethereum-lisp-script-public-bind-error-reports-error-only
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL sockets")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+        (public-socket nil)
+        (public-port nil)
+        (ready-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-script-bind-error-ready" "json"))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-script-bind-error" "log"))
+        (pid-path
+          (devnet-cli-temp-path "ethereum-lisp-script-bind-error" "pid")))
+    (handler-case
+        (unwind-protect
+             (progn
+               (multiple-value-setq (public-socket public-port)
+                 (devnet-cli-open-loopback-socket))
+               (multiple-value-bind (stdout stderr status)
+                   (uiop:run-program
+                    (list "sbcl"
+                          "--script"
+                          script
+                          "--"
+                          "devnet"
+                          "--genesis"
+                          genesis
+                          "--engine-port"
+                          "0"
+                          "--public-port"
+                          (write-to-string public-port)
+                          "--ready-file"
+                          (namestring ready-path)
+                          "--log-file"
+                          (namestring log-path)
+                          "--pid-file"
+                          (namestring pid-path)
+                          "--json")
+                    :directory #P"/private/tmp/"
+                    :output :string
+                    :error-output :string
+                    :ignore-error-status t)
+                 (when (search "Operation not permitted" stderr)
+                   (skip-test
+                    "Local socket bind is not permitted in this sandbox"))
+                 (is (= 1 status))
+                 (is (string= "" stdout))
+                 (is (search "Usage: ethereum-lisp devnet" stderr))
+                 (is (not (probe-file ready-path)))
+                 (is (probe-file pid-path))
+                 (let* ((log-records (devnet-cli-file-forms log-path))
+                        (record (first log-records))
+                        (fields (getf record :fields))
+                        (log-names
+                          (mapcar (lambda (entry) (getf entry :name))
+                                  log-records))
+                        (process-id
+                          (parse-integer
+                           (cdr (assoc "processId" fields :test #'string=))
+                           :junk-allowed nil)))
+                   (is (= 1 (length log-records)))
+                   (is (eq :log (getf record :kind)))
+                   (is (eq :error (getf record :value)))
+                   (is (string= "devnet.error" (getf record :name)))
+                   (is (not (member "devnet.ready"
+                                    log-names
+                                    :test #'string=)))
+                   (is (not (member "devnet.shutdown"
+                                    log-names
+                                    :test #'string=)))
+                   (is (string= "error"
+                                (cdr (assoc "lifecyclePhase"
+                                            fields
+                                            :test #'string=))))
+                   (is (string= "1"
+                                (cdr (assoc "exitCode"
+                                            fields
+                                            :test #'string=))))
+                   (is (plusp process-id))
+                   (is (not (= (devnet-cli-current-process-id) process-id)))
+                   (is (search "bind"
+                               (string-downcase
+                                (cdr (assoc "errorMessage"
+                                            fields
+                                            :test #'string=)))))
+                   (is (string= (namestring log-path)
+                                (cdr (assoc "logPath"
+                                            fields
+                                            :test #'string=))))
+                   (is (= process-id
+                          (devnet-cli-pid-file-process-id pid-path))))))
+          (when public-socket
+            (ignore-errors (sb-bsd-sockets:socket-close public-socket)))
+          (when (probe-file ready-path)
+            (delete-file ready-path))
+          (when (probe-file log-path)
+            (delete-file log-path))
+          (when (probe-file pid-path)
+            (delete-file pid-path)))
+      (sb-bsd-sockets:operation-not-permitted-error ()
+        (skip-test "Local socket bind is not permitted in this sandbox")))))
+
 (defun devnet-smoke-gate-launch-json-process ()
   (uiop:launch-program
    (list "sbcl"

@@ -1087,6 +1087,7 @@
                    (if (getf options :serve-p)
                        (let ((bound-engine-endpoint nil)
                              (bound-rpc-endpoint nil)
+                             (ready-p nil)
                              (serve-summary nil))
                          (unwind-protect
                               (setf
@@ -1117,6 +1118,7 @@
                                      "devnet.ready"
                                      :engine-endpoint bound-engine-endpoint
                                      :rpc-endpoint bound-rpc-endpoint))
+                                  (setf ready-p t)
                                   (devnet-cli-print-summary
                                    node
                                    output-stream
@@ -1127,7 +1129,8 @@
                             node
                             :state-prune-before
                             (getf options :state-prune-before))
-                           (when (getf options :log-file)
+                           (when (and (getf options :log-file)
+                                      (or ready-p serve-summary))
                              (devnet-cli-log-event
                              node
                              "devnet.shutdown"
