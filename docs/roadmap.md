@@ -1067,6 +1067,11 @@ first pass, but interfaces must not block that path.
   aligned for Hive-style runners. It now also sends a public JSON-RPC batch for
   `eth_chainId`, `net_version`, and `web3_clientVersion`, reports the batch
   result fields, and accounts for the extra public listener connection.
+  The runner-facing `scripts/ethereum-lisp.lisp` entrypoint now also has a
+  top-level discovery contract: no arguments, `help`, and `--help` print the
+  available commands without requiring a genesis file, while `version` and
+  `--version` print the same local client identity used by Engine/public
+  client-version RPCs.
   `--authrpc.vhosts LIST` and
   `--http.vhosts LIST` now configure Engine/public HTTP Host allowlists,
   report `engineVhosts` / `publicVhosts` in summaries, ready-file JSON, and

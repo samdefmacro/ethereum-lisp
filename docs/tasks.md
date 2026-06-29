@@ -6294,6 +6294,12 @@ splits can land after the Phase A smoke path closes.
     exits before loading the test system. This keeps process runners and
     automation probes from depending on full fixture/test initialization merely
     to discover the standalone devnet gate contract.
+  - Result: the runner-facing `scripts/ethereum-lisp.lisp` process entrypoint
+    now has a top-level discovery contract. Invoking it with no arguments,
+    `help`, or `--help` prints the available commands without requiring a
+    genesis file, and `version` / `--version` prints the same
+    `ethereum-lisp/0.1.0/0x00000000` identity used by Engine
+    `engine_getClientVersionV1` and public `web3_clientVersion`.
   - Result: devnet readiness telemetry now carries `stateAvailable`, and the
     standalone smoke gate verifies lifecycle head consistency: `devnet.ready`
     and the ready file must report the pre-import parent head, while

@@ -815,6 +815,37 @@
   (format stream
           "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--authrpc.vhosts HOSTS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--verbosity LEVEL] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
+(defun devnet-cli-print-top-level-help (stream)
+  (format stream "Usage: ethereum-lisp COMMAND [options]~%")
+  (format stream "~%")
+  (format stream "Commands:~%")
+  (format stream "  devnet      Run a local Engine/public JSON-RPC devnet node.~%")
+  (format stream "  help        Print this help.~%")
+  (format stream "  version     Print the local client version.~%")
+  (format stream "~%")
+  (format stream "Use `ethereum-lisp devnet --help` for devnet options.~%"))
+
+(defun devnet-cli-version-string ()
+  (let ((version (engine-rpc-client-version)))
+    (format nil "~A/~A/~A"
+            (cdr (assoc "name" version :test #'string=))
+            (cdr (assoc "version" version :test #'string=))
+            (cdr (assoc "commit" version :test #'string=)))))
+
+(defun devnet-cli-print-version (stream)
+  (format stream "~A~%" (devnet-cli-version-string)))
+
+(defun devnet-cli-top-level-help-p (args)
+  (or (null args)
+      (and (= 1 (length args))
+           (member (first args) '("help" "--help" "-h")
+                   :test #'string=))))
+
+(defun devnet-cli-top-level-version-p (args)
+  (and (= 1 (length args))
+       (member (first args) '("version" "--version" "-v")
+               :test #'string=)))
+
 (defun devnet-cli-print-summary
     (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
   (ecase format
@@ -1069,119 +1100,128 @@
                 (output-stream *standard-output*)
                 (error-stream *error-output*))
   (handler-case
-      (let ((options (devnet-cli-options args)))
-        (if (getf options :help-p)
-            (progn
-              (devnet-cli-print-usage output-stream)
-              0)
-            (progn
-              (unless (getf options :genesis-path)
-                (error "--genesis is required"))
-              (call-with-devnet-cli-telemetry-sink
-               options
-               output-stream
-               (lambda (telemetry-sink)
-                 (let ((node
-                         (make-devnet-node
-                          :genesis-path (getf options :genesis-path)
-                          :host (getf options :host)
-                          :port (getf options :port)
-                          :public-host (getf options :public-host)
-                          :public-port (getf options :public-port)
-                          :jwt-secret-path (getf options :jwt-secret-path)
-                          :engine-rpc-prefix
-                          (getf options :engine-rpc-prefix)
-                          :public-rpc-prefix
-                          (getf options :public-rpc-prefix)
-                          :log-path (getf options :log-file)
-                          :database-path (getf options :database-path)
-                          :pid-file-path (getf options :pid-file)
-                          :network-id (getf options :network-id)
-                          :public-api-modules
-                          (getf options :http-api-modules)
-                          :public-cors-origins
-                          (getf options :http-cors-origins)
-                          :engine-vhosts
-                          (getf options :engine-vhosts)
-                          :public-vhosts
-                          (getf options :http-vhosts)
-                          :public-allowed-method-p
-                          (devnet-cli-public-api-method-filter
-                           (getf options :http-api-modules))
-                          :telemetry-sink telemetry-sink)))
-                   (when (getf options :pid-file)
-                     (devnet-cli-write-pid-file (getf options :pid-file)))
-                   (if (getf options :serve-p)
-                       (let ((bound-engine-endpoint nil)
-                             (bound-rpc-endpoint nil)
-                             (ready-p nil)
-                             (serve-summary nil))
-                         (unwind-protect
-                              (setf
-                               serve-summary
-                               (start-devnet-node
-                                node
-                                :max-connections
-                                (getf options :max-connections)
-                                :install-signal-handlers-p t
-                                :signal-stream error-stream
-                                :on-listeners-ready
-                                (lambda (engine-listener public-listener)
-                                  (setf bound-engine-endpoint
-                                        (engine-rpc-http-listener-endpoint
-                                         engine-listener)
-                                        bound-rpc-endpoint
-                                        (engine-rpc-http-listener-endpoint
-                                         public-listener))
-                                  (when (getf options :ready-file)
-                                    (devnet-cli-write-ready-file
-                                     node
-                                     (getf options :ready-file)
-                                     :engine-endpoint bound-engine-endpoint
-                                     :rpc-endpoint bound-rpc-endpoint))
-                                  (when (getf options :log-file)
-                                    (devnet-cli-log-event
-                                     node
-                                     "devnet.ready"
-                                     :engine-endpoint bound-engine-endpoint
-                                     :rpc-endpoint bound-rpc-endpoint))
-                                  (setf ready-p t)
-                                  (devnet-cli-print-summary
+      (cond
+        ((devnet-cli-top-level-help-p args)
+         (devnet-cli-print-top-level-help output-stream)
+         0)
+        ((devnet-cli-top-level-version-p args)
+         (devnet-cli-print-version output-stream)
+         0)
+        (t
+         (let ((options (devnet-cli-options args)))
+           (if (getf options :help-p)
+               (progn
+                 (devnet-cli-print-usage output-stream)
+                 0)
+               (progn
+                 (unless (getf options :genesis-path)
+                   (error "--genesis is required"))
+                 (call-with-devnet-cli-telemetry-sink
+                  options
+                  output-stream
+                  (lambda (telemetry-sink)
+                    (let ((node
+                            (make-devnet-node
+                             :genesis-path (getf options :genesis-path)
+                             :host (getf options :host)
+                             :port (getf options :port)
+                             :public-host (getf options :public-host)
+                             :public-port (getf options :public-port)
+                             :jwt-secret-path (getf options :jwt-secret-path)
+                             :engine-rpc-prefix
+                             (getf options :engine-rpc-prefix)
+                             :public-rpc-prefix
+                             (getf options :public-rpc-prefix)
+                             :log-path (getf options :log-file)
+                             :database-path (getf options :database-path)
+                             :pid-file-path (getf options :pid-file)
+                             :network-id (getf options :network-id)
+                             :public-api-modules
+                             (getf options :http-api-modules)
+                             :public-cors-origins
+                             (getf options :http-cors-origins)
+                             :engine-vhosts
+                             (getf options :engine-vhosts)
+                             :public-vhosts
+                             (getf options :http-vhosts)
+                             :public-allowed-method-p
+                             (devnet-cli-public-api-method-filter
+                              (getf options :http-api-modules))
+                             :telemetry-sink telemetry-sink)))
+                      (when (getf options :pid-file)
+                        (devnet-cli-write-pid-file
+                         (getf options :pid-file)))
+                      (if (getf options :serve-p)
+                          (let ((bound-engine-endpoint nil)
+                                (bound-rpc-endpoint nil)
+                                (ready-p nil)
+                                (serve-summary nil))
+                            (unwind-protect
+                                 (setf
+                                  serve-summary
+                                  (start-devnet-node
                                    node
-                                   output-stream
-                                   :format (getf options :summary-format)
-                                   :engine-endpoint bound-engine-endpoint
-                                   :rpc-endpoint bound-rpc-endpoint))))
-                           (devnet-node-export-database
-                            node
-                            :state-prune-before
-                            (getf options :state-prune-before))
-                           (when (and (getf options :log-file)
-                                      (or ready-p serve-summary))
-                             (devnet-cli-log-event
+                                   :max-connections
+                                   (getf options :max-connections)
+                                   :install-signal-handlers-p t
+                                   :signal-stream error-stream
+                                   :on-listeners-ready
+                                   (lambda (engine-listener public-listener)
+                                     (setf bound-engine-endpoint
+                                           (engine-rpc-http-listener-endpoint
+                                            engine-listener)
+                                           bound-rpc-endpoint
+                                           (engine-rpc-http-listener-endpoint
+                                            public-listener))
+                                     (when (getf options :ready-file)
+                                       (devnet-cli-write-ready-file
+                                        node
+                                        (getf options :ready-file)
+                                        :engine-endpoint bound-engine-endpoint
+                                        :rpc-endpoint bound-rpc-endpoint))
+                                     (when (getf options :log-file)
+                                       (devnet-cli-log-event
+                                        node
+                                        "devnet.ready"
+                                        :engine-endpoint bound-engine-endpoint
+                                        :rpc-endpoint bound-rpc-endpoint))
+                                     (setf ready-p t)
+                                     (devnet-cli-print-summary
+                                      node
+                                      output-stream
+                                      :format (getf options :summary-format)
+                                      :engine-endpoint bound-engine-endpoint
+                                      :rpc-endpoint bound-rpc-endpoint))))
+                              (devnet-node-export-database
+                               node
+                               :state-prune-before
+                               (getf options :state-prune-before))
+                              (when (and (getf options :log-file)
+                                         (or ready-p serve-summary))
+                                (devnet-cli-log-event
+                                 node
+                                 "devnet.shutdown"
+                                 :engine-endpoint bound-engine-endpoint
+                                 :rpc-endpoint bound-rpc-endpoint
+                                 :connection-summary serve-summary))))
+                          (progn
+                            (devnet-node-export-database
                              node
-                             "devnet.shutdown"
-                             :engine-endpoint bound-engine-endpoint
-                             :rpc-endpoint bound-rpc-endpoint
-                             :connection-summary serve-summary))))
-                       (progn
-                         (devnet-node-export-database
-                          node
-                          :state-prune-before
-                          (getf options :state-prune-before))
-                         (when (getf options :ready-file)
-                           (devnet-cli-write-ready-file
-                            node
-                            (getf options :ready-file)))
-                         (when (getf options :log-file)
-                           (devnet-cli-log-event node "devnet.ready"))
-                         (devnet-cli-print-summary
-                          node
-                          output-stream
-                          :format (getf options :summary-format))
-                         (when (getf options :log-file)
-                           (devnet-cli-log-event node "devnet.shutdown"))))
-                   0))))))
+                             :state-prune-before
+                             (getf options :state-prune-before))
+                            (when (getf options :ready-file)
+                              (devnet-cli-write-ready-file
+                               node
+                               (getf options :ready-file)))
+                            (when (getf options :log-file)
+                              (devnet-cli-log-event node "devnet.ready"))
+                            (devnet-cli-print-summary
+                             node
+                             output-stream
+                             :format (getf options :summary-format))
+                            (when (getf options :log-file)
+                              (devnet-cli-log-event node "devnet.shutdown"))))
+                      0))))))))
     (error (condition)
       (devnet-cli-log-error-event args condition)
       (format error-stream "~A~%" condition)

@@ -5280,6 +5280,44 @@
     (is (search "--allow-insecure-unlock" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
+(deftest ethereum-lisp-script-dispatches-top-level-help-and-version
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp"))))
+    (labels ((run-script (&rest args)
+               (uiop:run-program
+                (append (list "sbcl" "--script" script "--") args)
+                :directory #P"/private/tmp/"
+                :output :string
+                :error-output :string
+                :ignore-error-status t)))
+      (multiple-value-bind (stdout stderr status)
+          (run-script)
+        (is (= 0 status))
+        (is (string= "" stderr))
+        (is (search "Usage: ethereum-lisp COMMAND" stdout))
+        (is (search "devnet" stdout))
+        (is (search "version" stdout))
+        (is (search "ethereum-lisp devnet --help" stdout)))
+      (multiple-value-bind (stdout stderr status)
+          (run-script "--help")
+        (is (= 0 status))
+        (is (string= "" stderr))
+        (is (search "Usage: ethereum-lisp COMMAND" stdout)))
+      (multiple-value-bind (stdout stderr status)
+          (run-script "version")
+        (is (= 0 status))
+        (is (string= "" stderr))
+        (is (string= "ethereum-lisp/0.1.0/0x00000000"
+                     (string-trim '(#\Newline #\Return) stdout))))
+      (multiple-value-bind (stdout stderr status)
+          (run-script "--version")
+        (is (= 0 status))
+        (is (string= "" stderr))
+        (is (string= "ethereum-lisp/0.1.0/0x00000000"
+                     (string-trim '(#\Newline #\Return) stdout)))))))
+
 (deftest ethereum-lisp-script-dispatches-devnet-no-serve-json
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL")
