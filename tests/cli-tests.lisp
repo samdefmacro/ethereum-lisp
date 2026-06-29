@@ -167,6 +167,27 @@
   (is (= 2 (fixture-object-field report "vhostPublicConnections")))
   (is (= 4 (fixture-object-field report "vhostTotalConnections"))))
 
+(defun devnet-cli-assert-rpc-prefix-smoke-report (report)
+  (is (string= "/engine"
+               (fixture-object-field report "engineRpcPrefix")))
+  (is (string= "/rpc"
+               (fixture-object-field report "publicRpcPrefix")))
+  (is (string= "/engine"
+               (fixture-object-field report "engineRpcPrefixReported")))
+  (is (string= "/rpc"
+               (fixture-object-field report "publicRpcPrefixReported")))
+  (is (string= "/engine"
+               (fixture-object-field report "engineRpcPrefixTelemetry")))
+  (is (string= "/rpc"
+               (fixture-object-field report "publicRpcPrefixTelemetry")))
+  (is (= 200 (fixture-object-field report "engineRpcPrefixStatus")))
+  (is (= 404 (fixture-object-field report "engineRpcPrefixBlockedStatus")))
+  (is (= 200 (fixture-object-field report "publicRpcPrefixStatus")))
+  (is (= 404 (fixture-object-field report "publicRpcPrefixBlockedStatus")))
+  (is (= 2 (fixture-object-field report "rpcPrefixEngineConnections")))
+  (is (= 2 (fixture-object-field report "rpcPrefixPublicConnections")))
+  (is (= 4 (fixture-object-field report "rpcPrefixTotalConnections"))))
+
 (defun devnet-cli-temp-directory (name)
   (let ((path
           (merge-pathnames
@@ -2628,6 +2649,7 @@
                        "publicApiBlockedEngineErrorCode")))
                (devnet-cli-assert-public-cors-smoke-report report)
                (devnet-cli-assert-vhost-smoke-report report)
+               (devnet-cli-assert-rpc-prefix-smoke-report report)
                (devnet-cli-assert-connection-contract report 1)
                (is (= (fixture-object-field ready-summary "processId")
                       (devnet-cli-pid-file-process-id pid-path)))
@@ -3142,6 +3164,7 @@
                            "publicMalformedJsonErrorCode")))
                    (devnet-cli-assert-public-cors-smoke-report case)
                    (devnet-cli-assert-vhost-smoke-report case)
+                   (devnet-cli-assert-rpc-prefix-smoke-report case)
                    (is (string= expected-block-number
                                  (fixture-object-field case "blockNumber"))))
                  (is (string= (fixture-object-field case "blockNumber")

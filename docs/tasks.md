@@ -752,6 +752,16 @@ ones.
     disallowed hosts with HTTP 403 before JWT or JSON-RPC dispatch. The
     standalone smoke report now includes Engine/public allowed and blocked
     vhost status probes plus summary/telemetry vhost reporting.
+- [x] `DEVNET-RUNNER-RPC-PREFIX-SMOKE`: Lock Engine/public RPC prefix routing
+  at the standalone devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate now starts a
+    prefix-configured devnet node with `--authrpc.rpcprefix` / `--http.rpcprefix`
+    equivalents, sends accepted requests to `/engine` and `/rpc`, and verifies
+    root-path requests are rejected with HTTP 404 on both listeners. The smoke
+    report exposes configured, summary-reported, and telemetry-reported
+    prefixes plus accepted/blocked status codes and connection counts, and
+    CLI smoke tests assert those fields for both single-case and all-fixtures
+    runner reports.
 - [x] `PUBLIC-RPC-PENDING-BLOCK-TAG-TXPOOL`: Make public RPC pending
   block-tag transaction queries reflect the pending txpool instead of the
   latest committed block.

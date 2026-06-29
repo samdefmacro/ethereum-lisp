@@ -102,6 +102,10 @@ references/ checkouts.~%")
   '("public.runner" "localhost"))
 (defconstant +devnet-smoke-gate-vhost-engine-connections+ 2)
 (defconstant +devnet-smoke-gate-vhost-public-connections+ 2)
+(defconstant +devnet-smoke-gate-engine-rpc-prefix+ "/engine")
+(defconstant +devnet-smoke-gate-public-rpc-prefix+ "/rpc")
+(defconstant +devnet-smoke-gate-rpc-prefix-engine-connections+ 2)
+(defconstant +devnet-smoke-gate-rpc-prefix-public-connections+ 2)
 
 (defun devnet-smoke-gate-arguments ()
   #+sbcl
@@ -1028,6 +1032,221 @@ references/ checkouts.~%")
               (+ engine-connection-count public-connection-count)))))
   #-sbcl
   (error "Vhost smoke verification requires SBCL threads"))
+
+(defun devnet-smoke-gate-verify-rpc-prefixes ()
+  #+sbcl
+  (let ((jwt-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-smoke-rpc-prefix-jwt"
+           "hex")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path
+                     (namestring
+                      (devnet-smoke-gate-reference-path
+                       +devnet-cli-genesis-fixture+))
+                     :port 8551
+                     :public-port 8545
+                     :jwt-secret-path (namestring jwt-path)
+                     :engine-rpc-prefix
+                     +devnet-smoke-gate-engine-rpc-prefix+
+                     :public-rpc-prefix
+                     +devnet-smoke-gate-public-rpc-prefix+))
+                  (secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                  (token (engine-rpc-make-jwt-token secret 0))
+                  (engine-body
+                    (devnet-smoke-gate-json-rpc-request
+                     601
+                     "engine_getClientVersionV1"
+                     (list
+                      (list (cons "code" "TT")
+                            (cons "name" "test")
+                            (cons "version" "1.1.1")
+                            (cons "commit" "0x12345678")))))
+                  (public-body
+                    (devnet-smoke-gate-json-rpc-request
+                     602 "eth_chainId" '()))
+                  (engine-output (make-string-output-stream))
+                  (blocked-engine-output (make-string-output-stream))
+                  (public-output (make-string-output-stream))
+                  (blocked-public-output (make-string-output-stream))
+                  (engine-served-count 0)
+                  (public-served-count 0)
+                  (engine-done-p nil)
+                  (engine-requests
+                    (list
+                     (cons
+                      (devnet-cli-json-rpc-http-request
+                       engine-body
+                       :token token
+                       :target
+                       +devnet-smoke-gate-engine-rpc-prefix+)
+                      engine-output)
+                     (cons
+                      (devnet-cli-json-rpc-http-request
+                       engine-body
+                       :token token
+                       :target "/")
+                      blocked-engine-output)))
+                  (public-requests
+                    (list
+                     (cons
+                      (devnet-cli-json-rpc-http-request
+                       public-body
+                       :target
+                       +devnet-smoke-gate-public-rpc-prefix+)
+                      public-output)
+                     (cons
+                      (devnet-cli-json-rpc-http-request
+                       public-body
+                       :target "/")
+                      blocked-public-output)))
+                  (summary
+                    (ethereum-lisp.cli:start-devnet-node-listeners
+                     node
+                     (make-engine-rpc-http-listener
+                      :endpoint "rpc-prefix-engine"
+                      :accept-function
+                      (lambda ()
+                        (when engine-requests
+                          (destructuring-bind (request . output)
+                              (pop engine-requests)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream request)
+                             :output-stream output
+                             :close-function
+                             (lambda ()
+                               (incf engine-served-count)
+                               (when (= engine-served-count
+                                        +devnet-smoke-gate-rpc-prefix-engine-connections+)
+                                 (setf engine-done-p t)))))))
+                      :close-function (lambda () nil))
+                     (make-engine-rpc-http-listener
+                      :endpoint "rpc-prefix-public"
+                      :accept-function
+                      (lambda ()
+                        (loop until engine-done-p
+                              do (sleep 0.001))
+                        (when public-requests
+                          (destructuring-bind (request . output)
+                              (pop public-requests)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream request)
+                             :output-stream output
+                             :close-function
+                             (lambda () (incf public-served-count))))))
+                      :close-function (lambda () nil))
+                     :max-connections
+                     +devnet-smoke-gate-rpc-prefix-engine-connections+))
+                  (engine-response
+                    (get-output-stream-string engine-output))
+                  (blocked-engine-response
+                    (get-output-stream-string blocked-engine-output))
+                  (public-response
+                    (get-output-stream-string public-output))
+                  (blocked-public-response
+                    (get-output-stream-string blocked-public-output))
+                  (engine-rpc (devnet-smoke-gate-rpc-body engine-response))
+                  (public-rpc (devnet-smoke-gate-rpc-body public-response))
+                  (summary-json
+                    (ethereum-lisp.cli::devnet-node-summary-json-object
+                     node))
+                  (telemetry-fields
+                    (ethereum-lisp.cli::devnet-node-telemetry-fields node))
+                  (reported-engine-prefix
+                    (cdr (assoc "engineRpcPrefix"
+                                summary-json
+                                :test #'string=)))
+                  (reported-public-prefix
+                    (cdr (assoc "publicRpcPrefix"
+                                summary-json
+                                :test #'string=)))
+                  (telemetry-engine-prefix
+                    (cdr (assoc "engineRpcPrefix"
+                                telemetry-fields
+                                :test #'string=)))
+                  (telemetry-public-prefix
+                    (cdr (assoc "publicRpcPrefix"
+                                telemetry-fields
+                                :test #'string=))))
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status engine-response))
+              "Engine RPC prefix status mismatch")
+             (devnet-smoke-gate-require
+              (= 404 (devnet-cli-http-status blocked-engine-response))
+              "Engine RPC blocked-prefix status mismatch")
+             (devnet-smoke-gate-require
+              (= 200 (devnet-cli-http-status public-response))
+              "Public RPC prefix status mismatch")
+             (devnet-smoke-gate-require
+              (= 404 (devnet-cli-http-status blocked-public-response))
+              "Public RPC blocked-prefix status mismatch")
+             (devnet-smoke-gate-require
+              (= +devnet-smoke-gate-rpc-prefix-engine-connections+
+                 (getf summary :engine-connections))
+              "RPC prefix Engine connection count mismatch")
+             (devnet-smoke-gate-require
+              (= +devnet-smoke-gate-rpc-prefix-public-connections+
+                 (getf summary :public-connections))
+              "RPC prefix public connection count mismatch")
+             (devnet-smoke-gate-require
+              (= engine-served-count
+                 (getf summary :engine-connections))
+              "RPC prefix served Engine count mismatch")
+             (devnet-smoke-gate-require
+              (= public-served-count
+                 (getf summary :public-connections))
+              "RPC prefix served public count mismatch")
+             (devnet-smoke-gate-require
+              (string= "ethereum-lisp"
+                       (fixture-object-field
+                        (first (fixture-object-field engine-rpc "result"))
+                        "name"))
+              "Engine RPC prefix client-version result mismatch")
+             (devnet-smoke-gate-require
+              (string= "0x539" (fixture-object-field public-rpc "result"))
+              "Public RPC prefix chain id mismatch")
+             (devnet-smoke-gate-require
+              (string= +devnet-smoke-gate-engine-rpc-prefix+
+                       reported-engine-prefix)
+              "Engine RPC prefix summary mismatch")
+             (devnet-smoke-gate-require
+              (string= +devnet-smoke-gate-public-rpc-prefix+
+                       reported-public-prefix)
+              "Public RPC prefix summary mismatch")
+             (devnet-smoke-gate-require
+              (string= +devnet-smoke-gate-engine-rpc-prefix+
+                       telemetry-engine-prefix)
+              "Engine RPC prefix telemetry mismatch")
+             (devnet-smoke-gate-require
+              (string= +devnet-smoke-gate-public-rpc-prefix+
+                       telemetry-public-prefix)
+              "Public RPC prefix telemetry mismatch")
+             (list :engine-prefix +devnet-smoke-gate-engine-rpc-prefix+
+                   :public-prefix +devnet-smoke-gate-public-rpc-prefix+
+                   :reported-engine-prefix reported-engine-prefix
+                   :reported-public-prefix reported-public-prefix
+                   :telemetry-engine-prefix telemetry-engine-prefix
+                   :telemetry-public-prefix telemetry-public-prefix
+                   :engine-status (devnet-cli-http-status engine-response)
+                   :engine-blocked-status
+                   (devnet-cli-http-status blocked-engine-response)
+                   :public-status (devnet-cli-http-status public-response)
+                   :public-blocked-status
+                   (devnet-cli-http-status blocked-public-response)
+                   :engine-connections (getf summary :engine-connections)
+                   :public-connections (getf summary :public-connections)
+                   :total-connections
+                   (getf summary :total-connections))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))))
+  #-sbcl
+  (error "RPC prefix smoke verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-execution-spec-tests-source ()
   (list
@@ -6729,7 +6948,9 @@ references/ checkouts.~%")
                        (public-cors-summary
                          (devnet-smoke-gate-verify-public-cors))
                        (vhost-summary
-                         (devnet-smoke-gate-verify-vhosts)))
+                         (devnet-smoke-gate-verify-vhosts))
+                       (rpc-prefix-summary
+                         (devnet-smoke-gate-verify-rpc-prefixes)))
                  (devnet-smoke-gate-add-run-metadata
                   (list
                   (cons "status" "ok")
@@ -6820,6 +7041,38 @@ references/ checkouts.~%")
                         (getf vhost-summary :public-connections))
                   (cons "vhostTotalConnections"
                         (getf vhost-summary :total-connections))
+                  (cons "engineRpcPrefix"
+                        (getf rpc-prefix-summary :engine-prefix))
+                  (cons "publicRpcPrefix"
+                        (getf rpc-prefix-summary :public-prefix))
+                  (cons "engineRpcPrefixReported"
+                        (getf rpc-prefix-summary
+                              :reported-engine-prefix))
+                  (cons "publicRpcPrefixReported"
+                        (getf rpc-prefix-summary
+                              :reported-public-prefix))
+                  (cons "engineRpcPrefixTelemetry"
+                        (getf rpc-prefix-summary
+                              :telemetry-engine-prefix))
+                  (cons "publicRpcPrefixTelemetry"
+                        (getf rpc-prefix-summary
+                              :telemetry-public-prefix))
+                  (cons "engineRpcPrefixStatus"
+                        (getf rpc-prefix-summary :engine-status))
+                  (cons "engineRpcPrefixBlockedStatus"
+                        (getf rpc-prefix-summary
+                              :engine-blocked-status))
+                  (cons "publicRpcPrefixStatus"
+                        (getf rpc-prefix-summary :public-status))
+                  (cons "publicRpcPrefixBlockedStatus"
+                        (getf rpc-prefix-summary
+                              :public-blocked-status))
+                  (cons "rpcPrefixEngineConnections"
+                        (getf rpc-prefix-summary :engine-connections))
+                  (cons "rpcPrefixPublicConnections"
+                        (getf rpc-prefix-summary :public-connections))
+                  (cons "rpcPrefixTotalConnections"
+                        (getf rpc-prefix-summary :total-connections))
                   (cons "engineUnauthenticatedStatus"
                         (devnet-cli-http-status
                          unauthenticated-engine-response))

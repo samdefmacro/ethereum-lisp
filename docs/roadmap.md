@@ -1054,6 +1054,10 @@ first pass, but interfaces must not block that path.
   lifecycle telemetry, support wildcard `*`, and reject disallowed hosts with
   HTTP 403 before JWT or JSON-RPC dispatch. The standalone devnet smoke report
   verifies allowed and blocked Host probes for both Engine and public services.
+  The standalone devnet smoke report also verifies configured Engine/public
+  RPC prefixes by accepting `/engine` and `/rpc` requests, rejecting root-path
+  requests with HTTP 404, and exposing configured, summary-reported, and
+  telemetry-reported prefix fields for runner checks.
   `--http.corsdomain LIST` now configures public RPC
   CORS/preflight behavior and is reported as `publicCorsOrigins` in summaries,
   ready-file JSON, and lifecycle telemetry. The public listener returns
