@@ -33,6 +33,7 @@
 
 (defconstant +devnet-default-public-rpc-port+ 8545)
 (defconstant +devnet-datadir-database-file+ "ethereum-lisp-chain.sexp")
+(defconstant +devnet-datadir-genesis-file+ "genesis.json")
 
 (defun devnet-process-id ()
   #+sbcl
@@ -157,6 +158,20 @@
    (merge-pathnames
     +devnet-datadir-database-file+
     (uiop:ensure-directory-pathname datadir))))
+
+(defun devnet-cli-datadir-genesis-path (datadir)
+  (namestring
+   (merge-pathnames
+    +devnet-datadir-genesis-file+
+    (uiop:ensure-directory-pathname datadir))))
+
+(defun devnet-cli-copy-file-string (source target)
+  (let ((contents (devnet-cli-read-file-string source)))
+    (with-open-file (stream (devnet-cli-ensure-path-parent-directory target)
+                            :direction :output
+                            :if-exists :supersede
+                            :if-does-not-exist :create)
+      (write-string contents stream))))
 
 (defun devnet-cli-validate-imported-genesis (store genesis-block database-path)
   (let ((restored-genesis (chain-store-block-by-number store 0)))
@@ -808,6 +823,7 @@
           :jwt-secret-path jwt-secret-path
           :engine-rpc-prefix engine-rpc-prefix
           :public-rpc-prefix public-rpc-prefix
+          :datadir-path datadir-path
           :database-path (or database-path
                              (and datadir-path
                                   (devnet-cli-datadir-database-path
@@ -827,19 +843,124 @@
           :pid-file pid-file
           :help-p help-p)))
 
+(defun devnet-cli-remove-command-token (args command)
+  (let ((removed-p nil))
+    (loop for arg in args
+          unless (and (not removed-p)
+                      (string= arg command))
+            collect arg
+          else do (setf removed-p t))))
+
+(defun devnet-cli-init-command-p (args)
+  (member "init" args :test #'string=))
+
+(defun devnet-cli-init-options (args)
+  (setf args (devnet-cli-remove-command-token args "init"))
+  (setf args (devnet-cli-normalize-option-args args))
+  (let ((genesis-path nil)
+        (database-path nil)
+        (datadir-path nil)
+        (summary-format :sexp)
+        (help-p nil))
+    (loop while args
+          for option = (pop args)
+          do (cond
+               ((string= option "--help")
+                (setf help-p t))
+               ((string= option "--genesis")
+                (multiple-value-setq (genesis-path args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--database")
+                (multiple-value-setq (database-path args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--datadir")
+                (multiple-value-setq (datadir-path args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--json")
+                (setf summary-format :json)
+                (when (and args
+                           (not (devnet-cli-option-token-p (first args)))
+                           (member (string-downcase (first args))
+                                   '("true" "false" "1" "0")
+                                   :test #'string=))
+                  (let ((enabled-p
+                          (devnet-cli-parse-boolean-token
+                           (first args)
+                           option)))
+                    (setf summary-format (if enabled-p :json :sexp)))
+                  (setf args (rest args))))
+               ((member option
+                        '("--state.scheme" "--db.engine"
+                          "--datadir.ancient")
+                        :test #'string=)
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (declare (ignore value))
+                  (setf args rest)))
+               ((devnet-cli-option-token-p option)
+                (error "Unknown option ~A" option))
+               ((null genesis-path)
+                (setf genesis-path option))
+               (t
+                (error "Unexpected init argument ~A" option))))
+    (list :genesis-path genesis-path
+          :datadir-path datadir-path
+          :database-path (or database-path
+                             (and datadir-path
+                                  (devnet-cli-datadir-database-path
+                                   datadir-path)))
+          :summary-format summary-format
+          :help-p help-p)))
+
+(defun devnet-cli-resolve-genesis-path (options)
+  (or (getf options :genesis-path)
+      (let ((datadir-path (getf options :datadir-path)))
+        (when datadir-path
+          (let ((stored-genesis
+                  (devnet-cli-datadir-genesis-path datadir-path)))
+            (and (probe-file stored-genesis)
+                 (namestring (truename stored-genesis))))))))
+
+(defun devnet-cli-print-init-usage (stream)
+  (format stream
+          "Usage: ethereum-lisp init --datadir PATH [--database PATH] [--json] GENESIS~%"))
+
+(defun devnet-cli-run-init (options output-stream)
+  (let ((genesis-path (getf options :genesis-path))
+        (datadir-path (getf options :datadir-path))
+        (database-path (getf options :database-path)))
+    (unless genesis-path
+      (error "init requires a genesis file"))
+    (unless database-path
+      (error "init requires --datadir or --database"))
+    (when datadir-path
+      (devnet-cli-copy-file-string
+       genesis-path
+       (devnet-cli-datadir-genesis-path datadir-path)))
+    (let ((node
+            (make-devnet-node
+             :genesis-path genesis-path
+             :database-path database-path)))
+      (devnet-node-export-database node)
+      (devnet-cli-print-summary
+       node
+       output-stream
+       :format (getf options :summary-format)))))
+
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet --genesis PATH [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--verbosity LEVEL] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet [--genesis PATH] [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--verbosity LEVEL] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-top-level-help (stream)
   (format stream "Usage: ethereum-lisp COMMAND [options]~%")
   (format stream "~%")
   (format stream "Commands:~%")
+  (format stream "  init        Initialize a datadir from a genesis file.~%")
   (format stream "  devnet      Run a local Engine/public JSON-RPC devnet node.~%")
   (format stream "  help        Print this help.~%")
   (format stream "  version     Print the local client version.~%")
   (format stream "~%")
-  (format stream "Use `ethereum-lisp devnet --help` for devnet options.~%"))
+  (format stream "Use `ethereum-lisp init --help` or `ethereum-lisp devnet --help` for command options.~%"))
 
 (defun devnet-cli-version-string ()
   (let ((version (engine-rpc-client-version)))
@@ -1128,6 +1249,15 @@
         ((devnet-cli-top-level-version-p args)
          (devnet-cli-print-version output-stream)
          0)
+        ((devnet-cli-init-command-p args)
+         (let ((options (devnet-cli-init-options args)))
+           (if (getf options :help-p)
+               (progn
+                 (devnet-cli-print-init-usage output-stream)
+                 0)
+               (progn
+                 (devnet-cli-run-init options output-stream)
+                 0))))
         (t
          (let ((options (devnet-cli-options args)))
            (if (getf options :help-p)
@@ -1135,15 +1265,17 @@
                  (devnet-cli-print-usage output-stream)
                  0)
                (progn
-                 (unless (getf options :genesis-path)
-                   (error "--genesis is required"))
+                 (let ((genesis-path
+                         (devnet-cli-resolve-genesis-path options)))
+                   (unless genesis-path
+                     (error "--genesis is required unless --datadir contains an initialized genesis"))
                  (call-with-devnet-cli-telemetry-sink
                   options
                   output-stream
                   (lambda (telemetry-sink)
                     (let ((node
                             (make-devnet-node
-                             :genesis-path (getf options :genesis-path)
+                             :genesis-path genesis-path
                              :host (getf options :host)
                              :port (getf options :port)
                              :public-host (getf options :public-host)
@@ -1244,9 +1376,11 @@
                              :format (getf options :summary-format))
                             (when (getf options :log-file)
                               (devnet-cli-log-event node "devnet.shutdown"))))
-                      0))))))))
+                      0)))))))))
     (error (condition)
       (devnet-cli-log-error-event args condition)
       (format error-stream "~A~%" condition)
-      (devnet-cli-print-usage error-stream)
+      (if (devnet-cli-init-command-p args)
+          (devnet-cli-print-init-usage error-stream)
+          (devnet-cli-print-usage error-stream))
       1)))

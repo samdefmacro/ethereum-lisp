@@ -647,6 +647,15 @@ ones.
     `--database` remains higher priority. CLI coverage verifies datadir-backed
     export/restore and the explicit database override without requiring socket
     serving.
+- [x] `DEVNET-RUNNER-DATADIR-INIT`: Add a geth/Hive-style datadir
+  initialization lifecycle before devnet startup.
+  - Result (2026-06-30): `ethereum-lisp init --datadir PATH GENESIS` and
+    `ethereum-lisp --datadir PATH init GENESIS` now copy the genesis file to
+    `PATH/genesis.json`, seed `PATH/ethereum-lisp-chain.sexp`, and emit the
+    same JSON summary shape as devnet startup. `ethereum-lisp devnet --datadir
+    PATH` can then boot without restating `--genesis` by loading the stored
+    genesis file. CLI coverage verifies both direct `main` invocation and the
+    runner-facing `scripts/ethereum-lisp.lisp` subprocess path.
 - [x] `DEVNET-RUNNER-ARTIFACT-DIRECTORIES`: Make runner artifact paths usable
   when their parent directories do not exist yet.
   - Result (2026-06-28): `ethereum-lisp devnet` now creates parent

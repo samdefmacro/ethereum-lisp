@@ -1121,6 +1121,11 @@ first pass, but interfaces must not block that path.
   `--datadir PATH` now
   maps to a concrete `PATH/ethereum-lisp-chain.sexp` KV chain-store path when
   `--database` is absent, while explicit `--database` remains authoritative.
+  A runner can initialize that datadir first with `ethereum-lisp init --datadir
+  PATH GENESIS` or geth-shaped `ethereum-lisp --datadir PATH init GENESIS`;
+  the command stores `PATH/genesis.json`, seeds the derived chain database, and
+  lets later `ethereum-lisp devnet --datadir PATH` startups load the stored
+  genesis without repeating `--genesis`.
   Ready, pid, telemetry log, and error-log artifact paths now create their
   parent directories before writing, so runner-provided nested artifact
   locations do not require a separate setup step. Devnet CLI invocations can

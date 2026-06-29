@@ -1960,6 +1960,64 @@
       (when (probe-file explicit-database-path)
         (delete-file explicit-database-path)))))
 
+(deftest devnet-cli-main-init-datadir-seeds-genesis-and-database
+  (let* ((datadir
+           (devnet-cli-temp-directory "ethereum-lisp-devnet-init-datadir"))
+         (datadir-genesis-path
+           (merge-pathnames "genesis.json" datadir))
+         (datadir-database-path
+           (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
+         (init-output (make-string-output-stream))
+         (init-errors (make-string-output-stream))
+         (devnet-output (make-string-output-stream))
+         (devnet-errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "init"
+                         "--datadir" (namestring datadir)
+                         "--json"
+                         +devnet-cli-genesis-fixture+)
+                   :output-stream init-output
+                   :error-stream init-errors)))
+           (is (string= "" (get-output-stream-string init-errors)))
+           (let* ((init-summary
+                    (parse-json (get-output-stream-string init-output)))
+                  (database
+                    (make-file-key-value-database datadir-database-path)))
+             (is (= 1337 (fixture-object-field init-summary "chainId")))
+             (is (= 0 (fixture-object-field init-summary "headNumber")))
+             (is (string= (namestring datadir-database-path)
+                          (fixture-object-field init-summary "databasePath")))
+             (is (probe-file datadir-genesis-path))
+             (is (string= (devnet-cli-file-string
+                           +devnet-cli-genesis-fixture+)
+                          (devnet-cli-file-string datadir-genesis-path)))
+             (is (< 0 (length (kv-chain-record-entries database :block))))
+             (is (< 0 (length (kv-chain-record-entries database :state)))))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--datadir" (namestring datadir)
+                         "--json"
+                         "--no-serve")
+                   :output-stream devnet-output
+                   :error-stream devnet-errors)))
+           (is (string= "" (get-output-stream-string devnet-errors)))
+           (let ((summary (parse-json
+                           (get-output-stream-string devnet-output))))
+             (is (= 1337 (fixture-object-field summary "chainId")))
+             (is (= 0 (fixture-object-field summary "headNumber")))
+             (is (string= (namestring (truename datadir-genesis-path))
+                          (fixture-object-field summary "genesisPath")))
+             (is (string= (namestring datadir-database-path)
+                          (fixture-object-field summary "databasePath")))))
+      (when (probe-file datadir-genesis-path)
+        (delete-file datadir-genesis-path))
+      (when (probe-file datadir-database-path)
+        (delete-file datadir-database-path)))))
+
 (deftest devnet-cli-main-treats-empty-database-as-new-chain
   (labels ((write-empty-kv-database (path)
              (with-open-file (stream path
@@ -5398,14 +5456,21 @@
         (is (= 0 status))
         (is (string= "" stderr))
         (is (search "Usage: ethereum-lisp COMMAND" stdout))
+        (is (search "init" stdout))
         (is (search "devnet" stdout))
         (is (search "version" stdout))
+        (is (search "ethereum-lisp init --help" stdout))
         (is (search "ethereum-lisp devnet --help" stdout)))
       (multiple-value-bind (stdout stderr status)
           (run-script "--help")
         (is (= 0 status))
         (is (string= "" stderr))
         (is (search "Usage: ethereum-lisp COMMAND" stdout)))
+      (multiple-value-bind (stdout stderr status)
+          (run-script "init" "--help")
+        (is (= 0 status))
+        (is (string= "" stderr))
+        (is (search "Usage: ethereum-lisp init" stdout)))
       (multiple-value-bind (stdout stderr status)
           (run-script "version")
         (is (= 0 status))
@@ -5418,6 +5483,60 @@
         (is (string= "" stderr))
         (is (string= "ethereum-lisp/0.1.0/0x00000000"
                      (string-trim '(#\Newline #\Return) stdout)))))))
+
+(deftest ethereum-lisp-script-dispatches-init-datadir-and-devnet-json
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let* ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+         (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+         (datadir
+           (devnet-cli-temp-directory "ethereum-lisp-script-init-datadir"))
+         (datadir-genesis-path
+           (merge-pathnames "genesis.json" datadir))
+         (datadir-database-path
+           (merge-pathnames "ethereum-lisp-chain.sexp" datadir)))
+    (labels ((run-script (&rest args)
+               (uiop:run-program
+                (append (list "sbcl" "--script" script "--") args)
+                :directory #P"/private/tmp/"
+                :output :string
+                :error-output :string
+                :ignore-error-status t)))
+      (unwind-protect
+           (progn
+             (multiple-value-bind (stdout stderr status)
+                 (run-script "--datadir" (namestring datadir)
+                             "init"
+                             "--json"
+                             genesis)
+               (is (= 0 status))
+               (is (string= "" stderr))
+               (let ((summary (parse-json stdout)))
+                 (is (= 1337 (fixture-object-field summary "chainId")))
+                 (is (string= (namestring datadir-database-path)
+                              (fixture-object-field summary
+                                                    "databasePath")))))
+             (is (probe-file datadir-genesis-path))
+             (is (probe-file datadir-database-path))
+             (multiple-value-bind (stdout stderr status)
+                 (run-script "devnet"
+                             "--datadir" (namestring datadir)
+                             "--json"
+                             "--no-serve")
+               (is (= 0 status))
+               (is (string= "" stderr))
+               (let ((summary (parse-json stdout)))
+                 (is (= 1337 (fixture-object-field summary "chainId")))
+                 (is (string= (namestring (truename datadir-genesis-path))
+                              (fixture-object-field summary "genesisPath")))
+                 (is (string= (namestring datadir-database-path)
+                              (fixture-object-field summary
+                                                    "databasePath"))))))
+        (when (probe-file datadir-genesis-path)
+          (delete-file datadir-genesis-path))
+        (when (probe-file datadir-database-path)
+          (delete-file datadir-database-path))))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-no-serve-json
   #-sbcl
