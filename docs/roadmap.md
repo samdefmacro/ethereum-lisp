@@ -1134,8 +1134,11 @@ first pass, but interfaces must not block that path.
   template flags are also accepted as compatibility no-ops, including
   txpool price/slot/queue/lifetime knobs, `--rpc.allow-unprotected-txs`,
   `--state.scheme`, `--db.engine`, `--datadir.ancient`, `--dev`, and
-  `--nousb`, so those launch templates reach the current split Engine/public
-  devnet surface instead of failing at argument parsing.
+  `--nousb`. Geth/Hive node-key, discovery, network-restriction, and IPC path
+  options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,
+  `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as
+  explicit compatibility no-ops, so those launch templates reach the current
+  split Engine/public devnet surface instead of failing at argument parsing.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

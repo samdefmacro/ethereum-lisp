@@ -673,6 +673,17 @@ ones.
     process templates from failing before the current split Engine/public RPC
     devnet surface starts. Usage text and equals-form CLI coverage lock the
     runner-visible behavior.
+- [x] `DEVNET-RUNNER-DISCOVERY-IPC-NOOP-FLAGS`: Accept geth/Hive node-key,
+  discovery, network-restriction, and IPC path flags that appear in local
+  process templates.
+  - Result (2026-06-29): `ethereum-lisp devnet` now accepts `--nodekey`,
+    `--nodekeyhex`, `--discovery.port`, `--discovery.dns`, `--netrestrict`,
+    and `--ipcpath` as explicit compatibility no-ops. These flags do not
+    enable devp2p discovery, node-key management, network restriction, or IPC;
+    they prevent geth-shaped Hive launch lines from failing before the current
+    split Engine/public RPC process starts. Usage text, no-serve parser
+    coverage, and missing-value failures are covered without requiring socket
+    serving.
 - [x] `DEVNET-RUNNER-MINING-METRICS-NOOP-FLAGS`: Accept common geth/Hive
   archive, mining, account, and diagnostics flags that appear in local runner
   templates.
