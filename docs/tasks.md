@@ -1083,6 +1083,20 @@ ones.
     already-classified passing families, rather than another broad
     implementation-drift hunt in the currently materializable official v5.4.0
     candidate set.
+- [x] `PINNED-V5.4.0-STATE-MODEXP-WIDEN`: Convert the classified official
+  MODEXP state-test family into a stable pinned Phase A guard.
+  - Result (2026-06-29): the state selector table now generates and pins all 78
+    London/Shanghai
+    `byzantium/eip198_modexp_precompile/test_modexp.json` selectors covering
+    EIP-198 reference cases, declared modulus length variants, zero/small
+    modulus outputs, large declared exponent and modulus out-of-gas cases, and
+    even-modulus trailing-zero-count cases. The targeted family classifies
+    78/78 passing against the installed v5.4.0 fixture root with no
+    implementation-bug, harness-error, or out-of-scope records. The pinned
+    v5.4.0 smoke gate now covers 230 official state selectors, 53 official
+    Prague/EIP-7702 invalid transaction cases, and 180 official Shanghai
+    `engineNewPayloadV2` blockchain selectors, for 463 total executed fixture
+    cases.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

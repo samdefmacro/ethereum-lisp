@@ -92,6 +92,81 @@
                  "frontier/opcodes/test_call_large_offset_mstore.json/tests/frontier/opcodes/test_call.py::test_call_large_offset_mstore[fork_~A-state_test]"
                  fork))))
 
+(defun phase-a-eest-modexp-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "byzantium/eip198_modexp_precompile/test_modexp.json/tests/byzantium/eip198_modexp_precompile/test_modexp.py::test_modexp"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (append
+           (loop for declared-length in '(128 256 512 64)
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-EIP-198-case1-mod-even-declared-length-~D-bytes]"
+                         prefix
+                         fork
+                         declared-length))
+           (loop for declared-length in '(128 256 512 64)
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-EIP-198-case1-mod-power2-declared-length-~D-bytes]"
+                         prefix
+                         fork
+                         declared-length))
+           (loop for name in '("EIP-198-case1"
+                               "EIP-198-case2"
+                               "EIP-198-case3-raw-input-out-of-gas"
+                               "EIP-198-case4-extra-data_07"
+                               "EIP-198-case5-raw-input")
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-~A]"
+                         prefix
+                         fork
+                         name))
+           (loop for name in '("ModExpInput_base_0x-exponent_0x-modulus_0x-ModExpOutput_returned_data_0x"
+                               "ModExpInput_base_0x-exponent_0x-modulus_0x-declared_exponent_length_4294967296-declared_modulus_length_1-ModExpOutput_call_success_False-returned_data_0x00"
+                               "ModExpInput_base_0x-exponent_0x-modulus_0x00-ModExpOutput_returned_data_0x00"
+                               "ModExpInput_base_0x-exponent_0x-modulus_0x0001-ModExpOutput_returned_data_0x0000"
+                               "ModExpInput_base_0x-exponent_0x-modulus_0x0002-ModExpOutput_returned_data_0x0001"
+                               "ModExpInput_base_0x-exponent_0x-modulus_0x01-ModExpOutput_returned_data_0x00"
+                               "ModExpInput_base_0x-exponent_0x-modulus_0x02-ModExpOutput_returned_data_0x01"
+                               "ModExpInput_base_0x-exponent_0x01-modulus_0x02-ModExpOutput_returned_data_0x00"
+                               "ModExpInput_base_0x00-exponent_0x00-modulus_0x02-ModExpOutput_returned_data_0x01"
+                               "ModExpInput_base_0x01-exponent_0x01-modulus_0x02-ModExpOutput_returned_data_0x01"
+                               "ModExpInput_base_0x02-exponent_0x01-modulus_0x03-ModExpOutput_returned_data_0x02"
+                               "ModExpInput_base_0x02-exponent_0x02-modulus_0x05-ModExpOutput_returned_data_0x04")
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-~A]"
+                         prefix
+                         fork
+                         name))
+           (loop for length in '("0x10000000" "0x20000000"
+                                 "0x40000000" "0x80000000")
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-large-exponent-length-~A-out-of-gas]"
+                         prefix
+                         fork
+                         length))
+           (loop for length in '("0x20000020" "0x40000020"
+                                 "0x80000020" "0xffffffff")
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-large-modulus-length-~A-out-of-gas]"
+                         prefix
+                         fork
+                         length))
+           (loop for (modulus-length ctz)
+                   in '((136 40) (16 8) (24 16) (264 48) (40 24) (72 32))
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-mod-~D-even-ctz-~D]"
+                         prefix
+                         fork
+                         modulus-length
+                         ctz))))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -189,7 +264,8 @@
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-DELEGATECALL]"
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-STATICCALL]")
    (phase-a-eest-create2-returndata-state-test-v5.4.0-case-names)
-   (phase-a-eest-call-large-offset-state-test-v5.4.0-case-names)))
+   (phase-a-eest-call-large-offset-state-test-v5.4.0-case-names)
+   (phase-a-eest-modexp-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")

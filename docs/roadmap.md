@@ -1483,7 +1483,12 @@ Detailed historical implementation notes for this section now live in
   candidates after the 152 pinned selectors; all passed with no
   implementation-bug-candidate, fixture-harness-error, or out-of-scope records,
   so the currently materializable official v5.4.0 drift map has no remaining
-  classifier-visible implementation-bug candidates.
+  classifier-visible implementation-bug candidates. The pinned state table now
+  also includes the full 78-selector London/Shanghai EIP-198 MODEXP family,
+  covering reference cases, declared-length variants, zero/small modulus
+  outputs, large declared-length out-of-gas cases, and even-modulus
+  trailing-zero-count cases; the pinned smoke gate executes 463 total fixture
+  cases across state, transaction, and blockchain suites.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
