@@ -1909,7 +1909,9 @@
          (output (make-string-output-stream))
          (errors (make-string-output-stream))
          (override-output (make-string-output-stream))
-         (override-errors (make-string-output-stream)))
+         (override-errors (make-string-output-stream))
+         (precommand-output (make-string-output-stream))
+         (precommand-errors (make-string-output-stream)))
     (unwind-protect
          (progn
            (is (= 0
@@ -1954,6 +1956,22 @@
            (let ((summary (parse-json
                            (get-output-stream-string override-output))))
              (is (string= (namestring explicit-database-path)
+                          (fixture-object-field summary "databasePath"))))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "--identity" "init"
+                         "--datadir" (namestring datadir)
+                         "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--json"
+                         "--no-serve")
+                   :output-stream precommand-output
+                   :error-stream precommand-errors)))
+           (is (string= "" (get-output-stream-string precommand-errors)))
+           (let ((summary (parse-json
+                           (get-output-stream-string precommand-output))))
+             (is (= 1337 (fixture-object-field summary "chainId")))
+             (is (string= (namestring datadir-database-path)
                           (fixture-object-field summary "databasePath")))))
       (when (probe-file datadir-database-path)
         (delete-file datadir-database-path))
@@ -5520,8 +5538,9 @@
              (is (probe-file datadir-genesis-path))
              (is (probe-file datadir-database-path))
              (multiple-value-bind (stdout stderr status)
-                 (run-script "devnet"
+                 (run-script "--identity" "init"
                              "--datadir" (namestring datadir)
+                             "devnet"
                              "--json"
                              "--no-serve")
                (is (= 0 status))

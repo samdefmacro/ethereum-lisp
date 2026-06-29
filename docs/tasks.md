@@ -656,6 +656,14 @@ ones.
     PATH` can then boot without restating `--genesis` by loading the stored
     genesis file. CLI coverage verifies both direct `main` invocation and the
     runner-facing `scripts/ethereum-lisp.lisp` subprocess path.
+- [x] `DEVNET-RUNNER-PRECOMMAND-DISPATCH`: Make geth/Hive-shaped command
+  detection robust when runner flags appear before the command token.
+  - Result (2026-06-30): command dispatch now skips known option values and
+    only treats the first positional token as `init` or `devnet`, so values
+    like `--identity init` are not misclassified while invocations such as
+    `ethereum-lisp --datadir PATH devnet --json --no-serve` work. Direct CLI
+    and runner-facing script coverage verify pre-command `--datadir` plus an
+    option value named `init`.
 - [x] `DEVNET-RUNNER-ARTIFACT-DIRECTORIES`: Make runner artifact paths usable
   when their parent directories do not exist yet.
   - Result (2026-06-28): `ethereum-lisp devnet` now creates parent

@@ -525,6 +525,73 @@
       ((member normalized '("false" "0") :test #'string=) nil)
       (t (error "~A boolean value must be true or false" option)))))
 
+(defun devnet-cli-boolean-token-p (value)
+  (and (stringp value)
+       (member (string-downcase value)
+               '("true" "false" "1" "0")
+               :test #'string=)))
+
+(defparameter *devnet-cli-value-options*
+  '("--genesis" "--host" "--engine-host" "--authrpc.addr"
+    "--port" "--engine-port" "--authrpc.port" "--public-host"
+    "--http.addr" "--public-port" "--http.port" "--jwt-secret"
+    "--authrpc.jwtsecret" "--authrpc.rpcprefix" "--http.rpcprefix"
+    "--database" "--datadir" "--networkid" "--network-id"
+    "--prune-state-before" "--max-connections" "--http.api"
+    "--http.corsdomain" "--authrpc.corsdomain" "--authrpc.vhosts"
+    "--http.vhosts" "--ws.addr" "--ws.port" "--ws.api" "--ws.origins"
+    "--graphql.addr" "--graphql.port" "--graphql.vhosts"
+    "--graphql.corsdomain" "--syncmode" "--verbosity" "--maxpeers"
+    "--nat" "--identity" "--gcmode" "--cache" "--cache.database"
+    "--cache.gc" "--cache.trie" "--state.scheme" "--db.engine"
+    "--datadir.ancient" "--ipcpath" "--netrestrict" "--nodekey"
+    "--nodekeyhex" "--discovery.port" "--discovery.dns"
+    "--txlookuplimit" "--history.transactions" "--bootnodes"
+    "--miner.etherbase" "--etherbase" "--miner.gaslimit"
+    "--miner.gasprice" "--unlock" "--password" "--metrics.addr"
+    "--metrics.port" "--pprof.addr" "--pprof.port" "--txpool.locals"
+    "--txpool.journal" "--txpool.rejournal" "--txpool.pricelimit"
+    "--txpool.pricebump" "--txpool.accountslots" "--txpool.globalslots"
+    "--txpool.accountqueue" "--txpool.globalqueue" "--txpool.lifetime"
+    "--txpool.blobpool.datacap" "--txpool.blobpool.pricebump"
+    "--ready-file" "--log-file" "--pid-file"))
+
+(defparameter *devnet-cli-optional-boolean-options*
+  '("--http" "--ws" "--graphql" "--nodiscover" "--ipcdisable"
+    "--allow-insecure-unlock" "--mine" "--metrics" "--pprof"
+    "--snapshot" "--rpc.allow-unprotected-txs" "--txpool.nolocals"
+    "--dev" "--nousb" "--json" "--no-serve"))
+
+(defun devnet-cli-command-position (args command)
+  (let ((args (devnet-cli-normalize-option-args args))
+        (position 0))
+    (loop while args
+          for token = (pop args)
+          do (cond
+               ((devnet-cli-option-token-p token)
+                (incf position)
+                (cond
+                  ((member token *devnet-cli-value-options* :test #'string=)
+                   (when args
+                     (pop args)
+                     (incf position)))
+                  ((member token
+                           *devnet-cli-optional-boolean-options*
+                           :test #'string=)
+                   (when (and args
+                              (not (devnet-cli-option-token-p (first args)))
+                              (devnet-cli-boolean-token-p (first args)))
+                     (pop args)
+                     (incf position)))
+                  (t
+                   (when (and args
+                              (not (devnet-cli-option-token-p (first args))))
+                     (pop args)
+                     (incf position)))))
+               (t
+                (return (and (string= token command) position))))
+          finally (return nil))))
+
 (defun devnet-cli-optional-boolean-value (args option)
   (if (and args
            (not (devnet-cli-option-token-p (first args))))
@@ -610,8 +677,7 @@
                           (member module modules :test #'string=)))))))))
 
 (defun devnet-cli-options (args)
-  (when (and args (string= "devnet" (first args)))
-    (setf args (rest args)))
+  (setf args (devnet-cli-remove-command-token args "devnet"))
   (setf args (devnet-cli-normalize-option-args args))
   (let ((genesis-path nil)
         (host "127.0.0.1")
@@ -844,15 +910,17 @@
           :help-p help-p)))
 
 (defun devnet-cli-remove-command-token (args command)
-  (let ((removed-p nil))
-    (loop for arg in args
-          unless (and (not removed-p)
-                      (string= arg command))
-            collect arg
-          else do (setf removed-p t))))
+  (let* ((args (devnet-cli-normalize-option-args args))
+         (position (devnet-cli-command-position args command)))
+    (if position
+        (loop for arg in args
+              for index from 0
+              unless (= index position)
+                collect arg)
+        args)))
 
 (defun devnet-cli-init-command-p (args)
-  (member "init" args :test #'string=))
+  (devnet-cli-command-position args "init"))
 
 (defun devnet-cli-init-options (args)
   (setf args (devnet-cli-remove-command-token args "init"))

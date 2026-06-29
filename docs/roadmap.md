@@ -1126,6 +1126,10 @@ first pass, but interfaces must not block that path.
   the command stores `PATH/genesis.json`, seeds the derived chain database, and
   lets later `ethereum-lisp devnet --datadir PATH` startups load the stored
   genesis without repeating `--genesis`.
+  Command dispatch also supports geth-shaped pre-command flags such as
+  `ethereum-lisp --datadir PATH devnet ...` while skipping known option values,
+  so runner-provided values like `--identity init` do not accidentally switch
+  the process into init mode.
   Ready, pid, telemetry log, and error-log artifact paths now create their
   parent directories before writing, so runner-provided nested artifact
   locations do not require a separate setup step. Devnet CLI invocations can
