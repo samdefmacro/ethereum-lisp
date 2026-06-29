@@ -70,7 +70,7 @@
            (fixture-object-field contract "engineBoundaryConnections")))
     (is (= (* 11 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
-    (is (= (* 5 case-count)
+    (is (= (* 9 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
     (is (= (* 2 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
@@ -103,6 +103,14 @@
   (is (string= "0x0"
                (fixture-object-field
                 report "engineTransitionTerminalBlockNumber"))))
+
+(defun devnet-cli-assert-public-readiness (report)
+  (is (search "ethereum-lisp"
+              (fixture-object-field report "publicClientVersion")))
+  (is (every #'digit-char-p
+             (fixture-object-field report "publicNetVersion")))
+  (is (null (fixture-object-field report "publicNetListening")))
+  (is (null (fixture-object-field report "publicSyncing"))))
 
 (defun devnet-cli-assert-engine-payload-bodies (report)
   (is (= 1 (fixture-object-field report "enginePayloadBodiesByHashCount")))
@@ -3253,9 +3261,9 @@
                 report cases prune-boundary)
                (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 20 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 29 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 33 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -3273,7 +3281,7 @@
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
                    (is (= 13 (fixture-object-field case "engineConnections")))
-                   (is (= 16 (fixture-object-field case "publicConnections")))
+                   (is (= 20 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -3298,6 +3306,7 @@
                             "engineCapabilityHasGetPayloadV2")))
                    (devnet-cli-assert-engine-client-version case)
                    (devnet-cli-assert-engine-transition-configuration case)
+                   (devnet-cli-assert-public-readiness case)
                    (devnet-cli-assert-engine-payload-bodies case)
                    (devnet-cli-assert-engine-get-payload-v2 case)
                    (is (= -32601
@@ -4068,11 +4077,12 @@
                          "databaseRpcSideReinsertedTransactionHashes")))))))
         (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 20 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 29 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 33 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
+          (devnet-cli-assert-public-readiness case)
           (is (string= (fixture-object-field case "blockNumber")
                        (fixture-object-field
                         case "databaseRpcBlockNumber")))

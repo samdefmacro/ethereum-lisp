@@ -1055,7 +1055,11 @@ first pass, but interfaces must not block that path.
   serve-mode coverage now performs actual TCP JSON-RPC
   calls against the ready-file Engine/public endpoints, proving
   JWT-authenticated `engine_getClientVersionV1`, public `eth_chainId`, and
-  shutdown connection counts across the external process boundary.
+  shutdown connection counts across the external process boundary. The
+  standalone process smoke also probes public `web3_clientVersion`,
+  `net_version`, `net_listening`, and `eth_syncing` over the listener, reports
+  those readiness fields, and keeps the connection contract aligned for
+  Hive-style runners.
   `--authrpc.vhosts LIST` and
   `--http.vhosts LIST` now configure Engine/public HTTP Host allowlists,
   report `engineVhosts` / `publicVhosts` in summaries, ready-file JSON, and

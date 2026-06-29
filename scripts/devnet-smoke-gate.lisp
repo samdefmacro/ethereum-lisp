@@ -80,7 +80,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
-(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 5)
+(defconstant +devnet-smoke-gate-public-canonical-read-connections+ 9)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
 (defconstant +devnet-smoke-gate-public-txpool-connections+ 9)
 (defconstant +devnet-smoke-gate-public-connections+
@@ -5842,6 +5842,10 @@ references/ checkouts.~%")
                   (prepared-public-output (make-string-output-stream))
                   (remote-public-output (make-string-output-stream))
                   (invalid-public-output (make-string-output-stream))
+                  (public-client-version-output (make-string-output-stream))
+                  (public-net-version-output (make-string-output-stream))
+                  (public-net-listening-output (make-string-output-stream))
+                  (public-syncing-output (make-string-output-stream))
                   (public-engine-namespace-output
                     (make-string-output-stream))
                   (public-malformed-json-output
@@ -6092,6 +6096,34 @@ references/ checkouts.~%")
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
+                               (cons "id" 46)
+                               (cons "method" "web3_clientVersion")
+                               (cons "params" '())))
+                        public-client-version-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 47)
+                               (cons "method" "net_version")
+                               (cons "params" '())))
+                        public-net-version-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 48)
+                               (cons "method" "net_listening")
+                               (cons "params" '())))
+                        public-net-listening-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 49)
+                               (cons "method" "eth_syncing")
+                               (cons "params" '())))
+                        public-syncing-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
                                (cons "id" 45)
                                (cons "method" "engine_exchangeCapabilities")
                                (cons "params" (list '()))))
@@ -6337,6 +6369,16 @@ references/ checkouts.~%")
                         (get-output-stream-string remote-public-output))
                       (invalid-public-response
                         (get-output-stream-string invalid-public-output))
+                      (public-client-version-response
+                        (get-output-stream-string
+                         public-client-version-output))
+                      (public-net-version-response
+                        (get-output-stream-string public-net-version-output))
+                      (public-net-listening-response
+                        (get-output-stream-string
+                         public-net-listening-output))
+                      (public-syncing-response
+                        (get-output-stream-string public-syncing-output))
                       (public-engine-namespace-response
                         (get-output-stream-string
                          public-engine-namespace-output))
@@ -6398,6 +6440,17 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body remote-public-response))
                       (invalid-public-rpc
                         (devnet-smoke-gate-rpc-body invalid-public-response))
+                      (public-client-version-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-client-version-response))
+                      (public-net-version-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-net-version-response))
+                      (public-net-listening-rpc
+                        (devnet-smoke-gate-rpc-body
+                         public-net-listening-response))
+                      (public-syncing-rpc
+                        (devnet-smoke-gate-rpc-body public-syncing-response))
                       (public-engine-namespace-rpc
                         (devnet-smoke-gate-rpc-body
                          public-engine-namespace-response))
@@ -6615,11 +6668,25 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status prepared-public-response))
                   "prepared-payload eth_blockNumber HTTP status mismatch")
                  (devnet-smoke-gate-require
-                  (= 200 (devnet-cli-http-status remote-public-response))
+                 (= 200 (devnet-cli-http-status remote-public-response))
                   "remote-block eth_blockNumber HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status invalid-public-response))
                   "invalid-tipset eth_blockNumber HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          public-client-version-response))
+                  "web3_clientVersion HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-net-version-response))
+                  "net_version HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          public-net-listening-response))
+                  "net_listening HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status public-syncing-response))
+                  "eth_syncing HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status
                           public-engine-namespace-response))
@@ -6829,13 +6896,32 @@ references/ checkouts.~%")
                            (fixture-object-field prepared-public-rpc "result"))
                   "prepared-payload eth_blockNumber mismatch")
                  (devnet-smoke-gate-require
-                  (string= expected-block-number
+                 (string= expected-block-number
                            (fixture-object-field remote-public-rpc "result"))
                   "remote-block eth_blockNumber mismatch")
                  (devnet-smoke-gate-require
                   (string= expected-block-number
                            (fixture-object-field invalid-public-rpc "result"))
                   "invalid-tipset eth_blockNumber mismatch")
+                 (devnet-smoke-gate-require
+                  (search "ethereum-lisp"
+                          (fixture-object-field public-client-version-rpc
+                                                "result"))
+                  "web3_clientVersion did not expose ethereum-lisp")
+                 (devnet-smoke-gate-require
+                  (string= (write-to-string
+                             (ethereum-lisp.cli::devnet-node-network-id node)
+                             :base 10)
+                           (fixture-object-field public-net-version-rpc
+                                                 "result"))
+                  "net_version mismatch")
+                 (devnet-smoke-gate-require
+                  (null (fixture-object-field public-net-listening-rpc
+                                              "result"))
+                  "net_listening mismatch")
+                 (devnet-smoke-gate-require
+                  (null (fixture-object-field public-syncing-rpc "result"))
+                  "eth_syncing mismatch")
                  (devnet-smoke-gate-require
                  (string= pending-transaction-hash-hex
                            (fixture-object-field send-raw-rpc "result"))
@@ -7131,6 +7217,21 @@ references/ checkouts.~%")
                           public-malformed-json-rpc
                           "error")
                          "code"))
+                  (cons "publicClientVersion"
+                        (fixture-object-field public-client-version-rpc
+                                              "result"))
+                  (cons "publicNetVersion"
+                        (fixture-object-field public-net-version-rpc
+                                              "result"))
+                  (cons "publicNetListening"
+                        (if (fixture-object-field public-net-listening-rpc
+                                                  "result")
+                            t
+                            :false))
+                  (cons "publicSyncing"
+                        (if (fixture-object-field public-syncing-rpc "result")
+                            t
+                            :false))
                   (cons "newPayloadStatus"
                         (fixture-object-field new-payload-result "status"))
                   (cons "latestValidHash" expected-hash)
@@ -9033,6 +9134,14 @@ references/ checkouts.~%")
         (format t "engineTransitionTerminalBlockNumber=~A~%"
                 (devnet-smoke-gate-field
                  report "engineTransitionTerminalBlockNumber"))
+        (format t "publicClientVersion=~A~%"
+                (devnet-smoke-gate-field report "publicClientVersion"))
+        (format t "publicNetVersion=~A~%"
+                (devnet-smoke-gate-field report "publicNetVersion"))
+        (format t "publicNetListening=~A~%"
+                (devnet-smoke-gate-field report "publicNetListening"))
+        (format t "publicSyncing=~A~%"
+                (devnet-smoke-gate-field report "publicSyncing"))
         (format t "newPayloadStatus=~A~%"
                 (devnet-smoke-gate-field report "newPayloadStatus"))
         (format t "latestValidHash=~A~%"

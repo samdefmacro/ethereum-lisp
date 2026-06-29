@@ -861,6 +861,15 @@ ones.
     JWT-authenticated Engine listener, verifies the returned execution payload
     parent hash and block number, reports the transaction count, and updates
     the Engine workflow connection contract for Hive-style runners.
+- [x] `DEVNET-RUNNER-PUBLIC-READINESS`: Lock common public RPC readiness probes
+  at the devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate now calls
+    `web3_clientVersion`, `net_version`, `net_listening`, and `eth_syncing`
+    through the public listener after the authenticated Engine workflow. The
+    gate verifies the local client version string, configured network id,
+    explicit non-p2p listening status, and non-syncing status, reports those
+    fields in JSON/text output, and updates the public canonical-read
+    connection contract for Hive-style runners.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
