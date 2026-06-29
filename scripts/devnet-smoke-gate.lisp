@@ -76,7 +76,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 (defconstant +devnet-smoke-gate-engine-boundary-connections+ 2)
-(defconstant +devnet-smoke-gate-engine-workflow-connections+ 10)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 11)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
@@ -5615,6 +5615,7 @@ references/ checkouts.~%")
                   (payload-bodies-by-range-output
                     (make-string-output-stream))
                   (prepare-payload-output (make-string-output-stream))
+                  (get-payload-output (make-string-output-stream))
                   (remote-payload-output (make-string-output-stream))
                   (invalid-payload-output (make-string-output-stream))
                   (block-number-output (make-string-output-stream))
@@ -5649,6 +5650,13 @@ references/ checkouts.~%")
                     (devnet-smoke-gate-payload-attributes-v2
                      child-block
                      (getf (first balance-targets) :address)))
+                  (expected-prepared-payload-id
+                    (ethereum-lisp.core::engine-payload-id-to-hex
+                     (ethereum-lisp.core::engine-payload-id
+                      2
+                      (block-hash child-block)
+                      (ethereum-lisp.core::engine-rpc-validate-payload-attributes-v2
+                       prepare-payload-attributes))))
                   (remote-block
                     (devnet-smoke-gate-remote-block child-block))
                   (remote-payload
@@ -5729,8 +5737,10 @@ references/ checkouts.~%")
                              (cons "method" "engine_exchangeCapabilities")
                              (cons "params"
                                    (list
-                                    (list "engine_newPayloadV2"
-                                          "engine_forkchoiceUpdatedV2")))))
+                                    (list
+                                     "engine_newPayloadV2"
+                                     "engine_forkchoiceUpdatedV2"
+                                     "engine_getPayloadV2")))))
                       capabilities-output)
                      (cons
                       (json-encode
@@ -5791,6 +5801,15 @@ references/ checkouts.~%")
                         :safe (block-hash parent-block)
                         :finalized (block-hash parent-block)))
                       prepare-payload-output)
+                     (cons
+                      (json-encode
+                       (list
+                        (cons "jsonrpc" "2.0")
+                        (cons "id" 30)
+                        (cons "method" "engine_getPayloadV2")
+                        (cons "params"
+                              (list expected-prepared-payload-id))))
+                      get-payload-output)
                      (cons
                       (json-encode
                        (engine-fixture-payload-request 24 remote-payload))
@@ -6083,6 +6102,8 @@ references/ checkouts.~%")
                          payload-bodies-by-range-output))
                       (prepare-payload-response
                         (get-output-stream-string prepare-payload-output))
+                      (get-payload-response
+                        (get-output-stream-string get-payload-output))
                       (remote-payload-response
                         (get-output-stream-string remote-payload-output))
                       (invalid-payload-response
@@ -6142,6 +6163,8 @@ references/ checkouts.~%")
                          payload-bodies-by-range-response))
                       (prepare-payload-rpc
                         (devnet-smoke-gate-rpc-body prepare-payload-response))
+                      (get-payload-rpc
+                        (devnet-smoke-gate-rpc-body get-payload-response))
                       (remote-payload-rpc
                         (devnet-smoke-gate-rpc-body remote-payload-response))
                       (invalid-payload-rpc
@@ -6223,6 +6246,16 @@ references/ checkouts.~%")
                         (fixture-object-field
                          prepare-payload-result
                          "payloadId"))
+                      (get-payload-result
+                        (fixture-object-field get-payload-rpc "result"))
+                      (get-payload-execution-payload
+                        (fixture-object-field
+                         get-payload-result
+                         "executionPayload"))
+                      (get-payload-transactions
+                        (fixture-object-field
+                         get-payload-execution-payload
+                         "transactions"))
                       (remote-payload-result
                         (fixture-object-field remote-payload-rpc "result"))
                       (invalid-payload-result
@@ -6345,6 +6378,9 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status prepare-payload-response))
                   "engine_forkchoiceUpdatedV2 payloadAttributes HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status get-payload-response))
+                  "engine_getPayloadV2 HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status remote-payload-response))
                   "orphan engine_newPayloadV2 HTTP status mismatch")
                  (devnet-smoke-gate-require
@@ -6427,6 +6463,11 @@ references/ checkouts.~%")
                           :test #'string=)
                   "engine_exchangeCapabilities omitted engine_forkchoiceUpdatedV2")
                  (devnet-smoke-gate-require
+                  (member "engine_getPayloadV2"
+                          capabilities-result
+                          :test #'string=)
+                  "engine_exchangeCapabilities omitted engine_getPayloadV2")
+                 (devnet-smoke-gate-require
                   (member "engine_getPayloadBodiesByHashV1"
                           capabilities-result
                           :test #'string=)
@@ -6506,6 +6547,27 @@ references/ checkouts.~%")
                   (and (stringp prepared-payload-id)
                        (= 18 (length prepared-payload-id)))
                   "engine_forkchoiceUpdatedV2 did not return an 8-byte payloadId")
+                 (devnet-smoke-gate-require
+                  (not (fixture-object-field get-payload-rpc "error"))
+                  "engine_getPayloadV2 returned an error")
+                 (devnet-smoke-gate-require
+                  (string= expected-prepared-payload-id prepared-payload-id)
+                  "engine_forkchoiceUpdatedV2 payloadId mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (hash32-to-hex (block-hash child-block))
+                           (fixture-object-field
+                            get-payload-execution-payload
+                            "parentHash"))
+                  "engine_getPayloadV2 parentHash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-prepared-block-number
+                           (fixture-object-field
+                            get-payload-execution-payload
+                            "blockNumber"))
+                  "engine_getPayloadV2 blockNumber mismatch")
+                 (devnet-smoke-gate-require
+                  (listp get-payload-transactions)
+                  "engine_getPayloadV2 transactions must be a JSON array")
                  (devnet-smoke-gate-require
                   (string= +payload-status-syncing+
                            (fixture-object-field remote-payload-result
@@ -6778,6 +6840,12 @@ references/ checkouts.~%")
                                     :test #'string=)
                             t
                             :false))
+                  (cons "engineCapabilityHasGetPayloadV2"
+                        (if (member "engine_getPayloadV2"
+                                    capabilities-result
+                                    :test #'string=)
+                            t
+                            :false))
                   (cons "engineClientVersionCode"
                         (fixture-object-field client-version-result "code"))
                   (cons "engineClientVersionName"
@@ -6828,6 +6896,16 @@ references/ checkouts.~%")
                         (hash32-to-hex (block-hash child-block)))
                   (cons "preparedPayloadBlockNumber"
                         expected-prepared-block-number)
+                  (cons "engineGetPayloadV2ParentHash"
+                        (fixture-object-field
+                         get-payload-execution-payload
+                         "parentHash"))
+                  (cons "engineGetPayloadV2BlockNumber"
+                        (fixture-object-field
+                         get-payload-execution-payload
+                         "blockNumber"))
+                  (cons "engineGetPayloadV2TransactionCount"
+                        (length get-payload-transactions))
                   (cons "remoteBlockHash" expected-remote-block-hash)
                   (cons "remoteBlockStatus"
                         (fixture-object-field remote-payload-result "status"))
@@ -8728,6 +8806,16 @@ references/ checkouts.~%")
         (format t "preparedPayloadBlockNumber=~A~%"
                 (devnet-smoke-gate-field report
                                          "preparedPayloadBlockNumber"))
+        (format t "engineGetPayloadV2ParentHash=~A~%"
+                (devnet-smoke-gate-field report
+                                         "engineGetPayloadV2ParentHash"))
+        (format t "engineGetPayloadV2BlockNumber=~A~%"
+                (devnet-smoke-gate-field report
+                                         "engineGetPayloadV2BlockNumber"))
+        (format t "engineGetPayloadV2TransactionCount=~D~%"
+                (devnet-smoke-gate-field
+                 report
+                 "engineGetPayloadV2TransactionCount"))
         (format t "remoteBlockHash=~A~%"
                 (devnet-smoke-gate-field report "remoteBlockHash"))
         (format t "remoteBlockStatus=~A~%"

@@ -812,6 +812,14 @@ ones.
     child payload, verifies both return exactly one body with the expected
     transaction count, reports the body and transaction counts, and updates the
     Engine workflow connection contract for Hive-style runners.
+- [x] `DEVNET-RUNNER-GET-PAYLOAD`: Lock prepared-payload retrieval at the
+  devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate's authenticated
+    Engine workflow now prepares a payload with `engine_forkchoiceUpdatedV2`,
+    derives the expected payload id, calls `engine_getPayloadV2` through the
+    JWT-authenticated Engine listener, verifies the returned execution payload
+    parent hash and block number, reports the transaction count, and updates
+    the Engine workflow connection contract for Hive-style runners.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

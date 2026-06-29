@@ -1203,7 +1203,10 @@ first pass, but interfaces must not block that path.
   The authenticated Engine workflow in the standalone devnet smoke gate now
   also verifies `engine_getPayloadBodiesByHashV1` and
   `engine_getPayloadBodiesByRangeV1` over the listener boundary, reporting body
-  and transaction counts for runner contracts.
+  and transaction counts for runner contracts. It also prepares a payload with
+  `engine_forkchoiceUpdatedV2`, retrieves it with `engine_getPayloadV2` over
+  the authenticated listener boundary, and reports the prepared payload parent
+  hash, block number, and transaction count for process-runner readiness.
   Txpool queued views now
   expose
   blob-subpool
