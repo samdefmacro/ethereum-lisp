@@ -1050,8 +1050,12 @@ first pass, but interfaces must not block that path.
   accepts geth/Hive-style `--authrpc.addr`,
   `--authrpc.port`, `--authrpc.jwtsecret`, `--http.addr`, and `--http.port`
   aliases, mapping them onto the existing authenticated Engine and public RPC
-  listener fields without changing the split-service contract. It also accepts
-  geth-shaped `--http` as a compatibility no-op. Runner-facing script
+  listener fields without changing the split-service contract. Explicit
+  Engine/authrpc port selectors now stay authoritative over geth-style P2P
+  `--port`, so runner launch lines that include both `--authrpc.port` and
+  `--port 30303` do not accidentally move the authenticated Engine endpoint.
+  It also accepts geth-shaped `--http` as a compatibility no-op. Runner-facing
+  script
   serve-mode coverage now performs actual TCP JSON-RPC
   calls against the ready-file Engine/public endpoints, proving
   JWT-authenticated `engine_getClientVersionV1`, public `eth_chainId`, and

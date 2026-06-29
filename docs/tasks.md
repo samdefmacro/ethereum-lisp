@@ -5915,6 +5915,12 @@ splits can land after the Phase A smoke path closes.
     `--port` compatibility. The JSON summary, ready file, and lifecycle log
     contract now verify the explicit Engine/public endpoint split for
     no-serve runner probes.
+  - Result: made explicit Engine port selectors (`--engine-port` and
+    `--authrpc.port`) authoritative over geth-style P2P `--port` after they
+    are supplied, preventing Hive/geth launch lines that also include
+    `--port 30303` from moving the authenticated Engine endpoint. Regression
+    coverage verifies both option orders while preserving legacy `--port`
+    behavior when no explicit Engine/authrpc port is present.
   - Result: tightened the Hive-style endpoint split so `--engine-host`
     changes only the authenticated Engine listener while the public RPC host
     keeps its default unless `--public-host` or legacy `--host` is supplied.

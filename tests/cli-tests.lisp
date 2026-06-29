@@ -2313,6 +2313,44 @@
       (when (probe-file log-path)
         (delete-file log-path)))))
 
+(deftest devnet-cli-main-geth-p2p-port-does-not-override-authrpc-port
+  (labels ((run-summary (args)
+             (let ((output (make-string-output-stream))
+                   (errors (make-string-output-stream)))
+               (is (= 0
+                      (ethereum-lisp.cli:main
+                       (append (list "devnet"
+                                     "--genesis"
+                                     +devnet-cli-genesis-fixture+)
+                               args
+                               (list "--json" "--no-serve"))
+                       :output-stream output
+                       :error-stream errors)))
+               (is (string= "" (get-output-stream-string errors)))
+               (parse-json (get-output-stream-string output)))))
+    (let ((p2p-after-authrpc
+            (run-summary
+             (list "--authrpc.port=9651"
+                   "--port=30303"
+                   "--http.port=9645")))
+          (p2p-before-authrpc
+            (run-summary
+             (list "--port=30303"
+                   "--authrpc.port=9652"
+                   "--http.port=9646"))))
+      (is (string= "127.0.0.1:9651"
+                   (fixture-object-field p2p-after-authrpc
+                                         "engineEndpoint")))
+      (is (string= "127.0.0.1:9652"
+                   (fixture-object-field p2p-before-authrpc
+                                         "engineEndpoint")))
+      (is (string= "127.0.0.1:9645"
+                   (fixture-object-field p2p-after-authrpc
+                                         "rpcEndpoint")))
+      (is (string= "127.0.0.1:9646"
+                   (fixture-object-field p2p-before-authrpc
+                                         "rpcEndpoint"))))))
+
 (deftest devnet-cli-main-accepts-geth-style-txpool-and-database-flags
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))
