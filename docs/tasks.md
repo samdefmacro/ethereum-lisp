@@ -908,6 +908,16 @@ ones.
     verifies startup stdout reports the parent head while shutdown telemetry
     reports the post-forkchoice child head, and checks two Engine plus two
     public served connections.
+- [x] `DEVNET-RUNNER-SCRIPT-GET-PAYLOAD`: Lock prepared payload retrieval at
+  the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now follows authenticated `engine_newPayloadV2` and
+    `engine_forkchoiceUpdatedV2` with a payload-attributes
+    `engine_forkchoiceUpdatedV2`, verifies the returned 8-byte payload id,
+    retrieves it through `engine_getPayloadV2`, checks the prepared empty
+    payload's parent hash and block number, and verifies the public listener
+    still serves canonical retained-state reads while shutdown telemetry
+    reports four Engine plus four public served connections.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

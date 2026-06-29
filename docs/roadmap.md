@@ -1184,7 +1184,10 @@ first pass, but interfaces must not block that path.
   for a fixture-derived Engine `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, public `eth_blockNumber` / `eth_getBalance`
   reads against the post-forkchoice retained state, and shutdown metadata for
-  the imported child head. It is also covered receiving
+  the imported child head. The script process also covers prepared-payload
+  retrieval through payload-attributes `engine_forkchoiceUpdatedV2` followed by
+  authenticated `engine_getPayloadV2`, while public RPC remains on the
+  canonical imported head. It is also covered receiving
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout
   JSON, ready-file JSON, and `devnet.ready` / `devnet.shutdown` telemetry with
