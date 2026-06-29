@@ -6125,6 +6125,14 @@
                      :port 0
                      :public-port 0))
                   (config (ethereum-lisp.cli:devnet-node-config node))
+                  (script-genesis
+                    (ethereum-lisp.cli::devnet-node-genesis-block node))
+                  (latest-block-hash-hex
+                    (hash32-to-hex (block-hash script-genesis)))
+                  (expected-pending-block-number
+                    (quantity-to-hex
+                     (1+ (block-header-number
+                          (block-header script-genesis)))))
                   (sender (devnet-cli-txpool-sender-address))
                   (sender-hex (address-to-hex sender))
                   (pending-transaction
@@ -6202,6 +6210,39 @@
                            (cons "id" 707)
                            (cons "method" "eth_pendingTransactions")
                            (cons "params" '()))))
+                  (pending-block-count-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 711)
+                           (cons "method"
+                                 "eth_getBlockTransactionCountByNumber")
+                           (cons "params" (list "pending")))))
+                  (pending-transaction-by-index-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 712)
+                           (cons "method"
+                                 "eth_getTransactionByBlockNumberAndIndex")
+                           (cons "params" (list "pending" "0x0")))))
+                  (pending-raw-transaction-by-index-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 713)
+                           (cons "method"
+                                 "eth_getRawTransactionByBlockNumberAndIndex")
+                           (cons "params" (list "pending" "0x0")))))
+                  (pending-block-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 714)
+                           (cons "method" "eth_getBlockByNumber")
+                           (cons "params" (list "pending" t)))))
+                  (pending-header-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 715)
+                           (cons "method" "eth_getHeaderByNumber")
+                           (cons "params" (list "pending")))))
                   (txpool-status-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -6240,7 +6281,7 @@
                           "--pid-file"
                           (namestring pid-path)
                           "--max-connections"
-                          "10"
+                          "15"
                           "--json")
                     :directory #P"/private/tmp/"
                     :output :stream
@@ -6274,6 +6315,11 @@
                       raw-basefee-response
                       raw-queued-response
                       pending-transactions-response
+                      pending-block-count-response
+                      pending-transaction-by-index-response
+                      pending-raw-transaction-by-index-response
+                      pending-block-response
+                      pending-header-response
                       txpool-status-response
                       txpool-content-from-response
                       txpool-inspect-response)
@@ -6315,6 +6361,31 @@
                               rpc-endpoint
                               (devnet-cli-json-rpc-http-request
                                pending-transactions-body)))
+                       (setf pending-block-count-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-block-count-body)))
+                       (setf pending-transaction-by-index-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-transaction-by-index-body)))
+                       (setf pending-raw-transaction-by-index-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-raw-transaction-by-index-body)))
+                       (setf pending-block-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-block-body)))
+                       (setf pending-header-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-header-body)))
                        (setf txpool-status-response
                              (devnet-cli-http-endpoint-request
                               rpc-endpoint
@@ -6341,6 +6412,11 @@
                                 raw-basefee-response
                                 raw-queued-response
                                 pending-transactions-response
+                                pending-block-count-response
+                                pending-transaction-by-index-response
+                                pending-raw-transaction-by-index-response
+                                pending-block-response
+                                pending-header-response
                                 txpool-status-response
                                 txpool-content-from-response
                                 txpool-inspect-response))
@@ -6367,6 +6443,24 @@
                           (parse-json
                            (devnet-cli-http-body
                             pending-transactions-response)))
+                        (pending-block-count-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-block-count-response)))
+                        (pending-transaction-by-index-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-transaction-by-index-response)))
+                        (pending-raw-transaction-by-index-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-raw-transaction-by-index-response)))
+                        (pending-block-rpc
+                          (parse-json
+                           (devnet-cli-http-body pending-block-response)))
+                        (pending-header-rpc
+                          (parse-json
+                           (devnet-cli-http-body pending-header-response)))
                         (txpool-status-rpc
                           (parse-json
                            (devnet-cli-http-body txpool-status-response)))
@@ -6381,6 +6475,23 @@
                           (fixture-object-field
                            pending-transactions-rpc "result"))
                         (pending-object (first pending-transactions))
+                        (pending-block-count
+                          (fixture-object-field pending-block-count-rpc
+                                                "result"))
+                        (pending-transaction-by-index
+                          (fixture-object-field
+                           pending-transaction-by-index-rpc "result"))
+                        (pending-raw-transaction-by-index
+                          (fixture-object-field
+                           pending-raw-transaction-by-index-rpc "result"))
+                        (pending-block
+                          (fixture-object-field pending-block-rpc "result"))
+                        (pending-header
+                          (fixture-object-field pending-header-rpc "result"))
+                        (pending-block-transactions
+                          (fixture-object-field pending-block "transactions"))
+                        (pending-block-transaction
+                          (first pending-block-transactions))
                         (txpool-status
                           (fixture-object-field txpool-status-rpc "result"))
                         (txpool-content-from
@@ -6412,6 +6523,14 @@
                    (is (= 701 (fixture-object-field send-pending-rpc "id")))
                    (is (= 702 (fixture-object-field send-basefee-rpc "id")))
                    (is (= 703 (fixture-object-field send-queued-rpc "id")))
+                   (is (= 711 (fixture-object-field pending-block-count-rpc
+                                                    "id")))
+                   (is (= 712 (fixture-object-field
+                               pending-transaction-by-index-rpc "id")))
+                   (is (= 713 (fixture-object-field
+                               pending-raw-transaction-by-index-rpc "id")))
+                   (is (= 714 (fixture-object-field pending-block-rpc "id")))
+                   (is (= 715 (fixture-object-field pending-header-rpc "id")))
                    (is (string= pending-hash
                                 (fixture-object-field
                                  send-pending-rpc "result")))
@@ -6439,6 +6558,39 @@
                                                    "blockNumber")))
                    (is (null (fixture-object-field pending-object
                                                    "transactionIndex")))
+                   (is (string= "0x1" pending-block-count))
+                   (is (string= pending-hash
+                                (fixture-object-field
+                                 pending-transaction-by-index "hash")))
+                   (is (null (fixture-object-field
+                              pending-transaction-by-index "blockHash")))
+                   (is (null (fixture-object-field
+                              pending-transaction-by-index "blockNumber")))
+                   (is (null (fixture-object-field
+                              pending-transaction-by-index
+                              "transactionIndex")))
+                   (is (string= pending-raw pending-raw-transaction-by-index))
+                   (is (null (fixture-object-field pending-block "hash")))
+                   (is (null (fixture-object-field pending-block "nonce")))
+                   (is (string= expected-pending-block-number
+                                (fixture-object-field pending-block "number")))
+                   (is (string= latest-block-hash-hex
+                                (fixture-object-field pending-block
+                                                      "parentHash")))
+                   (is (= 1 (length pending-block-transactions)))
+                   (is (string= pending-hash
+                                (fixture-object-field
+                                 pending-block-transaction "hash")))
+                   (is (null (fixture-object-field pending-block-transaction
+                                                   "blockHash")))
+                   (is (null (fixture-object-field pending-header "hash")))
+                   (is (null (fixture-object-field pending-header "nonce")))
+                   (is (string= expected-pending-block-number
+                                (fixture-object-field pending-header
+                                                      "number")))
+                   (is (string= latest-block-hash-hex
+                                (fixture-object-field pending-header
+                                                      "parentHash")))
                    (is (string= "0x1"
                                 (fixture-object-field txpool-status
                                                       "pending")))
@@ -6496,11 +6648,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "10"
+                         (is (string= "15"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "10"
+                         (is (string= "15"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=)))))))))))))

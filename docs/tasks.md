@@ -1079,6 +1079,19 @@ ones.
     `eth_pendingTransactions`, `txpool_status`, `txpool_contentFrom`, and
     `txpool_inspect`, and checks shutdown telemetry reports the ten public
     txpool RPC connections with zero Engine traffic.
+- [x] `DEVNET-RUNNER-SCRIPT-PENDING-BLOCK-TXPOOL`: Lock pending block-tag txpool
+  visibility at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now verifies
+    `eth_getBlockTransactionCountByNumber("pending")`,
+    `eth_getTransactionByBlockNumberAndIndex("pending", "0x0")`,
+    `eth_getRawTransactionByBlockNumberAndIndex("pending", "0x0")`,
+    `eth_getBlockByNumber("pending", true)`, and
+    `eth_getHeaderByNumber("pending")` after public txpool admission. The
+    assertions cover pending count, indexed/raw pending transaction visibility,
+    null committed block-location fields, pending block/header number and
+    parent hash, and updated shutdown telemetry for the expanded public request
+    count.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
