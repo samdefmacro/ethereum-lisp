@@ -797,6 +797,13 @@ ones.
     verifies the full transaction body references the visible pending
     transaction with null block hash, and reports those values for runner
     accounting.
+- [x] `DEVNET-RUNNER-PENDING-HEADER`: Lock pending header visibility at the
+  devnet process-boundary smoke surface.
+  - Result (2026-06-29): the standalone devnet smoke gate's restored-database
+    txpool probe now sends `eth_getHeaderByNumber("pending")` through the
+    public listener, verifies its number and `parentHash` match the pending
+    block view, verifies null committed `hash`/`nonce`, reports those fields,
+    and updates the txpool public connection contract for process runners.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

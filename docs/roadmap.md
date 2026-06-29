@@ -1198,7 +1198,9 @@ first pass, but interfaces must not block that path.
   that block-body view through the restored public listener and reports the
   pending block hash and transaction location fields. `eth_getHeaderByNumber`
   now gives the `"pending"` tag the same pending-shaped next-block treatment
-  instead of aliasing the latest committed header. Txpool queued views now
+  instead of aliasing the latest committed header, and the standalone devnet
+  smoke gate verifies that header view through the restored public listener.
+  Txpool queued views now
   expose
   blob-subpool
   transactions through `txpool_content`, `txpool_contentFrom`, and
