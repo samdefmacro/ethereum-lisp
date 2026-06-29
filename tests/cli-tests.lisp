@@ -6568,6 +6568,12 @@
                   (devnet-cli-transaction-raw transaction))
                 (expected-transaction-count-hex
                   (quantity-to-hex (length (block-transactions child-block))))
+                (simulation-call-object
+                  (list (cons "from" (address-to-hex sender))
+                        (cons "to" (address-to-hex code-address))
+                        (cons "gas" "0x186a0")
+                        (cons "gasPrice" "0x64")
+                        (cons "data" "0x")))
                 (prepare-payload-attributes
                   (devnet-cli-payload-attributes-v2
                    child-block
@@ -6790,6 +6796,37 @@
                                      (fixture-object-field expect
                                                            "storageKey")
                                      "latest")))))
+                (call-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 636)
+                         (cons "method" "eth_call")
+                         (cons "params"
+                               (list simulation-call-object "latest")))))
+                (estimate-gas-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 637)
+                         (cons "method" "eth_estimateGas")
+                         (cons "params"
+                               (list simulation-call-object "latest")))))
+                (create-access-list-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 638)
+                         (cons "method" "eth_createAccessList")
+                         (cons "params"
+                               (list simulation-call-object "latest")))))
+                (post-call-storage-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 639)
+                         (cons "method" "eth_getStorageAt")
+                         (cons "params"
+                               (list (address-to-hex storage-address)
+                                     (fixture-object-field expect
+                                                           "storageKey")
+                                     "latest")))))
                 (receipt-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
@@ -6858,7 +6895,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "27"
+                        "31"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -6921,6 +6958,10 @@
                     post-status-block-by-number-response
                     code-response
                     storage-response
+                    call-response
+                    estimate-gas-response
+                    create-access-list-response
+                    post-call-storage-response
                     receipt-response
                     block-receipts-response
                     logs-response)
@@ -7103,6 +7144,26 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              storage-body)))
+                     (setf call-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             call-body)))
+                     (setf estimate-gas-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             estimate-gas-body)))
+                     (setf create-access-list-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             create-access-list-body)))
+                     (setf post-call-storage-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             post-call-storage-body)))
                      (setf receipt-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -7182,6 +7243,12 @@
                             post-status-block-by-number-response)))
                (is (= 200 (devnet-cli-http-status code-response)))
                (is (= 200 (devnet-cli-http-status storage-response)))
+               (is (= 200 (devnet-cli-http-status call-response)))
+               (is (= 200 (devnet-cli-http-status estimate-gas-response)))
+               (is (= 200 (devnet-cli-http-status
+                            create-access-list-response)))
+               (is (= 200 (devnet-cli-http-status
+                            post-call-storage-response)))
                (is (= 200 (devnet-cli-http-status receipt-response)))
                (is (= 200 (devnet-cli-http-status block-receipts-response)))
                (is (= 200 (devnet-cli-http-status logs-response)))
@@ -7299,6 +7366,20 @@
                       (storage-rpc
                         (parse-json
                          (devnet-cli-http-body storage-response)))
+                      (call-rpc
+                        (parse-json
+                         (devnet-cli-http-body call-response)))
+                      (estimate-gas-rpc
+                        (parse-json
+                         (devnet-cli-http-body estimate-gas-response)))
+                      (create-access-list-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          create-access-list-response)))
+                      (post-call-storage-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          post-call-storage-response)))
                       (receipt-rpc
                         (parse-json
                          (devnet-cli-http-body receipt-response)))
@@ -7371,6 +7452,25 @@
                       (proof-storage
                         (first (fixture-object-field proof-result
                                                      "storageProof")))
+                      (create-access-list-result
+                        (fixture-object-field create-access-list-rpc
+                                              "result"))
+                      (actual-access-list
+                        (fixture-object-field create-access-list-result
+                                              "accessList"))
+                      (actual-access-list-gas-used
+                        (fixture-object-field create-access-list-result
+                                              "gasUsed"))
+                      (actual-access-list-entry
+                        (find (address-to-hex storage-address)
+                              actual-access-list
+                              :test #'string=
+                              :key (lambda (entry)
+                                     (fixture-object-field entry "address"))))
+                      (actual-access-list-storage-keys
+                        (and actual-access-list-entry
+                             (fixture-object-field actual-access-list-entry
+                                                   "storageKeys")))
                       (safe-block-by-number-result
                         (fixture-object-field safe-block-by-number-rpc
                                               "result"))
@@ -7452,6 +7552,10 @@
                               block-hash-balance-rpc "id")))
                  (is (= 635 (fixture-object-field
                               require-canonical-balance-rpc "id")))
+                 (is (= 636 (fixture-object-field call-rpc "id")))
+                 (is (= 637 (fixture-object-field estimate-gas-rpc "id")))
+                 (is (= 638 (fixture-object-field create-access-list-rpc "id")))
+                 (is (= 639 (fixture-object-field post-call-storage-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -7617,6 +7721,20 @@
                               (fixture-object-field code-rpc "result")))
                  (is (string= (fixture-object-field expect "storageValue")
                               (fixture-object-field storage-rpc "result")))
+                 (is (not (fixture-object-field call-rpc "error")))
+                 (is (string= "0x"
+                              (fixture-object-field call-rpc "result")))
+                 (is (<= 21000
+                         (hex-to-quantity
+                          (fixture-object-field estimate-gas-rpc "result"))))
+                 (is (stringp actual-access-list-gas-used))
+                 (is actual-access-list-entry)
+                 (is (member (fixture-object-field expect "storageKey")
+                             actual-access-list-storage-keys
+                             :test #'string=))
+                 (is (string= (fixture-object-field expect "storageValue")
+                              (fixture-object-field post-call-storage-rpc
+                                                    "result")))
                  (is (string= transaction-hash-hex
                               (fixture-object-field receipt
                                                     "transactionHash")))
@@ -7701,11 +7819,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "27"
+                       (is (string= "31"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "35"
+                       (is (string= "39"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))

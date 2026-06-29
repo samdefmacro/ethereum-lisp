@@ -1052,6 +1052,15 @@ ones.
     assertions cover proof address, storage key/value, proof-list shape,
     canonical hash-pinned balance, and shutdown telemetry for the expanded
     public request count.
+- [x] `DEVNET-RUNNER-SCRIPT-SIMULATION-RPCS`: Lock retained-state simulation
+  RPCs at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now verifies public `eth_call`, `eth_estimateGas`,
+    `eth_createAccessList`, and a post-call `eth_getStorageAt` after
+    authenticated Engine import and forkchoice. The assertions cover empty call
+    output, estimate lower bound, access-list storage-key tracking, no retained
+    storage mutation from simulation, and shutdown telemetry for the expanded
+    public request count.
 - [x] `DEVNET-RUNNER-SCRIPT-ENGINE-STATUS-PAYLOADS`: Lock Engine orphan and
   invalid payload status handling at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`

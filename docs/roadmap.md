@@ -1224,7 +1224,10 @@ first pass, but interfaces must not block that path.
   listener. It also verifies `eth_getProof` and canonical EIP-1898
   `eth_getBalance` block-hash reads through that external public listener, so
   proof and hash-pinned retained-state reads are covered at the runner process
-  boundary. The script process also
+  boundary. It now also verifies retained-state simulation RPCs (`eth_call`,
+  `eth_estimateGas`, and `eth_createAccessList`) through the same external
+  public listener and re-reads storage afterward to prove simulations do not
+  commit writes at the runner process boundary. The script process also
   covers orphan `engine_newPayloadV2` returning `SYNCING`, known-parent
   timestamp-invalid `engine_newPayloadV2` returning `INVALID`, and unchanged
   public canonical `latest` reads after those status paths. The script process
