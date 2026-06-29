@@ -1187,8 +1187,13 @@ first pass, but interfaces must not block that path.
   state, and shutdown metadata for the imported child head. The script process
   also covers prepared-payload retrieval through payload-attributes
   `engine_forkchoiceUpdatedV2` followed by authenticated `engine_getPayloadV2`,
-  while public RPC remains on the canonical imported head. It is also covered
-  receiving
+  while public RPC remains on the canonical imported head. Public txpool
+  admission is also covered at the script-process boundary: a fixture-derived
+  genesis funds a local sender, raw pending/basefee/queued submissions go
+  through the advertised public listener, and hash lookup plus
+  `eth_pendingTransactions`, `txpool_status`, `txpool_contentFrom`, and
+  `txpool_inspect` stay visible with shutdown connection accounting. The
+  script process is also covered receiving
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout
   JSON, ready-file JSON, and `devnet.ready` / `devnet.shutdown` telemetry with

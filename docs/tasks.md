@@ -926,6 +926,15 @@ ones.
     fixture child, verifies each returns exactly one body with the expected
     transaction count, and balances the six-request Engine workflow with
     public retained-state balance, nonce, block, code, and storage reads.
+- [x] `DEVNET-RUNNER-SCRIPT-TXPOOL`: Lock public txpool admission and visibility
+  at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now starts from a fixture-derived genesis
+    that funds a local txpool sender, submits pending, basefee, and queued raw
+    transactions through the public listener, verifies raw transaction lookup,
+    `eth_pendingTransactions`, `txpool_status`, `txpool_contentFrom`, and
+    `txpool_inspect`, and checks shutdown telemetry reports the ten public
+    txpool RPC connections with zero Engine traffic.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

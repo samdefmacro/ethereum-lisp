@@ -6,6 +6,15 @@
 (defconstant +devnet-cli-jwt-secret+
   "1111111111111111111111111111111111111111111111111111111111111111")
 
+(defconstant +devnet-cli-txpool-private-key+ 1)
+(defconstant +devnet-cli-txpool-balance+ 1000000000000000000)
+(defconstant +devnet-cli-txpool-gas-price+ 200)
+(defconstant +devnet-cli-txpool-basefee-gas-price+ 0)
+(defconstant +devnet-cli-txpool-gas-limit+ 21000)
+(defconstant +devnet-cli-txpool-value+ 1)
+(defconstant +devnet-cli-txpool-recipient+
+  "0x0000000000000000000000000000000000003001")
+
 (defparameter +devnet-side-reorg-smoke-case-names+
   '("shanghai-one-transfer-with-withdrawal"
     "shanghai-two-legacy-transfers-with-withdrawal"
@@ -24,6 +33,36 @@
     (if process-id
         (write-to-string process-id)
         "")))
+
+(defun devnet-cli-txpool-sender-address ()
+  (fixture-private-key-address +devnet-cli-txpool-private-key+))
+
+(defun devnet-cli-txpool-transaction (config nonce gas-price)
+  (fixture-sign-legacy-transaction
+   (make-legacy-transaction
+    :nonce nonce
+    :gas-price gas-price
+    :gas-limit +devnet-cli-txpool-gas-limit+
+    :to (address-from-hex +devnet-cli-txpool-recipient+)
+    :value +devnet-cli-txpool-value+)
+   +devnet-cli-txpool-private-key+
+   (chain-config-chain-id config)))
+
+(defun devnet-cli-transaction-raw (transaction)
+  (bytes-to-hex (transaction-encoding transaction)))
+
+(defun devnet-cli-transaction-nonce-key (transaction)
+  (format nil "~D" (transaction-nonce transaction)))
+
+(defun devnet-cli-transaction-summary (transaction)
+  (let ((to (transaction-to transaction)))
+    (format nil "~A: ~D wei + ~D gas x ~D wei"
+            (if to
+                (address-to-hex to)
+                "contract creation")
+            (transaction-value transaction)
+            (transaction-gas-limit transaction)
+            (transaction-max-fee-per-gas transaction))))
 
 (defun devnet-cli-temp-token ()
   (format nil "~A-~D-~A"
@@ -742,6 +781,26 @@
      (cons "alloc"
            (mapcar #'devnet-cli-engine-fixture-genesis-account
                    (fixture-object-field parent "accounts"))))))
+
+(defun devnet-cli-engine-fixture-parent-genesis-with-txpool-account (case)
+  (let* ((parent (fixture-object-field case "parent"))
+         (parent-state (engine-fixture-parent-state parent))
+         (sender (devnet-cli-txpool-sender-address))
+         (genesis (devnet-cli-engine-fixture-parent-genesis-object case))
+         (alloc (fixture-object-field genesis "alloc"))
+         (account
+           (list (cons "balance"
+                       (quantity-to-hex +devnet-cli-txpool-balance+))
+                 (cons "nonce" "0x0"))))
+    (state-db-set-account
+     parent-state
+     sender
+     (make-state-account :nonce 0 :balance +devnet-cli-txpool-balance+))
+    (setf (cdr (assoc "stateRoot" genesis :test #'string=))
+          (hash32-to-hex (state-db-root parent-state)))
+    (setf (cdr (assoc "alloc" genesis :test #'string=))
+          (append alloc (list (cons (address-to-hex sender) account))))
+    genesis))
 
 (defun devnet-cli-engine-fixture-parent-block (case)
   (let* ((parent (fixture-object-field case "parent"))
@@ -5438,6 +5497,426 @@
         (delete-file log-path))
       (when (probe-file pid-path)
         (delete-file pid-path)))))
+
+(deftest ethereum-lisp-script-serve-mode-admits-public-txpool-transactions
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (genesis-path
+          (devnet-cli-temp-path "ethereum-lisp-script-txpool-genesis" "json"))
+        (ready-path
+          (devnet-cli-temp-path "ethereum-lisp-script-txpool-ready" "json"))
+        (log-path
+          (devnet-cli-temp-path "ethereum-lisp-script-txpool" "log"))
+        (pid-path
+          (devnet-cli-temp-path "ethereum-lisp-script-txpool" "pid"))
+        (process nil))
+    (unwind-protect
+         (let* ((case
+                  (select-engine-newpayload-v2-fixture-case
+                   +engine-newpayload-v2-fixture-path+
+                   "shanghai-one-transfer-with-withdrawal")))
+           (devnet-cli-write-temp-file
+            genesis-path
+            (json-encode
+             (devnet-cli-engine-fixture-parent-genesis-with-txpool-account
+              case)))
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path (namestring genesis-path)
+                     :port 0
+                     :public-port 0))
+                  (config (ethereum-lisp.cli:devnet-node-config node))
+                  (sender (devnet-cli-txpool-sender-address))
+                  (sender-hex (address-to-hex sender))
+                  (pending-transaction
+                    (devnet-cli-txpool-transaction
+                     config 0 +devnet-cli-txpool-gas-price+))
+                  (basefee-transaction
+                    (devnet-cli-txpool-transaction
+                     config 1 +devnet-cli-txpool-basefee-gas-price+))
+                  (queued-transaction
+                    (devnet-cli-txpool-transaction
+                     config 2 +devnet-cli-txpool-gas-price+))
+                  (pending-hash
+                    (hash32-to-hex (transaction-hash pending-transaction)))
+                  (basefee-hash
+                    (hash32-to-hex (transaction-hash basefee-transaction)))
+                  (queued-hash
+                    (hash32-to-hex (transaction-hash queued-transaction)))
+                  (pending-raw
+                    (devnet-cli-transaction-raw pending-transaction))
+                  (basefee-raw
+                    (devnet-cli-transaction-raw basefee-transaction))
+                  (queued-raw
+                    (devnet-cli-transaction-raw queued-transaction))
+                  (pending-nonce
+                    (devnet-cli-transaction-nonce-key pending-transaction))
+                  (basefee-nonce
+                    (devnet-cli-transaction-nonce-key basefee-transaction))
+                  (queued-nonce
+                    (devnet-cli-transaction-nonce-key queued-transaction))
+                  (pending-summary
+                    (devnet-cli-transaction-summary pending-transaction))
+                  (basefee-summary
+                    (devnet-cli-transaction-summary basefee-transaction))
+                  (queued-summary
+                    (devnet-cli-transaction-summary queued-transaction))
+                  (send-pending-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 701)
+                           (cons "method" "eth_sendRawTransaction")
+                           (cons "params" (list pending-raw)))))
+                  (send-basefee-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 702)
+                           (cons "method" "eth_sendRawTransaction")
+                           (cons "params" (list basefee-raw)))))
+                  (send-queued-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 703)
+                           (cons "method" "eth_sendRawTransaction")
+                           (cons "params" (list queued-raw)))))
+                  (raw-pending-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 704)
+                           (cons "method" "eth_getRawTransactionByHash")
+                           (cons "params" (list pending-hash)))))
+                  (raw-basefee-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 705)
+                           (cons "method" "eth_getRawTransactionByHash")
+                           (cons "params" (list basefee-hash)))))
+                  (raw-queued-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 706)
+                           (cons "method" "eth_getRawTransactionByHash")
+                           (cons "params" (list queued-hash)))))
+                  (pending-transactions-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 707)
+                           (cons "method" "eth_pendingTransactions")
+                           (cons "params" '()))))
+                  (txpool-status-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 708)
+                           (cons "method" "txpool_status")
+                           (cons "params" '()))))
+                  (txpool-content-from-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 709)
+                           (cons "method" "txpool_contentFrom")
+                           (cons "params" (list sender-hex)))))
+                  (txpool-inspect-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 710)
+                           (cons "method" "txpool_inspect")
+                           (cons "params" '())))))
+             (setf process
+                   (uiop:launch-program
+                    (list "sbcl"
+                          "--script"
+                          script
+                          "--"
+                          "devnet"
+                          "--genesis"
+                          (namestring genesis-path)
+                          "--engine-port"
+                          "0"
+                          "--public-port"
+                          "0"
+                          "--ready-file"
+                          (namestring ready-path)
+                          "--log-file"
+                          (namestring log-path)
+                          "--pid-file"
+                          (namestring pid-path)
+                          "--max-connections"
+                          "10"
+                          "--json")
+                    :directory #P"/private/tmp/"
+                    :output :stream
+                    :error-output :stream))
+             (unless (devnet-cli-wait-for-file ready-path 10)
+               (when (uiop:process-alive-p process)
+                 (uiop:terminate-process process)
+                 (devnet-cli-wait-process-exit process 5))
+               (let ((stdout
+                       (devnet-cli-read-stream-string
+                        (uiop:process-info-output process)))
+                     (stderr
+                       (devnet-cli-read-stream-string
+                        (uiop:process-info-error-output process))))
+                 (when (search "Operation not permitted" stderr)
+                   (skip-test
+                    "Local socket bind is not permitted in this sandbox"))
+                 (is (probe-file ready-path))
+                 (is (string= "" stdout))
+                 (is (string= "" stderr))))
+             (when (probe-file ready-path)
+               (let* ((ready-summary
+                        (parse-json (devnet-cli-file-string ready-path)))
+                      (pid (devnet-cli-pid-file-process-id pid-path))
+                      (rpc-endpoint
+                        (fixture-object-field ready-summary "rpcEndpoint"))
+                      send-pending-response
+                      send-basefee-response
+                      send-queued-response
+                      raw-pending-response
+                      raw-basefee-response
+                      raw-queued-response
+                      pending-transactions-response
+                      txpool-status-response
+                      txpool-content-from-response
+                      txpool-inspect-response)
+                 (is (= pid (fixture-object-field ready-summary "processId")))
+                 (handler-case
+                     (progn
+                       (setf send-pending-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               send-pending-body)))
+                       (setf send-basefee-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               send-basefee-body)))
+                       (setf send-queued-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               send-queued-body)))
+                       (setf raw-pending-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               raw-pending-body)))
+                       (setf raw-basefee-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               raw-basefee-body)))
+                       (setf raw-queued-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               raw-queued-body)))
+                       (setf pending-transactions-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-transactions-body)))
+                       (setf txpool-status-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               txpool-status-body)))
+                       (setf txpool-content-from-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               txpool-content-from-body)))
+                       (setf txpool-inspect-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               txpool-inspect-body))))
+                   (sb-bsd-sockets:operation-not-permitted-error ()
+                     (skip-test
+                      "Local socket connect is not permitted in this sandbox")))
+                 (dolist (response
+                          (list send-pending-response
+                                send-basefee-response
+                                send-queued-response
+                                raw-pending-response
+                                raw-basefee-response
+                                raw-queued-response
+                                pending-transactions-response
+                                txpool-status-response
+                                txpool-content-from-response
+                                txpool-inspect-response))
+                   (is (= 200 (devnet-cli-http-status response))))
+                 (let* ((send-pending-rpc
+                          (parse-json
+                           (devnet-cli-http-body send-pending-response)))
+                        (send-basefee-rpc
+                          (parse-json
+                           (devnet-cli-http-body send-basefee-response)))
+                        (send-queued-rpc
+                          (parse-json
+                           (devnet-cli-http-body send-queued-response)))
+                        (raw-pending-rpc
+                          (parse-json
+                           (devnet-cli-http-body raw-pending-response)))
+                        (raw-basefee-rpc
+                          (parse-json
+                           (devnet-cli-http-body raw-basefee-response)))
+                        (raw-queued-rpc
+                          (parse-json
+                           (devnet-cli-http-body raw-queued-response)))
+                        (pending-transactions-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-transactions-response)))
+                        (txpool-status-rpc
+                          (parse-json
+                           (devnet-cli-http-body txpool-status-response)))
+                        (txpool-content-from-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            txpool-content-from-response)))
+                        (txpool-inspect-rpc
+                          (parse-json
+                           (devnet-cli-http-body txpool-inspect-response)))
+                        (pending-transactions
+                          (fixture-object-field
+                           pending-transactions-rpc "result"))
+                        (pending-object (first pending-transactions))
+                        (txpool-status
+                          (fixture-object-field txpool-status-rpc "result"))
+                        (txpool-content-from
+                          (fixture-object-field
+                           txpool-content-from-rpc "result"))
+                        (content-from-pending
+                          (fixture-object-field txpool-content-from "pending"))
+                        (content-from-queued
+                          (fixture-object-field txpool-content-from "queued"))
+                        (content-from-pending-transaction
+                          (fixture-object-field
+                           content-from-pending pending-nonce))
+                        (content-from-basefee-transaction
+                          (fixture-object-field
+                           content-from-queued basefee-nonce))
+                        (content-from-queued-transaction
+                          (fixture-object-field
+                           content-from-queued queued-nonce))
+                        (txpool-inspect
+                          (fixture-object-field txpool-inspect-rpc "result"))
+                        (inspect-pending
+                          (fixture-object-field txpool-inspect "pending"))
+                        (inspect-queued
+                          (fixture-object-field txpool-inspect "queued"))
+                        (inspect-pending-sender
+                          (fixture-object-field inspect-pending sender-hex))
+                        (inspect-queued-sender
+                          (fixture-object-field inspect-queued sender-hex)))
+                   (is (= 701 (fixture-object-field send-pending-rpc "id")))
+                   (is (= 702 (fixture-object-field send-basefee-rpc "id")))
+                   (is (= 703 (fixture-object-field send-queued-rpc "id")))
+                   (is (string= pending-hash
+                                (fixture-object-field
+                                 send-pending-rpc "result")))
+                   (is (string= basefee-hash
+                                (fixture-object-field
+                                 send-basefee-rpc "result")))
+                   (is (string= queued-hash
+                                (fixture-object-field
+                                 send-queued-rpc "result")))
+                   (is (string= pending-raw
+                                (fixture-object-field
+                                 raw-pending-rpc "result")))
+                   (is (string= basefee-raw
+                                (fixture-object-field
+                                 raw-basefee-rpc "result")))
+                   (is (string= queued-raw
+                                (fixture-object-field
+                                 raw-queued-rpc "result")))
+                   (is (= 1 (length pending-transactions)))
+                   (is (string= pending-hash
+                                (fixture-object-field pending-object "hash")))
+                   (is (null (fixture-object-field pending-object
+                                                   "blockHash")))
+                   (is (null (fixture-object-field pending-object
+                                                   "blockNumber")))
+                   (is (null (fixture-object-field pending-object
+                                                   "transactionIndex")))
+                   (is (string= "0x1"
+                                (fixture-object-field txpool-status
+                                                      "pending")))
+                   (is (string= "0x2"
+                                (fixture-object-field txpool-status
+                                                      "queued")))
+                   (is (string= pending-hash
+                                (fixture-object-field
+                                 content-from-pending-transaction "hash")))
+                   (is (string= basefee-hash
+                                (fixture-object-field
+                                 content-from-basefee-transaction "hash")))
+                   (is (string= queued-hash
+                                (fixture-object-field
+                                 content-from-queued-transaction "hash")))
+                   (is (string= pending-summary
+                                (fixture-object-field inspect-pending-sender
+                                                      pending-nonce)))
+                   (is (string= basefee-summary
+                                (fixture-object-field inspect-queued-sender
+                                                      basefee-nonce)))
+                   (is (string= queued-summary
+                                (fixture-object-field inspect-queued-sender
+                                                      queued-nonce))))
+                 (let ((status (devnet-cli-wait-process-exit process 10)))
+                   (when (eq status :timeout)
+                     (uiop:terminate-process process))
+                   (is (not (eq status :timeout)))
+                   (is (and (numberp status) (= 0 status)))
+                   (let ((stdout
+                           (devnet-cli-read-stream-string
+                            (uiop:process-info-output process)))
+                         (stderr
+                           (devnet-cli-read-stream-string
+                            (uiop:process-info-error-output process))))
+                     (is (string= "" stderr))
+                     (when (and (numberp status) (= 0 status))
+                       (let* ((stdout-summary (parse-json stdout))
+                              (log-records (devnet-cli-file-forms log-path))
+                              (shutdown-record
+                                (find "devnet.shutdown" log-records
+                                      :test #'string=
+                                      :key (lambda (record)
+                                             (getf record :name))))
+                              (shutdown-fields
+                                (getf shutdown-record :fields)))
+                         (is (= pid
+                                (fixture-object-field stdout-summary
+                                                      "processId")))
+                         (is (string= rpc-endpoint
+                                      (fixture-object-field stdout-summary
+                                                            "rpcEndpoint")))
+                         (is shutdown-record)
+                         (is (string= "0"
+                                      (cdr (assoc "engineConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))
+                         (is (string= "10"
+                                      (cdr (assoc "publicConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))
+                         (is (string= "10"
+                                      (cdr (assoc "totalConnections"
+                                                  shutdown-fields
+                                                  :test #'string=)))))))))))))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path))))
 
 (deftest ethereum-lisp-script-serve-mode-imports-payload-and-serves-public-state
   #-sbcl
