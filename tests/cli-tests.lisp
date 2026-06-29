@@ -5423,6 +5423,8 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":501,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     (engine-batch-body
                       "[{\"jsonrpc\":\"2.0\",\"id\":513,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-batch-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]},{\"jsonrpc\":\"2.0\",\"id\":514,\"method\":\"engine_exchangeCapabilities\",\"params\":[[\"engine_getClientVersionV1\"]]}]")
+                    (engine-transition-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":515,\"method\":\"engine_exchangeTransitionConfigurationV1\",\"params\":[{\"terminalTotalDifficulty\":\"0x0\",\"terminalBlockHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"terminalBlockNumber\":\"0x0\"}]}")
                     (engine-public-body
                       "{\"jsonrpc\":\"2.0\",\"id\":507,\"method\":\"eth_chainId\",\"params\":[]}")
                     (engine-capabilities-body
@@ -5443,6 +5445,7 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":509,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     engine-response
                     engine-batch-response
+                    engine-transition-response
                     engine-public-response
                     unauthenticated-engine-response
                     invalid-auth-engine-response
@@ -5467,6 +5470,12 @@
                             engine-endpoint
                             (devnet-cli-json-rpc-http-request
                              engine-batch-body
+                             :token token)))
+                     (setf engine-transition-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-transition-body
                              :token token)))
                      (setf engine-public-response
                            (devnet-cli-http-endpoint-request
@@ -5524,6 +5533,7 @@
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status engine-response)))
                (is (= 200 (devnet-cli-http-status engine-batch-response)))
+               (is (= 200 (devnet-cli-http-status engine-transition-response)))
                (is (= 200 (devnet-cli-http-status engine-public-response)))
                (is (= 401
                       (devnet-cli-http-status unauthenticated-engine-response)))
@@ -5552,6 +5562,12 @@
                         (first engine-batch-json))
                       (engine-batch-capabilities-json
                         (second engine-batch-json))
+                      (engine-transition-json
+                        (parse-json
+                         (devnet-cli-http-body engine-transition-response)))
+                      (engine-transition-result
+                        (fixture-object-field engine-transition-json
+                                              "result"))
                       (public-json
                         (parse-json (devnet-cli-http-body public-response)))
                       (public-client-version-json
@@ -5602,6 +5618,19 @@
                              (fixture-object-field
                               engine-batch-capabilities-json "result")
                              :test #'string=))
+                 (is (= 515 (fixture-object-field engine-transition-json "id")))
+                 (is (string= "0x0"
+                              (fixture-object-field
+                               engine-transition-result
+                               "terminalTotalDifficulty")))
+                 (is (string= "0x0000000000000000000000000000000000000000000000000000000000000000"
+                              (fixture-object-field
+                               engine-transition-result
+                               "terminalBlockHash")))
+                 (is (string= "0x0"
+                              (fixture-object-field
+                               engine-transition-result
+                               "terminalBlockNumber")))
                  (is (= 507 (fixture-object-field engine-public-json "id")))
                  (is (= -32601
                         (fixture-object-field
@@ -5695,7 +5724,7 @@
                                                     :test #'string=))))))
                        (let ((shutdown-fields
                                (getf shutdown-record :fields)))
-                         (is (string= "5"
+                         (is (string= "6"
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
@@ -5703,7 +5732,7 @@
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "12"
+                         (is (string= "13"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

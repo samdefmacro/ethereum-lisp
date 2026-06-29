@@ -517,6 +517,15 @@ ones.
     containing `engine_getClientVersionV1` and `engine_exchangeCapabilities`
     through the ready-file Engine endpoint, verifies both response bodies, and
     checks shutdown telemetry accounts for the extra Engine connection.
+- [x] `DEVNET-RUNNER-SCRIPT-TRANSITION-CONFIG`: Lock authenticated Engine
+  transition-configuration handshake readiness at the external script process
+  boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now sends
+    `engine_exchangeTransitionConfigurationV1` through the ready-file Engine
+    endpoint, verifies the returned terminal total difficulty, block hash, and
+    block number, and checks shutdown telemetry accounts for the extra Engine
+    connection.
 - [x] `DEVNET-RUNNER-LISTENER-STARTUP-CLEANUP`: Close a successfully bound
   Engine listener if public listener construction fails during devnet startup.
   - Result (2026-06-29): `start-devnet-node` now registers the Engine listener
