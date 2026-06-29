@@ -993,6 +993,15 @@ ones.
     fixture child, verifies each returns exactly one body with the expected
     transaction count, and balances the six-request Engine workflow with
     public retained-state balance, nonce, block, code, and storage reads.
+- [x] `DEVNET-RUNNER-SCRIPT-ENGINE-STATUS-PAYLOADS`: Lock Engine orphan and
+  invalid payload status handling at the external script process boundary.
+  - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now submits an orphan payload and a
+    known-parent timestamp-invalid payload through authenticated
+    `engine_newPayloadV2`, verifies `SYNCING` without `latestValidHash`,
+    verifies `INVALID` with the canonical child as `latestValidHash` and the
+    expected validation error, and confirms public `latest` still reports the
+    canonical child head after the rejected status paths.
 - [x] `DEVNET-RUNNER-SCRIPT-TXPOOL`: Lock public txpool admission and visibility
   at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`

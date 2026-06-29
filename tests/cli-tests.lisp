@@ -867,6 +867,40 @@
      :chain-config config
      :withdrawals withdrawals)))
 
+(defun devnet-cli-remote-block (parent-block)
+  (let ((parent-header (block-header parent-block)))
+    (make-block
+     :header
+     (make-block-header
+      :parent-hash
+      (hash32-from-hex
+       "0x9999999999999999999999999999999999999999999999999999999999999999")
+      :beneficiary (block-header-beneficiary parent-header)
+      :state-root +empty-trie-hash+
+      :mix-hash (zero-hash32)
+      :number (1+ (block-header-number parent-header))
+      :gas-limit (block-header-gas-limit parent-header)
+      :gas-used 0
+      :timestamp (1+ (block-header-timestamp parent-header))
+      :base-fee-per-gas (block-header-base-fee-per-gas parent-header))
+     :withdrawals '())))
+
+(defun devnet-cli-invalid-child-block (parent-block)
+  (let ((parent-header (block-header parent-block)))
+    (make-block
+     :header
+     (make-block-header
+      :parent-hash (block-hash parent-block)
+      :beneficiary (block-header-beneficiary parent-header)
+      :state-root +empty-trie-hash+
+      :mix-hash (zero-hash32)
+      :number (1+ (block-header-number parent-header))
+      :gas-limit (block-header-gas-limit parent-header)
+      :gas-used 0
+      :timestamp (block-header-timestamp parent-header)
+      :base-fee-per-gas (block-header-base-fee-per-gas parent-header))
+     :withdrawals '())))
+
 (defun devnet-cli-http-body (response)
   (let ((boundary (search (format nil "~C~C~C~C"
                                   #\Return #\Newline
@@ -6284,9 +6318,17 @@
                    "shanghai-one-transfer-with-withdrawal"))
                 (parent-block (devnet-cli-engine-fixture-parent-block case))
                 (child-block (devnet-cli-engine-fixture-child-block case))
+                (remote-block (devnet-cli-remote-block child-block))
+                (invalid-block (devnet-cli-invalid-child-block child-block))
                 (payload
                   (execution-payload-envelope-execution-payload
                    (block-to-executable-data child-block)))
+                (remote-payload
+                  (execution-payload-envelope-execution-payload
+                   (block-to-executable-data remote-block)))
+                (invalid-payload
+                  (execution-payload-envelope-execution-payload
+                   (block-to-executable-data invalid-block)))
                 (parent (fixture-object-field case "parent"))
                 (payload-case (fixture-object-field case "payload"))
                 (expect (fixture-object-field case "expect"))
@@ -6301,6 +6343,12 @@
                    (block-header-beneficiary (block-header child-block))))
                 (new-payload-body
                   (json-encode (engine-fixture-payload-request 601 payload)))
+                (remote-payload-body
+                  (json-encode
+                   (engine-fixture-payload-request 613 remote-payload)))
+                (invalid-payload-body
+                  (json-encode
+                   (engine-fixture-payload-request 614 invalid-payload)))
                 (forkchoice-body
                   (json-encode
                    (devnet-cli-engine-forkchoice-v2-request
@@ -6340,6 +6388,12 @@
                          (cons "id" 603)
                          (cons "method" "eth_blockNumber")
                          (cons "params" '()))))
+                (post-status-block-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 615)
+                         (cons "method" "eth_blockNumber")
+                         (cons "params" '()))))
                 (balance-body
                   (json-encode (engine-fixture-balance-request
                                 604 recipient)))
@@ -6355,6 +6409,12 @@
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
                          (cons "id" 608)
+                         (cons "method" "eth_getBlockByNumber")
+                         (cons "params" (list "latest" :false)))))
+                (post-status-block-by-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 616)
                          (cons "method" "eth_getBlockByNumber")
                          (cons "params" (list "latest" :false)))))
                 (code-body
@@ -6414,7 +6474,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "6"
+                        "8"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -6451,10 +6511,14 @@
                     payload-bodies-by-range-response
                     prepare-payload-response
                     get-payload-response
+                    remote-payload-response
+                    invalid-payload-response
                     block-number-response
+                    post-status-block-number-response
                     balance-response
                     transaction-count-response
                     block-by-number-response
+                    post-status-block-by-number-response
                     code-response
                     storage-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
@@ -6514,6 +6578,18 @@
                               (devnet-cli-json-rpc-http-request
                                get-payload-body
                                :token token))))
+                     (setf remote-payload-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             remote-payload-body
+                             :token token)))
+                     (setf invalid-payload-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             invalid-payload-body
+                             :token token)))
                      (setf block-number-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -6543,7 +6619,17 @@
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
-                             storage-body))))
+                             storage-body)))
+                     (setf post-status-block-number-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             post-status-block-number-body)))
+                     (setf post-status-block-by-number-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             post-status-block-by-number-body))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
@@ -6555,12 +6641,18 @@
                             payload-bodies-by-range-response)))
                (is (= 200 (devnet-cli-http-status prepare-payload-response)))
                (is (= 200 (devnet-cli-http-status get-payload-response)))
+               (is (= 200 (devnet-cli-http-status remote-payload-response)))
+               (is (= 200 (devnet-cli-http-status invalid-payload-response)))
                (is (= 200 (devnet-cli-http-status block-number-response)))
+               (is (= 200 (devnet-cli-http-status
+                            post-status-block-number-response)))
                (is (= 200 (devnet-cli-http-status balance-response)))
                (is (= 200 (devnet-cli-http-status
                             transaction-count-response)))
                (is (= 200 (devnet-cli-http-status
                             block-by-number-response)))
+               (is (= 200 (devnet-cli-http-status
+                            post-status-block-by-number-response)))
                (is (= 200 (devnet-cli-http-status code-response)))
                (is (= 200 (devnet-cli-http-status storage-response)))
                (let* ((new-payload-rpc
@@ -6583,9 +6675,19 @@
                       (get-payload-rpc
                         (parse-json
                          (devnet-cli-http-body get-payload-response)))
+                      (remote-payload-rpc
+                        (parse-json
+                         (devnet-cli-http-body remote-payload-response)))
+                      (invalid-payload-rpc
+                        (parse-json
+                         (devnet-cli-http-body invalid-payload-response)))
                       (block-number-rpc
                         (parse-json
                          (devnet-cli-http-body block-number-response)))
+                      (post-status-block-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          post-status-block-number-response)))
                       (balance-rpc
                         (parse-json
                          (devnet-cli-http-body balance-response)))
@@ -6597,6 +6699,10 @@
                         (parse-json
                          (devnet-cli-http-body
                           block-by-number-response)))
+                      (post-status-block-by-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          post-status-block-by-number-response)))
                       (code-rpc
                         (parse-json
                          (devnet-cli-http-body code-response)))
@@ -6644,8 +6750,15 @@
                         (fixture-object-field
                          get-payload-execution-payload
                          "transactions"))
+                      (remote-payload-result
+                        (fixture-object-field remote-payload-rpc "result"))
+                      (invalid-payload-result
+                        (fixture-object-field invalid-payload-rpc "result"))
                       (block-by-number-result
                         (fixture-object-field block-by-number-rpc "result"))
+                      (post-status-block-by-number-result
+                        (fixture-object-field post-status-block-by-number-rpc
+                                              "result"))
                       (expected-prepared-block-number
                         (quantity-to-hex
                          (1+ (block-header-number
@@ -6665,6 +6778,12 @@
                               payload-bodies-by-range-rpc "id")))
                  (is (= 611 (fixture-object-field code-rpc "id")))
                  (is (= 612 (fixture-object-field storage-rpc "id")))
+                 (is (= 613 (fixture-object-field remote-payload-rpc "id")))
+                 (is (= 614 (fixture-object-field invalid-payload-rpc "id")))
+                 (is (= 615 (fixture-object-field
+                              post-status-block-number-rpc "id")))
+                 (is (= 616 (fixture-object-field
+                              post-status-block-by-number-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -6696,9 +6815,27 @@
                                "blockNumber")))
                  (is (and (listp get-payload-transactions)
                           (null get-payload-transactions)))
+                 (is (string= +payload-status-syncing+
+                              (fixture-object-field remote-payload-result
+                                                    "status")))
+                 (is (null (fixture-object-field remote-payload-result
+                                                 "latestValidHash")))
+                 (is (string= +payload-status-invalid+
+                              (fixture-object-field invalid-payload-result
+                                                    "status")))
+                 (is (string= (hash32-to-hex (block-hash child-block))
+                              (fixture-object-field invalid-payload-result
+                                                    "latestValidHash")))
+                 (is (string= "Timestamp is not greater than parent timestamp"
+                              (fixture-object-field invalid-payload-result
+                                                    "validationError")))
                  (is (string= (fixture-object-field payload-case "number")
                               (fixture-object-field block-number-rpc
                                                     "result")))
+                 (is (string= (fixture-object-field payload-case "number")
+                              (fixture-object-field
+                               post-status-block-number-rpc
+                               "result")))
                  (is (string= (fixture-object-field expect
                                                     "recipientBalance")
                               (fixture-object-field balance-rpc
@@ -6712,6 +6849,14 @@
                  (is (string= (hash32-to-hex (block-hash child-block))
                               (fixture-object-field block-by-number-result
                                                     "hash")))
+                 (is (string= (fixture-object-field payload-case "number")
+                              (fixture-object-field
+                               post-status-block-by-number-result
+                               "number")))
+                 (is (string= (hash32-to-hex (block-hash child-block))
+                              (fixture-object-field
+                               post-status-block-by-number-result
+                               "hash")))
                  (is (string= (fixture-object-field expect "code")
                               (fixture-object-field code-rpc "result")))
                  (is (string= (fixture-object-field expect "storageValue")
@@ -6757,15 +6902,15 @@
                                     (cdr (assoc "headHash"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "6"
+                       (is (string= "8"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "6"
+                       (is (string= "8"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "12"
+                       (is (string= "16"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))
