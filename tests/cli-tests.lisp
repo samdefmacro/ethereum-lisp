@@ -1772,6 +1772,36 @@
        :max-connections 1))
     (is engine-closed-p)))
 
+(deftest devnet-node-start-closes-public-listener-on-engine-error
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+
+                :port 8551
+                :public-port 8545))
+         (engine-closed-p nil)
+         (public-closed-p nil)
+         (engine-listener
+           (make-engine-rpc-http-listener
+            :endpoint "engine"
+            :accept-function (lambda () (error "engine listener failed"))
+            :close-function (lambda () (setf engine-closed-p t))))
+         (public-listener
+           (make-engine-rpc-http-listener
+            :endpoint "public"
+            :accept-function
+            (lambda ()
+              (loop until public-closed-p
+                    do (sleep 0.001))
+              nil)
+            :close-function (lambda () (setf public-closed-p t)))))
+    (signals error
+      (ethereum-lisp.cli:start-devnet-node-listeners
+       node
+       engine-listener
+       public-listener
+       :max-connections 1))
+    (is engine-closed-p)
+    (is public-closed-p)))
+
 (deftest devnet-shutdown-controller-stops-split-listeners
   #-sbcl
   (skip-test "Devnet split listener shutdown requires SBCL threads")

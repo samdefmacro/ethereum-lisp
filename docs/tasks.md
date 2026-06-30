@@ -595,6 +595,12 @@ ones.
     closes the Engine socket instead of leaving the configured Engine port
     occupied inside the process. Socket coverage binds a conflicting public
     port, forces startup failure, then proves the Engine port can be rebound.
+- [x] `DEVNET-RUNNER-ENGINE-FAILURE-CLEANUP`: Close the public listener when
+  the split-listener Engine worker fails after startup.
+  - Result (2026-07-01): `start-devnet-node-listeners` coverage now forces an
+    Engine listener error while the foreground public listener is serving,
+    verifies the Engine listener closes, verifies shutdown closes the public
+    listener, and requires the Engine error to surface to the caller.
 - [x] `DEVNET-RUNNER-BIND-FAILURE-TELEMETRY`: Keep runner-facing lifecycle
   telemetry unambiguous when listener startup fails before readiness.
   - Result (2026-06-29): serve-mode CLI cleanup now emits `devnet.shutdown`

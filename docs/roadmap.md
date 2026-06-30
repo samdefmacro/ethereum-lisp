@@ -1044,7 +1044,10 @@ first pass, but interfaces must not block that path.
   listener summary for runner accounting. Devnet startup now closes a
   successfully bound Engine socket when public listener construction fails, so
   startup errors do not leave the configured Engine port occupied inside
-  embedded devnet processes. The standalone devnet gate now also
+  embedded devnet processes. The reverse split-listener failure path is also
+  covered: an Engine worker error now requests coordinated shutdown, closes the
+  foreground public listener, and reports the Engine error to the caller. The
+  standalone devnet gate now also
   reports concrete HTTP loopback `engineEndpoint` / `rpcEndpoint` values and
   validates that ready files and lifecycle telemetry carry those same endpoints
   rather than placeholder listener names, and it probes the same runner surface
