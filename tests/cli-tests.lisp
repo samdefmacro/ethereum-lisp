@@ -3511,16 +3511,18 @@
   #-sbcl
   (skip-test "Devnet smoke gate script requires SBCL")
   #+sbcl
-  (let ((ready-path
-          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-ready" "json"))
-        (log-path
-          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke" "log"))
-        (pid-path
-          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke" "pid"))
-        (database-path
-          (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-chain" "sexp"))
-        (reference-token
-          (format nil "~A-~A" (sb-unix:unix-getpid) (gensym))))
+  (let* ((artifact-root
+           (devnet-cli-temp-directory "ethereum-lisp-devnet-smoke-artifacts"))
+         (ready-path
+           (merge-pathnames "ready/nested/devnet-ready.json" artifact-root))
+         (log-path
+           (merge-pathnames "logs/nested/devnet.log" artifact-root))
+         (pid-path
+           (merge-pathnames "pid/nested/devnet.pid" artifact-root))
+         (database-path
+           (merge-pathnames "database/nested/devnet-chain.sexp" artifact-root))
+         (reference-token
+           (format nil "~A-~A" (sb-unix:unix-getpid) (gensym))))
     (unwind-protect
          (multiple-value-bind (stdout stderr status)
              (uiop:run-program
@@ -3535,7 +3537,8 @@
                     "--script"
                     "scripts/devnet-smoke-gate.lisp"
                     "--"
-                    "--json"
+                    "--json=true"
+                    "--all-fixtures=false"
                     (format nil "--ready-file=~A" (namestring ready-path))
                     (format nil "--log-file=~A" (namestring log-path))
                     (format nil "--pid-file=~A" (namestring pid-path))
@@ -4021,6 +4024,24 @@
         (delete-file pid-path))
       (when (probe-file database-path)
         (delete-file database-path)))))
+
+(deftest devnet-smoke-gate-script-rejects-malformed-boolean-assignment
+  #-sbcl
+  (skip-test "Devnet smoke gate script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/devnet-smoke-gate.lisp"
+             "--"
+             "--json=maybe")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (not (= 0 status)))
+    (is (string= "" stdout))
+    (is (search "--json boolean value must be true or false" stderr))))
 
 (deftest devnet-smoke-gate-script-runs-all-pinned-fixtures
   #-sbcl

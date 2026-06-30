@@ -736,6 +736,16 @@ ones.
     before option scanning. The existing runner-facing script test now invokes
     ready/log/pid/database/prune options through equals spelling and verifies
     the same JSON report, artifacts, telemetry, and database snapshot.
+- [x] `DEVNET-SMOKE-GATE-BOOLEAN-EQUALS-ARTIFACTS`: Keep standalone devnet
+  smoke-gate invocation aligned with runner boolean assignment and nested
+  artifact conventions.
+  - Result (2026-06-30): `scripts/devnet-smoke-gate.lisp` now accepts
+    explicit `--json=true|false` and `--all-fixtures=true|false` assignments,
+    rejects malformed boolean assignment values, and creates parent
+    directories before opening `--log-file`. The single-case process smoke
+    test now runs through `--json=true`, `--all-fixtures=false`, and nested
+    ready/log/pid/database artifact paths while preserving the same report and
+    database assertions.
 - [x] `DEVNET-RUNNER-DATADIR-DATABASE`: Map geth/Hive-style `--datadir` onto
   a real devnet persistence path.
   - Result (2026-06-28): when `--database` is absent, `ethereum-lisp devnet`

@@ -1383,6 +1383,9 @@ first pass, but interfaces must not block that path.
   checks without JWT cleanup races. Its runner-facing artifact, database,
   fixture-case, and prune options now also accept `--option=value` spelling,
   matching the devnet CLI convention used by geth/Hive-shaped launchers.
+  Standalone smoke-gate boolean flags now also accept explicit
+  `--json=true|false` and `--all-fixtures=true|false` assignments, and nested
+  log-file artifact paths are created before telemetry is opened.
   The outer Phase A `--devnet` wrapper now follows the same runner convention
   for `--root=PATH` plus explicit boolean assignments on `--json`, `--devnet`,
   and `--pinned-v5.4.0`, rejecting malformed boolean values before loading the

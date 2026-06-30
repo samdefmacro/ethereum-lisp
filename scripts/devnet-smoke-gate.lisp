@@ -128,18 +128,37 @@ references/ checkouts.~%")
                 +devnet-smoke-gate-prune-state-before-option+)
           :test #'string=))
 
+(defun devnet-smoke-gate-boolean-option-p (arg)
+  (member arg
+          (list +devnet-smoke-gate-json-flag+
+                +devnet-smoke-gate-all-fixtures-flag+)
+          :test #'string=))
+
+(defun devnet-smoke-gate-parse-boolean-assignment (option value)
+  (let ((normalized (and (stringp value) (string-downcase value))))
+    (cond
+      ((member normalized '("true" "1") :test #'string=) t)
+      ((member normalized '("false" "0") :test #'string=) nil)
+      (t (error "~A boolean value must be true or false" option)))))
+
 (defun devnet-smoke-gate-normalize-option-args (args)
   (loop for arg in args
         for equals-position = (and (stringp arg)
-                                   (position #\= arg))
-        when (and equals-position
-                  (plusp equals-position)
-                  (devnet-smoke-gate-value-option-p
-                   (subseq arg 0 equals-position)))
-          append (list (subseq arg 0 equals-position)
-                       (subseq arg (1+ equals-position)))
-        else
-          collect arg))
+                                   (<= 2 (length arg))
+                                   (string= "--" arg :end2 2)
+                                   (position #\= arg :start 2))
+        for option = (and equals-position (subseq arg 0 equals-position))
+        for value = (and equals-position (subseq arg (1+ equals-position)))
+        append
+        (cond
+          ((and equals-position (devnet-smoke-gate-value-option-p option))
+           (list option value))
+          ((and equals-position (devnet-smoke-gate-boolean-option-p option))
+           (if (devnet-smoke-gate-parse-boolean-assignment option value)
+               (list option)
+               '()))
+          (t
+           (list arg)))))
 
 (defun devnet-smoke-gate-json-p (args)
   (member +devnet-smoke-gate-json-flag+ args :test #'string=))
@@ -362,7 +381,8 @@ references/ checkouts.~%")
 
 (defun devnet-smoke-gate-call-with-telemetry-sink (log-file thunk)
   (if log-file
-      (with-open-file (stream log-file
+      (with-open-file (stream (ethereum-lisp.cli::devnet-cli-ensure-path-parent-directory
+                               log-file)
                               :direction :output
                               :if-exists :supersede
                               :if-does-not-exist :create)
