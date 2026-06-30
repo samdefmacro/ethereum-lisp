@@ -1087,7 +1087,14 @@
           object)
         (append object (list (cons name value))))))
 
-(defun eth-rpc-pending-header-object (base-header)
+(defun eth-rpc-pending-base-fee (base-header config)
+  (when (or (block-header-base-fee-per-gas base-header)
+            (chain-config-london-p
+             config
+             (1+ (block-header-number base-header))))
+    (eth-rpc-fee-history-next-base-fee base-header config)))
+
+(defun eth-rpc-pending-header-object (base-header config)
   (let ((object (eth-rpc-header-object base-header)))
     (eth-rpc-set-object-field
      object
@@ -1098,14 +1105,17 @@
                                (block-header-hash base-header)))
     (eth-rpc-set-object-field object "hash" nil)
     (eth-rpc-set-object-field object "nonce" nil)
+    (let ((base-fee (eth-rpc-pending-base-fee base-header config)))
+      (when base-fee
+        (eth-rpc-set-object-field object "baseFeePerGas" base-fee)))
     object))
 
-(defun engine-rpc-handle-eth-get-header-by-number (params store)
+(defun engine-rpc-handle-eth-get-header-by-number (params store config)
   (if (and (= 1 (length params))
            (eth-rpc-pending-block-tag-p (first params)))
       (let ((block (chain-store-latest-block store)))
         (when block
-          (eth-rpc-pending-header-object (block-header block))))
+          (eth-rpc-pending-header-object (block-header block) config)))
       (let* ((number (eth-rpc-block-number-param
                       params store "eth_getHeaderByNumber"))
              (block (chain-store-block-by-number store number)))
@@ -1227,7 +1237,7 @@
                transactions))))
 
 (defun eth-rpc-pending-block-object
-    (base-block transactions full-transactions-p &key expected-chain-id)
+    (base-block transactions full-transactions-p config &key expected-chain-id)
   (let ((object
           (eth-rpc-block-object
            base-block full-transactions-p
@@ -1241,6 +1251,10 @@
                                (block-hash base-block)))
     (eth-rpc-set-object-field object "hash" nil)
     (eth-rpc-set-object-field object "nonce" nil)
+    (let ((base-fee
+            (eth-rpc-pending-base-fee (block-header base-block) config)))
+      (when base-fee
+        (eth-rpc-set-object-field object "baseFeePerGas" base-fee)))
     (eth-rpc-set-object-field
      object
      "transactions"
@@ -1260,6 +1274,7 @@
              base-block
              (eth-rpc-visible-pending-transactions store expected-chain-id)
              full-transactions-p
+             config
              :expected-chain-id expected-chain-id)))
         (let* ((number (eth-rpc-block-number-param
                         (list (first params)) store "eth_getBlockByNumber"))
@@ -2712,7 +2727,8 @@
       id :result (engine-rpc-handle-eth-create-access-list params store config)))
     ((string= method "eth_getHeaderByNumber")
      (engine-rpc-response
-      id :result (engine-rpc-handle-eth-get-header-by-number params store)))
+      id :result
+      (engine-rpc-handle-eth-get-header-by-number params store config)))
     ((string= method "eth_getHeaderByHash")
      (engine-rpc-response
       id :result (engine-rpc-handle-eth-get-header-by-hash params store)))

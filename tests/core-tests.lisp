@@ -18885,14 +18885,16 @@
              (make-block
               :header (make-block-header :number 14
                                          :timestamp 140
-                                         :gas-limit 30000000)))
+                                         :gas-limit 30000000
+                                         :gas-used 30000000
+                                         :base-fee-per-gas 1000)))
            (mined-block
              (make-block
               :header (make-block-header :number 15
                                          :timestamp 150
                                          :gas-limit 30000000)
               :transactions (list transaction)))
-           (config (make-chain-config)))
+           (config (make-chain-config :chain-id 1 :london-block 0)))
       (engine-payload-store-put-block store base-block)
       (let* ((new-pending-filter-response
                (parse-json
@@ -19015,6 +19017,12 @@
                (parse-json
                 (engine-rpc-handle-request-json
                  "{\"jsonrpc\":\"2.0\",\"id\":97,\"method\":\"eth_getBlockByNumber\",\"params\":[\"pending\",true]}"
+                 store
+                 config)))
+             (pending-header-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":98,\"method\":\"eth_getHeaderByNumber\",\"params\":[\"pending\"]}"
                  store
                  config)))
              (pending-out-of-range-response
@@ -19170,6 +19178,10 @@
                        (field pending-block "number")))
           (is (string= (hash32-to-hex (block-hash base-block))
                        (field pending-block "parentHash")))
+          (is (string= (quantity-to-hex
+                        (expected-base-fee-per-gas
+                         (block-header base-block)))
+                       (field pending-block "baseFeePerGas")))
           (is (= 1 (length transactions)))
           (is (string= transaction-hash (first transactions))))
         (let* ((pending-block (field pending-full-block-response "result"))
@@ -19180,12 +19192,27 @@
                        (field pending-block "number")))
           (is (string= (hash32-to-hex (block-hash base-block))
                        (field pending-block "parentHash")))
+          (is (string= (quantity-to-hex
+                        (expected-base-fee-per-gas
+                         (block-header base-block)))
+                       (field pending-block "baseFeePerGas")))
           (is (= 1 (length transactions)))
           (is (string= transaction-hash
                        (field pending-transaction "hash")))
           (is (null (field pending-transaction "blockHash")))
           (is (null (field pending-transaction "blockNumber")))
           (is (null (field pending-transaction "transactionIndex"))))
+        (let ((pending-header (field pending-header-response "result")))
+          (is (null (field pending-header "hash")))
+          (is (null (field pending-header "nonce")))
+          (is (string= (quantity-to-hex 15)
+                       (field pending-header "number")))
+          (is (string= (hash32-to-hex (block-hash base-block))
+                       (field pending-header "parentHash")))
+          (is (string= (quantity-to-hex
+                        (expected-base-fee-per-gas
+                         (block-header base-block)))
+                       (field pending-header "baseFeePerGas"))))
         (is (null (field pending-out-of-range-response "result")))
         (let ((pending-transactions (field pending-response "result")))
           (is (= 1 (length pending-transactions)))

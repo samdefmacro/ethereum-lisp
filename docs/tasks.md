@@ -1095,6 +1095,15 @@ ones.
   - Result (2026-06-29): pending header reads now report the next block number,
     the latest canonical hash as `parentHash`, and null `hash`/`nonce` fields.
     Non-pending header tags keep the existing canonical block lookup path.
+- [x] `PUBLIC-RPC-PENDING-BASE-FEE`: Make public pending block/header base-fee
+  context match the next block instead of the latest committed parent.
+  - Result (2026-06-30): `eth_getHeaderByNumber("pending")` and
+    `eth_getBlockByNumber("pending", false|true)` now reuse the same
+    `expected-base-fee-per-gas` calculation as `eth_feeHistory` for the next
+    block when London rules are active. Direct public RPC coverage locks a
+    parent at base fee 1000 and above-target gas usage, requiring pending
+    block/header responses to expose the next base fee 1125 while keeping
+    null committed hash/nonce and txpool transaction visibility.
 - [x] `DEVNET-RUNNER-PENDING-BLOCK-BODY`: Lock pending block body visibility at
   the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate's restored-database
