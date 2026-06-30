@@ -483,6 +483,16 @@ ones.
     log-path fields. Script subprocess coverage verifies missing-genesis init
     failures emit init usage on stderr plus a single command-specific telemetry
     record.
+- [x] `DEVNET-RUNNER-DATADIR-JWTSECRET`: Load Hive/geth-style datadir Engine
+  JWT secrets when no explicit `--jwt-secret` / `--authrpc.jwtsecret` path is
+  provided.
+  - Result (2026-06-30): `ethereum-lisp devnet --datadir PATH` now discovers
+    an existing `PATH/jwtsecret` file and authenticates the Engine listener
+    with it, while preserving unauthenticated local devnet behavior when the
+    file is absent and preserving explicit JWT path precedence. CLI coverage
+    verifies the JSON summary reports `authRequired=true` and the datadir
+    `jwtSecretPath`, then verifies an explicit `--jwt-secret` overrides the
+    datadir default.
 - [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
   gate's Engine/public listener accounting self-describing for Hive-style
   process runners.

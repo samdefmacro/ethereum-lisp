@@ -34,6 +34,7 @@
 (defconstant +devnet-default-public-rpc-port+ 8545)
 (defconstant +devnet-datadir-database-file+ "ethereum-lisp-chain.sexp")
 (defconstant +devnet-datadir-genesis-file+ "genesis.json")
+(defconstant +devnet-datadir-jwt-secret-file+ "jwtsecret")
 
 (defun devnet-process-id ()
   #+sbcl
@@ -164,6 +165,16 @@
    (merge-pathnames
     +devnet-datadir-genesis-file+
     (uiop:ensure-directory-pathname datadir))))
+
+(defun devnet-cli-datadir-jwt-secret-path (datadir)
+  (namestring
+   (merge-pathnames
+    +devnet-datadir-jwt-secret-file+
+    (uiop:ensure-directory-pathname datadir))))
+
+(defun devnet-cli-existing-datadir-jwt-secret-path (datadir)
+  (let ((path (devnet-cli-datadir-jwt-secret-path datadir)))
+    (and (probe-file path) path)))
 
 (defun devnet-cli-copy-file-string (source target)
   (let ((contents (devnet-cli-read-file-string source)))
@@ -859,7 +870,10 @@
           :port port
           :public-host (or public-host default-public-host)
           :public-port public-port
-          :jwt-secret-path jwt-secret-path
+          :jwt-secret-path (or jwt-secret-path
+                               (and datadir-path
+                                    (devnet-cli-existing-datadir-jwt-secret-path
+                                     datadir-path)))
           :engine-rpc-prefix engine-rpc-prefix
           :public-rpc-prefix public-rpc-prefix
           :datadir-path datadir-path

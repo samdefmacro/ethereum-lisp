@@ -1209,7 +1209,10 @@ first pass, but interfaces must not block that path.
   Runner-facing initialization failures now emit `init.error` rather than
   `devnet.error` while preserving the same structured error fields, letting
   launchers distinguish datadir initialization failures from devnet startup
-  failures through the telemetry stream.
+  failures through the telemetry stream. Devnet runner invocation now also
+  discovers an existing `DATADIR/jwtsecret` as the Engine JWT secret when no
+  explicit `--jwt-secret` / `--authrpc.jwtsecret` path is provided, preserving
+  explicit-path precedence and leaving no-secret local devnets unauthenticated.
   Listener startup failures before readiness now keep
   the lifecycle stream unambiguous: if the public RPC port cannot bind after
   the Engine listener was opened, the script process exits with status 1,
