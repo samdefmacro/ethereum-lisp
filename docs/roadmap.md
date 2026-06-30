@@ -1420,8 +1420,8 @@ first pass, but interfaces must not block that path.
 - *Partial:* txpool policy beyond the current in-memory pending pool,
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
-  lifecycle ergonomics beyond the current readiness, log-file, shutdown, and
-  bounded fixture-import smoke contract.
+  lifecycle ergonomics beyond the current readiness, log-file, shutdown,
+  bounded fixture-import, and runner-facing database restart smoke contract.
 - *Missing for Phase A:* broader cross-client Engine payload smoke breadth
   around the existing Shanghai path, plus any Cancun blob execution acceptance
   until real KZG verification is available.

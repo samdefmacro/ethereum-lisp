@@ -1157,6 +1157,16 @@ ones.
     post-forkchoice child head. Later runner-script tasks extend this same
     subprocess scenario with payload bodies, status paths, and receipt/log RPC
     visibility.
+- [x] `DEVNET-RUNNER-SCRIPT-DATABASE-RESTART`: Lock runner-facing script
+  database restart behavior after Engine import and forkchoice.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    subprocess coverage now imports a Shanghai Engine fixture payload into a
+    named `--database`, shuts down via external `SIGTERM`, restarts a second
+    script process against the same database, and verifies the restored public
+    listener serves the imported canonical block number, recipient balance,
+    block-by-hash transaction list, and transaction receipt. Shutdown telemetry
+    is checked for both the import process and the restored-read process, tying
+    persistence to Hive-style process lifecycle artifacts.
 - [x] `DEVNET-RUNNER-SCRIPT-GET-PAYLOAD`: Lock prepared payload retrieval at
   the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
