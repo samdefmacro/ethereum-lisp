@@ -1357,6 +1357,15 @@ ones.
     block filter and returns the displaced child logs with `removed=true`
     through the log filter, then checks shutdown telemetry reports the
     post-reorg head and expanded Engine/public connection counts.
+- [x] `DEVNET-RUNNER-SCRIPT-REORG-PUBLIC-READS`: Lock public canonical-read
+  behavior after a same-height reorg at the external script process boundary.
+  - Result (2026-06-30): the same runner-facing import subprocess now checks
+    public RPC after forkchoice moves from the log-producing child to an empty
+    side-sibling block. It verifies `eth_getBlockByNumber("latest", false)`
+    returns the replacement head, the displaced child transaction remains
+    visible as pending through `eth_getTransactionByHash`, the old canonical
+    receipt disappears, and `eth_getLogs` over the new latest head returns no
+    stale displaced logs.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

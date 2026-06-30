@@ -8620,7 +8620,42 @@
                    (list (cons "jsonrpc" "2.0")
                          (cons "id" 643)
                          (cons "method" "eth_newBlockFilter")
-                         (cons "params" '())))))
+                         (cons "params" '()))))
+                (post-reorg-block-by-number-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 651)
+                         (cons "method" "eth_getBlockByNumber")
+                         (cons "params" (list "latest" :false)))))
+                (post-reorg-transaction-by-hash-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 652)
+                         (cons "method" "eth_getTransactionByHash")
+                         (cons "params" (list transaction-hash-hex)))))
+                (post-reorg-receipt-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 653)
+                         (cons "method" "eth_getTransactionReceipt")
+                         (cons "params" (list transaction-hash-hex)))))
+                (post-reorg-logs-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 654)
+                         (cons "method" "eth_getLogs")
+                         (cons "params"
+                               (list
+                                (list
+                                 (cons "fromBlock" "latest")
+                                 (cons "toBlock" "latest")
+                                 (cons "address"
+                                       (fixture-object-field expect
+                                                             "logAddress"))
+                                 (cons "topics"
+                                       (list
+                                        (fixture-object-field
+                                         expect "logTopic"))))))))))
            (devnet-cli-write-temp-file
             genesis-path
             (json-encode
@@ -8660,7 +8695,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "40"
+                        "44"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -8741,6 +8776,10 @@
                     log-filter-changes-response
                     post-reorg-block-filter-changes-response
                     post-reorg-log-filter-changes-response
+                    post-reorg-block-by-number-response
+                    post-reorg-transaction-by-hash-response
+                    post-reorg-receipt-response
+                    post-reorg-logs-response
                     block-filter-id
                     log-filter-id)
                (is (= pid (fixture-object-field ready-summary "processId")))
@@ -9044,6 +9083,26 @@
                             (devnet-cli-json-rpc-http-request
                              side-sibling-forkchoice-body
                              :token token)))
+                     (setf post-reorg-block-by-number-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             post-reorg-block-by-number-body)))
+                     (setf post-reorg-transaction-by-hash-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             post-reorg-transaction-by-hash-body)))
+                     (setf post-reorg-receipt-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             post-reorg-receipt-body)))
+                     (setf post-reorg-logs-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             post-reorg-logs-body)))
                      (let ((post-reorg-block-filter-changes-body
                              (json-encode
                               (list
@@ -9087,6 +9146,14 @@
                             side-sibling-payload-response)))
                (is (= 200 (devnet-cli-http-status
                             side-sibling-forkchoice-response)))
+               (is (= 200 (devnet-cli-http-status
+                            post-reorg-block-by-number-response)))
+               (is (= 200 (devnet-cli-http-status
+                            post-reorg-transaction-by-hash-response)))
+               (is (= 200 (devnet-cli-http-status
+                            post-reorg-receipt-response)))
+               (is (= 200 (devnet-cli-http-status
+                            post-reorg-logs-response)))
                (is (= 200 (devnet-cli-http-status block-number-response)))
                (is (= 200 (devnet-cli-http-status
                             post-status-block-number-response)))
@@ -9193,6 +9260,22 @@
                         (parse-json
                          (devnet-cli-http-body
                           side-sibling-forkchoice-response)))
+                      (post-reorg-block-by-number-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          post-reorg-block-by-number-response)))
+                      (post-reorg-transaction-by-hash-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          post-reorg-transaction-by-hash-response)))
+                      (post-reorg-receipt-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          post-reorg-receipt-response)))
+                      (post-reorg-logs-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          post-reorg-logs-response)))
                       (block-number-rpc
                         (parse-json
                          (devnet-cli-http-body block-number-response)))
@@ -9361,6 +9444,14 @@
                          (fixture-object-field
                           side-sibling-forkchoice-rpc "result")
                          "payloadStatus"))
+                      (post-reorg-block-by-number-result
+                        (fixture-object-field
+                         post-reorg-block-by-number-rpc "result"))
+                      (post-reorg-transaction-by-hash-result
+                        (fixture-object-field
+                         post-reorg-transaction-by-hash-rpc "result"))
+                      (post-reorg-logs
+                        (fixture-object-field post-reorg-logs-rpc "result"))
                       (payload-bodies-by-hash-result
                         (fixture-object-field
                          payload-bodies-by-hash-rpc "result"))
@@ -9506,6 +9597,14 @@
                               side-sibling-payload-rpc "id")))
                  (is (= 648 (fixture-object-field
                               side-sibling-forkchoice-rpc "id")))
+                 (is (= 651 (fixture-object-field
+                              post-reorg-block-by-number-rpc "id")))
+                 (is (= 652 (fixture-object-field
+                              post-reorg-transaction-by-hash-rpc "id")))
+                 (is (= 653 (fixture-object-field
+                              post-reorg-receipt-rpc "id")))
+                 (is (= 654 (fixture-object-field
+                              post-reorg-logs-rpc "id")))
                  (is (= 615 (fixture-object-field
                               post-status-block-number-rpc "id")))
                  (is (= 616 (fixture-object-field
@@ -9610,6 +9709,34 @@
                               (fixture-object-field
                                side-sibling-forkchoice-status
                                "status")))
+                 (is (string= (fixture-object-field payload-case "number")
+                              (fixture-object-field
+                               post-reorg-block-by-number-result
+                               "number")))
+                 (is (string= side-sibling-block-hash-hex
+                              (fixture-object-field
+                               post-reorg-block-by-number-result
+                               "hash")))
+                 (is (equal '()
+                            (fixture-object-field
+                             post-reorg-block-by-number-result
+                             "transactions")))
+                 (is (string= transaction-hash-hex
+                              (fixture-object-field
+                               post-reorg-transaction-by-hash-result
+                               "hash")))
+                 (is (null (fixture-object-field
+                            post-reorg-transaction-by-hash-result
+                            "blockHash")))
+                 (is (null (fixture-object-field
+                            post-reorg-transaction-by-hash-result
+                            "blockNumber")))
+                 (is (null (fixture-object-field
+                            post-reorg-transaction-by-hash-result
+                            "transactionIndex")))
+                 (is (null (fixture-object-field
+                            post-reorg-receipt-rpc "result")))
+                 (is (null post-reorg-logs))
                  (is (= 1 (length payload-bodies-by-hash-result)))
                  (is (= 1 (length payload-bodies-by-range-result)))
                  (is (= expected-payload-body-transaction-count
@@ -9895,11 +10022,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "40"
+                       (is (string= "44"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "50"
+                       (is (string= "54"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))
