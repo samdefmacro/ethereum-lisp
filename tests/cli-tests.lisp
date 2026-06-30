@@ -6361,8 +6361,12 @@
                         "devnet"
                         "--genesis"
                         genesis
+                        "--authrpc.addr"
+                        "0.0.0.0"
                         "--engine-port"
                         "0"
+                        "--http.addr"
+                        "0.0.0.0"
                         "--public-port"
                         "0"
                         "--authrpc.jwtsecret"
@@ -6499,6 +6503,10 @@
                     public-notifications-batch-response
                     public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
+               (is (search "127.0.0.1:" engine-endpoint))
+               (is (not (search "0.0.0.0" engine-endpoint)))
+               (is (search "127.0.0.1:" rpc-endpoint))
+               (is (not (search "0.0.0.0" rpc-endpoint)))
                (handler-case
                    (progn
                      (setf engine-response

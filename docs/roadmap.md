@@ -1225,7 +1225,10 @@ first pass, but interfaces must not block that path.
   socket listener now also reports `127.0.0.1:PORT` as the bound endpoint when
   a runner asks it to bind `0.0.0.0`, preserving the wildcard bind while
   keeping stdout, ready-file JSON, and lifecycle telemetry probeable from local
-  Hive-style process runners. The
+  Hive-style process runners; the runner-facing script process now locks that
+  contract by launching with wildcard `--authrpc.addr` / `--http.addr` values
+  and performing authenticated Engine plus public JSON-RPC probes through the
+  advertised loopback endpoints. The
   standalone devnet smoke gate now also emits and enforces an explicit
   `connectionContract`, breaking down expected Engine boundary/workflow probes
   and public canonical-read/boundary/txpool probes so Hive-style runners can

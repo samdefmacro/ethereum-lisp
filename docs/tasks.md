@@ -515,6 +515,12 @@ ones.
     ready-file JSON, and lifecycle telemetry expose an endpoint local process
     runners can connect to. Focused socket coverage locks the wildcard
     endpoint rewrite.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode coverage now launches with geth/Hive-style
+    `--authrpc.addr 0.0.0.0` and `--http.addr 0.0.0.0`, then authenticates
+    Engine and public JSON-RPC calls through the ready-file endpoints while
+    asserting readiness JSON, stdout JSON, and lifecycle telemetry advertise
+    loopback endpoints rather than wildcard bind addresses.
 - [x] `DEVNET-RUNNER-PROCESS-ENTRYPOINT`: Add a runner-facing process script
   entrypoint for the devnet CLI.
   - Result (2026-06-28): added `scripts/ethereum-lisp.lisp`, which loads the
