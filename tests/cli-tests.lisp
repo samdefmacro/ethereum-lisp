@@ -3216,11 +3216,11 @@
                     "scripts/devnet-smoke-gate.lisp"
                     "--"
                     "--json"
-                    "--ready-file" (namestring ready-path)
-                    "--log-file" (namestring log-path)
-                    "--pid-file" (namestring pid-path)
-                    "--database" (namestring database-path)
-                    "--prune-state-before" "42")
+                    (format nil "--ready-file=~A" (namestring ready-path))
+                    (format nil "--log-file=~A" (namestring log-path))
+                    (format nil "--pid-file=~A" (namestring pid-path))
+                    (format nil "--database=~A" (namestring database-path))
+                    "--prune-state-before=42")
               :output :string
               :error-output :string
               :ignore-error-status t)

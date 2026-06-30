@@ -660,6 +660,14 @@ ones.
     and Engine methods return JSON-RPC `-32601`. The smoke report exposes the
     allowlist fields and connection counts, and CLI script coverage asserts
     them from the runner-facing JSON output.
+- [x] `DEVNET-SMOKE-GATE-EQUALS-OPTIONS`: Accept `--option=value` spelling for
+  standalone devnet smoke-gate runner options.
+  - Result (2026-06-30): `scripts/devnet-smoke-gate.lisp` now normalizes
+    equals-form value options for `--fixture-case`, `--ready-file`,
+    `--log-file`, `--pid-file`, `--database`, and `--prune-state-before`
+    before option scanning. The existing runner-facing script test now invokes
+    ready/log/pid/database/prune options through equals spelling and verifies
+    the same JSON report, artifacts, telemetry, and database snapshot.
 - [x] `DEVNET-RUNNER-DATADIR-DATABASE`: Map geth/Hive-style `--datadir` onto
   a real devnet persistence path.
   - Result (2026-06-28): when `--database` is absent, `ethereum-lisp devnet`

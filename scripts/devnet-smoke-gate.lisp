@@ -115,8 +115,31 @@ references/ checkouts.~%")
   (let ((args (cdr sb-ext:*posix-argv*)))
     (when (and args (string= (first args) "--"))
       (setf args (cdr args)))
-    args)
+    (devnet-smoke-gate-normalize-option-args args))
   #-sbcl nil)
+
+(defun devnet-smoke-gate-value-option-p (arg)
+  (member arg
+          (list +devnet-smoke-gate-fixture-case-option+
+                +devnet-smoke-gate-ready-file-option+
+                +devnet-smoke-gate-log-file-option+
+                +devnet-smoke-gate-pid-file-option+
+                +devnet-smoke-gate-database-option+
+                +devnet-smoke-gate-prune-state-before-option+)
+          :test #'string=))
+
+(defun devnet-smoke-gate-normalize-option-args (args)
+  (loop for arg in args
+        for equals-position = (and (stringp arg)
+                                   (position #\= arg))
+        when (and equals-position
+                  (plusp equals-position)
+                  (devnet-smoke-gate-value-option-p
+                   (subseq arg 0 equals-position)))
+          append (list (subseq arg 0 equals-position)
+                       (subseq arg (1+ equals-position)))
+        else
+          collect arg))
 
 (defun devnet-smoke-gate-json-p (args)
   (member +devnet-smoke-gate-json-flag+ args :test #'string=))
