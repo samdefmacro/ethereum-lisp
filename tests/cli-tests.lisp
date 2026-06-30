@@ -5475,6 +5475,8 @@
     (is (search "--nodiscover" stdout))
     (is (search "--ipcdisable" stdout))
     (is (search "--verbosity LEVEL" stdout))
+    (is (search "--log.file PATH" stdout))
+    (is (search "--log.compress" stdout))
     (is (search "--maxpeers N" stdout))
     (is (search "--nat MODE" stdout))
     (is (search "--identity NAME" stdout))
@@ -9598,6 +9600,26 @@
     (is (eq :json (getf options :summary-format)))
     (is (not (getf options :serve-p)))))
 
+(deftest devnet-cli-accepts-geth-style-logging-flags
+  (let ((options
+          (ethereum-lisp.cli::devnet-cli-options
+           (list "devnet"
+                 "--log.file=/tmp/geth.log"
+                 "--log.format"
+                 "json"
+                 "--log.maxsize=64"
+                 "--log.maxbackups"
+                 "3"
+                 "--log.maxage=7"
+                 "--log.compress=false"
+                 "--log-file=/tmp/ethereum-lisp-events.jsonl"
+                 "--json"
+                 "--no-serve"))))
+    (is (eq :json (getf options :summary-format)))
+    (is (not (getf options :serve-p)))
+    (is (string= "/tmp/ethereum-lisp-events.jsonl"
+                 (getf options :log-file)))))
+
 (deftest devnet-cli-rejects-malformed-options-before-loading-genesis
   (labels ((run-error (args)
              (let ((output (make-string-output-stream))
@@ -9670,6 +9692,10 @@
     (is (search "--snapshot boolean value must be true or false"
                 (run-error (list "devnet"
                                  "--snapshot=maybe"
+                                 "--no-serve"))))
+    (is (search "--log.compress boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--log.compress=maybe"
                                  "--no-serve"))))
     (is (search "--rpc.allow-unprotected-txs boolean value must be true or false"
                 (run-error (list "devnet"
@@ -9751,6 +9777,10 @@
     (is (search "--ipcpath requires a value"
                 (run-error (list "devnet"
                                  "--ipcpath"
+                                 "--no-serve"))))
+    (is (search "--log.file requires a value"
+                (run-error (list "devnet"
+                                 "--log.file"
                                  "--no-serve"))))
     (is (search "--txpool.pricebump requires a value"
                 (run-error (list "devnet"

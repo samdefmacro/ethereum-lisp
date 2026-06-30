@@ -613,6 +613,16 @@ ones.
     CLI tests cover accepted `--http=false`, `--nodiscover=false`,
     `--ipcdisable=true`, `--json=true`, `--no-serve=1`, and invalid boolean
     values.
+- [x] `DEVNET-RUNNER-LOGGING-NOOP-FLAGS`: Accept common geth/Hive logging
+  launch flags without changing the Lisp runner artifact contract.
+  - Result (2026-06-30): `ethereum-lisp devnet` now accepts `--log.file`,
+    `--log.format`, `--log.maxsize`, `--log.maxbackups`, `--log.maxage`, and
+    `--log.compress` through the shared runner option tables used by devnet,
+    init, pre-command dispatch, and error-log path scanning. These flags are
+    compatibility no-ops; `--log-file` remains the Ethereum Lisp lifecycle
+    telemetry artifact path. CLI/script coverage verifies accepted value and
+    boolean forms, advertised help text, malformed boolean rejection, and
+    missing-value validation.
 - [x] `DEVNET-RUNNER-GETH-STYLE-NOOP-FLAGS`: Accept common geth/Hive-style
   public/auth listener toggle and host-policy flags that do not alter the
   current Lisp split-service contract.

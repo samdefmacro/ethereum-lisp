@@ -1166,6 +1166,10 @@ first pass, but interfaces must not block that path.
   flags (`--gcmode`, cache sizing flags, tx history knobs, `--bootnodes`,
   mining/etherbase/gas-price flags, `--unlock`, `--password`, `--metrics`,
   `--pprof`, and `--snapshot`) as explicit no-op compatibility options, and
+  accepts common geth/Hive logging flags (`--log.file`, `--log.format`,
+  `--log.maxsize`, `--log.maxbackups`, `--log.maxage`, and `--log.compress`)
+  as no-op launch compatibility while keeping `--log-file` as the Lisp
+  lifecycle telemetry artifact path. It
   now accepts geth/Hive GraphQL launch flags (`--graphql`, `--graphql.addr`,
   `--graphql.port`, `--graphql.vhosts`, and `--graphql.corsdomain`) as no-op
   compatibility options as well. Geth-shaped runner templates can launch the
