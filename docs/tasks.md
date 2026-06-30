@@ -493,6 +493,12 @@ ones.
     verifies the JSON summary reports `authRequired=true` and the datadir
     `jwtSecretPath`, then verifies an explicit `--jwt-secret` overrides the
     datadir default.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode coverage now initializes a datadir, writes `DATADIR/jwtsecret`,
+    starts `--datadir PATH devnet` without an explicit JWT flag, verifies an
+    unauthenticated Engine request is rejected with HTTP 401, authenticates an
+    Engine request with the datadir secret, and checks stdout/readiness
+    artifacts report `authRequired=true` plus the datadir `jwtSecretPath`.
 - [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
   gate's Engine/public listener accounting self-describing for Hive-style
   process runners.

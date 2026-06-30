@@ -5855,6 +5855,8 @@
            (merge-pathnames "genesis.json" datadir))
          (datadir-database-path
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
+         (datadir-jwt-path
+           (merge-pathnames "jwtsecret" datadir))
          (ready-path
            (devnet-cli-temp-path "ethereum-lisp-script-serve-datadir-ready"
                                  "json"))
@@ -5889,6 +5891,7 @@
                                                     "databasePath"))))))
            (is (probe-file datadir-genesis-path))
            (is (probe-file datadir-database-path))
+           (devnet-cli-write-temp-file datadir-jwt-path +devnet-cli-jwt-secret+)
            (setf process
                  (uiop:launch-program
                   (list "sbcl"
@@ -5910,7 +5913,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "1")
+                        "2")
                   :directory #P"/private/tmp/"
                   :output :stream
                   :error-output :stream))
@@ -5942,8 +5945,14 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":701,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"datadir-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     (public-body
                       "{\"jsonrpc\":\"2.0\",\"id\":702,\"method\":\"eth_chainId\",\"params\":[]}")
+                    (public-net-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":703,\"method\":\"net_version\",\"params\":[]}")
+                    (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                    (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    engine-unauthenticated-response
                     engine-response
-                    public-response)
+                    public-response
+                    public-net-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (string= (namestring (truename datadir-genesis-path))
                             (fixture-object-field ready-summary
@@ -5951,27 +5960,47 @@
                (is (string= (namestring datadir-database-path)
                             (fixture-object-field ready-summary
                                                   "databasePath")))
-               (is (eq nil (fixture-object-field ready-summary
-                                                  "authRequired")))
+               (is (eq t (fixture-object-field ready-summary
+                                                "authRequired")))
+               (is (string= (namestring datadir-jwt-path)
+                            (fixture-object-field ready-summary
+                                                  "jwtSecretPath")))
                (handler-case
                    (progn
-                     (setf engine-response
+                     (setf engine-unauthenticated-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
                             (devnet-cli-json-rpc-http-request engine-body)))
+                     (setf engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :token token)))
                      (setf public-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
-                            (devnet-cli-json-rpc-http-request public-body))))
+                            (devnet-cli-json-rpc-http-request public-body)))
+                     (setf public-net-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                             (devnet-cli-json-rpc-http-request
+                              public-net-body))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
+               (is (= 401
+                      (devnet-cli-http-status engine-unauthenticated-response)))
                (is (= 200 (devnet-cli-http-status engine-response)))
                (is (= 200 (devnet-cli-http-status public-response)))
+               (is (= 200 (devnet-cli-http-status public-net-response)))
                (let* ((engine-json
                         (parse-json (devnet-cli-http-body engine-response)))
                       (public-json
                         (parse-json (devnet-cli-http-body public-response)))
+                      (public-net-json
+                        (parse-json
+                         (devnet-cli-http-body public-net-response)))
                       (client-version
                         (first (fixture-object-field engine-json "result"))))
                  (is (= 701 (fixture-object-field engine-json "id")))
@@ -5979,7 +6008,11 @@
                               (fixture-object-field client-version "name")))
                  (is (= 702 (fixture-object-field public-json "id")))
                  (is (string= "0x539"
-                              (fixture-object-field public-json "result"))))
+                              (fixture-object-field public-json "result")))
+                 (is (= 703 (fixture-object-field public-net-json "id")))
+                 (is (string= "1337"
+                              (fixture-object-field public-net-json
+                                                    "result"))))
                (let ((status (devnet-cli-wait-process-exit process 30)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -6012,6 +6045,11 @@
                        (is (string= (namestring datadir-database-path)
                                     (fixture-object-field stdout-summary
                                                           "databasePath")))
+                       (is (eq t (fixture-object-field stdout-summary
+                                                       "authRequired")))
+                       (is (string= (namestring datadir-jwt-path)
+                                    (fixture-object-field stdout-summary
+                                                          "jwtSecretPath")))
                        (is (string= engine-endpoint
                                     (fixture-object-field stdout-summary
                                                           "engineEndpoint")))
@@ -6019,15 +6057,15 @@
                                     (fixture-object-field stdout-summary
                                                           "rpcEndpoint")))
                        (is shutdown-record)
-                       (is (string= "1"
+                       (is (string= "2"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "1"
+                       (is (string= "2"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "4"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=)))))))))))
@@ -6035,6 +6073,7 @@
         (uiop:terminate-process process))
       (dolist (path (list datadir-genesis-path
                           datadir-database-path
+                          datadir-jwt-path
                           ready-path
                           log-path
                           pid-path))
