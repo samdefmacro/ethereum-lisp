@@ -1137,7 +1137,11 @@ first pass, but interfaces must not block that path.
   geth/Hive global no-op flags for cache sizing, archive/state/database mode,
   network id, node-key/discovery, diagnostics, mining, and txpool settings, so
   the same runner template can initialize a datadir and then launch from it
-  without stripping launch-only options first.
+  without stripping launch-only options first. That init compatibility now also
+  covers listener and runner-artifact launch options such as `--authrpc.*`,
+  `--http.*`, WebSocket/GraphQL no-op flags, ready/log/pid files, max
+  connections, and prune settings, while keeping `--json`, `--datadir`,
+  `--database`, and `--genesis` as the init command's semantic options.
   Ready, pid, telemetry log, and error-log artifact paths now create their
   parent directories before writing, so runner-provided nested artifact
   locations do not require a separate setup step. Devnet CLI invocations can

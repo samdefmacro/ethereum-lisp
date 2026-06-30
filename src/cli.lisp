@@ -944,42 +944,6 @@
                ((string= option "--datadir")
                 (multiple-value-setq (datadir-path args)
                   (devnet-cli-next-value args option)))
-               ((member option
-                        '("--networkid" "--network-id" "--syncmode"
-                          "--verbosity" "--maxpeers" "--nat" "--identity"
-                          "--gcmode" "--cache" "--cache.database"
-                          "--cache.gc" "--cache.trie" "--state.scheme"
-                          "--db.engine" "--datadir.ancient" "--ipcpath"
-                          "--netrestrict" "--nodekey" "--nodekeyhex"
-                          "--discovery.port" "--discovery.dns"
-                          "--txlookuplimit" "--history.transactions"
-                          "--bootnodes" "--metrics.addr" "--metrics.port"
-                          "--pprof.addr" "--pprof.port"
-                          "--miner.etherbase" "--etherbase"
-                          "--miner.gaslimit" "--miner.gasprice"
-                          "--unlock" "--password" "--txpool.locals"
-                          "--txpool.journal" "--txpool.rejournal"
-                          "--txpool.pricelimit" "--txpool.pricebump"
-                          "--txpool.accountslots" "--txpool.globalslots"
-                          "--txpool.accountqueue" "--txpool.globalqueue"
-                          "--txpool.lifetime" "--txpool.blobpool.datacap"
-                          "--txpool.blobpool.pricebump")
-                        :test #'string=)
-                (multiple-value-bind (value rest)
-                    (devnet-cli-next-value args option)
-                  (declare (ignore value))
-                  (setf args rest)))
-               ((member option
-                        '("--http" "--ws" "--graphql" "--nodiscover"
-                          "--ipcdisable" "--allow-insecure-unlock"
-                          "--mine" "--metrics" "--pprof" "--snapshot"
-                          "--rpc.allow-unprotected-txs"
-                          "--txpool.nolocals" "--dev" "--nousb")
-                        :test #'string=)
-                (setf args
-                      (devnet-cli-consume-optional-boolean-value
-                       args
-                       option)))
                ((string= option "--json")
                 (setf summary-format :json)
                 (when (and args
@@ -993,6 +957,17 @@
                            option)))
                     (setf summary-format (if enabled-p :json :sexp)))
                   (setf args (rest args))))
+               ((member option *devnet-cli-value-options* :test #'string=)
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (declare (ignore value))
+                  (setf args rest)))
+               ((member option *devnet-cli-optional-boolean-options*
+                        :test #'string=)
+                (setf args
+                      (devnet-cli-consume-optional-boolean-value
+                       args
+                       option)))
                ((devnet-cli-option-token-p option)
                 (error "Unknown option ~A" option))
                ((null genesis-path)
@@ -1019,7 +994,7 @@
 
 (defun devnet-cli-print-init-usage (stream)
   (format stream
-          "Usage: ethereum-lisp init --datadir PATH [--database PATH] [--state.scheme SCHEME] [--db.engine ENGINE] [--json] GENESIS~%"))
+          "Usage: ethereum-lisp init --datadir PATH [--database PATH] [runner options] [--json] GENESIS~%"))
 
 (defun devnet-cli-run-init (options output-stream)
   (let ((genesis-path (getf options :genesis-path))

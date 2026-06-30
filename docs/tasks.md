@@ -673,6 +673,15 @@ ones.
     `--database` semantics. Runner-facing script coverage initializes a
     datadir through a geth-shaped command line before starting devnet from the
     stored genesis.
+- [x] `DEVNET-RUNNER-INIT-LAUNCH-FLAGS`: Accept geth/Hive-style listener and
+  runner-artifact launch flags during datadir initialization.
+  - Result (2026-06-30): `ethereum-lisp init` now shares the devnet parser's
+    known value and optional-boolean option tables for launch-only no-op
+    compatibility, so authrpc/http endpoint, RPC prefix, vhost, CORS,
+    WebSocket, GraphQL, ready/log/pid artifact, max-connection, and pruning
+    flags no longer make datadir initialization fail when a runner reuses its
+    devnet launch template. Runner-facing script coverage initializes from
+    `/private/tmp` with those flags present.
 - [x] `DEVNET-RUNNER-SCRIPT-DATADIR-SERVE`: Lock the initialized-datadir
   lifecycle at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`

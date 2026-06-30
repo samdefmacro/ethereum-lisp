@@ -5513,7 +5513,13 @@
          (datadir-genesis-path
            (merge-pathnames "genesis.json" datadir))
          (datadir-database-path
-           (merge-pathnames "ethereum-lisp-chain.sexp" datadir)))
+           (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
+         (ready-path
+           (merge-pathnames "runner/ready.json" datadir))
+         (log-path
+           (merge-pathnames "runner/devnet.log" datadir))
+         (pid-path
+           (merge-pathnames "runner/devnet.pid" datadir)))
     (labels ((run-script (&rest args)
                (uiop:run-program
                 (append (list "sbcl" "--script" script "--") args)
@@ -5532,6 +5538,29 @@
                              "--db.engine=pebble"
                              "--snapshot=false"
                              "--networkid" "7331"
+                             "--authrpc.addr=127.0.0.1"
+                             "--authrpc.port" "0"
+                             "--authrpc.jwtsecret" "jwt.hex"
+                             "--authrpc.rpcprefix=/engine"
+                             "--authrpc.vhosts" "engine.runner,localhost"
+                             "--authrpc.corsdomain" "https://engine.example"
+                             "--http"
+                             "--http.addr=127.0.0.1"
+                             "--http.port" "0"
+                             "--http.rpcprefix=/rpc"
+                             "--http.api" "eth,net"
+                             "--http.vhosts" "public.runner,localhost"
+                             "--http.corsdomain" "https://public.example"
+                             "--ws"
+                             "--ws.addr=127.0.0.1"
+                             "--ws.port" "0"
+                             "--graphql=false"
+                             "--ready-file" (namestring ready-path)
+                             "--log-file" (namestring log-path)
+                             "--pid-file" (namestring pid-path)
+                             "--max-connections" "0"
+                             "--prune-state-before" "0"
+                             "--no-serve"
                              "init"
                              "--json"
                              genesis)
