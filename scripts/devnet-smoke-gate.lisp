@@ -6510,6 +6510,9 @@ references/ checkouts.~%")
                              (cons "params"
                                    (list
                                     (list
+                                     "engine_newPayloadV1"
+                                     "engine_forkchoiceUpdatedV1"
+                                     "engine_getPayloadV1"
                                      "engine_newPayloadV2"
                                      "engine_forkchoiceUpdatedV2"
                                      "engine_getPayloadV2")))))
@@ -7567,11 +7570,26 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status txpool-status-response))
                   "txpool_status HTTP status mismatch")
                  (devnet-smoke-gate-require
-                  (= 200 (devnet-cli-http-status txpool-content-from-response))
-                  "txpool_contentFrom HTTP status mismatch")
+                 (= 200 (devnet-cli-http-status txpool-content-from-response))
+                 "txpool_contentFrom HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status txpool-inspect-response))
                   "txpool_inspect HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (member "engine_newPayloadV1"
+                          capabilities-result
+                          :test #'string=)
+                  "engine_exchangeCapabilities omitted engine_newPayloadV1")
+                 (devnet-smoke-gate-require
+                  (member "engine_forkchoiceUpdatedV1"
+                          capabilities-result
+                          :test #'string=)
+                  "engine_exchangeCapabilities omitted engine_forkchoiceUpdatedV1")
+                 (devnet-smoke-gate-require
+                  (member "engine_getPayloadV1"
+                          capabilities-result
+                          :test #'string=)
+                  "engine_exchangeCapabilities omitted engine_getPayloadV1")
                  (devnet-smoke-gate-require
                   (member "engine_newPayloadV2"
                           capabilities-result
@@ -8168,6 +8186,24 @@ references/ checkouts.~%")
                          invalid-auth-engine-response))
                   (cons "engineCapabilityCount"
                         (length capabilities-result))
+                  (cons "engineCapabilityHasNewPayloadV1"
+                        (if (member "engine_newPayloadV1"
+                                    capabilities-result
+                                    :test #'string=)
+                            t
+                            :false))
+                  (cons "engineCapabilityHasForkchoiceUpdatedV1"
+                        (if (member "engine_forkchoiceUpdatedV1"
+                                    capabilities-result
+                                    :test #'string=)
+                            t
+                            :false))
+                  (cons "engineCapabilityHasGetPayloadV1"
+                        (if (member "engine_getPayloadV1"
+                                    capabilities-result
+                                    :test #'string=)
+                            t
+                            :false))
                   (cons "engineCapabilityHasNewPayloadV2"
                         (if (member "engine_newPayloadV2"
                                     capabilities-result
@@ -10275,6 +10311,15 @@ references/ checkouts.~%")
                                          "engineInvalidAuthStatus"))
         (format t "engineCapabilityCount=~D~%"
                 (devnet-smoke-gate-field report "engineCapabilityCount"))
+        (format t "engineCapabilityHasNewPayloadV1=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineCapabilityHasNewPayloadV1"))
+        (format t "engineCapabilityHasForkchoiceUpdatedV1=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineCapabilityHasForkchoiceUpdatedV1"))
+        (format t "engineCapabilityHasGetPayloadV1=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineCapabilityHasGetPayloadV1"))
         (format t "engineClientVersionCode=~A~%"
                 (devnet-smoke-gate-field report "engineClientVersionCode"))
         (format t "engineClientVersionName=~A~%"

@@ -3372,6 +3372,18 @@
                (is (eq t
                        (fixture-object-field
                         report
+                        "engineCapabilityHasNewPayloadV1")))
+               (is (eq t
+                       (fixture-object-field
+                        report
+                        "engineCapabilityHasForkchoiceUpdatedV1")))
+               (is (eq t
+                       (fixture-object-field
+                        report
+                        "engineCapabilityHasGetPayloadV1")))
+               (is (eq t
+                       (fixture-object-field
+                        report
                         "engineCapabilityHasNewPayloadV2")))
                (is (eq t
                        (fixture-object-field
@@ -3942,6 +3954,18 @@
                            "engineInvalidAuthStatus")))
                    (is (plusp
                         (fixture-object-field case "engineCapabilityCount")))
+                   (is (eq t
+                           (fixture-object-field
+                            case
+                            "engineCapabilityHasNewPayloadV1")))
+                   (is (eq t
+                           (fixture-object-field
+                            case
+                            "engineCapabilityHasForkchoiceUpdatedV1")))
+                   (is (eq t
+                           (fixture-object-field
+                            case
+                            "engineCapabilityHasGetPayloadV1")))
                    (is (eq t
                            (fixture-object-field
                             case

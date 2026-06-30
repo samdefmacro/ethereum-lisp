@@ -1222,8 +1222,9 @@ first pass, but interfaces must not block that path.
   separate HTTP 401 status fields for both cases. The authenticated Engine
   workflow now also probes `engine_getClientVersionV1` and
   `engine_exchangeCapabilities` before payload import, reporting the local
-  client identity and whether the expected V2 payload/forkchoice capabilities
-  are advertised at the process boundary. Capability advertisement now stays
+  client identity and whether the expected V1/V2 payload/forkchoice/getPayload
+  capabilities are advertised at the process boundary. Capability
+  advertisement now stays
   KZG-aware: the default process hides blob-era Engine methods such as
   `engine_newPayloadV3`, `engine_getBlobsV1`, and payload-bodies V2 until real
   point-proof and blob-proof verifier hooks are present, so Hive-style runners

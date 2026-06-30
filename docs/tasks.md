@@ -859,6 +859,14 @@ ones.
     until point-proof and blob-proof verifier hooks are installed. The devnet
     smoke report exposes negative capability fields so Hive-style runners do
     not negotiate blob payloads before real proof verification is available.
+  - Result (2026-06-30): the standalone devnet smoke gate now includes the
+    V1 Engine payload/forkchoice/getPayload methods in its authenticated
+    `engine_exchangeCapabilities` handshake, requires the listener to return
+    all three V1 method names, and exposes
+    `engineCapabilityHasNewPayloadV1`,
+    `engineCapabilityHasForkchoiceUpdatedV1`, and
+    `engineCapabilityHasGetPayloadV1` in JSON/text reports alongside the
+    existing V2 and KZG-negative capability fields.
 - [x] `DEVNET-RUNNER-CLIENT-VERSION-SMOKE`: Extend the standalone devnet smoke
   gate so authenticated Engine readiness probes include
   `engine_getClientVersionV1`.
