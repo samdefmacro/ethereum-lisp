@@ -962,6 +962,16 @@ ones.
     filter count, matched log count, uninstall count, and missing-filter error
     codes, with CLI tests asserting those fields for single-case and suite
     reports.
+- [x] `DEVNET-RUNNER-RESTORED-BLOCK-FILTERS`: Lock restored public block filter
+  lifecycle behavior at the standalone devnet process/database boundary.
+  - Result (2026-06-30): the restored-database public RPC smoke now creates an
+    `eth_newBlockFilter`, verifies its initial `eth_getFilterChanges` result
+    is empty, rejects `eth_getFilterLogs` on that block-filter id, uninstalls
+    it, and verifies the removed id returns the expected missing-filter
+    `eth_getFilterChanges` error. The smoke report exposes block-filter id,
+    change count, wrong-method error code, uninstall result, and removed-filter
+    error code, with CLI tests asserting those fields for single-case and
+    suite reports.
 - [x] `PUBLIC-RPC-PENDING-BLOCK-TAG-TXPOOL`: Make public RPC pending
   block-tag transaction queries reflect the pending txpool instead of the
   latest committed block.

@@ -2019,6 +2019,11 @@ references/ checkouts.~%")
          (log-filter-missing-outputs
            (loop repeat (length log-targets)
                  collect (make-string-output-stream)))
+         (block-filter-create-output (make-string-output-stream))
+         (block-filter-changes-output (make-string-output-stream))
+         (block-filter-get-logs-output (make-string-output-stream))
+         (block-filter-uninstall-output (make-string-output-stream))
+         (block-filter-missing-output (make-string-output-stream))
          (block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
         (nonce-output (make-string-output-stream))
@@ -2065,6 +2070,7 @@ references/ checkouts.~%")
               (length extra-balance-outputs)
               (* 7 (length extra-receipt-outputs))
               (* 6 (length log-targets))
+              5
               2
               4
               (if executable-code-p 1 0)
@@ -2533,7 +2539,45 @@ references/ checkouts.~%")
                          (cons "method" "eth_getFilterLogs")
                          (cons "params"
                                (list (quantity-to-hex filter-id)))))
-                  output))))
+                  output))
+           (let ((block-filter-id
+                   (quantity-to-hex (1+ (length log-targets)))))
+             (list
+              (cons
+               (json-encode
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 220)
+                      (cons "method" "eth_newBlockFilter")
+                      (cons "params" '())))
+               block-filter-create-output)
+              (cons
+               (json-encode
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 221)
+                      (cons "method" "eth_getFilterChanges")
+                      (cons "params" (list block-filter-id))))
+               block-filter-changes-output)
+              (cons
+               (json-encode
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 222)
+                      (cons "method" "eth_getFilterLogs")
+                      (cons "params" (list block-filter-id))))
+               block-filter-get-logs-output)
+              (cons
+               (json-encode
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 223)
+                      (cons "method" "eth_uninstallFilter")
+                      (cons "params" (list block-filter-id))))
+               block-filter-uninstall-output)
+              (cons
+               (json-encode
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 224)
+                      (cons "method" "eth_getFilterChanges")
+                      (cons "params" (list block-filter-id))))
+               block-filter-missing-output)))))
     (let ((summary
             (ethereum-lisp.cli:start-devnet-node-listeners
              node
@@ -2877,6 +2921,11 @@ references/ checkouts.~%")
              (actual-log-filter-log-count 0)
              (actual-log-filter-uninstall-count 0)
              (actual-log-filter-missing-error-codes nil)
+             (actual-block-filter-id nil)
+             (actual-block-filter-change-count nil)
+             (actual-block-filter-get-logs-error-code nil)
+             (actual-block-filter-uninstall-result nil)
+             (actual-block-filter-missing-error-code nil)
              (expected-proof-code-hash
                (hash32-to-hex (keccak-256-hash (hex-to-bytes expected-code))))
              (expected-proof-storage-value
@@ -3507,6 +3556,69 @@ references/ checkouts.~%")
                    (incf actual-log-filter-uninstall-count)
                    (push missing-error-code
                          actual-log-filter-missing-error-codes)))
+        (let* ((block-filter-create-response
+                 (get-output-stream-string block-filter-create-output))
+               (block-filter-changes-response
+                 (get-output-stream-string block-filter-changes-output))
+               (block-filter-get-logs-response
+                 (get-output-stream-string block-filter-get-logs-output))
+               (block-filter-uninstall-response
+                 (get-output-stream-string block-filter-uninstall-output))
+               (block-filter-missing-response
+                 (get-output-stream-string block-filter-missing-output))
+               (block-filter-create-rpc
+                 (devnet-smoke-gate-rpc-body
+                  block-filter-create-response))
+               (block-filter-changes-rpc
+                 (devnet-smoke-gate-rpc-body
+                  block-filter-changes-response))
+               (block-filter-get-logs-rpc
+                 (devnet-smoke-gate-rpc-body
+                  block-filter-get-logs-response))
+               (block-filter-uninstall-rpc
+                 (devnet-smoke-gate-rpc-body
+                  block-filter-uninstall-response))
+               (block-filter-missing-rpc
+                 (devnet-smoke-gate-rpc-body
+                  block-filter-missing-response))
+               (expected-block-filter-id
+                 (quantity-to-hex (1+ (length log-targets))))
+               (block-filter-changes
+                 (fixture-object-field block-filter-changes-rpc "result")))
+          (dolist (response
+                   (list block-filter-create-response
+                         block-filter-changes-response
+                         block-filter-get-logs-response
+                         block-filter-uninstall-response
+                         block-filter-missing-response))
+            (devnet-smoke-gate-require
+             (= 200 (devnet-cli-http-status response))
+             "Restored block filter HTTP status mismatch"))
+          (setf actual-block-filter-id
+                (fixture-object-field block-filter-create-rpc "result")
+                actual-block-filter-change-count
+                (length block-filter-changes)
+                actual-block-filter-get-logs-error-code
+                (devnet-smoke-gate-error-code block-filter-get-logs-rpc)
+                actual-block-filter-uninstall-result
+                (fixture-object-field block-filter-uninstall-rpc "result")
+                actual-block-filter-missing-error-code
+                (devnet-smoke-gate-error-code block-filter-missing-rpc))
+          (devnet-smoke-gate-require
+           (string= expected-block-filter-id actual-block-filter-id)
+           "Restored eth_newBlockFilter id mismatch")
+          (devnet-smoke-gate-require
+           (zerop actual-block-filter-change-count)
+           "Restored eth_getFilterChanges block filter initial count mismatch")
+          (devnet-smoke-gate-require
+           (= -32602 actual-block-filter-get-logs-error-code)
+           "Restored eth_getFilterLogs block filter error code mismatch")
+          (devnet-smoke-gate-require
+           (member actual-block-filter-uninstall-result '(t :true))
+           "Restored eth_uninstallFilter block filter result mismatch")
+          (devnet-smoke-gate-require
+           (= -32602 actual-block-filter-missing-error-code)
+           "Restored missing eth_getFilterChanges block filter error code mismatch"))
         (devnet-smoke-gate-require
          (string= (hash32-to-hex expected-safe-block-hash)
                   actual-safe-block-hash)
@@ -3586,6 +3698,14 @@ references/ checkouts.~%")
               actual-log-filter-uninstall-count
               :log-filter-missing-error-codes
               (nreverse actual-log-filter-missing-error-codes)
+              :block-filter-id actual-block-filter-id
+              :block-filter-change-count actual-block-filter-change-count
+              :block-filter-get-logs-error-code
+              actual-block-filter-get-logs-error-code
+              :block-filter-uninstall-result
+              actual-block-filter-uninstall-result
+              :block-filter-missing-error-code
+              actual-block-filter-missing-error-code
               :raw-transaction-by-hash actual-raw-transaction-by-hash
               :raw-transaction-by-number actual-raw-transaction-by-number
               :transaction-by-hash-index-hash
@@ -5736,6 +5856,19 @@ references/ checkouts.~%")
                   :rpc-log-filter-missing-error-codes
                   (getf public-rpc-summary
                         :log-filter-missing-error-codes)
+                  :rpc-block-filter-id
+                  (getf public-rpc-summary :block-filter-id)
+                  :rpc-block-filter-change-count
+                  (getf public-rpc-summary :block-filter-change-count)
+                  :rpc-block-filter-get-logs-error-code
+                  (getf public-rpc-summary
+                        :block-filter-get-logs-error-code)
+                  :rpc-block-filter-uninstall-result
+                  (getf public-rpc-summary
+                        :block-filter-uninstall-result)
+                  :rpc-block-filter-missing-error-code
+                  (getf public-rpc-summary
+                        :block-filter-missing-error-code)
                   :rpc-raw-transaction
                   (getf public-rpc-summary :raw-transaction)
                   :rpc-raw-transaction-by-hash
@@ -8728,6 +8861,31 @@ references/ checkouts.~%")
                         (if database-summary
                             (getf database-summary
                                   :rpc-log-filter-missing-error-codes)
+                            :false))
+                  (cons "databaseRpcBlockFilterId"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-filter-id)
+                            :false))
+                  (cons "databaseRpcBlockFilterChangeCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-filter-change-count)
+                            :false))
+                  (cons "databaseRpcBlockFilterGetLogsErrorCode"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-filter-get-logs-error-code)
+                            :false))
+                  (cons "databaseRpcBlockFilterUninstallResult"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-filter-uninstall-result)
+                            :false))
+                  (cons "databaseRpcBlockFilterMissingErrorCode"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-block-filter-missing-error-code)
                             :false))
                   (cons "databaseRpcRawTransactionByBlockHashAndIndex"
                         (if database-summary
