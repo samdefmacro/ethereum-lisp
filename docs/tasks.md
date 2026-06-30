@@ -1322,6 +1322,17 @@ ones.
     selectors classify as Prague/EIP-7702 out-of-scope for Phase A. This gives
     future runs a single drift-map gate instead of mechanically pinning already
     passing selectors.
+- [x] `PINNED-V5.4.0-POST-WIDEN-DRIFT-MAP`: Refresh the consolidated official
+  v5.4.0 drift map after the latest state and blockchain pinned widening.
+  - Result (2026-06-30): ran `scripts/phase-a-drift-map.lisp` against the
+    installed official v5.4.0 fixture root with state, transaction, and
+    blockchain limits of 1000 plus `--failures-only --json`. The map classified
+    all 930 current candidates:
+    715 remaining unpinned state selectors passing, 162 remaining unpinned
+    blockchain replay selectors passing, and 53 Prague/EIP-7702 transaction
+    selectors out-of-scope. It reported zero known-implementation-drift,
+    implementation-bug-candidate, and fixture-harness-error records, so the
+    current materializable v5.4.0 surface remains clear for Phase A.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

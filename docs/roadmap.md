@@ -1576,9 +1576,12 @@ Detailed historical implementation notes for this section now live in
   and blockchain classifiers into one drift-map runner with canonical buckets
   for passing, known implementation drift, out-of-scope fork/feature, and
   implementation-bug candidates while keeping fixture harness errors separate.
-  A bounded check against the installed v5.4.0 root keeps the current signal:
-  sampled remaining state and blockchain candidates pass, and the remaining
-  transaction selectors are Prague/EIP-7702 out-of-scope for Phase A.
+  A post-widening check against the installed v5.4.0 root classified all 930
+  current candidates with `--failures-only`: 715 remaining unpinned state
+  selectors pass, 162 remaining unpinned blockchain replay selectors pass, and
+  the 53 remaining transaction selectors are Prague/EIP-7702 out-of-scope for
+  Phase A, with zero known-implementation-drift, implementation-bug-candidate,
+  or fixture-harness-error records.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned
