@@ -1450,6 +1450,19 @@ ones.
     visible as pending through `eth_getTransactionByHash`, the old canonical
     receipt disappears, and `eth_getLogs` over the new latest head returns no
     stale displaced logs.
+- [x] `DEVNET-RUNNER-SCRIPT-REORG-PENDING-BLOCK`: Lock pending block-tag
+  visibility for displaced transactions after a same-height reorg at the
+  external script process boundary.
+  - Result (2026-06-30): the same runner-facing import subprocess now also
+    queries pending block-tag transaction views after the side-sibling
+    forkchoice replacement. It verifies
+    `eth_getBlockTransactionCountByNumber("pending")`,
+    `eth_getTransactionByBlockNumberAndIndex("pending", "0x0")`,
+    `eth_getRawTransactionByBlockNumberAndIndex("pending", "0x0")`,
+    `eth_getBlockByNumber("pending", true)`, and
+    `eth_getHeaderByNumber("pending")` expose the displaced child transaction
+    as pending with null committed block-location fields and parent hash set
+    to the replacement head.
 - [x] `DEVNET-RUNNER-PHASE-A-WRAPPER-OPTION-EQUALS`: Keep the outer Phase A
   devnet smoke-gate wrapper compatible with geth/Hive-style option assignment
   syntax.

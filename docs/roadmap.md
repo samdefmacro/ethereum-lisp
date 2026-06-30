@@ -1352,7 +1352,10 @@ first pass, but interfaces must not block that path.
   after the replacement: `latest` points at the side sibling, the displaced
   child transaction is visible as pending rather than canonical, old receipts
   disappear, and `eth_getLogs` over the new head does not leak stale displaced
-  logs. Public txpool
+  logs. The same reorg path now verifies pending block-tag transaction views
+  expose that displaced transaction after the replacement, including pending
+  count, indexed/full-block/raw lookup, pending header number/parent hash, and
+  null committed transaction location fields. Public txpool
   admission is also covered at the script-process boundary: a fixture-derived
   genesis funds a local sender, raw pending/basefee/queued submissions go
   through the advertised public listener, and hash lookup plus
