@@ -2779,6 +2779,29 @@
                    (fixture-object-field summary "rpcEndpoint")))
       (is (eq nil (fixture-object-field summary "authRequired"))))))
 
+(deftest devnet-cli-main-accepts-geth-style-rpc-limit-flags
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  (format nil "--genesis=~A" +devnet-cli-genesis-fixture+)
+                  "--rpc.gascap=50000000"
+                  "--rpc.evmtimeout=5s"
+                  "--rpc.txfeecap=0"
+                  "--rpc.batch-request-limit=1000"
+                  "--rpc.batch-response-max-size=25000000"
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (string= "127.0.0.1:8551"
+                   (fixture-object-field summary "engineEndpoint")))
+      (is (string= "127.0.0.1:8545"
+                   (fixture-object-field summary "rpcEndpoint"))))))
+
 (deftest devnet-cli-main-engine-host-does-not-rewrite-public-default
   (let ((engine-output (make-string-output-stream))
         (engine-errors (make-string-output-stream))

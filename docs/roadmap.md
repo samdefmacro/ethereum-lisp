@@ -1185,8 +1185,11 @@ first pass, but interfaces must not block that path.
   or a GraphQL listener. Additional geth/Hive txpool, RPC, and database
   template flags are also accepted as compatibility no-ops, including
   txpool price/slot/queue/lifetime knobs, `--rpc.allow-unprotected-txs`,
-  `--state.scheme`, `--db.engine`, `--datadir.ancient`, `--dev`, and
-  `--nousb`. Geth/Hive node-key, discovery, network-restriction, and IPC path
+  RPC resource-limit flags (`--rpc.gascap`, `--rpc.evmtimeout`,
+  `--rpc.txfeecap`, `--rpc.batch-request-limit`, and
+  `--rpc.batch-response-max-size`), `--state.scheme`, `--db.engine`,
+  `--datadir.ancient`, `--dev`, and `--nousb`. Geth/Hive node-key, discovery,
+  network-restriction, and IPC path
   options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,
   `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as
   explicit compatibility no-ops, so those launch templates reach the current

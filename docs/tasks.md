@@ -521,6 +521,14 @@ ones.
     Engine and public JSON-RPC calls through the ready-file endpoints while
     asserting readiness JSON, stdout JSON, and lifecycle telemetry advertise
     loopback endpoints rather than wildcard bind addresses.
+- [x] `DEVNET-RUNNER-RPC-LIMIT-FLAGS`: Accept common geth/Hive RPC
+  resource-limit launch flags without changing the current Lisp RPC behavior.
+  - Result (2026-07-01): the shared devnet/init option table now consumes
+    `--rpc.gascap`, `--rpc.evmtimeout`, `--rpc.txfeecap`,
+    `--rpc.batch-request-limit`, and `--rpc.batch-response-max-size` as
+    compatibility no-op value flags. CLI coverage locks a no-serve devnet
+    invocation with those flags so Hive/geth-shaped runner templates reach
+    the split Engine/public process instead of failing during argument parse.
 - [x] `DEVNET-RUNNER-PROCESS-ENTRYPOINT`: Add a runner-facing process script
   entrypoint for the devnet CLI.
   - Result (2026-06-28): added `scripts/ethereum-lisp.lisp`, which loads the
