@@ -1215,6 +1215,10 @@ first pass, but interfaces must not block that path.
   same missing-genesis, malformed-option, and malformed/missing
   `--authrpc.jwtsecret` failure contracts from temporary working directories,
   so process runners can classify failures without relying only on stderr.
+  Error telemetry is now best-effort: if a runner supplies an unusable
+  `--log-file` path while startup is already failing, the CLI still reports the
+  original diagnostic and returns status 1 instead of letting telemetry output
+  replace the process failure contract.
   Runner-facing initialization failures now emit `init.error` rather than
   `devnet.error` while preserving the same structured error fields, letting
   launchers distinguish datadir initialization failures from devnet startup

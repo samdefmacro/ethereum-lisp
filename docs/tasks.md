@@ -483,6 +483,12 @@ ones.
     log-path fields. Script subprocess coverage verifies missing-genesis init
     failures emit init usage on stderr plus a single command-specific telemetry
     record.
+  - Result (2026-07-01): the top-level CLI error handler now treats
+    `devnet.error` / `init.error` telemetry as best-effort. If the configured
+    `--log-file` path itself cannot be opened while reporting a startup error,
+    the CLI still prints the original diagnostic and usage text and returns
+    status 1 instead of replacing the runner-visible failure with a telemetry
+    write failure.
 - [x] `DEVNET-RUNNER-DATADIR-JWTSECRET`: Load Hive/geth-style datadir Engine
   JWT secrets when no explicit `--jwt-secret` / `--authrpc.jwtsecret` path is
   provided.

@@ -3035,6 +3035,25 @@
       (when (probe-file log-path)
         (delete-file log-path)))))
 
+(deftest devnet-cli-main-invalid-error-log-path-still-reports-error
+  (let* ((log-directory
+           (devnet-cli-temp-directory
+            "ethereum-lisp-devnet-error-log-directory"))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (is (= 1
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  "--log-file" (namestring log-directory)
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string output)))
+    (let ((stderr (get-output-stream-string errors)))
+      (is (search "--genesis is required" stderr))
+      (is (search "Usage: ethereum-lisp devnet" stderr)))))
+
 (deftest devnet-cli-main-log-file-records-option-parse-error-event
   (let ((log-path (devnet-cli-temp-path "ethereum-lisp-devnet-parse-error"
                                         "log"))

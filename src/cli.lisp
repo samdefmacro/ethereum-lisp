@@ -1450,7 +1450,8 @@
                               (devnet-cli-log-event node "devnet.shutdown"))))
                       0)))))))))
     (error (condition)
-      (devnet-cli-log-error-event args condition)
+      (ignore-errors
+       (devnet-cli-log-error-event args condition))
       (format error-stream "~A~%" condition)
       (if (devnet-cli-init-command-p args)
           (devnet-cli-print-init-usage error-stream)
