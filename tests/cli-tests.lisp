@@ -1972,6 +1972,39 @@
       (when (probe-file ready-path)
         (delete-file ready-path)))))
 
+(deftest devnet-listener-ready-callback-error-closes-listeners
+  #-sbcl
+  (skip-test "Devnet split listener serving requires SBCL threads")
+  #+sbcl
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+
+                :port 8551
+                :public-port 8545))
+         (engine-closed-p nil)
+         (public-closed-p nil)
+         (engine-listener
+           (make-engine-rpc-http-listener
+            :endpoint "engine"
+            :accept-function (lambda () nil)
+            :close-function (lambda () (setf engine-closed-p t))))
+         (public-listener
+           (make-engine-rpc-http-listener
+            :endpoint "public"
+            :accept-function (lambda () nil)
+            :close-function (lambda () (setf public-closed-p t)))))
+    (signals error
+      (ethereum-lisp.cli:start-devnet-node-listeners
+       node
+       engine-listener
+       public-listener
+       :max-connections 0
+       :on-listeners-ready
+       (lambda (engine public)
+         (declare (ignore engine public))
+         (error "listener ready callback failed"))))
+    (is engine-closed-p)
+    (is public-closed-p)))
+
 (deftest devnet-node-loads-jwt-secret-file
   (let ((path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
     (unwind-protect

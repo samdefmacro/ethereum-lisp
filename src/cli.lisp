@@ -431,8 +431,12 @@
          (public-error nil))
     (devnet-shutdown-controller-register-listeners
      shutdown-controller engine-listener public-listener)
-    (when on-listeners-ready
-      (funcall on-listeners-ready engine-listener public-listener))
+    (handler-case
+        (when on-listeners-ready
+          (funcall on-listeners-ready engine-listener public-listener))
+      (error (condition)
+        (devnet-shutdown-request shutdown-controller)
+        (error condition)))
     (let ((engine-thread
             (sb-thread:make-thread
              (lambda ()

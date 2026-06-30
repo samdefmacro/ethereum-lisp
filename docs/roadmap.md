@@ -1046,7 +1046,10 @@ first pass, but interfaces must not block that path.
   startup errors do not leave the configured Engine port occupied inside
   embedded devnet processes. The reverse split-listener failure path is also
   covered: an Engine worker error now requests coordinated shutdown, closes the
-  foreground public listener, and reports the Engine error to the caller. The
+  foreground public listener, and reports the Engine error to the caller.
+  Readiness artifact publication failures after both listeners register now
+  also request coordinated shutdown, closing both listeners before surfacing
+  the callback error. The
   standalone devnet gate now also
   reports concrete HTTP loopback `engineEndpoint` / `rpcEndpoint` values and
   validates that ready files and lifecycle telemetry carry those same endpoints

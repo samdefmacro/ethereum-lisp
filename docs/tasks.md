@@ -601,6 +601,13 @@ ones.
     Engine listener error while the foreground public listener is serving,
     verifies the Engine listener closes, verifies shutdown closes the public
     listener, and requires the Engine error to surface to the caller.
+- [x] `DEVNET-RUNNER-READY-CALLBACK-CLEANUP`: Close both split listeners when
+  runner readiness artifact publication fails before serving begins.
+  - Result (2026-07-01): `start-devnet-node-listeners` now requests coordinated
+    shutdown if the listener-ready callback errors after both listeners are
+    registered and before the serve threads start. Coverage verifies both the
+    Engine and public listeners close while the callback error still surfaces
+    to the caller.
 - [x] `DEVNET-RUNNER-BIND-FAILURE-TELEMETRY`: Keep runner-facing lifecycle
   telemetry unambiguous when listener startup fails before readiness.
   - Result (2026-06-29): serve-mode CLI cleanup now emits `devnet.shutdown`
