@@ -7440,6 +7440,12 @@
                            (cons "id" 715)
                            (cons "method" "eth_getHeaderByNumber")
                            (cons "params" (list "pending")))))
+                  (pending-fee-history-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 722)
+                           (cons "method" "eth_feeHistory")
+                           (cons "params" (list "0x1" "latest" '())))))
                   (txpool-status-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -7484,7 +7490,7 @@
                           "--pid-file"
                           (namestring pid-path)
                           "--max-connections"
-                          "21"
+                          "22"
                           "--json")
                     :directory #P"/private/tmp/"
                     :output :stream
@@ -7528,6 +7534,7 @@
                       pending-raw-transaction-by-index-response
                       pending-block-response
                       pending-header-response
+                      pending-fee-history-response
                       txpool-status-response
                       txpool-content-response
                       txpool-content-from-response
@@ -7659,6 +7666,11 @@
                               rpc-endpoint
                               (devnet-cli-json-rpc-http-request
                                pending-header-body)))
+                       (setf pending-fee-history-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-fee-history-body)))
                        (setf txpool-status-response
                              (devnet-cli-http-endpoint-request
                               rpc-endpoint
@@ -7700,6 +7712,7 @@
                                 pending-raw-transaction-by-index-response
                                 pending-block-response
                                 pending-header-response
+                                pending-fee-history-response
                                 txpool-status-response
                                 txpool-content-response
                                 txpool-content-from-response
@@ -7765,6 +7778,10 @@
                         (pending-header-rpc
                           (parse-json
                            (devnet-cli-http-body pending-header-response)))
+                        (pending-fee-history-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-fee-history-response)))
                         (txpool-status-rpc
                           (parse-json
                            (devnet-cli-http-body txpool-status-response)))
@@ -7804,6 +7821,14 @@
                           (fixture-object-field pending-block-rpc "result"))
                         (pending-header
                           (fixture-object-field pending-header-rpc "result"))
+                        (pending-fee-history
+                          (fixture-object-field pending-fee-history-rpc
+                                                "result"))
+                        (pending-fee-history-base-fees
+                          (fixture-object-field pending-fee-history
+                                                "baseFeePerGas"))
+                        (pending-fee-history-next-base-fee
+                          (second pending-fee-history-base-fees))
                         (pending-block-transactions
                           (fixture-object-field pending-block "transactions"))
                         (pending-block-transaction
@@ -7880,6 +7905,8 @@
                                pending-raw-transaction-by-index-rpc "id")))
                    (is (= 714 (fixture-object-field pending-block-rpc "id")))
                    (is (= 715 (fixture-object-field pending-header-rpc "id")))
+                   (is (= 722
+                          (fixture-object-field pending-fee-history-rpc "id")))
                    (is (= 716 (fixture-object-field txpool-content-rpc "id")))
                    (is (string= pending-hash
                                 (fixture-object-field
@@ -7953,6 +7980,13 @@
                    (is (string= latest-block-hash-hex
                                 (fixture-object-field pending-header
                                                       "parentHash")))
+                   (is (= 2 (length pending-fee-history-base-fees)))
+                   (is (string= pending-fee-history-next-base-fee
+                                (fixture-object-field pending-block
+                                                      "baseFeePerGas")))
+                   (is (string= pending-fee-history-next-base-fee
+                                (fixture-object-field pending-header
+                                                      "baseFeePerGas")))
                    (is (string= "0x1"
                                 (fixture-object-field txpool-status
                                                       "pending")))
@@ -8019,11 +8053,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "21"
+                         (is (string= "22"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "21"
+                         (is (string= "22"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=)))))))))))))

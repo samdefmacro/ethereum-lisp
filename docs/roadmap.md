@@ -1368,7 +1368,10 @@ first pass, but interfaces must not block that path.
   transaction count, indexed transaction lookup, raw transaction lookup,
   full pending block body, and pending header reads through the advertised
   public listener, including null committed block-location fields and pending
-  parent/number linkage. The
+  parent/number linkage. That same subprocess now compares pending
+  block/header `baseFeePerGas` against `eth_feeHistory`'s next base fee over
+  the advertised public listener, so Hive-style serve-mode coverage locks the
+  same pending base-fee contract as the standalone smoke gate. The
   script process is also covered receiving
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout

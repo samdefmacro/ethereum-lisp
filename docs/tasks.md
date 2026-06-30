@@ -1407,6 +1407,13 @@ ones.
     null committed block-location fields, pending block/header number and
     parent hash, and updated shutdown telemetry for the expanded public request
     count.
+- [x] `DEVNET-RUNNER-SCRIPT-PENDING-BASE-FEE`: Lock pending block/header
+  base-fee visibility at the external script process boundary.
+  - Result (2026-06-30): the runner-facing txpool subprocess now also calls
+    `eth_feeHistory("0x1", "latest", [])` through the advertised public
+    listener after txpool admission and verifies pending block/header
+    `baseFeePerGas` equals the reported next base fee, with shutdown telemetry
+    accounting for the added public request.
 - [x] `DEVNET-RUNNER-SCRIPT-BLOCK-FILTER`: Lock public block filter change
   delivery at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
