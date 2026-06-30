@@ -7294,7 +7294,7 @@
                           "--pid-file"
                           (namestring pid-path)
                           "--max-connections"
-                          "18"
+                          "21"
                           "--json")
                     :directory #P"/private/tmp/"
                     :output :stream
@@ -7329,6 +7329,9 @@
                       raw-queued-response
                       new-pending-filter-response
                       pending-filter-changes-response
+                      empty-pending-filter-changes-response
+                      uninstall-pending-filter-response
+                      removed-pending-filter-changes-response
                       pending-transactions-response
                       pending-block-count-response
                       pending-transaction-by-index-response
@@ -7391,12 +7394,51 @@
                                   (cons "id" 718)
                                   (cons "method" "eth_getFilterChanges")
                                   (cons "params"
+                                        (list pending-filter-id)))))
+                              (empty-pending-filter-changes-body
+                                (json-encode
+                                 (list
+                                  (cons "jsonrpc" "2.0")
+                                  (cons "id" 719)
+                                  (cons "method" "eth_getFilterChanges")
+                                  (cons "params"
+                                        (list pending-filter-id)))))
+                              (uninstall-pending-filter-body
+                                (json-encode
+                                 (list
+                                  (cons "jsonrpc" "2.0")
+                                  (cons "id" 720)
+                                  (cons "method" "eth_uninstallFilter")
+                                  (cons "params"
+                                        (list pending-filter-id)))))
+                              (removed-pending-filter-changes-body
+                                (json-encode
+                                 (list
+                                  (cons "jsonrpc" "2.0")
+                                  (cons "id" 721)
+                                  (cons "method" "eth_getFilterChanges")
+                                  (cons "params"
                                         (list pending-filter-id))))))
                          (setf pending-filter-changes-response
                                (devnet-cli-http-endpoint-request
                                 rpc-endpoint
                                 (devnet-cli-json-rpc-http-request
-                                 pending-filter-changes-body))))
+                                 pending-filter-changes-body)))
+                         (setf empty-pending-filter-changes-response
+                               (devnet-cli-http-endpoint-request
+                                rpc-endpoint
+                                (devnet-cli-json-rpc-http-request
+                                 empty-pending-filter-changes-body)))
+                         (setf uninstall-pending-filter-response
+                               (devnet-cli-http-endpoint-request
+                                rpc-endpoint
+                                (devnet-cli-json-rpc-http-request
+                                 uninstall-pending-filter-body)))
+                         (setf removed-pending-filter-changes-response
+                               (devnet-cli-http-endpoint-request
+                                rpc-endpoint
+                                (devnet-cli-json-rpc-http-request
+                                 removed-pending-filter-changes-body))))
                        (setf pending-transactions-response
                              (devnet-cli-http-endpoint-request
                               rpc-endpoint
@@ -7459,6 +7501,9 @@
                                 raw-queued-response
                                 new-pending-filter-response
                                 pending-filter-changes-response
+                                empty-pending-filter-changes-response
+                                uninstall-pending-filter-response
+                                removed-pending-filter-changes-response
                                 pending-transactions-response
                                 pending-block-count-response
                                 pending-transaction-by-index-response
@@ -7496,6 +7541,18 @@
                           (parse-json
                            (devnet-cli-http-body
                             pending-filter-changes-response)))
+                        (empty-pending-filter-changes-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            empty-pending-filter-changes-response)))
+                        (uninstall-pending-filter-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            uninstall-pending-filter-response)))
+                        (removed-pending-filter-changes-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            removed-pending-filter-changes-response)))
                         (pending-transactions-rpc
                           (parse-json
                            (devnet-cli-http-body
@@ -7537,6 +7594,12 @@
                         (pending-filter-changes
                           (fixture-object-field
                            pending-filter-changes-rpc "result"))
+                        (empty-pending-filter-changes
+                          (fixture-object-field
+                           empty-pending-filter-changes-rpc "result"))
+                        (removed-pending-filter-error
+                          (fixture-object-field
+                           removed-pending-filter-changes-rpc "error"))
                         (pending-object (first pending-transactions))
                         (pending-block-count
                           (fixture-object-field pending-block-count-rpc
@@ -7610,6 +7673,15 @@
                    (is (= 718
                           (fixture-object-field pending-filter-changes-rpc
                                                 "id")))
+                   (is (= 719
+                          (fixture-object-field
+                           empty-pending-filter-changes-rpc "id")))
+                   (is (= 720
+                          (fixture-object-field
+                           uninstall-pending-filter-rpc "id")))
+                   (is (= 721
+                          (fixture-object-field
+                           removed-pending-filter-changes-rpc "id")))
                    (is (= 711 (fixture-object-field pending-block-count-rpc
                                                     "id")))
                    (is (= 712 (fixture-object-field
@@ -7643,6 +7715,12 @@
                    (is (= 1 (length pending-filter-changes)))
                    (is (string= pending-hash
                                 (first pending-filter-changes)))
+                   (is (null empty-pending-filter-changes))
+                   (is (eq t (fixture-object-field
+                              uninstall-pending-filter-rpc "result")))
+                   (is (= -32602
+                          (fixture-object-field
+                           removed-pending-filter-error "code")))
                    (is (= 1 (length pending-transactions)))
                    (is (string= pending-hash
                                 (fixture-object-field pending-object "hash")))
@@ -7751,11 +7829,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "18"
+                         (is (string= "21"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "18"
+                         (is (string= "21"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=)))))))))))))

@@ -1342,7 +1342,10 @@ first pass, but interfaces must not block that path.
   through the advertised public listener, and hash lookup plus
   `eth_pendingTransactions`, `txpool_status`, `txpool_content`,
   `txpool_contentFrom`, and `txpool_inspect` stay visible with shutdown
-  connection accounting. That
+  connection accounting. The same script txpool path now also verifies pending
+  transaction filter drain/uninstall behavior after admission: a second
+  `eth_getFilterChanges` poll is empty, `eth_uninstallFilter` succeeds, and
+  the removed filter id reports the expected missing-filter error. That
   same runner-facing txpool subprocess now also verifies pending block-tag
   transaction count, indexed transaction lookup, raw transaction lookup,
   full pending block body, and pending header reads through the advertised

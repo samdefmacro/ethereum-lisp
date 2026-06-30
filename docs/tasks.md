@@ -1309,6 +1309,15 @@ ones.
     reports only the transaction admitted into pending, and checks shutdown
     telemetry reports the public txpool RPC connections with zero Engine
     traffic.
+- [x] `DEVNET-RUNNER-SCRIPT-PENDING-FILTER-LIFECYCLE`: Lock pending
+  transaction filter drain/uninstall behavior at the external script process
+  boundary.
+  - Result (2026-06-30): the same runner-facing txpool subprocess now polls
+    the pending transaction filter a second time to verify the hash queue is
+    drained, uninstalls the filter through `eth_uninstallFilter`, and verifies
+    the removed id produces the expected `eth_getFilterChanges` missing-filter
+    JSON-RPC error, with shutdown telemetry updated for the added public
+    requests.
 - [x] `DEVNET-RUNNER-STANDALONE-PENDING-FILTER`: Lock public pending
   transaction filters at the standalone devnet smoke surface.
   - Result (2026-06-30): the standalone devnet smoke gate now creates an
