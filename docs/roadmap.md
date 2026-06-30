@@ -1432,7 +1432,11 @@ first pass, but interfaces must not block that path.
   prune txpool entries that are stale, over the new head gas limit, or invalid
   under the new head's sender-code state before displaced-transaction
   reinsertion, so invalid same-sender/same-nonce conflicts cannot suppress a
-  valid displaced transaction and then disappear. The devnet database smoke
+  valid displaced transaction and then disappear. Same-transaction reorgs now
+  also have a direct guard: when both branches include the same transaction,
+  displaced-block cleanup preserves the newly indexed canonical transaction
+  location instead of deleting it as stale, keeping public transaction and
+  receipt lookups anchored to the selected branch. The devnet database smoke
   path now carries that reorg policy across process
   restart: `eth_getTransactionByHash` exposes chain-valid displaced
   transactions as pending and leaves wrong-chain displaced transactions absent,

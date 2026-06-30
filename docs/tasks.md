@@ -1555,6 +1555,12 @@ ones.
     old-canonical transaction is not re-pooled when a local pending
     transaction already occupies the sender/nonce slot; the local transaction
     remains pending and the displaced transaction loses canonical lookup.
+  - Result (2026-06-30): added direct reorg coverage for transactions shared
+    by the old and new canonical branches. Canonical-head switching now has a
+    regression proving displaced-block transaction-location cleanup preserves
+    the freshly indexed new-canonical location for the shared transaction,
+    keeping transaction lookup and receipt lookup anchored to the canonical
+    branch instead of deleting the location as stale.
 
 Before adding another Immediate Queue item, verify it is a concrete Phase A
 production blocker or a real upstream/pinned fixture synchronization slice. Do
