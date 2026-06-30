@@ -1153,6 +1153,17 @@ ones.
     payload's parent hash and block number, and verifies the public listener
     still serves canonical retained-state reads while shutdown telemetry
     reports four Engine plus four public served connections.
+- [x] `DEVNET-RUNNER-SCRIPT-ENGINE-V1`: Lock pre-Shanghai Engine V1 workflow
+  compatibility at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now boots a temporary pre-Shanghai merge
+    genesis, imports an empty payload through authenticated
+    `engine_newPayloadV1`, applies `engine_forkchoiceUpdatedV1`, verifies
+    public canonical head visibility, prepares a V1 payload through
+    payload-attributes `engine_forkchoiceUpdatedV1`, retrieves it through
+    `engine_getPayloadV1`, checks the V2 retrieval envelope compatibility for
+    the same payload id, and asserts shutdown telemetry reports the five
+    Engine plus five public served connections.
 - [x] `DEVNET-RUNNER-SCRIPT-PAYLOAD-BODIES`: Lock authenticated Engine
   payload-body retrieval at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`

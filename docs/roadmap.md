@@ -1299,7 +1299,12 @@ first pass, but interfaces must not block that path.
   public canonical `latest` reads after those status paths. The script process
   also covers prepared-payload retrieval through payload-attributes
   `engine_forkchoiceUpdatedV2` followed by authenticated `engine_getPayloadV2`,
-  while public RPC remains on the canonical imported head. The same external
+  while public RPC remains on the canonical imported head. It now also boots a
+  temporary pre-Shanghai merge genesis through the same script process, imports
+  and forkchoices a payload through `engine_newPayloadV1` /
+  `engine_forkchoiceUpdatedV1`, prepares and retrieves a V1 payload through
+  `engine_getPayloadV1`, and verifies the canonical head through public RPC.
+  The same external
   process import path now creates a public `eth_newBlockFilter` before Engine
   import and verifies `eth_getFilterChanges` reports the imported child hash
   after forkchoice. It also creates a public `eth_newFilter` before importing
