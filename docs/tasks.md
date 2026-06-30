@@ -664,6 +664,15 @@ ones.
     `ethereum-lisp --datadir PATH devnet --json --no-serve` work. Direct CLI
     and runner-facing script coverage verify pre-command `--datadir` plus an
     option value named `init`.
+- [x] `DEVNET-RUNNER-INIT-GLOBAL-FLAGS`: Accept geth/Hive-style global runner
+  flags during datadir initialization.
+  - Result (2026-06-30): `ethereum-lisp init` now tolerates common
+    no-op runner flags such as `--cache`, `--gcmode`, `--state.scheme`,
+    `--db.engine`, `--snapshot`, `--networkid`, node-key/discovery, mining,
+    diagnostics, and txpool knobs while preserving `--json`, `--datadir`, and
+    `--database` semantics. Runner-facing script coverage initializes a
+    datadir through a geth-shaped command line before starting devnet from the
+    stored genesis.
 - [x] `DEVNET-RUNNER-SCRIPT-DATADIR-SERVE`: Lock the initialized-datadir
   lifecycle at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`

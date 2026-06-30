@@ -1133,7 +1133,11 @@ first pass, but interfaces must not block that path.
   Command dispatch also supports geth-shaped pre-command flags such as
   `ethereum-lisp --datadir PATH devnet ...` while skipping known option values,
   so runner-provided values like `--identity init` do not accidentally switch
-  the process into init mode.
+  the process into init mode. The init command itself also accepts common
+  geth/Hive global no-op flags for cache sizing, archive/state/database mode,
+  network id, node-key/discovery, diagnostics, mining, and txpool settings, so
+  the same runner template can initialize a datadir and then launch from it
+  without stripping launch-only options first.
   Ready, pid, telemetry log, and error-log artifact paths now create their
   parent directories before writing, so runner-provided nested artifact
   locations do not require a separate setup step. Devnet CLI invocations can

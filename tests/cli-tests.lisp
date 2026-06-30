@@ -5525,6 +5525,13 @@
            (progn
              (multiple-value-bind (stdout stderr status)
                  (run-script "--datadir" (namestring datadir)
+                             "--cache" "128"
+                             "--cache.database=64"
+                             "--gcmode" "archive"
+                             "--state.scheme=hash"
+                             "--db.engine=pebble"
+                             "--snapshot=false"
+                             "--networkid" "7331"
                              "init"
                              "--json"
                              genesis)
