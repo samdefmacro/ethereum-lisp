@@ -834,6 +834,13 @@ ones.
     `engineCapabilityHasForkchoiceUpdatedV2`, and CLI coverage updates
     single-case, all-fixtures, and Phase A devnet connection budgets for the
     extra Engine workflow probe.
+  - Result (2026-06-30): Engine capability advertisement is now KZG-aware.
+    The default process advertises the Shanghai-safe V1/V2 Engine surface used
+    by the current runner smoke path, while hiding KZG/blob-era capabilities
+    such as `engine_newPayloadV3`, `engine_getBlobsV1`, and payload-bodies V2
+    until point-proof and blob-proof verifier hooks are installed. The devnet
+    smoke report exposes negative capability fields so Hive-style runners do
+    not negotiate blob payloads before real proof verification is available.
 - [x] `DEVNET-RUNNER-CLIENT-VERSION-SMOKE`: Extend the standalone devnet smoke
   gate so authenticated Engine readiness probes include
   `engine_getClientVersionV1`.

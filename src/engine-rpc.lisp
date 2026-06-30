@@ -346,18 +346,25 @@
         (cons "payloadId" (when payload-id
                             (engine-payload-id-to-hex payload-id)))))
 
-(defparameter +engine-rpc-capabilities+
+(defparameter +engine-rpc-shanghai-capabilities+
   '("engine_exchangeTransitionConfigurationV1"
     "engine_forkchoiceUpdatedV1"
     "engine_forkchoiceUpdatedV2"
-    "engine_forkchoiceUpdatedV3"
-    "engine_forkchoiceUpdatedV4"
     "engine_getPayloadBodiesByHashV1"
-    "engine_getPayloadBodiesByHashV2"
     "engine_getPayloadBodiesByRangeV1"
-    "engine_getPayloadBodiesByRangeV2"
     "engine_getPayloadV1"
     "engine_getPayloadV2"
+    "engine_getClientVersionV1"
+    "engine_newPayloadV1"
+    "engine_newPayloadV2"))
+
+(defparameter +engine-rpc-capabilities+ +engine-rpc-shanghai-capabilities+)
+
+(defparameter +engine-rpc-kzg-backed-capabilities+
+  '("engine_forkchoiceUpdatedV3"
+    "engine_forkchoiceUpdatedV4"
+    "engine_getPayloadBodiesByHashV2"
+    "engine_getPayloadBodiesByRangeV2"
     "engine_getPayloadV3"
     "engine_getPayloadV4"
     "engine_getPayloadV5"
@@ -365,15 +372,14 @@
     "engine_getBlobsV1"
     "engine_getBlobsV2"
     "engine_getBlobsV3"
-    "engine_getClientVersionV1"
-    "engine_newPayloadV1"
-    "engine_newPayloadV2"
     "engine_newPayloadV3"
     "engine_newPayloadV4"
     "engine_newPayloadV5"))
 
 (defun engine-rpc-capabilities ()
-  (copy-list +engine-rpc-capabilities+))
+  (append (copy-list +engine-rpc-capabilities+)
+          (when (kzg-proof-verification-available-p)
+            (copy-list +engine-rpc-kzg-backed-capabilities+))))
 
 (defparameter +engine-rpc-client-version+
   '(("code" . "CL")

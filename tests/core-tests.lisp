@@ -13758,40 +13758,50 @@
            (capabilities (field response "result")))
       (is (= 11 (field response "id")))
       (is (member "engine_newPayloadV1" capabilities :test #'string=))
-      (is (member "engine_newPayloadV5" capabilities :test #'string=))
+      (is (member "engine_newPayloadV2" capabilities :test #'string=))
+      (is (not (member "engine_newPayloadV3" capabilities :test #'string=)))
+      (is (not (member "engine_newPayloadV5" capabilities :test #'string=)))
       (is (member "engine_forkchoiceUpdatedV1"
                   capabilities
                   :test #'string=))
       (is (member "engine_forkchoiceUpdatedV2"
                   capabilities
                   :test #'string=))
-      (is (member "engine_forkchoiceUpdatedV3"
-                  capabilities
-                  :test #'string=))
-      (is (member "engine_forkchoiceUpdatedV4"
-                  capabilities
-                  :test #'string=))
+      (is (not (member "engine_forkchoiceUpdatedV3"
+                       capabilities
+                       :test #'string=)))
+      (is (not (member "engine_forkchoiceUpdatedV4"
+                       capabilities
+                       :test #'string=)))
       (is (member "engine_getPayloadV1" capabilities :test #'string=))
       (is (member "engine_getPayloadV2" capabilities :test #'string=))
-      (is (member "engine_getPayloadV3" capabilities :test #'string=))
-      (is (member "engine_getPayloadV4" capabilities :test #'string=))
-      (is (member "engine_getPayloadV5" capabilities :test #'string=))
-      (is (member "engine_getPayloadV6" capabilities :test #'string=))
+      (is (not (member "engine_getPayloadV3"
+                       capabilities
+                       :test #'string=)))
+      (is (not (member "engine_getPayloadV4"
+                       capabilities
+                       :test #'string=)))
+      (is (not (member "engine_getPayloadV5"
+                       capabilities
+                       :test #'string=)))
+      (is (not (member "engine_getPayloadV6"
+                       capabilities
+                       :test #'string=)))
       (is (member "engine_getPayloadBodiesByHashV1"
                   capabilities
                   :test #'string=))
-      (is (member "engine_getPayloadBodiesByHashV2"
-                  capabilities
-                  :test #'string=))
+      (is (not (member "engine_getPayloadBodiesByHashV2"
+                       capabilities
+                       :test #'string=)))
       (is (member "engine_getPayloadBodiesByRangeV1"
                   capabilities
                   :test #'string=))
-      (is (member "engine_getPayloadBodiesByRangeV2"
-                  capabilities
-                  :test #'string=))
-      (is (member "engine_getBlobsV1" capabilities :test #'string=))
-      (is (member "engine_getBlobsV2" capabilities :test #'string=))
-      (is (member "engine_getBlobsV3" capabilities :test #'string=))
+      (is (not (member "engine_getPayloadBodiesByRangeV2"
+                       capabilities
+                       :test #'string=)))
+      (is (not (member "engine_getBlobsV1" capabilities :test #'string=)))
+      (is (not (member "engine_getBlobsV2" capabilities :test #'string=)))
+      (is (not (member "engine_getBlobsV3" capabilities :test #'string=)))
       (is (member "engine_getClientVersionV1" capabilities :test #'string=))
       (is (member "engine_exchangeTransitionConfigurationV1"
                   capabilities
@@ -13799,6 +13809,44 @@
       (is (not (member "engine_exchangeCapabilities"
                        capabilities
                        :test #'string=))))
+    (let ((old-point-verifier ethereum-lisp.core:*kzg-point-proof-verifier*)
+          (old-blob-verifier ethereum-lisp.core:*kzg-blob-proof-verifier*))
+      (unwind-protect
+           (progn
+             (setf ethereum-lisp.core:*kzg-point-proof-verifier*
+                   (lambda (commitment z y proof)
+                     (declare (ignore commitment z y proof))
+                     t)
+                   ethereum-lisp.core:*kzg-blob-proof-verifier*
+                   (lambda (blob commitment proof)
+                     (declare (ignore blob commitment proof))
+                     t))
+             (let* ((store (make-engine-payload-memory-store))
+                    (config (make-chain-config))
+                    (request-json
+                      "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"engine_exchangeCapabilities\",\"params\":[[\"engine_newPayloadV1\"]]}")
+                    (response
+                      (parse-json
+                       (engine-rpc-handle-request-json
+                        request-json store config)))
+                    (capabilities (field response "result")))
+               (is (member "engine_newPayloadV3" capabilities :test #'string=))
+               (is (member "engine_newPayloadV5" capabilities :test #'string=))
+               (is (member "engine_forkchoiceUpdatedV4"
+                           capabilities
+                           :test #'string=))
+               (is (member "engine_getPayloadV6" capabilities :test #'string=))
+               (is (member "engine_getPayloadBodiesByHashV2"
+                           capabilities
+                           :test #'string=))
+               (is (member "engine_getPayloadBodiesByRangeV2"
+                           capabilities
+                           :test #'string=))
+               (is (member "engine_getBlobsV1" capabilities :test #'string=))
+               (is (member "engine_getBlobsV2" capabilities :test #'string=))
+               (is (member "engine_getBlobsV3" capabilities :test #'string=))))
+        (setf ethereum-lisp.core:*kzg-point-proof-verifier* old-point-verifier
+              ethereum-lisp.core:*kzg-blob-proof-verifier* old-blob-verifier)))
     (let* ((response (parse-json
                       (engine-rpc-handle-request-json
                        "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"engine_exchangeCapabilities\",\"params\":[7]}"

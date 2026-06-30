@@ -1215,7 +1215,11 @@ first pass, but interfaces must not block that path.
   workflow now also probes `engine_getClientVersionV1` and
   `engine_exchangeCapabilities` before payload import, reporting the local
   client identity and whether the expected V2 payload/forkchoice capabilities
-  are advertised at the process boundary. It also probes
+  are advertised at the process boundary. Capability advertisement now stays
+  KZG-aware: the default process hides blob-era Engine methods such as
+  `engine_newPayloadV3`, `engine_getBlobsV1`, and payload-bodies V2 until real
+  point-proof and blob-proof verifier hooks are present, so Hive-style runners
+  do not negotiate Cancun payloads against a shape-only verifier. It also probes
   `engine_exchangeTransitionConfigurationV1` through the same authenticated
   listener and reports the returned terminal total difficulty, block hash, and
   block number for consensus-client handshake checks. A runner-facing

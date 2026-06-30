@@ -7230,12 +7230,27 @@ references/ checkouts.~%")
                   (member "engine_getPayloadBodiesByHashV1"
                           capabilities-result
                           :test #'string=)
-                  "engine_exchangeCapabilities omitted engine_getPayloadBodiesByHashV1")
+                 "engine_exchangeCapabilities omitted engine_getPayloadBodiesByHashV1")
                  (devnet-smoke-gate-require
                   (member "engine_getPayloadBodiesByRangeV1"
                           capabilities-result
                           :test #'string=)
                   "engine_exchangeCapabilities omitted engine_getPayloadBodiesByRangeV1")
+                 (devnet-smoke-gate-require
+                  (not (member "engine_newPayloadV3"
+                               capabilities-result
+                               :test #'string=))
+                  "engine_exchangeCapabilities advertised engine_newPayloadV3 without KZG verification")
+                 (devnet-smoke-gate-require
+                  (not (member "engine_getBlobsV1"
+                               capabilities-result
+                               :test #'string=))
+                  "engine_exchangeCapabilities advertised engine_getBlobsV1 without KZG verification")
+                 (devnet-smoke-gate-require
+                  (not (member "engine_getPayloadBodiesByHashV2"
+                               capabilities-result
+                               :test #'string=))
+                  "engine_exchangeCapabilities advertised engine_getPayloadBodiesByHashV2 without KZG verification")
                  (devnet-smoke-gate-require
                   (string= "CL"
                            (fixture-object-field client-version-result "code"))
@@ -7801,6 +7816,27 @@ references/ checkouts.~%")
                         (if (member "engine_getPayloadV2"
                                     capabilities-result
                                     :test #'string=)
+                            t
+                            :false))
+                  (cons "engineCapabilityHasNewPayloadV3"
+                        (if (member "engine_newPayloadV3"
+                                    capabilities-result
+                                    :test #'string=)
+                            t
+                            :false))
+                  (cons "engineCapabilityHasGetBlobsV1"
+                        (if (member "engine_getBlobsV1"
+                                    capabilities-result
+                                    :test #'string=)
+                            t
+                            :false))
+                  (cons "engineCapabilityHasPayloadBodiesV2"
+                        (if (or (member "engine_getPayloadBodiesByHashV2"
+                                        capabilities-result
+                                        :test #'string=)
+                                (member "engine_getPayloadBodiesByRangeV2"
+                                        capabilities-result
+                                        :test #'string=))
                             t
                             :false))
                   (cons "engineClientVersionCode"

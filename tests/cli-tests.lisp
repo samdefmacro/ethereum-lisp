@@ -3296,6 +3296,18 @@
                        (fixture-object-field
                         report
                         "engineCapabilityHasGetPayloadV2")))
+               (is (eq nil
+                       (fixture-object-field
+                        report
+                        "engineCapabilityHasNewPayloadV3")))
+               (is (eq nil
+                       (fixture-object-field
+                        report
+                        "engineCapabilityHasGetBlobsV1")))
+               (is (eq nil
+                       (fixture-object-field
+                        report
+                        "engineCapabilityHasPayloadBodiesV2")))
                (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration report)
                (devnet-cli-assert-engine-payload-bodies report)
@@ -3855,6 +3867,18 @@
                            (fixture-object-field
                             case
                             "engineCapabilityHasGetPayloadV2")))
+                   (is (eq nil
+                           (fixture-object-field
+                            case
+                            "engineCapabilityHasNewPayloadV3")))
+                   (is (eq nil
+                           (fixture-object-field
+                            case
+                            "engineCapabilityHasGetBlobsV1")))
+                   (is (eq nil
+                           (fixture-object-field
+                            case
+                            "engineCapabilityHasPayloadBodiesV2")))
                    (devnet-cli-assert-engine-client-version case)
                    (devnet-cli-assert-engine-transition-configuration case)
                    (devnet-cli-assert-public-readiness case)
