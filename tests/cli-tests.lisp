@@ -5572,11 +5572,79 @@
                              genesis)
                (is (= 0 status))
                (is (string= "" stderr))
-               (let ((summary (parse-json stdout)))
+               (let* ((summary (parse-json stdout))
+                      (ready-summary
+                        (parse-json (devnet-cli-file-string ready-path)))
+                      (pid (devnet-cli-pid-file-process-id pid-path))
+                      (log-records (devnet-cli-file-forms log-path))
+                      (ready-record (first log-records))
+                      (shutdown-record (second log-records))
+                      (ready-fields (getf ready-record :fields))
+                      (shutdown-fields (getf shutdown-record :fields)))
                  (is (= 1337 (fixture-object-field summary "chainId")))
                  (is (string= (namestring datadir-database-path)
                               (fixture-object-field summary
-                                                    "databasePath")))))
+                                                    "databasePath")))
+                 (is (probe-file ready-path))
+                 (is (probe-file log-path))
+                 (is (probe-file pid-path))
+                 (is (= 2 (length log-records)))
+                 (is (= pid (fixture-object-field summary "processId")))
+                 (is (= pid (fixture-object-field ready-summary
+                                                  "processId")))
+                 (is (string= genesis
+                              (fixture-object-field summary "genesisPath")))
+                 (is (string= genesis
+                              (fixture-object-field ready-summary
+                                                    "genesisPath")))
+                 (is (string= (namestring datadir-database-path)
+                              (fixture-object-field ready-summary
+                                                    "databasePath")))
+                 (is (string= (namestring log-path)
+                              (fixture-object-field summary "logPath")))
+                 (is (string= (namestring log-path)
+                              (fixture-object-field ready-summary "logPath")))
+                 (is (string= (namestring pid-path)
+                              (fixture-object-field summary
+                                                    "pidFilePath")))
+                 (is (string= (namestring pid-path)
+                              (fixture-object-field ready-summary
+                                                    "pidFilePath")))
+                 (is (eq :log (getf ready-record :kind)))
+                 (is (eq :info (getf ready-record :value)))
+                 (is (string= "init.ready" (getf ready-record :name)))
+                 (is (string= "ready"
+                              (cdr (assoc "lifecyclePhase"
+                                          ready-fields
+                                          :test #'string=))))
+                 (is (string= (write-to-string pid)
+                              (cdr (assoc "processId"
+                                          ready-fields
+                                          :test #'string=))))
+                 (is (string= (namestring log-path)
+                              (cdr (assoc "logPath"
+                                          ready-fields
+                                          :test #'string=))))
+                 (is (string= (namestring pid-path)
+                              (cdr (assoc "pidFilePath"
+                                          ready-fields
+                                          :test #'string=))))
+                 (is (string= (namestring datadir-database-path)
+                              (cdr (assoc "databasePath"
+                                          ready-fields
+                                          :test #'string=))))
+                 (is (eq :log (getf shutdown-record :kind)))
+                 (is (eq :info (getf shutdown-record :value)))
+                 (is (string= "init.shutdown"
+                              (getf shutdown-record :name)))
+                 (is (string= "shutdown"
+                              (cdr (assoc "lifecyclePhase"
+                                          shutdown-fields
+                                          :test #'string=))))
+                 (is (string= (write-to-string pid)
+                              (cdr (assoc "processId"
+                                          shutdown-fields
+                                          :test #'string=))))))
              (is (probe-file datadir-genesis-path))
              (is (probe-file datadir-database-path))
              (multiple-value-bind (stdout stderr status)
@@ -5597,7 +5665,13 @@
         (when (probe-file datadir-genesis-path)
           (delete-file datadir-genesis-path))
         (when (probe-file datadir-database-path)
-          (delete-file datadir-database-path))))))
+          (delete-file datadir-database-path))
+        (when (probe-file ready-path)
+          (delete-file ready-path))
+        (when (probe-file log-path)
+          (delete-file log-path))
+        (when (probe-file pid-path)
+          (delete-file pid-path))))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-no-serve-json
   #-sbcl

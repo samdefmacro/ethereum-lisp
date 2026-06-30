@@ -694,6 +694,15 @@ ones.
     flags no longer make datadir initialization fail when a runner reuses its
     devnet launch template. Runner-facing script coverage initializes from
     `/private/tmp` with those flags present.
+- [x] `DEVNET-RUNNER-INIT-ARTIFACTS`: Give datadir initialization a
+  runner-visible success artifact contract.
+  - Result (2026-06-30): successful `ethereum-lisp init` invocations now honor
+    explicit `--ready-file`, `--log-file`, and `--pid-file` paths. The command
+    writes the pid artifact, exports the initialized database, publishes
+    ready-file JSON matching stdout, and records `init.ready` /
+    `init.shutdown` telemetry with lifecycle phase, process id, log path, pid
+    path, and database path fields. Runner-facing script coverage locks the
+    full artifact contract from `/private/tmp`.
 - [x] `DEVNET-RUNNER-SHARED-OPTION-TABLES`: Keep `devnet`, `init`, and
   pre-command runner dispatch aligned on the same known geth/Hive option
   tables.

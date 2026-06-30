@@ -1138,10 +1138,16 @@ first pass, but interfaces must not block that path.
   network id, node-key/discovery, diagnostics, mining, and txpool settings, so
   the same runner template can initialize a datadir and then launch from it
   without stripping launch-only options first. That init compatibility now also
-  covers listener and runner-artifact launch options such as `--authrpc.*`,
-  `--http.*`, WebSocket/GraphQL no-op flags, ready/log/pid files, max
-  connections, and prune settings, while keeping `--json`, `--datadir`,
-  `--database`, and `--genesis` as the init command's semantic options.
+  covers listener launch options such as `--authrpc.*`, `--http.*`,
+  WebSocket/GraphQL no-op flags, max connections, and prune settings, while
+  keeping `--json`, `--datadir`, `--database`, and `--genesis` as the init
+  command's core semantic options. Successful init invocations now also honor
+  explicit `--ready-file`, `--log-file`, and `--pid-file` runner artifacts:
+  they write the child process id, publish ready-file JSON matching stdout,
+  and emit `init.ready` / `init.shutdown` lifecycle telemetry with process,
+  log, pid, and database paths. Together with command-specific `init.error`
+  records, datadir initialization now has a machine-readable success/failure
+  contract for Hive-style process runners.
   The `devnet` command now also consumes launch-only value and optional-boolean
   compatibility flags from the same shared option tables used by `init` and
   pre-command dispatch after its semantic options are handled, so future

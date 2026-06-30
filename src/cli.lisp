@@ -900,6 +900,9 @@
   (let ((genesis-path nil)
         (database-path nil)
         (datadir-path nil)
+        (ready-file nil)
+        (log-file nil)
+        (pid-file nil)
         (summary-format :sexp)
         (help-p nil))
     (loop while args
@@ -915,6 +918,15 @@
                   (devnet-cli-next-value args option)))
                ((string= option "--datadir")
                 (multiple-value-setq (datadir-path args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--ready-file")
+                (multiple-value-setq (ready-file args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--log-file")
+                (multiple-value-setq (log-file args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--pid-file")
+                (multiple-value-setq (pid-file args)
                   (devnet-cli-next-value args option)))
                ((string= option "--json")
                 (setf summary-format :json)
@@ -952,6 +964,9 @@
                              (and datadir-path
                                   (devnet-cli-datadir-database-path
                                    datadir-path)))
+          :ready-file ready-file
+          :log-file log-file
+          :pid-file pid-file
           :summary-format summary-format
           :help-p help-p)))
 
@@ -980,15 +995,32 @@
       (devnet-cli-copy-file-string
        genesis-path
        (devnet-cli-datadir-genesis-path datadir-path)))
-    (let ((node
-            (make-devnet-node
-             :genesis-path genesis-path
-             :database-path database-path)))
-      (devnet-node-export-database node)
-      (devnet-cli-print-summary
-       node
-       output-stream
-       :format (getf options :summary-format)))))
+    (call-with-devnet-cli-telemetry-sink
+     options
+     output-stream
+     (lambda (telemetry-sink)
+       (let ((node
+               (make-devnet-node
+                :genesis-path genesis-path
+                :database-path database-path
+                :log-path (getf options :log-file)
+                :pid-file-path (getf options :pid-file)
+                :telemetry-sink telemetry-sink)))
+         (when (getf options :pid-file)
+           (devnet-cli-write-pid-file (getf options :pid-file)))
+         (devnet-node-export-database node)
+         (when (getf options :ready-file)
+           (devnet-cli-write-ready-file
+            node
+            (getf options :ready-file)))
+         (when (getf options :log-file)
+           (devnet-cli-log-event node "init.ready"))
+         (devnet-cli-print-summary
+          node
+          output-stream
+          :format (getf options :summary-format))
+         (when (getf options :log-file)
+           (devnet-cli-log-event node "init.shutdown")))))))
 
 (defun devnet-cli-print-usage (stream)
   (format stream
@@ -1190,6 +1222,9 @@
               ((string= name "devnet.ready") "ready")
               ((string= name "devnet.shutdown") "shutdown")
               ((string= name "devnet.error") "error")
+              ((string= name "init.ready") "ready")
+              ((string= name "init.shutdown") "shutdown")
+              ((string= name "init.error") "error")
               (t ""))
             :connection-summary connection-summary)))
 
