@@ -489,6 +489,12 @@ ones.
     the CLI still prints the original diagnostic and usage text and returns
     status 1 instead of replacing the runner-visible failure with a telemetry
     write failure.
+  - Result (2026-07-01): `init --json` now uses the same explicit
+    optional-boolean assignment validation as `devnet --json`. Runner inputs
+    such as `init --json=false` select S-expression summaries, while malformed
+    geth-style assignments such as `init --json=maybe` fail immediately with
+    the boolean-value diagnostic and init usage without breaking the existing
+    positional `init --json GENESIS` form.
 - [x] `DEVNET-RUNNER-DATADIR-JWTSECRET`: Load Hive/geth-style datadir Engine
   JWT secrets when no explicit `--jwt-secret` / `--authrpc.jwtsecret` path is
   provided.

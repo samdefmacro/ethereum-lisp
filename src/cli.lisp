@@ -915,7 +915,19 @@
 (defun devnet-cli-init-command-p (args)
   (devnet-cli-command-position args "init"))
 
+(defun devnet-cli-reject-malformed-init-json-assignment (args)
+  (dolist (arg args)
+    (let ((separator
+            (and (devnet-cli-option-token-p arg)
+                 (position #\= arg :start 2))))
+      (when (and separator
+                 (string= "--json" arg :end2 separator))
+        (let ((value (subseq arg (1+ separator))))
+          (unless (devnet-cli-boolean-token-p value)
+            (devnet-cli-parse-boolean-token value "--json")))))))
+
 (defun devnet-cli-init-options (args)
+  (devnet-cli-reject-malformed-init-json-assignment args)
   (setf args (devnet-cli-remove-command-token args "init"))
   (setf args (devnet-cli-normalize-option-args args))
   (let ((genesis-path nil)
@@ -953,9 +965,7 @@
                 (setf summary-format :json)
                 (when (and args
                            (not (devnet-cli-option-token-p (first args)))
-                           (member (string-downcase (first args))
-                                   '("true" "false" "1" "0")
-                                   :test #'string=))
+                           (devnet-cli-boolean-token-p (first args)))
                   (let ((enabled-p
                           (devnet-cli-parse-boolean-token
                            (first args)

@@ -1218,7 +1218,10 @@ first pass, but interfaces must not block that path.
   Error telemetry is now best-effort: if a runner supplies an unusable
   `--log-file` path while startup is already failing, the CLI still reports the
   original diagnostic and returns status 1 instead of letting telemetry output
-  replace the process failure contract.
+  replace the process failure contract. The `init --json` flag now also
+  validates explicit geth-style boolean assignments, so `init --json=false` is
+  accepted while malformed `--json=VALUE` inputs fail as option errors without
+  breaking positional `init --json GENESIS` commands.
   Runner-facing initialization failures now emit `init.error` rather than
   `devnet.error` while preserving the same structured error fields, letting
   launchers distinguish datadir initialization failures from devnet startup

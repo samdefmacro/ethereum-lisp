@@ -11400,6 +11400,29 @@
     (is (eq :json (getf enabled :summary-format)))
     (is (not (getf enabled :serve-p)))))
 
+(deftest devnet-cli-init-json-boolean-values-affect-summary-format
+  (let ((disabled
+          (ethereum-lisp.cli::devnet-cli-init-options
+           (list "init" "--json=false")))
+        (enabled
+          (ethereum-lisp.cli::devnet-cli-init-options
+           (list "init" "--json" "1"))))
+    (is (eq :sexp (getf disabled :summary-format)))
+    (is (eq :json (getf enabled :summary-format)))))
+
+(deftest devnet-cli-init-rejects-malformed-json-boolean-before-genesis
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 1
+           (ethereum-lisp.cli:main
+            (list "init" "--json=maybe")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string output)))
+    (let ((stderr (get-output-stream-string errors)))
+      (is (search "--json boolean value must be true or false" stderr))
+      (is (search "Usage: ethereum-lisp init" stderr)))))
+
 (deftest devnet-cli-accepts-geth-style-mining-archive-and-metrics-flags
   (let ((options
           (ethereum-lisp.cli::devnet-cli-options
