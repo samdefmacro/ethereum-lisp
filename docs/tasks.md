@@ -535,6 +535,12 @@ ones.
     containing `engine_getClientVersionV1` and `engine_exchangeCapabilities`
     through the ready-file Engine endpoint, verifies both response bodies, and
     checks shutdown telemetry accounts for the extra Engine connection.
+  - Result (2026-06-30): the same external script-process readiness batch now
+    advertises the V1/V2 payload, forkchoice, getPayload, and V1 payload-body
+    methods in its `engine_exchangeCapabilities` handshake, asserts the local
+    Engine listener returns that Shanghai-safe method set, and asserts
+    KZG-gated blob-era methods remain absent until real proof verification is
+    wired.
 - [x] `DEVNET-RUNNER-SCRIPT-TRANSITION-CONFIG`: Lock authenticated Engine
   transition-configuration handshake readiness at the external script process
   boundary.

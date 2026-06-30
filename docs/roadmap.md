@@ -1245,7 +1245,8 @@ first pass, but interfaces must not block that path.
   listener endpoints before and after a clean zero-connection shutdown. The same
   runner-facing script is now covered as a long-running serve process receiving
   JWT-authenticated Engine `engine_getClientVersionV1`, an authenticated
-  Engine readiness batch, authenticated
+  Engine readiness batch that locks the advertised V1/V2 Shanghai-safe
+  capability set while excluding KZG-gated blob-era methods, authenticated
   `engine_exchangeTransitionConfigurationV1`, plus public `eth_chainId`,
   `web3_clientVersion`, `net_version`, `net_listening`, `eth_syncing`,
   `net_peerCount`, `eth_accounts`, `eth_coinbase`, `eth_mining`, and

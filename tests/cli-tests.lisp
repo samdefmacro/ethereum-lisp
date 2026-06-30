@@ -143,6 +143,46 @@
                (fixture-object-field
                 report "engineTransitionTerminalBlockNumber"))))
 
+(defun devnet-cli-assert-engine-capability-list (capabilities)
+  (dolist (method '("engine_newPayloadV1"
+                    "engine_forkchoiceUpdatedV1"
+                    "engine_getPayloadV1"
+                    "engine_newPayloadV2"
+                    "engine_forkchoiceUpdatedV2"
+                    "engine_getPayloadV2"
+                    "engine_getPayloadBodiesByHashV1"
+                    "engine_getPayloadBodiesByRangeV1"))
+    (is (member method capabilities :test #'string=)))
+  (dolist (method '("engine_newPayloadV3"
+                    "engine_getBlobsV1"
+                    "engine_getPayloadBodiesByHashV2"))
+    (is (not (member method capabilities :test #'string=)))))
+
+(defun devnet-cli-assert-engine-capability-report (report)
+  (is (plusp (fixture-object-field report "engineCapabilityCount")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasNewPayloadV1")))
+  (is (eq t
+          (fixture-object-field
+           report
+           "engineCapabilityHasForkchoiceUpdatedV1")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasGetPayloadV1")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasNewPayloadV2")))
+  (is (eq t
+          (fixture-object-field
+           report
+           "engineCapabilityHasForkchoiceUpdatedV2")))
+  (is (eq t
+          (fixture-object-field report "engineCapabilityHasGetPayloadV2")))
+  (is (eq nil
+          (fixture-object-field report "engineCapabilityHasNewPayloadV3")))
+  (is (eq nil
+          (fixture-object-field report "engineCapabilityHasGetBlobsV1")))
+  (is (eq nil
+          (fixture-object-field report "engineCapabilityHasPayloadBodiesV2"))))
+
 (defun devnet-cli-assert-public-readiness (report)
   (is (search "ethereum-lisp"
               (fixture-object-field report "publicClientVersion")))
@@ -3367,44 +3407,7 @@
                       (fixture-object-field
                        report
                        "engineInvalidAuthStatus")))
-               (is (plusp
-                    (fixture-object-field report "engineCapabilityCount")))
-               (is (eq t
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasNewPayloadV1")))
-               (is (eq t
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasForkchoiceUpdatedV1")))
-               (is (eq t
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasGetPayloadV1")))
-               (is (eq t
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasNewPayloadV2")))
-               (is (eq t
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasForkchoiceUpdatedV2")))
-               (is (eq t
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasGetPayloadV2")))
-               (is (eq nil
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasNewPayloadV3")))
-               (is (eq nil
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasGetBlobsV1")))
-               (is (eq nil
-                       (fixture-object-field
-                        report
-                        "engineCapabilityHasPayloadBodiesV2")))
+               (devnet-cli-assert-engine-capability-report report)
                (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration report)
                (devnet-cli-assert-engine-payload-bodies report)
@@ -3952,44 +3955,7 @@
                           (fixture-object-field
                            case
                            "engineInvalidAuthStatus")))
-                   (is (plusp
-                        (fixture-object-field case "engineCapabilityCount")))
-                   (is (eq t
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasNewPayloadV1")))
-                   (is (eq t
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasForkchoiceUpdatedV1")))
-                   (is (eq t
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasGetPayloadV1")))
-                   (is (eq t
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasNewPayloadV2")))
-                   (is (eq t
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasForkchoiceUpdatedV2")))
-                   (is (eq t
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasGetPayloadV2")))
-                   (is (eq nil
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasNewPayloadV3")))
-                   (is (eq nil
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasGetBlobsV1")))
-                   (is (eq nil
-                           (fixture-object-field
-                            case
-                            "engineCapabilityHasPayloadBodiesV2")))
+                   (devnet-cli-assert-engine-capability-report case)
                    (devnet-cli-assert-engine-client-version case)
                    (devnet-cli-assert-engine-transition-configuration case)
                    (devnet-cli-assert-public-readiness case)
@@ -6355,7 +6321,7 @@
                     (engine-body
                       "{\"jsonrpc\":\"2.0\",\"id\":501,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     (engine-batch-body
-                      "[{\"jsonrpc\":\"2.0\",\"id\":513,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-batch-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]},{\"jsonrpc\":\"2.0\",\"id\":514,\"method\":\"engine_exchangeCapabilities\",\"params\":[[\"engine_getClientVersionV1\"]]}]")
+                      "[{\"jsonrpc\":\"2.0\",\"id\":513,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-batch-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]},{\"jsonrpc\":\"2.0\",\"id\":514,\"method\":\"engine_exchangeCapabilities\",\"params\":[[\"engine_newPayloadV1\",\"engine_forkchoiceUpdatedV1\",\"engine_getPayloadV1\",\"engine_newPayloadV2\",\"engine_forkchoiceUpdatedV2\",\"engine_getPayloadV2\",\"engine_getPayloadBodiesByHashV1\",\"engine_getPayloadBodiesByRangeV1\",\"engine_newPayloadV3\",\"engine_getBlobsV1\",\"engine_getPayloadBodiesByHashV2\"]]}]")
                     (engine-notification-body
                       "{\"jsonrpc\":\"2.0\",\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     (engine-transition-body
@@ -6771,10 +6737,9 @@
                  (is (= 514
                         (fixture-object-field
                          engine-batch-capabilities-json "id")))
-                 (is (member "engine_getClientVersionV1"
-                             (fixture-object-field
-                              engine-batch-capabilities-json "result")
-                             :test #'string=))
+                 (devnet-cli-assert-engine-capability-list
+                  (fixture-object-field
+                   engine-batch-capabilities-json "result"))
                  (is (string= ""
                               (devnet-cli-http-body
                                engine-notification-response)))
