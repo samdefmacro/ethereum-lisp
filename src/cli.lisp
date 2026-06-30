@@ -820,44 +820,15 @@
                   (setf http-vhosts
                         (devnet-cli-parse-vhost-list value)
                         args rest)))
-               ((member option
-                        '("--ws.addr" "--ws.port"
-                          "--ws.api" "--ws.origins" "--graphql.addr"
-                          "--graphql.port" "--graphql.vhosts"
-                          "--graphql.corsdomain" "--syncmode"
-                          "--verbosity" "--maxpeers" "--nat"
-                          "--identity" "--gcmode" "--cache"
-                          "--cache.database" "--cache.gc" "--cache.trie"
-                          "--state.scheme" "--db.engine"
-                          "--datadir.ancient" "--ipcpath" "--netrestrict"
-                          "--nodekey" "--nodekeyhex" "--discovery.port"
-                          "--discovery.dns"
-                          "--txlookuplimit" "--history.transactions"
-                          "--bootnodes" "--miner.etherbase" "--etherbase"
-                          "--miner.gaslimit" "--miner.gasprice" "--unlock"
-                          "--password" "--metrics.addr" "--metrics.port"
-                          "--pprof.addr" "--pprof.port"
-                          "--txpool.locals" "--txpool.journal"
-                          "--txpool.rejournal" "--txpool.pricelimit"
-                          "--txpool.pricebump" "--txpool.accountslots"
-                          "--txpool.globalslots" "--txpool.accountqueue"
-                          "--txpool.globalqueue" "--txpool.lifetime"
-                          "--txpool.blobpool.datacap"
-                          "--txpool.blobpool.pricebump")
-                        :test #'string=)
-                (multiple-value-bind (value rest)
-                    (devnet-cli-next-value args option)
-                  (declare (ignore value))
-                  (setf args rest)))
-               ((member option '("--ws" "--graphql" "--nodiscover" "--ipcdisable"
-                                  "--allow-insecure-unlock" "--mine"
-                                  "--metrics" "--pprof" "--snapshot"
-                                  "--rpc.allow-unprotected-txs"
-                                  "--txpool.nolocals" "--dev" "--nousb")
-                        :test #'string=)
-                (setf args
-                      (devnet-cli-consume-optional-boolean-value
-                       args option)))
+               ((string= option "--ready-file")
+                (multiple-value-setq (ready-file args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--log-file")
+                (multiple-value-setq (log-file args)
+                  (devnet-cli-next-value args option)))
+               ((string= option "--pid-file")
+                (multiple-value-setq (pid-file args)
+                  (devnet-cli-next-value args option)))
                ((string= option "--no-serve")
                 (multiple-value-bind (enabled-p rest)
                     (devnet-cli-optional-boolean-value args option)
@@ -870,15 +841,16 @@
                   (when enabled-p
                     (setf summary-format :json))
                   (setf args rest)))
-               ((string= option "--ready-file")
-                (multiple-value-setq (ready-file args)
-                  (devnet-cli-next-value args option)))
-               ((string= option "--log-file")
-                (multiple-value-setq (log-file args)
-                  (devnet-cli-next-value args option)))
-               ((string= option "--pid-file")
-                (multiple-value-setq (pid-file args)
-                  (devnet-cli-next-value args option)))
+               ((member option *devnet-cli-value-options* :test #'string=)
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (declare (ignore value))
+                  (setf args rest)))
+               ((member option *devnet-cli-optional-boolean-options*
+                        :test #'string=)
+                (setf args
+                      (devnet-cli-consume-optional-boolean-value
+                       args option)))
                (t
                 (error "Unknown option ~A" option))))
     (list :genesis-path genesis-path

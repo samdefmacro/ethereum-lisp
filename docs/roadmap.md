@@ -1142,6 +1142,11 @@ first pass, but interfaces must not block that path.
   `--http.*`, WebSocket/GraphQL no-op flags, ready/log/pid files, max
   connections, and prune settings, while keeping `--json`, `--datadir`,
   `--database`, and `--genesis` as the init command's semantic options.
+  The `devnet` command now also consumes launch-only value and optional-boolean
+  compatibility flags from the same shared option tables used by `init` and
+  pre-command dispatch after its semantic options are handled, so future
+  geth/Hive runner flags do not drift between initialization, launch, and
+  command detection paths.
   Ready, pid, telemetry log, and error-log artifact paths now create their
   parent directories before writing, so runner-provided nested artifact
   locations do not require a separate setup step. Devnet CLI invocations can

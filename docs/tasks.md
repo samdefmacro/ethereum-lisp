@@ -682,6 +682,15 @@ ones.
     flags no longer make datadir initialization fail when a runner reuses its
     devnet launch template. Runner-facing script coverage initializes from
     `/private/tmp` with those flags present.
+- [x] `DEVNET-RUNNER-SHARED-OPTION-TABLES`: Keep `devnet`, `init`, and
+  pre-command runner dispatch aligned on the same known geth/Hive option
+  tables.
+  - Result (2026-06-30): `ethereum-lisp devnet` now consumes launch-only
+    compatibility value and optional-boolean flags from the shared parser
+    tables after handling semantic options, matching `init` and command
+    detection. This removes the remaining duplicated devnet no-op lists while
+    preserving `--json`, `--no-serve`, ready/log/pid artifact paths, endpoint
+    shaping, network id, database/datadir, and pruning semantics.
 - [x] `DEVNET-RUNNER-SCRIPT-DATADIR-SERVE`: Lock the initialized-datadir
   lifecycle at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
