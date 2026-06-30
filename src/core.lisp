@@ -5159,9 +5159,10 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (old-transaction new-transaction price-function)
   (let ((old-price (funcall price-function old-transaction))
         (new-price (funcall price-function new-transaction)))
-    (>= (* new-price 100)
-        (* old-price
-           (+ 100 +txpool-replacement-price-bump-percent+)))))
+    (and (> new-price old-price)
+         (>= (* new-price 100)
+             (* old-price
+                (+ 100 +txpool-replacement-price-bump-percent+))))))
 
 (defun engine-pending-txpool-replacement-transaction-p
     (old-transaction new-transaction)

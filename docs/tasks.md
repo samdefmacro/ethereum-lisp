@@ -5575,6 +5575,11 @@ splits can land after the Phase A smoke path closes.
     rejects replacements below a 10% fee-cap and priority-fee bump, and swaps
     in sufficiently bumped replacements while removing the old hash entry and
     updating the sender/nonce index.
+  - Result (2026-06-30): tightened the replacement price-bump predicate to
+    require a strictly higher fee before applying the configured percentage
+    threshold. Zero-fee same-sender/same-nonce alternatives are now rejected
+    instead of replacing an existing pooled transaction through the zero
+    threshold edge case.
 
 - [x] Add queued/basefee/blob subpool placeholders.
   - Milestone: 7

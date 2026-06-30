@@ -135,7 +135,10 @@ fixes in those areas are allowed; expansion is not.
   after canonical-head updates advance retained sender nonces. Base-fee
   ineligible submissions now route into the basefee txpool view, and bumped
   same-sender/same-nonce replacements can move them into pending without
-  leaving duplicate subpool entries behind; canonical-head updates also
+  leaving duplicate subpool entries behind. Replacement price-bump checks
+  require a strictly higher fee before applying the configured bump, so
+  zero-fee alternatives cannot replace an existing pooled transaction through
+  a zero threshold; canonical-head updates also
   promote basefee entries that become eligible after a base-fee drop. Pending
   nonce RPCs count only the contiguous pending subpool span, so queued gaps and
   basefee-ineligible entries do not consume account nonces before promotion.

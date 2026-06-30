@@ -8761,6 +8761,73 @@
       (is (eq replacement-transaction
               (gethash nonce-key sender-transactions))))))
 
+(deftest engine-pending-txpool-rejects-zero-fee-same-nonce-replacement
+  (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (alternate-recipient
+           (address-from-hex "0x4545454545454545454545454545454545454545"))
+         (private-key 1)
+         (base-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 7
+             :gas-price 0
+             :gas-limit 21000
+             :to recipient)
+            private-key
+            1))
+         (same-price-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 7
+             :gas-price 0
+             :gas-limit 21000
+             :to alternate-recipient)
+            private-key
+            1))
+         (bumped-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 7
+             :gas-price 1
+             :gas-limit 21000
+             :to alternate-recipient)
+            private-key
+            1)))
+    (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+     txpool
+     base-transaction)
+    (signals block-validation-error
+      (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+       txpool
+       same-price-transaction))
+    (is (= 1
+           (ethereum-lisp.core::engine-pending-txpool-pending-count
+            txpool)))
+    (is (eq base-transaction
+            (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+             txpool
+             (transaction-hash base-transaction))))
+    (is (null
+         (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+          txpool
+          (transaction-hash same-price-transaction))))
+    (ethereum-lisp.core::engine-pending-txpool-put-pending-transaction
+     txpool
+     bumped-transaction)
+    (is (= 1
+           (ethereum-lisp.core::engine-pending-txpool-pending-count
+            txpool)))
+    (is (null
+         (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+          txpool
+          (transaction-hash base-transaction))))
+    (is (eq bumped-transaction
+            (ethereum-lisp.core::engine-pending-txpool-pending-transaction
+             txpool
+             (transaction-hash bumped-transaction))))))
+
 (deftest engine-pending-txpool-indexes-basefee-and-blob-subpools
   (let* ((txpool (ethereum-lisp.core::make-engine-pending-txpool))
          (recipient
