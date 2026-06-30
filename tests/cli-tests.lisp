@@ -1073,6 +1073,18 @@
       (format stream "Authorization: Bearer ~A~%" token))
     (format stream "Content-Length: ~D~%~%~A" (length body) body)))
 
+(defun devnet-cli-json-rpc-duplicate-auth-http-request
+    (body first-token second-token &key (target "/") (host "localhost")
+       origin)
+  (with-output-to-string (stream)
+    (format stream "POST ~A HTTP/1.1~%Host: ~A~%" target host)
+    (format stream "Content-Type: application/json~%")
+    (when origin
+      (format stream "Origin: ~A~%" origin))
+    (format stream "Authorization: Bearer ~A~%" first-token)
+    (format stream "Authorization: Bearer ~A~%" second-token)
+    (format stream "Content-Length: ~D~%~%~A" (length body) body)))
+
 (defun devnet-cli-options-http-request
     (&key (target "/") (host "localhost") origin
        (request-method "POST") request-headers)
@@ -6700,6 +6712,7 @@
                     engine-public-response
                     unauthenticated-engine-response
                     invalid-auth-engine-response
+                    duplicate-auth-engine-response
                     public-response
                     public-client-version-response
                     public-net-version-response
@@ -6771,6 +6784,13 @@
                             (devnet-cli-json-rpc-http-request
                              engine-capabilities-body
                              :token wrong-token)))
+                     (setf duplicate-auth-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-duplicate-auth-http-request
+                             engine-capabilities-body
+                             token
+                             wrong-token)))
                      (setf public-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -6898,6 +6918,8 @@
                       (devnet-cli-http-status unauthenticated-engine-response)))
                (is (= 401
                       (devnet-cli-http-status invalid-auth-engine-response)))
+               (is (= 401
+                      (devnet-cli-http-status duplicate-auth-engine-response)))
                (is (= 200 (devnet-cli-http-status public-response)))
                (is (= 200
                       (devnet-cli-http-status
@@ -7263,7 +7285,7 @@
                                                     :test #'string=))))))
                        (let ((shutdown-fields
                                (getf shutdown-record :fields)))
-                         (is (string= "7"
+                         (is (string= "8"
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
@@ -7271,7 +7293,7 @@
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "30"
+                         (is (string= "31"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

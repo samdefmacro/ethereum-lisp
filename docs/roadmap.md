@@ -1295,9 +1295,10 @@ first pass, but interfaces must not block that path.
   public JSON-RPC notifications produce empty HTTP bodies, while public mixed
   batches omit notification results and all-notification batches produce no
   body at the external process boundary. The same script subprocess
-  coverage now verifies missing/wrong JWT Engine requests fail with HTTP 401
-  and that Engine/public namespace separation is enforced in both directions at
-  the external process boundary. It also has external script-process coverage
+  coverage now verifies missing/wrong JWT Engine requests and duplicate
+  `Authorization` headers fail with HTTP 401, and that Engine/public namespace
+  separation is enforced in both directions at the external process boundary.
+  It also has external script-process coverage
   for geth/Hive-style HTTP shaping flags: `--authrpc.*` / `--http.*` aliases,
   non-root Engine/public RPC prefixes, Engine/public vhost allowlists, public
   CORS origins, `--http.api eth,net` filtering, network-id-backed

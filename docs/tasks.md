@@ -1222,6 +1222,10 @@ ones.
     JSON-RPC `-32601`, verifies the public endpoint rejects
     `engine_exchangeCapabilities` with JSON-RPC `-32601`, and checks shutdown
     telemetry reports the four Engine and six public served connections.
+  - Result (2026-07-01): the same runner-facing subprocess now also sends
+    duplicate `Authorization` headers to the authenticated Engine listener and
+    requires HTTP 401 before JSON-RPC dispatch, locking the single-valued JWT
+    boundary for Hive-style process runners.
 - [x] `DEVNET-RUNNER-SCRIPT-HTTP-SHAPING`: Lock geth/Hive-style HTTP shaping
   flags at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
