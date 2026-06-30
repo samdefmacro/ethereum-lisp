@@ -7916,6 +7916,23 @@
                                        (list
                                         (fixture-object-field
                                          expect "logTopic")))))))))
+                (new-log-filter-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 645)
+                         (cons "method" "eth_newFilter")
+                         (cons "params"
+                               (list
+                                (list
+                                 (cons "fromBlock" "latest")
+                                 (cons "toBlock" "latest")
+                                 (cons "address"
+                                       (fixture-object-field expect
+                                                             "logAddress"))
+                                 (cons "topics"
+                                       (list
+                                        (fixture-object-field
+                                         expect "logTopic")))))))))
                 (new-block-filter-body
                   (json-encode
                    (list (cons "jsonrpc" "2.0")
@@ -7961,7 +7978,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "36"
+                        "38"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -7993,6 +8010,7 @@
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
                     new-block-filter-response
+                    new-log-filter-response
                     new-payload-response
                     forkchoice-response
                     payload-bodies-by-hash-response
@@ -8035,7 +8053,8 @@
                     block-receipts-response
                     logs-response
                     logs-by-block-hash-response
-                    block-filter-changes-response)
+                    block-filter-changes-response
+                    log-filter-changes-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
                    (progn
@@ -8044,6 +8063,11 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              new-block-filter-body)))
+                     (setf new-log-filter-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             new-log-filter-body)))
                      (setf new-payload-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -8290,6 +8314,26 @@
                               rpc-endpoint
                               (devnet-cli-json-rpc-http-request
                                block-filter-changes-body))))
+                     (let* ((new-log-filter-rpc
+                              (parse-json
+                               (devnet-cli-http-body
+                                new-log-filter-response)))
+                            (log-filter-id
+                              (fixture-object-field
+                               new-log-filter-rpc "result"))
+                            (log-filter-changes-body
+                              (json-encode
+                               (list
+                                (cons "jsonrpc" "2.0")
+                                (cons "id" 646)
+                                (cons "method" "eth_getFilterChanges")
+                                (cons "params"
+                                      (list log-filter-id))))))
+                       (setf log-filter-changes-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               log-filter-changes-body))))
                      (setf post-status-block-number-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -8304,6 +8348,7 @@
                    (skip-test
                                "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status new-block-filter-response)))
+               (is (= 200 (devnet-cli-http-status new-log-filter-response)))
                (is (= 200 (devnet-cli-http-status new-payload-response)))
                (is (= 200 (devnet-cli-http-status forkchoice-response)))
                (is (= 200 (devnet-cli-http-status
@@ -8372,6 +8417,8 @@
                             logs-by-block-hash-response)))
                (is (= 200 (devnet-cli-http-status
                             block-filter-changes-response)))
+               (is (= 200 (devnet-cli-http-status
+                            log-filter-changes-response)))
                (let* ((new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
@@ -8379,6 +8426,10 @@
                         (parse-json
                          (devnet-cli-http-body
                           new-block-filter-response)))
+                      (new-log-filter-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          new-log-filter-response)))
                       (forkchoice-rpc
                         (parse-json
                          (devnet-cli-http-body forkchoice-response)))
@@ -8532,6 +8583,14 @@
                       (block-filter-changes
                         (fixture-object-field block-filter-changes-rpc
                                               "result"))
+                      (log-filter-changes-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          log-filter-changes-response)))
+                      (log-filter-changes
+                        (fixture-object-field log-filter-changes-rpc
+                                              "result"))
+                      (log-filter-change-log (first log-filter-changes))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -8730,11 +8789,19 @@
                               new-block-filter-rpc "id")))
                  (is (= 644 (fixture-object-field
                               block-filter-changes-rpc "id")))
+                 (is (= 645 (fixture-object-field
+                              new-log-filter-rpc "id")))
+                 (is (= 646 (fixture-object-field
+                              log-filter-changes-rpc "id")))
                  (is (string= "0x1"
                               (fixture-object-field
                                new-block-filter-rpc "result")))
+                 (is (string= "0x2"
+                              (fixture-object-field
+                               new-log-filter-rpc "result")))
                  (is (= 1 (length block-filter-changes)))
                  (is (string= block-hash-hex (first block-filter-changes)))
+                 (is (= (length receipt-logs) (length log-filter-changes)))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -8965,7 +9032,8 @@
                  (is (= (length receipt-logs)
                         (length block-hash-filtered-logs)))
                  (dolist (log (list receipt-log block-receipt-log
-                                    filtered-log block-hash-filtered-log))
+                                    filtered-log block-hash-filtered-log
+                                    log-filter-change-log))
                    (is (string= (fixture-object-field expect "logAddress")
                                 (fixture-object-field log "address")))
                    (is (string= (fixture-object-field expect "logData")
@@ -9028,11 +9096,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "36"
+                       (is (string= "38"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "44"
+                       (is (string= "46"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))

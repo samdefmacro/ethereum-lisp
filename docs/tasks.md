@@ -1267,6 +1267,15 @@ ones.
     is applied. The assertion verifies the filter id and the returned imported
     child block hash, and shutdown telemetry now accounts for the extra public
     filter requests.
+- [x] `DEVNET-RUNNER-SCRIPT-LOG-FILTER`: Lock public log filter change delivery
+  at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
+    serve-mode subprocess coverage now creates an `eth_newFilter` through the
+    public listener before authenticated Engine import, then polls
+    `eth_getFilterChanges` after the log-producing child is accepted and
+    forkchoice is applied. The assertion verifies the filter id, returned log
+    count, log address/data/topic, transaction and block linkage, indexes, and
+    shutdown telemetry for the extra public filter requests.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

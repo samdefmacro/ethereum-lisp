@@ -1299,7 +1299,9 @@ first pass, but interfaces must not block that path.
   while public RPC remains on the canonical imported head. The same external
   process import path now creates a public `eth_newBlockFilter` before Engine
   import and verifies `eth_getFilterChanges` reports the imported child hash
-  after forkchoice. Public txpool
+  after forkchoice. It also creates a public `eth_newFilter` before importing
+  a log-producing child and verifies `eth_getFilterChanges` returns the
+  imported log object with transaction/block linkage after forkchoice. Public txpool
   admission is also covered at the script-process boundary: a fixture-derived
   genesis funds a local sender, raw pending/basefee/queued submissions go
   through the advertised public listener, and hash lookup plus
