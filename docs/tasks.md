@@ -1417,6 +1417,15 @@ ones.
     visible as pending through `eth_getTransactionByHash`, the old canonical
     receipt disappears, and `eth_getLogs` over the new latest head returns no
     stale displaced logs.
+- [x] `DEVNET-RUNNER-PHASE-A-WRAPPER-OPTION-EQUALS`: Keep the outer Phase A
+  devnet smoke-gate wrapper compatible with geth/Hive-style option assignment
+  syntax.
+  - Result (2026-06-30): `scripts/phase-a-smoke-gate.lisp` now accepts
+    `--root=PATH` and explicit boolean assignments for `--json`,
+    `--devnet`, and `--pinned-v5.4.0`, while rejecting malformed boolean
+    values before loading the test system. Process-level tests cover accepted
+    assignment spelling on the fast empty-root failure path and malformed
+    `--devnet=VALUE` diagnostics.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

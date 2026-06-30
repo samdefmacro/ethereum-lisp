@@ -23,12 +23,49 @@
     "shanghai-two-legacy-transfers-with-withdrawal"
     "shanghai-log-contract-call-with-withdrawal"))
 
+(defparameter *smoke-gate-boolean-options*
+  (list +smoke-gate-pinned-v5.4.0-flag+
+        +smoke-gate-devnet-flag+
+        +smoke-gate-json-flag+))
+
+(defun smoke-gate-option-token-p (value)
+  (and (stringp value)
+       (<= 2 (length value))
+       (string= "--" value :end2 2)))
+
+(defun smoke-gate-boolean-option-p (arg)
+  (member arg *smoke-gate-boolean-options* :test #'string=))
+
+(defun smoke-gate-parse-boolean-assignment (option value)
+  (let ((normalized (and (stringp value) (string-downcase value))))
+    (cond
+      ((member normalized '("true" "1") :test #'string=) t)
+      ((member normalized '("false" "0") :test #'string=) nil)
+      (t (error "~A boolean value must be true or false" option)))))
+
+(defun smoke-gate-normalize-option-args (args)
+  (loop for arg in args
+        for separator = (and (smoke-gate-option-token-p arg)
+                             (position #\= arg :start 2))
+        for option = (and separator (subseq arg 0 separator))
+        for value = (and separator (subseq arg (1+ separator)))
+        append
+        (cond
+          ((and separator (string= option +smoke-gate-root-option+))
+           (list option value))
+          ((and separator (smoke-gate-boolean-option-p option))
+           (if (smoke-gate-parse-boolean-assignment option value)
+               (list option)
+               '()))
+          (t
+           (list arg)))))
+
 (defun smoke-gate-arguments ()
   #+sbcl
   (let ((args (cdr sb-ext:*posix-argv*)))
     (when (and args (string= (first args) "--"))
       (setf args (cdr args)))
-    args)
+    (smoke-gate-normalize-option-args args))
   #-sbcl nil)
 
 (defun smoke-gate-pinned-v5.4.0-p (args)

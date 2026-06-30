@@ -1383,6 +1383,10 @@ first pass, but interfaces must not block that path.
   checks without JWT cleanup races. Its runner-facing artifact, database,
   fixture-case, and prune options now also accept `--option=value` spelling,
   matching the devnet CLI convention used by geth/Hive-shaped launchers.
+  The outer Phase A `--devnet` wrapper now follows the same runner convention
+  for `--root=PATH` plus explicit boolean assignments on `--json`, `--devnet`,
+  and `--pinned-v5.4.0`, rejecting malformed boolean values before loading the
+  test system.
   Stream telemetry writes are serialized, so
   split Engine/public listener threads cannot corrupt lifecycle log records
   while the Phase A/devnet gates parse them. Public `safe` / `finalized` block-tag

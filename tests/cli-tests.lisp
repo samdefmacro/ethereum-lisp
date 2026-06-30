@@ -4603,6 +4603,54 @@
     (is (search "ETHEREUM_LISP_NETHERMIND_ROOT" stdout))
     (is (search "ETHEREUM_LISP_RETH_ROOT" stdout))))
 
+(deftest phase-a-smoke-gate-script-accepts-geth-style-option-values
+  #-sbcl
+  (skip-test "Phase A smoke gate script requires SBCL")
+  #+sbcl
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-phase-a-smoke-equals-root"))
+         (root-string (namestring root)))
+    (multiple-value-bind (stdout stderr status)
+        (uiop:run-program
+         (list "env"
+               "-u"
+               "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT"
+               "sbcl"
+               "--script"
+               "scripts/phase-a-smoke-gate.lisp"
+               "--"
+               "--json=true"
+               "--devnet=false"
+               "--pinned-v5.4.0=false"
+               (format nil "--root=~A" root-string))
+         :output :string
+         :error-output :string
+         :ignore-error-status t)
+      (is (not (= 0 status)))
+      (is (string= "" stdout))
+      (is (search root-string stderr))
+      (is (search "Phase A smoke gate requires an EEST state_tests root under"
+                  stderr))
+      (is (not (search "Unsupported smoke gate option" stderr))))))
+
+(deftest phase-a-smoke-gate-script-rejects-malformed-boolean-assignment
+  #-sbcl
+  (skip-test "Phase A smoke gate script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-smoke-gate.lisp"
+             "--"
+             "--devnet=maybe")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (not (= 0 status)))
+    (is (string= "" stdout))
+    (is (search "--devnet boolean value must be true or false" stderr))))
+
 (deftest phase-a-fixture-report-pinned-mode-requires-root
   #-sbcl
   (skip-test "Phase A fixture report pinned mode requires SBCL")
