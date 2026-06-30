@@ -1348,6 +1348,15 @@ ones.
     forkchoice is applied. The assertion verifies the filter id, returned log
     count, log address/data/topic, transaction and block linkage, indexes, and
     shutdown telemetry for the extra public filter requests.
+- [x] `DEVNET-RUNNER-SCRIPT-REORG-FILTERS`: Lock public block/log filter
+  same-height reorg notifications at the external script process boundary.
+  - Result (2026-06-30): the runner-facing `scripts/ethereum-lisp.lisp`
+    import subprocess now follows the log-producing child import with a valid
+    same-height side-sibling payload and forkchoice. It verifies
+    `eth_getFilterChanges` reports the replacement head hash through the
+    block filter and returns the displaced child logs with `removed=true`
+    through the log filter, then checks shutdown telemetry reports the
+    post-reorg head and expanded Engine/public connection counts.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.
