@@ -1226,7 +1226,7 @@
                               :if-does-not-exist :create)
         (ethereum-lisp.telemetry:telemetry-log
          :error
-         "devnet.error"
+         (if (devnet-cli-init-command-p args) "init.error" "devnet.error")
          :sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
                 :stream stream)
          :fields `(("lifecyclePhase" . "error")

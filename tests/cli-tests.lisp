@@ -9312,7 +9312,10 @@
   #+sbcl
   (devnet-cli-assert-script-signal-shutdown "INT" "sigint"))
 
-(defun devnet-cli-assert-script-error-telemetry (args error-substring)
+(defun devnet-cli-assert-script-error-telemetry
+    (args error-substring &key
+          (event-name "devnet.error")
+          (usage-substring "Usage: ethereum-lisp devnet"))
   (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
         (log-path
           (devnet-cli-temp-path "ethereum-lisp-script-error" "log")))
@@ -9329,7 +9332,7 @@
            (is (= 1 status))
            (is (string= "" stdout))
            (is (search error-substring stderr))
-           (is (search "Usage: ethereum-lisp devnet" stderr))
+           (is (search usage-substring stderr))
            (let* ((log-records (devnet-cli-file-forms log-path))
                   (record (first log-records))
                   (fields (getf record :fields))
@@ -9340,7 +9343,7 @@
              (is (= 1 (length log-records)))
              (is (eq :log (getf record :kind)))
              (is (eq :error (getf record :value)))
-             (is (string= "devnet.error" (getf record :name)))
+             (is (string= event-name (getf record :name)))
              (is (string= "error"
                           (cdr (assoc "lifecyclePhase"
                                       fields
@@ -9402,7 +9405,12 @@
                   "--authrpc.jwtsecret"
                   (namestring missing-jwt-path)
                   "--no-serve")
-            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"))
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret")
+           (devnet-cli-assert-script-error-telemetry
+            (list "init" "--json")
+            "init requires a genesis file"
+            :event-name "init.error"
+            :usage-substring "Usage: ethereum-lisp init"))
       (when (probe-file bad-jwt-path)
         (delete-file bad-jwt-path))
       (when (probe-file missing-jwt-path)

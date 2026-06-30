@@ -1189,6 +1189,10 @@ first pass, but interfaces must not block that path.
   same missing-genesis, malformed-option, and malformed/missing
   `--authrpc.jwtsecret` failure contracts from temporary working directories,
   so process runners can classify failures without relying only on stderr.
+  Runner-facing initialization failures now emit `init.error` rather than
+  `devnet.error` while preserving the same structured error fields, letting
+  launchers distinguish datadir initialization failures from devnet startup
+  failures through the telemetry stream.
   Listener startup failures before readiness now keep
   the lifecycle stream unambiguous: if the public RPC port cannot bind after
   the Engine listener was opened, the script process exits with status 1,

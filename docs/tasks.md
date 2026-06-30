@@ -477,6 +477,12 @@ ones.
     dispatch as geth/Hive launch flags expand. CLI coverage locks a malformed
     option failure after shared-table-only value flags and an explicit
     optional-boolean value.
+  - Result (2026-06-30): runner-facing `init` failures with `--log-file` now
+    write `init.error` instead of reusing `devnet.error`, while preserving the
+    same `lifecyclePhase=error`, exit code, process id, error message, and
+    log-path fields. Script subprocess coverage verifies missing-genesis init
+    failures emit init usage on stderr plus a single command-specific telemetry
+    record.
 - [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
   gate's Engine/public listener accounting self-describing for Hive-style
   process runners.
