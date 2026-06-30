@@ -276,7 +276,7 @@
   (+ 24
      (1- (fixture-object-field report "checkedBalanceCount"))
      (* 7 (1- (fixture-object-field report "transactionCount")))
-     (* 2 (fixture-object-field report "checkedLogCount"))
+     (* 6 (fixture-object-field report "checkedLogFilterCount"))
      (fixture-object-field report "checkedSimulationCount")
      (let ((errors
              (fixture-object-field report "databaseRpcPrunedStateErrors")))
@@ -305,6 +305,27 @@
   (is (string= "0x0"
                (fixture-object-field
                 report "databaseRpcFullBlockByNumberTransactionIndex"))))
+
+(defun devnet-cli-assert-restored-log-filters (report)
+  (let ((checked-log-count
+          (fixture-object-field report "checkedLogCount"))
+        (checked-filter-count
+          (fixture-object-field report "checkedLogFilterCount")))
+    (is (= checked-filter-count
+           (fixture-object-field report "databaseRpcLogFilterCount")))
+    (is (= checked-log-count
+           (fixture-object-field
+            report "databaseRpcLogFilterLogCount")))
+    (is (= checked-filter-count
+           (fixture-object-field
+            report "databaseRpcLogFilterUninstallCount")))
+    (let ((missing-error-codes
+            (fixture-object-field
+             report "databaseRpcLogFilterMissingErrorCodes")))
+      (is (= checked-filter-count (length missing-error-codes)))
+      (is (every (lambda (code)
+                   (= -32602 code))
+                 missing-error-codes)))))
 
 (defun devnet-cli-assert-txpool-subpool-persistence (report)
   (is (string= "0x1"
@@ -3511,6 +3532,7 @@
                (is (= (fixture-object-field report "checkedLogCount")
                       (fixture-object-field report
                                             "databaseRpcLogCount")))
+               (devnet-cli-assert-restored-log-filters report)
                (is (string= (quantity-to-hex
                               (fixture-object-field report "transactionCount"))
                             (fixture-object-field
@@ -4014,6 +4036,7 @@
                         (fixture-object-field case "databaseRpcBalanceCount")))
                  (is (= (fixture-object-field case "checkedLogCount")
                         (fixture-object-field case "databaseRpcLogCount")))
+                 (devnet-cli-assert-restored-log-filters case)
                  (is (string= (quantity-to-hex
                                 (fixture-object-field case "transactionCount"))
                               (fixture-object-field
@@ -4637,7 +4660,8 @@
             (when log-case
               (is (= 1 (fixture-object-field log-case "checkedLogCount")))
               (is (= 1 (fixture-object-field
-                        log-case "databaseRpcLogCount")))))
+                        log-case "databaseRpcLogCount")))
+              (devnet-cli-assert-restored-log-filters log-case)))
           (let ((two-transfer-case
                   (find "shanghai-two-legacy-transfers-with-withdrawal"
                         side-reorg-cases
@@ -4769,6 +4793,7 @@
                  (fixture-object-field case "databaseRpcBalanceCount")))
           (is (= (fixture-object-field case "checkedLogCount")
                  (fixture-object-field case "databaseRpcLogCount")))
+          (devnet-cli-assert-restored-log-filters case)
           (is (string= (quantity-to-hex
                          (fixture-object-field case "transactionCount"))
                        (fixture-object-field

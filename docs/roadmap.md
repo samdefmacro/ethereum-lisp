@@ -194,7 +194,10 @@ fixes in those areas are allowed; expansion is not.
   Engine/public listener boundary with authenticated payload import,
   forkchoice, public retained-state reads, malformed public JSON handling, and
   ready/shutdown telemetry for both serving-style smoke runs and one-shot
-  no-serve CLI runs. The development
+  no-serve CLI runs. Restored-database public RPC smoke now also covers the
+  log filter lifecycle by creating filters, reading historical matches,
+  uninstalling them, and proving removed filter ids return missing-filter
+  errors through the process-boundary report contract. The development
   Engine HTTP path rejects duplicate Authorization headers before JWT
   validation, keeping authenticated listener behavior single-valued, and HTTP
   responses explicitly advertise `Connection: close` to match the current

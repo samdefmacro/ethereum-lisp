@@ -2007,6 +2007,18 @@ references/ checkouts.~%")
          (log-block-hash-outputs
            (loop repeat (length log-targets)
                  collect (make-string-output-stream)))
+         (log-filter-create-outputs
+           (loop repeat (length log-targets)
+                 collect (make-string-output-stream)))
+         (log-filter-logs-outputs
+           (loop repeat (length log-targets)
+                 collect (make-string-output-stream)))
+         (log-filter-uninstall-outputs
+           (loop repeat (length log-targets)
+                 collect (make-string-output-stream)))
+         (log-filter-missing-outputs
+           (loop repeat (length log-targets)
+                 collect (make-string-output-stream)))
          (block-number-output (make-string-output-stream))
         (balance-output (make-string-output-stream))
         (nonce-output (make-string-output-stream))
@@ -2052,7 +2064,7 @@ references/ checkouts.~%")
            (+ 22
               (length extra-balance-outputs)
               (* 7 (length extra-receipt-outputs))
-              (* 2 (length log-targets))
+              (* 6 (length log-targets))
               2
               4
               (if executable-code-p 1 0)
@@ -2462,6 +2474,65 @@ references/ checkouts.~%")
                                         (getf target :address)))
                                  (cons "topics"
                                        (list (getf target :topic))))))))
+                  output))
+           (loop for target in log-targets
+                 for output in log-filter-create-outputs
+                 for id from 180
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method" "eth_newFilter")
+                         (cons "params"
+                               (list
+                                (list
+                                 (cons "fromBlock" expected-block-number)
+                                 (cons "toBlock" expected-block-number)
+                                 (cons "address"
+                                       (address-to-hex
+                                        (getf target :address)))
+                                 (cons "topics"
+                                       (list (getf target :topic))))))))
+                  output))
+           (loop for target in log-targets
+                 for output in log-filter-logs-outputs
+                 for filter-id from 1
+                 for id from 190
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method" "eth_getFilterLogs")
+                         (cons "params"
+                               (list (quantity-to-hex filter-id)))))
+                  output))
+           (loop for target in log-targets
+                 for output in log-filter-uninstall-outputs
+                 for filter-id from 1
+                 for id from 200
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method" "eth_uninstallFilter")
+                         (cons "params"
+                               (list (quantity-to-hex filter-id)))))
+                  output))
+           (loop for target in log-targets
+                 for output in log-filter-missing-outputs
+                 for filter-id from 1
+                 for id from 210
+                 collect
+                 (cons
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" id)
+                         (cons "method" "eth_getFilterLogs")
+                         (cons "params"
+                               (list (quantity-to-hex filter-id)))))
                   output))))
     (let ((summary
             (ethereum-lisp.cli:start-devnet-node-listeners
@@ -2803,6 +2874,9 @@ references/ checkouts.~%")
                                           "storageKeys")))
              (actual-post-call-storage
                (fixture-object-field post-call-storage-rpc "result"))
+             (actual-log-filter-log-count 0)
+             (actual-log-filter-uninstall-count 0)
+             (actual-log-filter-missing-error-codes nil)
              (expected-proof-code-hash
                (hash32-to-hex (keccak-256-hash (hex-to-bytes expected-code))))
              (expected-proof-storage-value
@@ -3365,6 +3439,74 @@ references/ checkouts.~%")
                     0
                     0
                     "Restored eth_getLogs blockHash")))
+        (loop for target in log-targets
+              for create-output in log-filter-create-outputs
+              for logs-output in log-filter-logs-outputs
+              for uninstall-output in log-filter-uninstall-outputs
+              for missing-output in log-filter-missing-outputs
+              for filter-id from 1
+              do
+                 (let* ((create-response
+                          (get-output-stream-string create-output))
+                        (logs-response
+                          (get-output-stream-string logs-output))
+                        (uninstall-response
+                          (get-output-stream-string uninstall-output))
+                        (missing-response
+                          (get-output-stream-string missing-output))
+                        (create-rpc
+                          (devnet-smoke-gate-rpc-body create-response))
+                        (logs-rpc
+                          (devnet-smoke-gate-rpc-body logs-response))
+                        (uninstall-rpc
+                          (devnet-smoke-gate-rpc-body
+                           uninstall-response))
+                        (missing-rpc
+                          (devnet-smoke-gate-rpc-body missing-response))
+                        (filter-logs
+                          (fixture-object-field logs-rpc "result"))
+                        (missing-error-code
+                          (devnet-smoke-gate-error-code missing-rpc)))
+                   (devnet-smoke-gate-require
+                    (= 200 (devnet-cli-http-status create-response))
+                    "Restored eth_newFilter HTTP status mismatch")
+                   (devnet-smoke-gate-require
+                    (= 200 (devnet-cli-http-status logs-response))
+                    "Restored eth_getFilterLogs HTTP status mismatch")
+                   (devnet-smoke-gate-require
+                    (= 200 (devnet-cli-http-status uninstall-response))
+                    "Restored eth_uninstallFilter HTTP status mismatch")
+                   (devnet-smoke-gate-require
+                    (= 200 (devnet-cli-http-status missing-response))
+                    "Restored missing eth_getFilterLogs HTTP status mismatch")
+                   (devnet-smoke-gate-require
+                    (string= (quantity-to-hex filter-id)
+                             (fixture-object-field create-rpc "result"))
+                    "Restored eth_newFilter id mismatch")
+                   (devnet-smoke-gate-require
+                    (= (getf target :count) (length filter-logs))
+                    "Restored eth_getFilterLogs log count mismatch")
+                   (devnet-smoke-gate-verify-rpc-log
+                    (first filter-logs)
+                    target
+                    expected-block-number
+                    block-hash
+                    transaction-hash
+                    0
+                    0
+                    "Restored eth_getFilterLogs")
+                   (devnet-smoke-gate-require
+                    (member (fixture-object-field uninstall-rpc "result")
+                            '(t :true))
+                    "Restored eth_uninstallFilter result mismatch")
+                   (devnet-smoke-gate-require
+                    (= -32602 missing-error-code)
+                    "Restored missing eth_getFilterLogs error code mismatch")
+                   (incf actual-log-filter-log-count
+                         (length filter-logs))
+                   (incf actual-log-filter-uninstall-count)
+                   (push missing-error-code
+                         actual-log-filter-missing-error-codes)))
         (devnet-smoke-gate-require
          (string= (hash32-to-hex expected-safe-block-hash)
                   actual-safe-block-hash)
@@ -3438,6 +3580,12 @@ references/ checkouts.~%")
                                   :key (lambda (target)
                                          (getf target :count))
                                   :initial-value 0)
+              :log-filter-count actual-log-filter-uninstall-count
+              :log-filter-log-count actual-log-filter-log-count
+              :log-filter-uninstall-count
+              actual-log-filter-uninstall-count
+              :log-filter-missing-error-codes
+              (nreverse actual-log-filter-missing-error-codes)
               :raw-transaction-by-hash actual-raw-transaction-by-hash
               :raw-transaction-by-number actual-raw-transaction-by-number
               :transaction-by-hash-index-hash
@@ -5578,6 +5726,16 @@ references/ checkouts.~%")
                   (getf public-rpc-summary :balance-count)
                   :rpc-log-count
                   (getf public-rpc-summary :log-count)
+                  :rpc-log-filter-count
+                  (getf public-rpc-summary :log-filter-count)
+                  :rpc-log-filter-log-count
+                  (getf public-rpc-summary :log-filter-log-count)
+                  :rpc-log-filter-uninstall-count
+                  (getf public-rpc-summary
+                        :log-filter-uninstall-count)
+                  :rpc-log-filter-missing-error-codes
+                  (getf public-rpc-summary
+                        :log-filter-missing-error-codes)
                   :rpc-raw-transaction
                   (getf public-rpc-summary :raw-transaction)
                   :rpc-raw-transaction-by-hash
@@ -8112,6 +8270,8 @@ references/ checkouts.~%")
                                 :key (lambda (target)
                                        (getf target :count))
                                 :initial-value 0))
+                  (cons "checkedLogFilterCount"
+                        (length log-targets))
                   (cons "checkedSimulationCount"
                         (if database-summary
                             (getf database-summary :rpc-simulation-count)
@@ -8548,6 +8708,26 @@ references/ checkouts.~%")
                   (cons "databaseRpcLogCount"
                         (if database-summary
                             (getf database-summary :rpc-log-count)
+                            :false))
+                  (cons "databaseRpcLogFilterCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-log-filter-count)
+                            :false))
+                  (cons "databaseRpcLogFilterLogCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-log-filter-log-count)
+                            :false))
+                  (cons "databaseRpcLogFilterUninstallCount"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-log-filter-uninstall-count)
+                            :false))
+                  (cons "databaseRpcLogFilterMissingErrorCodes"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-log-filter-missing-error-codes)
                             :false))
                   (cons "databaseRpcRawTransactionByBlockHashAndIndex"
                         (if database-summary
@@ -9286,6 +9466,36 @@ references/ checkouts.~%")
             (devnet-smoke-gate-field report "databaseRpcLogCount"))
          "Devnet smoke gate suite restored log count mismatch for ~A"
          (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= (devnet-smoke-gate-field report "checkedLogFilterCount")
+            (devnet-smoke-gate-field report "databaseRpcLogFilterCount"))
+         "Devnet smoke gate suite restored log filter count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= (devnet-smoke-gate-field report "checkedLogCount")
+            (devnet-smoke-gate-field report "databaseRpcLogFilterLogCount"))
+         "Devnet smoke gate suite restored log filter log count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (devnet-smoke-gate-require
+         (= (devnet-smoke-gate-field report "checkedLogFilterCount")
+            (devnet-smoke-gate-field
+             report "databaseRpcLogFilterUninstallCount"))
+         "Devnet smoke gate suite restored log filter uninstall count mismatch for ~A"
+         (devnet-smoke-gate-field report "fixtureCase"))
+        (let ((missing-error-codes
+                (devnet-smoke-gate-field
+                 report "databaseRpcLogFilterMissingErrorCodes")))
+          (devnet-smoke-gate-require
+           (= (devnet-smoke-gate-field report "checkedLogFilterCount")
+              (length missing-error-codes))
+           "Devnet smoke gate suite restored log filter missing error count mismatch for ~A"
+           (devnet-smoke-gate-field report "fixtureCase"))
+          (devnet-smoke-gate-require
+           (every (lambda (code)
+                    (= -32602 code))
+                  missing-error-codes)
+           "Devnet smoke gate suite restored log filter missing error code mismatch for ~A"
+           (devnet-smoke-gate-field report "fixtureCase")))
         (devnet-smoke-gate-require
          (= (devnet-smoke-gate-field report "checkedSimulationCount")
             (devnet-smoke-gate-field report "databaseRpcSimulationCount"))
@@ -10312,6 +10522,15 @@ references/ checkouts.~%")
                  report "databaseRpcBlockReceiptsCount"))
         (format t "databaseRpcLogCount=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcLogCount"))
+        (format t "databaseRpcLogFilterCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcLogFilterCount"))
+        (format t "databaseRpcLogFilterLogCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcLogFilterLogCount"))
+        (format t "databaseRpcLogFilterUninstallCount=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcLogFilterUninstallCount"))
         (format t "databaseRpcBlockReceiptTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcBlockReceiptTransactionHash"))
