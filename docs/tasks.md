@@ -1212,8 +1212,11 @@ ones.
     that funds a local txpool sender, submits pending, basefee, and queued raw
     transactions through the public listener, verifies raw transaction lookup,
     `eth_pendingTransactions`, `txpool_status`, `txpool_content`,
-    `txpool_contentFrom`, and `txpool_inspect`, and checks shutdown telemetry
-    reports the public txpool RPC connections with zero Engine traffic.
+    `txpool_contentFrom`, `txpool_inspect`, and a public
+    `eth_newPendingTransactionFilter` / `eth_getFilterChanges` round trip that
+    reports only the transaction admitted into pending, and checks shutdown
+    telemetry reports the public txpool RPC connections with zero Engine
+    traffic.
 - [x] `DEVNET-RUNNER-SCRIPT-PENDING-BLOCK-TXPOOL`: Lock pending block-tag txpool
   visibility at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`

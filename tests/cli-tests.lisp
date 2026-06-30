@@ -6934,6 +6934,12 @@
                            (cons "id" 707)
                            (cons "method" "eth_pendingTransactions")
                            (cons "params" '()))))
+                  (new-pending-filter-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 717)
+                           (cons "method" "eth_newPendingTransactionFilter")
+                           (cons "params" '()))))
                   (pending-block-count-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -7011,7 +7017,7 @@
                           "--pid-file"
                           (namestring pid-path)
                           "--max-connections"
-                          "16"
+                          "18"
                           "--json")
                     :directory #P"/private/tmp/"
                     :output :stream
@@ -7044,6 +7050,8 @@
                       raw-pending-response
                       raw-basefee-response
                       raw-queued-response
+                      new-pending-filter-response
+                      pending-filter-changes-response
                       pending-transactions-response
                       pending-block-count-response
                       pending-transaction-by-index-response
@@ -7057,6 +7065,11 @@
                  (is (= pid (fixture-object-field ready-summary "processId")))
                  (handler-case
                      (progn
+                       (setf new-pending-filter-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               new-pending-filter-body)))
                        (setf send-pending-response
                              (devnet-cli-http-endpoint-request
                               rpc-endpoint
@@ -7087,6 +7100,26 @@
                               rpc-endpoint
                               (devnet-cli-json-rpc-http-request
                                raw-queued-body)))
+                       (let* ((new-pending-filter-rpc
+                                (parse-json
+                                 (devnet-cli-http-body
+                                  new-pending-filter-response)))
+                              (pending-filter-id
+                                (fixture-object-field
+                                 new-pending-filter-rpc "result"))
+                              (pending-filter-changes-body
+                                (json-encode
+                                 (list
+                                  (cons "jsonrpc" "2.0")
+                                  (cons "id" 718)
+                                  (cons "method" "eth_getFilterChanges")
+                                  (cons "params"
+                                        (list pending-filter-id))))))
+                         (setf pending-filter-changes-response
+                               (devnet-cli-http-endpoint-request
+                                rpc-endpoint
+                                (devnet-cli-json-rpc-http-request
+                                 pending-filter-changes-body))))
                        (setf pending-transactions-response
                              (devnet-cli-http-endpoint-request
                               rpc-endpoint
@@ -7147,6 +7180,8 @@
                                 raw-pending-response
                                 raw-basefee-response
                                 raw-queued-response
+                                new-pending-filter-response
+                                pending-filter-changes-response
                                 pending-transactions-response
                                 pending-block-count-response
                                 pending-transaction-by-index-response
@@ -7176,6 +7211,14 @@
                         (raw-queued-rpc
                           (parse-json
                            (devnet-cli-http-body raw-queued-response)))
+                        (new-pending-filter-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            new-pending-filter-response)))
+                        (pending-filter-changes-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-filter-changes-response)))
                         (pending-transactions-rpc
                           (parse-json
                            (devnet-cli-http-body
@@ -7214,6 +7257,9 @@
                         (pending-transactions
                           (fixture-object-field
                            pending-transactions-rpc "result"))
+                        (pending-filter-changes
+                          (fixture-object-field
+                           pending-filter-changes-rpc "result"))
                         (pending-object (first pending-transactions))
                         (pending-block-count
                           (fixture-object-field pending-block-count-rpc
@@ -7282,6 +7328,11 @@
                    (is (= 701 (fixture-object-field send-pending-rpc "id")))
                    (is (= 702 (fixture-object-field send-basefee-rpc "id")))
                    (is (= 703 (fixture-object-field send-queued-rpc "id")))
+                   (is (= 717
+                          (fixture-object-field new-pending-filter-rpc "id")))
+                   (is (= 718
+                          (fixture-object-field pending-filter-changes-rpc
+                                                "id")))
                    (is (= 711 (fixture-object-field pending-block-count-rpc
                                                     "id")))
                    (is (= 712 (fixture-object-field
@@ -7309,6 +7360,12 @@
                    (is (string= queued-raw
                                 (fixture-object-field
                                  raw-queued-rpc "result")))
+                   (is (string= "0x1"
+                                (fixture-object-field
+                                 new-pending-filter-rpc "result")))
+                   (is (= 1 (length pending-filter-changes)))
+                   (is (string= pending-hash
+                                (first pending-filter-changes)))
                    (is (= 1 (length pending-transactions)))
                    (is (string= pending-hash
                                 (fixture-object-field pending-object "hash")))
@@ -7417,11 +7474,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "16"
+                         (is (string= "18"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "16"
+                         (is (string= "18"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=)))))))))))))
