@@ -1257,7 +1257,10 @@ first pass, but interfaces must not block that path.
   `eth_baseFee`, `eth_blobBaseFee`, and `eth_feeHistory`) through the
   standalone gate and script process, with shutdown telemetry accounting for
   the externally served readiness, local-status, module, and fee/utility
-  connections. The same script subprocess
+  connections. The same script subprocess now verifies authenticated Engine and
+  public JSON-RPC notifications produce empty HTTP bodies, while public mixed
+  batches omit notification results and all-notification batches produce no
+  body at the external process boundary. The same script subprocess
   coverage now verifies missing/wrong JWT Engine requests fail with HTTP 401
   and that Engine/public namespace separation is enforced in both directions at
   the external process boundary. It also has external script-process coverage

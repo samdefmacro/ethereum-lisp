@@ -6253,7 +6253,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "20"
+                        "23"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -6293,6 +6293,8 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":501,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     (engine-batch-body
                       "[{\"jsonrpc\":\"2.0\",\"id\":513,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"rpc-batch-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]},{\"jsonrpc\":\"2.0\",\"id\":514,\"method\":\"engine_exchangeCapabilities\",\"params\":[[\"engine_getClientVersionV1\"]]}]")
+                    (engine-notification-body
+                      "{\"jsonrpc\":\"2.0\",\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     (engine-transition-body
                       "{\"jsonrpc\":\"2.0\",\"id\":515,\"method\":\"engine_exchangeTransitionConfigurationV1\",\"params\":[{\"terminalTotalDifficulty\":\"0x0\",\"terminalBlockHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"terminalBlockNumber\":\"0x0\"}]}")
                     (engine-public-body
@@ -6337,10 +6339,17 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":528,\"method\":\"eth_feeHistory\",\"params\":[\"0x1\",\"latest\",[]]}")
                     (public-batch-body
                       "[{\"jsonrpc\":\"2.0\",\"id\":510,\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":511,\"method\":\"net_version\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":512,\"method\":\"web3_clientVersion\",\"params\":[]}]")
+                    (public-notification-body
+                      "{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[]}")
+                    (public-mixed-batch-body
+                      "[{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":529,\"method\":\"net_version\",\"params\":[]}]")
+                    (public-notifications-batch-body
+                      "[{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"method\":\"net_version\",\"params\":[]}]")
                     (public-engine-body
                       "{\"jsonrpc\":\"2.0\",\"id\":509,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     engine-response
                     engine-batch-response
+                    engine-notification-response
                     engine-transition-response
                     engine-public-response
                     unauthenticated-engine-response
@@ -6364,6 +6373,9 @@
                     public-blob-base-fee-response
                     public-fee-history-response
                     public-batch-response
+                    public-notification-response
+                    public-mixed-batch-response
+                    public-notifications-batch-response
                     public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
@@ -6379,6 +6391,12 @@
                             engine-endpoint
                             (devnet-cli-json-rpc-http-request
                              engine-batch-body
+                             :token token)))
+                     (setf engine-notification-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-notification-body
                              :token token)))
                      (setf engine-transition-response
                            (devnet-cli-http-endpoint-request
@@ -6497,6 +6515,21 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-batch-body)))
+                     (setf public-notification-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-notification-body)))
+                     (setf public-mixed-batch-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-mixed-batch-body)))
+                     (setf public-notifications-batch-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-notifications-batch-body)))
                      (setf public-engine-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -6507,6 +6540,8 @@
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status engine-response)))
                (is (= 200 (devnet-cli-http-status engine-batch-response)))
+               (is (= 200 (devnet-cli-http-status
+                            engine-notification-response)))
                (is (= 200 (devnet-cli-http-status engine-transition-response)))
                (is (= 200 (devnet-cli-http-status engine-public-response)))
                (is (= 401
@@ -6547,6 +6582,13 @@
                (is (= 200
                       (devnet-cli-http-status public-fee-history-response)))
                (is (= 200 (devnet-cli-http-status public-batch-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-notification-response)))
+               (is (= 200
+                      (devnet-cli-http-status public-mixed-batch-response)))
+               (is (= 200
+                      (devnet-cli-http-status
+                       public-notifications-batch-response)))
                (is (= 200 (devnet-cli-http-status public-engine-response)))
                (let* ((engine-json
                         (parse-json (devnet-cli-http-body engine-response)))
@@ -6639,6 +6681,12 @@
                         (second public-batch-json))
                       (public-batch-client-version-json
                         (third public-batch-json))
+                      (public-mixed-batch-json
+                        (parse-json
+                         (devnet-cli-http-body
+                          public-mixed-batch-response)))
+                      (public-mixed-batch-net-version-json
+                        (first public-mixed-batch-json))
                       (public-engine-json
                         (parse-json
                          (devnet-cli-http-body public-engine-response)))
@@ -6664,6 +6712,9 @@
                              (fixture-object-field
                               engine-batch-capabilities-json "result")
                              :test #'string=))
+                 (is (string= ""
+                              (devnet-cli-http-body
+                               engine-notification-response)))
                  (is (= 515 (fixture-object-field engine-transition-json "id")))
                  (is (string= "0x0"
                               (fixture-object-field
@@ -6800,6 +6851,19 @@
                  (is (search "ethereum-lisp"
                              (fixture-object-field
                               public-batch-client-version-json "result")))
+                 (is (string= ""
+                              (devnet-cli-http-body
+                               public-notification-response)))
+                 (is (= 1 (length public-mixed-batch-json)))
+                 (is (= 529
+                        (fixture-object-field
+                         public-mixed-batch-net-version-json "id")))
+                 (is (string= "1337"
+                              (fixture-object-field
+                               public-mixed-batch-net-version-json "result")))
+                 (is (string= ""
+                              (devnet-cli-http-body
+                               public-notifications-batch-response)))
                  (is (= 509 (fixture-object-field public-engine-json "id")))
                  (is (= -32601
                         (fixture-object-field
@@ -6850,15 +6914,15 @@
                                                     :test #'string=))))))
                        (let ((shutdown-fields
                                (getf shutdown-record :fields)))
-                         (is (string= "6"
+                         (is (string= "7"
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "20"
+                         (is (string= "23"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "26"
+                         (is (string= "30"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

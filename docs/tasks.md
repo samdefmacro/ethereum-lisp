@@ -1096,6 +1096,14 @@ ones.
     `eth_chainId`, `net_version`, and `web3_clientVersion` through the
     ready-file RPC endpoint, verifies all three response bodies, and checks
     shutdown telemetry accounts for the extra public connection.
+- [x] `DEVNET-RUNNER-SCRIPT-NOTIFICATIONS`: Lock JSON-RPC notification behavior
+  at the external script process boundary.
+  - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp` serve-mode
+    subprocess coverage now sends authenticated Engine and public id-less
+    JSON-RPC notifications through real listeners, verifies their HTTP responses
+    carry empty bodies, sends public mixed and all-notification batches, verifies
+    only id-bearing batch requests produce response objects, and updates shutdown
+    telemetry for the added served connections.
 - [x] `DEVNET-RUNNER-SCRIPT-PUBLIC-LOCAL-STATUS`: Lock zero-state public RPC
   status probes at the external script process boundary.
   - Result (2026-06-29): runner-facing `scripts/ethereum-lisp.lisp`
