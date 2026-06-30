@@ -1132,6 +1132,15 @@ ones.
     public listener, verifies pending block/header `baseFeePerGas` equals the
     reported next base fee, reports those values, and updates the txpool public
     connection contract for process runners.
+- [x] `DEVNET-RUNNER-PENDING-NONCE-TXPOOL`: Lock pending sender nonce
+  visibility at the devnet process-boundary smoke surface.
+  - Result (2026-07-01): the standalone devnet smoke gate now sends
+    `eth_getTransactionCount(SENDER, "pending")` through both the live public
+    listener and the restored-database txpool listener after pending, basefee,
+    and queued transaction admission. It verifies the public pending sender
+    nonce advances to the admitted pending transaction nonce plus one, reports
+    the live/restored nonce fields, and updates the txpool public connection
+    contract for process runners.
 - [x] `DEVNET-RUNNER-PAYLOAD-BODIES`: Lock authenticated Engine payload-body
   retrieval at the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate's authenticated

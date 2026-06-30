@@ -1450,6 +1450,10 @@ first pass, but interfaces must not block that path.
   gate now verifies that same pending base-fee contract through the restored
   public listener and reports the pending block, pending header, and fee-history
   next-base-fee values for process runners.
+  The standalone devnet smoke path now also checks
+  `eth_getTransactionCount(..., "pending")` through live and restored public
+  listeners after txpool admission so process runners cover pending sender
+  nonce visibility across restart.
   The authenticated Engine workflow in the standalone devnet smoke gate now
   also verifies `engine_getPayloadBodiesByHashV1` and
   `engine_getPayloadBodiesByRangeV1` over the listener boundary, reporting body
