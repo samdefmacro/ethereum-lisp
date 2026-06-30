@@ -7915,7 +7915,13 @@
                                  (cons "topics"
                                        (list
                                         (fixture-object-field
-                                         expect "logTopic"))))))))))
+                                         expect "logTopic")))))))))
+                (new-block-filter-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 643)
+                         (cons "method" "eth_newBlockFilter")
+                         (cons "params" '())))))
            (devnet-cli-write-temp-file
             genesis-path
             (json-encode
@@ -7955,7 +7961,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "34"
+                        "36"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -7986,6 +7992,7 @@
                       (fixture-object-field ready-summary "rpcEndpoint"))
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    new-block-filter-response
                     new-payload-response
                     forkchoice-response
                     payload-bodies-by-hash-response
@@ -8027,10 +8034,16 @@
                     receipt-response
                     block-receipts-response
                     logs-response
-                    logs-by-block-hash-response)
+                    logs-by-block-hash-response
+                    block-filter-changes-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (handler-case
                    (progn
+                     (setf new-block-filter-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             new-block-filter-body)))
                      (setf new-payload-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -8257,6 +8270,26 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              logs-by-block-hash-body)))
+                     (let* ((new-block-filter-rpc
+                              (parse-json
+                               (devnet-cli-http-body
+                                new-block-filter-response)))
+                            (block-filter-id
+                              (fixture-object-field
+                               new-block-filter-rpc "result"))
+                            (block-filter-changes-body
+                              (json-encode
+                               (list
+                                (cons "jsonrpc" "2.0")
+                                (cons "id" 644)
+                                (cons "method" "eth_getFilterChanges")
+                                (cons "params"
+                                      (list block-filter-id))))))
+                       (setf block-filter-changes-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               block-filter-changes-body))))
                      (setf post-status-block-number-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -8269,7 +8302,8 @@
                              post-status-block-by-number-body))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
-                    "Local socket connect is not permitted in this sandbox")))
+                               "Local socket connect is not permitted in this sandbox")))
+               (is (= 200 (devnet-cli-http-status new-block-filter-response)))
                (is (= 200 (devnet-cli-http-status new-payload-response)))
                (is (= 200 (devnet-cli-http-status forkchoice-response)))
                (is (= 200 (devnet-cli-http-status
@@ -8336,9 +8370,15 @@
                (is (= 200 (devnet-cli-http-status logs-response)))
                (is (= 200 (devnet-cli-http-status
                             logs-by-block-hash-response)))
+               (is (= 200 (devnet-cli-http-status
+                            block-filter-changes-response)))
                (let* ((new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
+                      (new-block-filter-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          new-block-filter-response)))
                       (forkchoice-rpc
                         (parse-json
                          (devnet-cli-http-body forkchoice-response)))
@@ -8485,6 +8525,13 @@
                         (parse-json
                          (devnet-cli-http-body
                           logs-by-block-hash-response)))
+                      (block-filter-changes-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          block-filter-changes-response)))
+                      (block-filter-changes
+                        (fixture-object-field block-filter-changes-rpc
+                                              "result"))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -8679,6 +8726,15 @@
                               full-block-by-hash-rpc "id")))
                  (is (= 642 (fixture-object-field
                               logs-by-block-hash-rpc "id")))
+                 (is (= 643 (fixture-object-field
+                              new-block-filter-rpc "id")))
+                 (is (= 644 (fixture-object-field
+                              block-filter-changes-rpc "id")))
+                 (is (string= "0x1"
+                              (fixture-object-field
+                               new-block-filter-rpc "result")))
+                 (is (= 1 (length block-filter-changes)))
+                 (is (string= block-hash-hex (first block-filter-changes)))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -8972,11 +9028,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "34"
+                       (is (string= "36"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "42"
+                       (is (string= "44"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))
