@@ -1441,6 +1441,14 @@ ones.
     listener after txpool admission and verifies pending block/header
     `baseFeePerGas` equals the reported next base fee, with shutdown telemetry
     accounting for the added public request.
+- [x] `DEVNET-RUNNER-SCRIPT-PENDING-NONCE-TXPOOL`: Lock pending sender nonce
+  visibility at the external script process boundary.
+  - Result (2026-07-01): the runner-facing txpool subprocess now also calls
+    `eth_getTransactionCount(SENDER, "pending")` through the advertised public
+    listener after pending, basefee, and queued txpool admission. It verifies
+    the public pending sender nonce advances to the admitted pending
+    transaction nonce plus one and updates shutdown telemetry for the extra
+    public request.
 - [x] `DEVNET-RUNNER-SCRIPT-BLOCK-FILTER`: Lock public block filter change
   delivery at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`

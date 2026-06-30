@@ -7386,6 +7386,9 @@
                     (devnet-cli-transaction-raw queued-transaction))
                   (pending-nonce
                     (devnet-cli-transaction-nonce-key pending-transaction))
+                  (expected-pending-sender-nonce
+                    (quantity-to-hex
+                     (1+ (transaction-nonce pending-transaction))))
                   (basefee-nonce
                     (devnet-cli-transaction-nonce-key basefee-transaction))
                   (queued-nonce
@@ -7483,6 +7486,12 @@
                            (cons "id" 722)
                            (cons "method" "eth_feeHistory")
                            (cons "params" (list "0x1" "latest" '())))))
+                  (pending-sender-nonce-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 723)
+                           (cons "method" "eth_getTransactionCount")
+                           (cons "params" (list sender-hex "pending")))))
                   (txpool-status-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -7527,7 +7536,7 @@
                           "--pid-file"
                           (namestring pid-path)
                           "--max-connections"
-                          "22"
+                          "23"
                           "--json")
                     :directory #P"/private/tmp/"
                     :output :stream
@@ -7572,6 +7581,7 @@
                       pending-block-response
                       pending-header-response
                       pending-fee-history-response
+                      pending-sender-nonce-response
                       txpool-status-response
                       txpool-content-response
                       txpool-content-from-response
@@ -7708,6 +7718,11 @@
                               rpc-endpoint
                               (devnet-cli-json-rpc-http-request
                                pending-fee-history-body)))
+                       (setf pending-sender-nonce-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-sender-nonce-body)))
                        (setf txpool-status-response
                              (devnet-cli-http-endpoint-request
                               rpc-endpoint
@@ -7750,6 +7765,7 @@
                                 pending-block-response
                                 pending-header-response
                                 pending-fee-history-response
+                                pending-sender-nonce-response
                                 txpool-status-response
                                 txpool-content-response
                                 txpool-content-from-response
@@ -7819,6 +7835,10 @@
                           (parse-json
                            (devnet-cli-http-body
                             pending-fee-history-response)))
+                        (pending-sender-nonce-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-sender-nonce-response)))
                         (txpool-status-rpc
                           (parse-json
                            (devnet-cli-http-body txpool-status-response)))
@@ -7860,6 +7880,9 @@
                           (fixture-object-field pending-header-rpc "result"))
                         (pending-fee-history
                           (fixture-object-field pending-fee-history-rpc
+                                                "result"))
+                        (pending-sender-nonce
+                          (fixture-object-field pending-sender-nonce-rpc
                                                 "result"))
                         (pending-fee-history-base-fees
                           (fixture-object-field pending-fee-history
@@ -7944,6 +7967,8 @@
                    (is (= 715 (fixture-object-field pending-header-rpc "id")))
                    (is (= 722
                           (fixture-object-field pending-fee-history-rpc "id")))
+                   (is (= 723
+                          (fixture-object-field pending-sender-nonce-rpc "id")))
                    (is (= 716 (fixture-object-field txpool-content-rpc "id")))
                    (is (string= pending-hash
                                 (fixture-object-field
@@ -8024,6 +8049,8 @@
                    (is (string= pending-fee-history-next-base-fee
                                 (fixture-object-field pending-header
                                                       "baseFeePerGas")))
+                   (is (string= expected-pending-sender-nonce
+                                pending-sender-nonce))
                    (is (string= "0x1"
                                 (fixture-object-field txpool-status
                                                       "pending")))
@@ -8090,11 +8117,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "22"
+                         (is (string= "23"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "22"
+                         (is (string= "23"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=)))))))))))))

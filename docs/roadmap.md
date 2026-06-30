@@ -1379,7 +1379,10 @@ first pass, but interfaces must not block that path.
   parent/number linkage. That same subprocess now compares pending
   block/header `baseFeePerGas` against `eth_feeHistory`'s next base fee over
   the advertised public listener, so Hive-style serve-mode coverage locks the
-  same pending base-fee contract as the standalone smoke gate. The
+  same pending base-fee contract as the standalone smoke gate. It also checks
+  `eth_getTransactionCount(..., "pending")` through that public listener after
+  txpool admission, locking the pending sender nonce contract at the
+  runner-facing script process boundary. The
   script process is also covered receiving
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout
