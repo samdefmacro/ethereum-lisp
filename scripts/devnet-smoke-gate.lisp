@@ -82,7 +82,7 @@ references/ checkouts.~%")
      +devnet-smoke-gate-engine-workflow-connections+))
 (defconstant +devnet-smoke-gate-public-canonical-read-connections+ 23)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
-(defconstant +devnet-smoke-gate-public-txpool-connections+ 11)
+(defconstant +devnet-smoke-gate-public-txpool-connections+ 14)
 (defconstant +devnet-smoke-gate-public-connections+
   (+ +devnet-smoke-gate-public-canonical-read-connections+
      +devnet-smoke-gate-public-boundary-connections+
@@ -6399,6 +6399,12 @@ references/ checkouts.~%")
                     (make-string-output-stream))
                   (pending-filter-changes-output
                     (make-string-output-stream))
+                  (empty-pending-filter-changes-output
+                    (make-string-output-stream))
+                  (uninstall-pending-filter-output
+                    (make-string-output-stream))
+                  (removed-pending-filter-changes-output
+                    (make-string-output-stream))
                   (send-raw-output (make-string-output-stream))
                   (send-basefee-output (make-string-output-stream))
                   (send-queued-output (make-string-output-stream))
@@ -6821,12 +6827,33 @@ references/ checkouts.~%")
                                      (list queued-transaction-raw))))
                         send-queued-output)
                        (cons
+                       (json-encode
+                        (list (cons "jsonrpc" "2.0")
+                              (cons "id" 67)
+                              (cons "method" "eth_getFilterChanges")
+                              (cons "params" (list "0x1"))))
+                        pending-filter-changes-output)
+                       (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
-                               (cons "id" 67)
+                               (cons "id" 68)
                                (cons "method" "eth_getFilterChanges")
                                (cons "params" (list "0x1"))))
-                        pending-filter-changes-output)
+                        empty-pending-filter-changes-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 69)
+                               (cons "method" "eth_uninstallFilter")
+                               (cons "params" (list "0x1"))))
+                        uninstall-pending-filter-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 70)
+                               (cons "method" "eth_getFilterChanges")
+                               (cons "params" (list "0x1"))))
+                        removed-pending-filter-changes-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
@@ -7095,6 +7122,15 @@ references/ checkouts.~%")
                       (pending-filter-changes-response
                         (get-output-stream-string
                          pending-filter-changes-output))
+                      (empty-pending-filter-changes-response
+                        (get-output-stream-string
+                         empty-pending-filter-changes-output))
+                      (uninstall-pending-filter-response
+                        (get-output-stream-string
+                         uninstall-pending-filter-output))
+                      (removed-pending-filter-changes-response
+                        (get-output-stream-string
+                         removed-pending-filter-changes-output))
                       (send-raw-response
                         (get-output-stream-string send-raw-output))
                       (send-basefee-response
@@ -7217,6 +7253,15 @@ references/ checkouts.~%")
                       (pending-filter-changes-rpc
                         (devnet-smoke-gate-rpc-body
                          pending-filter-changes-response))
+                      (empty-pending-filter-changes-rpc
+                        (devnet-smoke-gate-rpc-body
+                         empty-pending-filter-changes-response))
+                      (uninstall-pending-filter-rpc
+                        (devnet-smoke-gate-rpc-body
+                         uninstall-pending-filter-response))
+                      (removed-pending-filter-changes-rpc
+                        (devnet-smoke-gate-rpc-body
+                         removed-pending-filter-changes-response))
                       (send-raw-rpc
                         (devnet-smoke-gate-rpc-body send-raw-response))
                       (send-basefee-rpc
@@ -7319,6 +7364,14 @@ references/ checkouts.~%")
                       (pending-filter-changes
                         (fixture-object-field pending-filter-changes-rpc
                                               "result"))
+                      (empty-pending-filter-changes
+                        (fixture-object-field
+                         empty-pending-filter-changes-rpc
+                         "result"))
+                      (removed-pending-filter-error
+                        (fixture-object-field
+                         removed-pending-filter-changes-rpc
+                         "error"))
                       (txpool-content-from
                         (fixture-object-field
                          txpool-content-from-rpc "result"))
@@ -7526,9 +7579,21 @@ references/ checkouts.~%")
                           new-pending-filter-response))
                   "eth_newPendingTransactionFilter HTTP status mismatch")
                  (devnet-smoke-gate-require
-                  (= 200 (devnet-cli-http-status
+                 (= 200 (devnet-cli-http-status
                           pending-filter-changes-response))
                   "eth_getFilterChanges HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          empty-pending-filter-changes-response))
+                  "drained eth_getFilterChanges HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          uninstall-pending-filter-response))
+                  "eth_uninstallFilter HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          removed-pending-filter-changes-response))
+                  "removed eth_getFilterChanges HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= -32601
                      (fixture-object-field
@@ -7927,9 +7992,24 @@ references/ checkouts.~%")
                   (= 1 (length pending-filter-changes))
                   "eth_getFilterChanges pending transaction count mismatch")
                  (devnet-smoke-gate-require
-                  (string= pending-transaction-hash-hex
+                 (string= pending-transaction-hash-hex
                            (first pending-filter-changes))
                   "eth_getFilterChanges pending transaction hash mismatch")
+                 (devnet-smoke-gate-require
+                  (null empty-pending-filter-changes)
+                  "drained eth_getFilterChanges should be empty")
+                 (devnet-smoke-gate-require
+                  (member (fixture-object-field
+                           uninstall-pending-filter-rpc
+                           "result")
+                          '(t :true))
+                  "eth_uninstallFilter result mismatch")
+                 (devnet-smoke-gate-require
+                  (= -32602
+                     (fixture-object-field
+                      removed-pending-filter-error
+                      "code"))
+                  "removed eth_getFilterChanges error code mismatch")
                  (devnet-smoke-gate-require
                   (string= pending-transaction-raw
                            (fixture-object-field raw-pending-rpc "result"))
@@ -8397,6 +8477,16 @@ references/ checkouts.~%")
                         (first pending-filter-changes))
                   (cons "txpoolPendingFilterChanges"
                         pending-filter-changes)
+                  (cons "txpoolPendingFilterEmptyChanges"
+                        empty-pending-filter-changes)
+                  (cons "txpoolPendingFilterUninstallResult"
+                        (fixture-object-field
+                         uninstall-pending-filter-rpc
+                         "result"))
+                  (cons "txpoolPendingFilterMissingErrorCode"
+                        (fixture-object-field
+                         removed-pending-filter-error
+                         "code"))
                   (cons "txpoolBasefeeTransactionHash"
                         basefee-transaction-hash-hex)
                   (cons "txpoolBasefeeTransactionRaw"
@@ -10444,6 +10534,12 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field report "txpoolPendingFilterId"))
         (format t "txpoolPendingFilterHash=~A~%"
                 (devnet-smoke-gate-field report "txpoolPendingFilterHash"))
+        (format t "txpoolPendingFilterUninstallResult=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolPendingFilterUninstallResult"))
+        (format t "txpoolPendingFilterMissingErrorCode=~A~%"
+                (devnet-smoke-gate-field
+                 report "txpoolPendingFilterMissingErrorCode"))
         (format t "txpoolBasefeeTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "txpoolBasefeeTransactionHash"))
