@@ -1435,7 +1435,10 @@ first pass, but interfaces must not block that path.
   Pending block/header public RPC now also advances `baseFeePerGas` to the
   next-block value under London rules, matching the `eth_feeHistory`
   next-base-fee calculation instead of reusing the latest committed parent
-  base fee while reporting a pending child number.
+  base fee while reporting a pending child number. The standalone devnet smoke
+  gate now verifies that same pending base-fee contract through the restored
+  public listener and reports the pending block, pending header, and fee-history
+  next-base-fee values for process runners.
   The authenticated Engine workflow in the standalone devnet smoke gate now
   also verifies `engine_getPayloadBodiesByHashV1` and
   `engine_getPayloadBodiesByRangeV1` over the listener boundary, reporting body

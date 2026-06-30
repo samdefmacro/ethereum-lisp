@@ -4130,6 +4130,7 @@ references/ checkouts.~%")
          (pending-block-count-output (make-string-output-stream))
          (pending-block-output (make-string-output-stream))
          (pending-header-output (make-string-output-stream))
+         (pending-fee-history-output (make-string-output-stream))
          (pending-index-output (make-string-output-stream))
          (pending-raw-index-output (make-string-output-stream))
          (pending-output (make-string-output-stream))
@@ -4181,6 +4182,13 @@ references/ checkouts.~%")
                     (cons "method" "eth_getHeaderByNumber")
                     (cons "params" (list "pending"))))
              pending-header-output)
+            (cons
+             (json-encode
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 189)
+                    (cons "method" "eth_feeHistory")
+                    (cons "params" (list "0x1" "latest" '()))))
+             pending-fee-history-output)
             (cons
              (json-encode
               (list (cons "jsonrpc" "2.0")
@@ -4253,7 +4261,7 @@ references/ checkouts.~%")
                     :output-stream output
                     :close-function (lambda () nil)))))
             :close-function (lambda () nil))
-            :max-connections 13))
+            :max-connections 14))
          (raw-response (get-output-stream-string raw-output))
          (basefee-raw-response
            (get-output-stream-string basefee-raw-output))
@@ -4265,6 +4273,8 @@ references/ checkouts.~%")
            (get-output-stream-string pending-block-output))
          (pending-header-response
            (get-output-stream-string pending-header-output))
+         (pending-fee-history-response
+           (get-output-stream-string pending-fee-history-output))
          (pending-index-response
            (get-output-stream-string pending-index-output))
          (pending-raw-index-response
@@ -4286,6 +4296,8 @@ references/ checkouts.~%")
            (devnet-smoke-gate-rpc-body pending-block-response))
          (pending-header-rpc
            (devnet-smoke-gate-rpc-body pending-header-response))
+         (pending-fee-history-rpc
+           (devnet-smoke-gate-rpc-body pending-fee-history-response))
          (pending-index-rpc
            (devnet-smoke-gate-rpc-body pending-index-response))
          (pending-raw-index-rpc
@@ -4303,6 +4315,12 @@ references/ checkouts.~%")
            (fixture-object-field pending-block-rpc "result"))
          (pending-header
            (fixture-object-field pending-header-rpc "result"))
+         (pending-fee-history
+           (fixture-object-field pending-fee-history-rpc "result"))
+         (pending-fee-history-base-fees
+           (fixture-object-field pending-fee-history "baseFeePerGas"))
+         (pending-fee-history-next-base-fee
+           (second pending-fee-history-base-fees))
          (pending-block-transactions
            (fixture-object-field pending-block "transactions"))
          (pending-block-transaction
@@ -4349,12 +4367,13 @@ references/ checkouts.~%")
          (inspect-queued-transaction
            (fixture-object-field inspect-queued-sender queued-nonce-key)))
     (devnet-smoke-gate-require
-     (= 13 (getf summary :public-connections))
-     "Restored txpool probe expected 13 public connections, got ~S"
+     (= 14 (getf summary :public-connections))
+     "Restored txpool probe expected 14 public connections, got ~S"
      (getf summary :public-connections))
     (dolist (response (list raw-response basefee-raw-response
                             queued-raw-response pending-block-count-response
                             pending-block-response pending-header-response
+                            pending-fee-history-response
                             pending-index-response pending-raw-index-response
                             pending-response
                             status-response content-response
@@ -4393,6 +4412,17 @@ references/ checkouts.~%")
     (devnet-smoke-gate-require
      (null (fixture-object-field pending-header "nonce"))
      "Restored pending header should not expose a nonce")
+    (devnet-smoke-gate-require
+     (= 2 (length pending-fee-history-base-fees))
+     "Restored pending fee history baseFeePerGas length mismatch")
+    (devnet-smoke-gate-require
+     (string= pending-fee-history-next-base-fee
+              (fixture-object-field pending-block "baseFeePerGas"))
+     "Restored pending block base fee should match fee history next base fee")
+    (devnet-smoke-gate-require
+     (string= pending-fee-history-next-base-fee
+              (fixture-object-field pending-header "baseFeePerGas"))
+     "Restored pending header base fee should match fee history next base fee")
     (devnet-smoke-gate-require
      (= 1 (length pending-block-transactions))
      "Restored pending block-tag block transaction count mismatch")
@@ -4484,6 +4514,8 @@ references/ checkouts.~%")
           (fixture-object-field pending-block-count-rpc "result")
           :txpool-pending-block-hash
           (fixture-object-field pending-block "hash")
+          :txpool-pending-block-base-fee
+          (fixture-object-field pending-block "baseFeePerGas")
           :txpool-pending-header-number
           (fixture-object-field pending-header "number")
           :txpool-pending-header-parent-hash
@@ -4492,6 +4524,10 @@ references/ checkouts.~%")
           (fixture-object-field pending-header "hash")
           :txpool-pending-header-nonce
           (fixture-object-field pending-header "nonce")
+          :txpool-pending-header-base-fee
+          (fixture-object-field pending-header "baseFeePerGas")
+          :txpool-pending-fee-history-next-base-fee
+          pending-fee-history-next-base-fee
           :txpool-pending-block-transaction-hash
           (fixture-object-field pending-block-transaction "hash")
           :txpool-pending-block-transaction-block-hash
@@ -6052,6 +6088,10 @@ references/ checkouts.~%")
                   (and txpool-rpc-summary
                        (getf txpool-rpc-summary
                              :txpool-pending-block-hash))
+                  :rpc-txpool-pending-block-base-fee
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-pending-block-base-fee))
                   :rpc-txpool-pending-header-number
                   (and txpool-rpc-summary
                        (getf txpool-rpc-summary
@@ -6068,6 +6108,14 @@ references/ checkouts.~%")
                   (and txpool-rpc-summary
                        (getf txpool-rpc-summary
                              :txpool-pending-header-nonce))
+                  :rpc-txpool-pending-header-base-fee
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-pending-header-base-fee))
+                  :rpc-txpool-pending-fee-history-next-base-fee
+                  (and txpool-rpc-summary
+                       (getf txpool-rpc-summary
+                             :txpool-pending-fee-history-next-base-fee))
                   :rpc-txpool-pending-block-transaction-hash
                   (and txpool-rpc-summary
                        (getf txpool-rpc-summary
@@ -8748,6 +8796,11 @@ references/ checkouts.~%")
                             (getf database-summary
                                   :rpc-txpool-pending-block-hash)
                             :false))
+                  (cons "databaseRpcTxpoolPendingBlockBaseFee"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-pending-block-base-fee)
+                            :false))
                   (cons "databaseRpcTxpoolPendingHeaderNumber"
                         (if database-summary
                             (getf database-summary
@@ -8767,6 +8820,16 @@ references/ checkouts.~%")
                         (if database-summary
                             (getf database-summary
                                   :rpc-txpool-pending-header-nonce)
+                            :false))
+                  (cons "databaseRpcTxpoolPendingHeaderBaseFee"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-pending-header-base-fee)
+                            :false))
+                  (cons "databaseRpcTxpoolPendingFeeHistoryNextBaseFee"
+                        (if database-summary
+                            (getf database-summary
+                                  :rpc-txpool-pending-fee-history-next-base-fee)
                             :false))
                   (cons "databaseRpcTxpoolPendingBlockTransactionHash"
                         (if database-summary
@@ -10720,6 +10783,9 @@ references/ checkouts.~%")
         (format t "databaseRpcTxpoolPendingBlockHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcTxpoolPendingBlockHash"))
+        (format t "databaseRpcTxpoolPendingBlockBaseFee=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolPendingBlockBaseFee"))
         (format t "databaseRpcTxpoolPendingHeaderNumber=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcTxpoolPendingHeaderNumber"))
@@ -10732,6 +10798,12 @@ references/ checkouts.~%")
         (format t "databaseRpcTxpoolPendingHeaderNonce=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcTxpoolPendingHeaderNonce"))
+        (format t "databaseRpcTxpoolPendingHeaderBaseFee=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolPendingHeaderBaseFee"))
+        (format t "databaseRpcTxpoolPendingFeeHistoryNextBaseFee=~A~%"
+                (devnet-smoke-gate-field
+                 report "databaseRpcTxpoolPendingFeeHistoryNextBaseFee"))
         (format t "databaseRpcTxpoolPendingBlockTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "databaseRpcTxpoolPendingBlockTransactionHash"))

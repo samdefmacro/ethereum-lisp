@@ -444,6 +444,8 @@
   (is (null (fixture-object-field
              report "databaseRpcTxpoolPendingBlockHash")))
   (is (stringp (fixture-object-field
+                report "databaseRpcTxpoolPendingBlockBaseFee")))
+  (is (stringp (fixture-object-field
                 report "databaseRpcTxpoolPendingHeaderNumber")))
   (is (stringp (fixture-object-field
                 report "databaseRpcTxpoolPendingHeaderParentHash")))
@@ -451,6 +453,14 @@
              report "databaseRpcTxpoolPendingHeaderHash")))
   (is (null (fixture-object-field
              report "databaseRpcTxpoolPendingHeaderNonce")))
+  (is (string= (fixture-object-field
+                report "databaseRpcTxpoolPendingFeeHistoryNextBaseFee")
+               (fixture-object-field
+                report "databaseRpcTxpoolPendingBlockBaseFee")))
+  (is (string= (fixture-object-field
+                report "databaseRpcTxpoolPendingFeeHistoryNextBaseFee")
+               (fixture-object-field
+                report "databaseRpcTxpoolPendingHeaderBaseFee")))
   (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
                (fixture-object-field
                 report "databaseRpcTxpoolPendingBlockTransactionHash")))
@@ -481,7 +491,7 @@
   (is (string= (fixture-object-field report "txpoolQueuedTransactionHash")
                (fixture-object-field
                 report "databaseRpcTxpoolQueuedContentFromHash")))
-  (is (= 13
+  (is (= 14
          (fixture-object-field report "databaseRpcTxpoolPublicConnections"))))
 
 (defun devnet-cli-assert-side-reorg-persistence (report)

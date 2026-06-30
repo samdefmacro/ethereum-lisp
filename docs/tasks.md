@@ -1119,6 +1119,13 @@ ones.
     public listener, verifies its number and `parentHash` match the pending
     block view, verifies null committed `hash`/`nonce`, reports those fields,
     and updates the txpool public connection contract for process runners.
+- [x] `DEVNET-RUNNER-PENDING-BASE-FEE`: Lock pending block/header base-fee
+  visibility at the devnet process-boundary smoke surface.
+  - Result (2026-06-30): the standalone devnet smoke gate's restored-database
+    txpool probe now sends `eth_feeHistory("0x1", "latest", [])` through the
+    public listener, verifies pending block/header `baseFeePerGas` equals the
+    reported next base fee, reports those values, and updates the txpool public
+    connection contract for process runners.
 - [x] `DEVNET-RUNNER-PAYLOAD-BODIES`: Lock authenticated Engine payload-body
   retrieval at the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate's authenticated
