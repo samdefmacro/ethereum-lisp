@@ -82,7 +82,7 @@ references/ checkouts.~%")
      +devnet-smoke-gate-engine-workflow-connections+))
 (defconstant +devnet-smoke-gate-public-canonical-read-connections+ 23)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
-(defconstant +devnet-smoke-gate-public-txpool-connections+ 9)
+(defconstant +devnet-smoke-gate-public-txpool-connections+ 11)
 (defconstant +devnet-smoke-gate-public-connections+
   (+ +devnet-smoke-gate-public-canonical-read-connections+
      +devnet-smoke-gate-public-boundary-connections+
@@ -6104,6 +6104,10 @@ references/ checkouts.~%")
                     (make-string-output-stream))
                   (public-malformed-json-output
                     (make-string-output-stream))
+                  (new-pending-filter-output
+                    (make-string-output-stream))
+                  (pending-filter-changes-output
+                    (make-string-output-stream))
                   (send-raw-output (make-string-output-stream))
                   (send-basefee-output (make-string-output-stream))
                   (send-queued-output (make-string-output-stream))
@@ -6493,6 +6497,14 @@ references/ checkouts.~%")
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
+                               (cons "id" 66)
+                               (cons "method"
+                                     "eth_newPendingTransactionFilter")
+                               (cons "params" '())))
+                        new-pending-filter-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
                                (cons "id" 36)
                                (cons "method" "eth_sendRawTransaction")
                                (cons "params"
@@ -6514,6 +6526,13 @@ references/ checkouts.~%")
                                (cons "params"
                                      (list queued-transaction-raw))))
                         send-queued-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 67)
+                               (cons "method" "eth_getFilterChanges")
+                               (cons "params" (list "0x1"))))
+                        pending-filter-changes-output)
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
@@ -6777,6 +6796,11 @@ references/ checkouts.~%")
                       (public-malformed-json-response
                         (get-output-stream-string
                          public-malformed-json-output))
+                      (new-pending-filter-response
+                        (get-output-stream-string new-pending-filter-output))
+                      (pending-filter-changes-response
+                        (get-output-stream-string
+                         pending-filter-changes-output))
                       (send-raw-response
                         (get-output-stream-string send-raw-output))
                       (send-basefee-response
@@ -6893,6 +6917,12 @@ references/ checkouts.~%")
                       (public-malformed-json-rpc
                         (devnet-smoke-gate-rpc-body
                          public-malformed-json-response))
+                      (new-pending-filter-rpc
+                        (devnet-smoke-gate-rpc-body
+                         new-pending-filter-response))
+                      (pending-filter-changes-rpc
+                        (devnet-smoke-gate-rpc-body
+                         pending-filter-changes-response))
                       (send-raw-rpc
                         (devnet-smoke-gate-rpc-body send-raw-response))
                       (send-basefee-rpc
@@ -6989,6 +7019,12 @@ references/ checkouts.~%")
                                  (block-header child-block)))))))
                       (txpool-status
                         (fixture-object-field txpool-status-rpc "result"))
+                      (pending-filter-id
+                        (fixture-object-field new-pending-filter-rpc
+                                              "result"))
+                      (pending-filter-changes
+                        (fixture-object-field pending-filter-changes-rpc
+                                              "result"))
                       (txpool-content-from
                         (fixture-object-field
                          txpool-content-from-rpc "result"))
@@ -7192,6 +7228,14 @@ references/ checkouts.~%")
                           public-malformed-json-response))
                   "Public malformed JSON probe HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          new-pending-filter-response))
+                  "eth_newPendingTransactionFilter HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          pending-filter-changes-response))
+                  "eth_getFilterChanges HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= -32601
                      (fixture-object-field
                       (fixture-object-field
@@ -7207,6 +7251,9 @@ references/ checkouts.~%")
                        "error")
                       "code"))
                   "Public listener malformed JSON did not return parse error")
+                 (devnet-smoke-gate-require
+                  (string= "0x1" pending-filter-id)
+                  "eth_newPendingTransactionFilter id mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status send-raw-response))
                   "eth_sendRawTransaction HTTP status mismatch")
@@ -7567,6 +7614,13 @@ references/ checkouts.~%")
                   (string= queued-transaction-hash-hex
                            (fixture-object-field send-queued-rpc "result"))
                   "eth_sendRawTransaction queued hash mismatch")
+                 (devnet-smoke-gate-require
+                  (= 1 (length pending-filter-changes))
+                  "eth_getFilterChanges pending transaction count mismatch")
+                 (devnet-smoke-gate-require
+                  (string= pending-transaction-hash-hex
+                           (first pending-filter-changes))
+                  "eth_getFilterChanges pending transaction hash mismatch")
                  (devnet-smoke-gate-require
                   (string= pending-transaction-raw
                            (fixture-object-field raw-pending-rpc "result"))
@@ -8011,6 +8065,11 @@ references/ checkouts.~%")
                         pending-transaction-nonce-key)
                   (cons "txpoolPendingInspectSummary"
                         txpool-inspect-transaction)
+                  (cons "txpoolPendingFilterId" pending-filter-id)
+                  (cons "txpoolPendingFilterHash"
+                        (first pending-filter-changes))
+                  (cons "txpoolPendingFilterChanges"
+                        pending-filter-changes)
                   (cons "txpoolBasefeeTransactionHash"
                         basefee-transaction-hash-hex)
                   (cons "txpoolBasefeeTransactionRaw"
@@ -9968,6 +10027,10 @@ references/ checkouts.~%")
         (format t "txpoolPendingInspectSummary=~A~%"
                 (devnet-smoke-gate-field
                  report "txpoolPendingInspectSummary"))
+        (format t "txpoolPendingFilterId=~A~%"
+                (devnet-smoke-gate-field report "txpoolPendingFilterId"))
+        (format t "txpoolPendingFilterHash=~A~%"
+                (devnet-smoke-gate-field report "txpoolPendingFilterHash"))
         (format t "txpoolBasefeeTransactionHash=~A~%"
                 (devnet-smoke-gate-field
                  report "txpoolBasefeeTransactionHash"))

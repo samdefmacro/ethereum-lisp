@@ -1217,6 +1217,14 @@ ones.
     reports only the transaction admitted into pending, and checks shutdown
     telemetry reports the public txpool RPC connections with zero Engine
     traffic.
+- [x] `DEVNET-RUNNER-STANDALONE-PENDING-FILTER`: Lock public pending
+  transaction filters at the standalone devnet smoke surface.
+  - Result (2026-06-30): the standalone devnet smoke gate now creates an
+    `eth_newPendingTransactionFilter` on the public listener before txpool
+    submissions, polls `eth_getFilterChanges` after pending/basefee/queued raw
+    transactions are admitted, verifies only the pending transaction hash is
+    reported, exposes the filter id/hash/change list in JSON and text output,
+    and updates the public txpool connection contract for runner accounting.
 - [x] `DEVNET-RUNNER-SCRIPT-PENDING-BLOCK-TXPOOL`: Lock pending block-tag txpool
   visibility at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`
