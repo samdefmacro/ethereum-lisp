@@ -105,7 +105,7 @@
   (let ((contract (fixture-object-field report "connectionContract")))
     (is contract)
     (is (= case-count (fixture-object-field contract "caseCount")))
-    (is (= (* 2 case-count)
+    (is (= (* 3 case-count)
            (fixture-object-field contract "engineBoundaryConnections")))
     (is (= (* 11 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
@@ -3627,6 +3627,10 @@
                       (fixture-object-field
                        report
                        "engineInvalidAuthStatus")))
+               (is (= 401
+                      (fixture-object-field
+                       report
+                       "engineDuplicateAuthStatus")))
                (devnet-cli-assert-engine-capability-report report)
                (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration report)
@@ -4162,11 +4166,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
                (is (= (* 39 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 52 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 53 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -4183,7 +4187,7 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 13 (fixture-object-field case "engineConnections")))
+                   (is (= 14 (fixture-object-field case "engineConnections")))
                   (is (= 39 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
@@ -4193,6 +4197,10 @@
                           (fixture-object-field
                            case
                            "engineInvalidAuthStatus")))
+                   (is (= 401
+                          (fixture-object-field
+                           case
+                           "engineDuplicateAuthStatus")))
                    (devnet-cli-assert-engine-capability-report case)
                    (devnet-cli-assert-engine-client-version case)
                    (devnet-cli-assert-engine-transition-configuration case)
@@ -5020,11 +5028,11 @@
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 13 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 14 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
         (is (= (* 39 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 52 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 53 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (devnet-cli-assert-public-readiness case)

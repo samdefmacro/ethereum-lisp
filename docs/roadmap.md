@@ -1249,9 +1249,10 @@ first pass, but interfaces must not block that path.
   `connectionContract`, breaking down expected Engine boundary/workflow probes
   and public canonical-read/boundary/txpool probes so Hive-style runners can
   distinguish intended listener traffic from accidental connection-count
-  drift. The Engine boundary probes now cover both missing authentication and
-  a request signed with the wrong JWT secret, and the smoke report exposes
-  separate HTTP 401 status fields for both cases. The authenticated Engine
+  drift. The Engine boundary probes now cover missing authentication, a
+  request signed with the wrong JWT secret, and a duplicate `Authorization`
+  header request, and the smoke report exposes separate HTTP 401 status fields
+  for those cases. The authenticated Engine
   workflow now also probes `engine_getClientVersionV1` and
   `engine_exchangeCapabilities` before payload import, reporting the local
   client identity and whether the expected V1/V2 payload/forkchoice/getPayload

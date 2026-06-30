@@ -75,7 +75,7 @@ references/ checkouts.~%")
   "0x0000000000000000000000000000000000003001")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
-(defconstant +devnet-smoke-gate-engine-boundary-connections+ 2)
+(defconstant +devnet-smoke-gate-engine-boundary-connections+ 3)
 (defconstant +devnet-smoke-gate-engine-workflow-connections+ 11)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
@@ -6419,6 +6419,7 @@ references/ checkouts.~%")
                      0))
                   (unauthenticated-engine-output (make-string-output-stream))
                   (invalid-auth-engine-output (make-string-output-stream))
+                  (duplicate-auth-engine-output (make-string-output-stream))
                   (client-version-output (make-string-output-stream))
                   (capabilities-output (make-string-output-stream))
                   (transition-configuration-output
@@ -6971,6 +6972,7 @@ references/ checkouts.~%")
                   (engine-served-count 0)
                   (unauthenticated-engine-served-p nil)
                   (invalid-auth-engine-served-p nil)
+                  (duplicate-auth-engine-served-p nil)
                   (engine-done-p nil)
                   (public-served-count 0))
              (devnet-cli-set-node-store-config node store config)
@@ -7020,6 +7022,24 @@ references/ checkouts.~%")
                                  (cons "params" (list '()))))
                                :token invalid-token))
                              :output-stream invalid-auth-engine-output
+                             :close-function
+                             (lambda ()
+                               (incf engine-served-count))))
+                           ((not duplicate-auth-engine-served-p)
+                            (setf duplicate-auth-engine-served-p t)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream
+                              (devnet-cli-json-rpc-duplicate-auth-http-request
+                               (json-encode
+                                (list
+                                 (cons "jsonrpc" "2.0")
+                                 (cons "id" 45)
+                                 (cons "method"
+                                       "engine_getClientVersionV1")
+                                 (cons "params" (list '()))))
+                               token invalid-token))
+                             :output-stream duplicate-auth-engine-output
                              :close-function
                              (lambda ()
                                (incf engine-served-count))))
@@ -7112,6 +7132,9 @@ references/ checkouts.~%")
                       (invalid-auth-engine-response
                         (get-output-stream-string
                          invalid-auth-engine-output))
+                      (duplicate-auth-engine-response
+                        (get-output-stream-string
+                         duplicate-auth-engine-output))
                       (forkchoice-response
                         (get-output-stream-string forkchoice-output))
                       (payload-bodies-by-hash-response
@@ -7522,6 +7545,10 @@ references/ checkouts.~%")
                   (= 401 (devnet-cli-http-status
                           invalid-auth-engine-response))
                   "Invalid-token Engine request HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 401 (devnet-cli-http-status
+                          duplicate-auth-engine-response))
+                  "Duplicate-authorization Engine request HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status capabilities-response))
                   "engine_exchangeCapabilities HTTP status mismatch")
@@ -8332,6 +8359,9 @@ references/ checkouts.~%")
                   (cons "engineInvalidAuthStatus"
                         (devnet-cli-http-status
                          invalid-auth-engine-response))
+                  (cons "engineDuplicateAuthStatus"
+                        (devnet-cli-http-status
+                         duplicate-auth-engine-response))
                   (cons "engineCapabilityCount"
                         (length capabilities-result))
                   (cons "engineCapabilityHasNewPayloadV1"
@@ -10482,6 +10512,9 @@ references/ checkouts.~%")
         (format t "engineInvalidAuthStatus=~D~%"
                 (devnet-smoke-gate-field report
                                          "engineInvalidAuthStatus"))
+        (format t "engineDuplicateAuthStatus=~D~%"
+                (devnet-smoke-gate-field report
+                                         "engineDuplicateAuthStatus"))
         (format t "engineCapabilityCount=~D~%"
                 (devnet-smoke-gate-field report "engineCapabilityCount"))
         (format t "engineCapabilityHasNewPayloadV1=~A~%"

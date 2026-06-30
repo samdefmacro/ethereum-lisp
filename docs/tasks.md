@@ -918,6 +918,12 @@ ones.
     runners can distinguish missing-auth and bad-auth failures from workflow
     failures. CLI coverage updates the single-case, all-fixtures, and Phase A
     devnet aggregate connection budgets for the added Engine boundary probe.
+  - Result (2026-07-01): the standalone devnet listener-boundary smoke now also
+    sends a duplicate `Authorization` header request to the Engine listener
+    before the authenticated workflow. The request must return HTTP 401, the
+    report exposes `engineDuplicateAuthStatus`, and the connection contract
+    counts the duplicate-header probe as a third Engine boundary connection for
+    single-case, all-fixtures, and aggregate runner assertions.
 - [x] `DEVNET-RUNNER-ENGINE-CAPABILITIES-SMOKE`: Extend the standalone devnet
   smoke gate so authenticated Engine readiness probes include
   `engine_exchangeCapabilities`, not only payload import calls.
