@@ -7281,6 +7281,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       "127.0.0.1"
       host))
 
+(defun engine-rpc-http-socket-endpoint-host (host)
+  (if (string= host "0.0.0.0")
+      "127.0.0.1"
+      host))
+
 (defun make-engine-rpc-http-socket-listener
     (service &key (backlog 16))
   (unless (typep service 'engine-rpc-http-service)
@@ -7311,7 +7316,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               (sb-bsd-sockets:socket-name socket)
             (declare (ignore address))
             (make-engine-rpc-http-listener
-             :endpoint (format nil "~A:~D" host port)
+             :endpoint (format nil "~A:~D"
+                               (engine-rpc-http-socket-endpoint-host host)
+                               port)
              :accept-function
              (lambda ()
                (multiple-value-bind (client-socket peer-address peer-port)

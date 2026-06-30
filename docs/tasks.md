@@ -508,6 +508,13 @@ ones.
     reporting success if actual serve-mode Engine, public, or total connection
     counts diverge from that contract; CLI coverage checks both the single-case
     and all-fixtures reports.
+- [x] `DEVNET-RUNNER-WILDCARD-ENDPOINT`: Ensure Hive/geth-style wildcard
+  listener binds advertise probeable readiness endpoints.
+  - Result (2026-06-30): socket listeners still bind `0.0.0.0` when requested,
+    but bound listener metadata now advertises `127.0.0.1:PORT` so stdout,
+    ready-file JSON, and lifecycle telemetry expose an endpoint local process
+    runners can connect to. Focused socket coverage locks the wildcard
+    endpoint rewrite.
 - [x] `DEVNET-RUNNER-PROCESS-ENTRYPOINT`: Add a runner-facing process script
   entrypoint for the devnet CLI.
   - Result (2026-06-28): added `scripts/ethereum-lisp.lisp`, which loads the

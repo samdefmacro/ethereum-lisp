@@ -3151,6 +3151,29 @@
              (devnet-cli-read-stream-string stream))
         (close stream)))))
 
+(deftest engine-rpc-http-socket-listener-advertises-loopback-for-wildcard-host
+  #-sbcl
+  (skip-test "Devnet wildcard socket endpoint test requires SBCL sockets")
+  #+sbcl
+  (let ((listener nil))
+    (handler-case
+        (unwind-protect
+             (progn
+               (setf listener
+                     (make-engine-rpc-http-socket-listener
+                      (make-engine-rpc-http-service
+                       :host "0.0.0.0"
+                       :port 0)))
+               (let ((endpoint
+                       (engine-rpc-http-listener-endpoint listener)))
+                 (is (search "127.0.0.1:" endpoint))
+                 (is (not (search "0.0.0.0:" endpoint)))))
+          (when listener
+            (ignore-errors
+              (engine-rpc-http-listener-close listener))))
+      (sb-bsd-sockets:operation-not-permitted-error ()
+        (skip-test "Local socket bind is not permitted in this sandbox")))))
+
 (deftest devnet-node-start-closes-engine-socket-on-public-bind-error
   #-sbcl
   (skip-test "Devnet socket bind cleanup requires SBCL sockets")

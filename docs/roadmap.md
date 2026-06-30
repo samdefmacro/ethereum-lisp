@@ -1222,6 +1222,10 @@ first pass, but interfaces must not block that path.
   emits a single `devnet.error` record, preserves the child pid artifact, and
   does not emit a ready file, stdout summary, `devnet.ready`, or
   `devnet.shutdown` record. The
+  socket listener now also reports `127.0.0.1:PORT` as the bound endpoint when
+  a runner asks it to bind `0.0.0.0`, preserving the wildcard bind while
+  keeping stdout, ready-file JSON, and lifecycle telemetry probeable from local
+  Hive-style process runners. The
   standalone devnet smoke gate now also emits and enforces an explicit
   `connectionContract`, breaking down expected Engine boundary/workflow probes
   and public canonical-read/boundary/txpool probes so Hive-style runners can
