@@ -1182,7 +1182,9 @@ first pass, but interfaces must not block that path.
   record carrying `lifecyclePhase=error`, `exitCode`, `processId`, and the
   error message, including failures while parsing malformed options, and
   the `--log-file` pre-scan now preserves the log path when a malformed
-  value-bearing option is immediately followed by another option token, and
+  value-bearing option is immediately followed by another option token, uses
+  the same runner value and optional-boolean option tables as `devnet`, `init`,
+  and pre-command dispatch, and
   runner-facing `scripts/ethereum-lisp.lisp` subprocess coverage verifies the
   same missing-genesis, malformed-option, and malformed/missing
   `--authrpc.jwtsecret` failure contracts from temporary working directories,

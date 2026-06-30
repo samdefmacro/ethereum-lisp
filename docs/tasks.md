@@ -471,6 +471,12 @@ ones.
     stdout, usage on stderr, and exactly one `devnet.error` record. JWT secret
     diagnostics now name both `--jwt-secret` and `--authrpc.jwtsecret` and use a
     deterministic readable-file/32-byte-hex requirement for Hive launchers.
+  - Result (2026-06-30): the startup-failure `--log-file` pre-scan now uses
+    the shared devnet runner value and optional-boolean option tables, so
+    error telemetry stays aligned with `devnet`, `init`, and pre-command
+    dispatch as geth/Hive launch flags expand. CLI coverage locks a malformed
+    option failure after shared-table-only value flags and an explicit
+    optional-boolean value.
 - [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
   gate's Engine/public listener accounting self-describing for Hive-style
   process runners.

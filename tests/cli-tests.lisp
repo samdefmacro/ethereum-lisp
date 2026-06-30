@@ -2767,6 +2767,12 @@
            (is (= 1
                   (ethereum-lisp.cli:main
                    (list "devnet"
+                         "--http"
+                         "false"
+                         "--ws.api"
+                         "eth,net"
+                         "--txpool.blobpool.pricebump"
+                         "100"
                          (format nil "--log-file=~A" log-path-string)
                          (format nil "--genesis=~A"
                                  +devnet-cli-genesis-fixture+)

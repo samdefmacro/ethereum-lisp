@@ -1204,43 +1204,16 @@
               (when (and args
                          (not (devnet-cli-option-token-p (first args))))
                 (return (first args))))
-             ((member option
-                      '("--genesis" "--host" "--engine-host"
-                        "--authrpc.addr" "--port" "--engine-port"
-                        "--authrpc.port" "--public-host" "--http.addr"
-                        "--public-port" "--http.port" "--jwt-secret"
-                        "--authrpc.jwtsecret" "--authrpc.rpcprefix"
-                        "--http.api" "--http.rpcprefix" "--http.vhosts"
-                        "--http.corsdomain" "--authrpc.vhosts"
-                        "--authrpc.corsdomain"
-                        "--ws.addr" "--ws.port" "--ws.api" "--ws.origins"
-                        "--graphql.addr" "--graphql.port"
-                        "--graphql.vhosts" "--graphql.corsdomain"
-                        "--networkid" "--network-id" "--syncmode"
-                        "--verbosity" "--maxpeers" "--nat" "--identity"
-                        "--gcmode" "--state.scheme" "--db.engine"
-                        "--datadir.ancient" "--ipcpath" "--netrestrict"
-                        "--nodekey" "--nodekeyhex" "--discovery.port"
-                        "--discovery.dns" "--cache" "--cache.database"
-                        "--cache.gc" "--cache.trie" "--txlookuplimit"
-                        "--history.transactions" "--bootnodes"
-                        "--miner.etherbase" "--etherbase"
-                        "--miner.gaslimit" "--miner.gasprice" "--unlock"
-                        "--password" "--metrics.addr" "--metrics.port"
-                        "--pprof.addr" "--pprof.port"
-                        "--txpool.locals" "--txpool.journal"
-                        "--txpool.rejournal" "--txpool.pricelimit"
-                        "--txpool.pricebump" "--txpool.accountslots"
-                        "--txpool.globalslots" "--txpool.accountqueue"
-                        "--txpool.globalqueue" "--txpool.lifetime"
-                        "--txpool.blobpool.datacap"
-                        "--txpool.blobpool.pricebump"
-                        "--database" "--datadir"
-                        "--prune-state-before" "--max-connections"
-                        "--ready-file" "--pid-file")
-                      :test #'string=)
+             ((member option *devnet-cli-value-options* :test #'string=)
               (when (and args
                          (not (devnet-cli-option-token-p (first args))))
+                (pop args)))
+             ((member option
+                      *devnet-cli-optional-boolean-options*
+                      :test #'string=)
+              (when (and args
+                         (not (devnet-cli-option-token-p (first args)))
+                         (devnet-cli-boolean-token-p (first args)))
                 (pop args))))))
 
 (defun devnet-cli-log-error-event (args condition)
