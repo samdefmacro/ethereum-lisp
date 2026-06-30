@@ -1233,6 +1233,14 @@ ones.
     network-id-backed `net_version`, reported ready/stdout/log metadata, and
     shutdown telemetry for the three Engine and six public served
     connections.
+- [x] `DEVNET-RUNNER-SCRIPT-HTTP-API-MODULES`: Lock public module
+  introspection after geth/Hive-style `--http.api` filtering at the external
+  script process boundary.
+  - Result (2026-06-30): the runner-facing HTTP-shaping subprocess now also
+    queries `rpc_modules` through the configured public RPC prefix after
+    launching with `--http.api eth,net`. It verifies only `eth`, `net`, and
+    `rpc` are advertised while omitted `web3`/`txpool` modules stay hidden,
+    and updates the public shutdown connection contract for the extra probe.
 - [x] `DEVNET-RUNNER-SCRIPT-IMPORT-FORKCHOICE`: Lock Engine payload import,
   forkchoice, and public retained-state reads at the external script process
   boundary.

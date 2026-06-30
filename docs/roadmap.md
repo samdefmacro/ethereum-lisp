@@ -1302,7 +1302,10 @@ first pass, but interfaces must not block that path.
   non-root Engine/public RPC prefixes, Engine/public vhost allowlists, public
   CORS origins, `--http.api eth,net` filtering, network-id-backed
   `net_version`, and the resulting ready/stdout/lifecycle metadata plus
-  shutdown connection accounting. It also has external script-process coverage
+  shutdown connection accounting. That HTTP-shaping subprocess now also asks
+  `rpc_modules` through the configured public prefix and verifies narrowed
+  module introspection advertises only `eth`, `net`, and `rpc` while keeping
+  omitted modules hidden. It also has external script-process coverage
   for a fixture-derived Engine `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, authenticated payload-body retrieval by hash
   and range, public retained-state reads against the post-forkchoice retained

@@ -11089,7 +11089,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "6"
+                        "7"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -11128,12 +11128,15 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":603,\"method\":\"net_version\",\"params\":[]}")
                     (public-web3-body
                       "{\"jsonrpc\":\"2.0\",\"id\":604,\"method\":\"web3_clientVersion\",\"params\":[]}")
+                    (public-rpc-modules-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":605,\"method\":\"rpc_modules\",\"params\":[]}")
                     engine-prefixed-response
                     engine-preflight-response
                     engine-root-response
                     engine-blocked-host-response
                     public-prefixed-response
                     public-net-response
+                    public-rpc-modules-response
                     public-blocked-host-response
                     public-root-response
                     public-web3-response
@@ -11216,6 +11219,13 @@
                              public-net-body
                              :target "/rpc"
                              :host "public.runner")))
+                     (setf public-rpc-modules-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-rpc-modules-body
+                             :target "/rpc"
+                             :host "public.runner")))
                      (setf public-blocked-host-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -11266,6 +11276,9 @@
                (is (search "Access-Control-Allow-Origin: https://runner.example"
                            public-prefixed-response))
                (is (= 200 (devnet-cli-http-status public-net-response)))
+               (is (= 200
+                      (devnet-cli-http-status
+                       public-rpc-modules-response)))
                (is (= 403
                       (devnet-cli-http-status
                        public-blocked-host-response)))
@@ -11281,11 +11294,18 @@
                       (public-net-json
                         (parse-json
                          (devnet-cli-http-body public-net-response)))
+                      (public-rpc-modules-json
+                        (parse-json
+                         (devnet-cli-http-body
+                          public-rpc-modules-response)))
                       (public-web3-json
                         (parse-json
                          (devnet-cli-http-body public-web3-response)))
                       (client-version
-                        (first (fixture-object-field engine-json "result"))))
+                        (first (fixture-object-field engine-json "result")))
+                      (public-modules
+                        (fixture-object-field
+                         public-rpc-modules-json "result")))
                  (is (= 601 (fixture-object-field engine-json "id")))
                  (is (string= "ethereum-lisp"
                               (fixture-object-field client-version "name")))
@@ -11296,6 +11316,16 @@
                  (is (string= "4242"
                               (fixture-object-field
                                public-net-json "result")))
+                 (is (= 605
+                        (fixture-object-field public-rpc-modules-json "id")))
+                 (is (string= "1.0"
+                              (fixture-object-field public-modules "eth")))
+                 (is (string= "1.0"
+                              (fixture-object-field public-modules "net")))
+                 (is (string= "1.0"
+                              (fixture-object-field public-modules "rpc")))
+                 (is (not (fixture-object-field public-modules "txpool")))
+                 (is (not (fixture-object-field public-modules "web3")))
                  (is (= 604 (fixture-object-field public-web3-json "id")))
                  (is (= -32601
                         (fixture-object-field
@@ -11372,11 +11402,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "6"
+                         (is (string= "7"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "10"
+                         (is (string= "11"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))
