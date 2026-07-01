@@ -1290,7 +1290,10 @@ first pass, but interfaces must not block that path.
   response reports the non-default terminal values. The Engine handshake now
   rejects terminal total difficulty and terminal block hash mismatches while
   continuing to tolerate terminal block number drift, and the standalone smoke
-  report exposes that authenticated mismatch probe. A runner-facing
+  report exposes that authenticated mismatch probe. The runner-facing script
+  process coverage now also verifies that a mismatched terminal total difficulty
+  sent through the ready-file Engine endpoint returns JSON-RPC `-32602` at the
+  real subprocess boundary. A runner-facing
   `scripts/ethereum-lisp.lisp` script now provides a
   stable `sbcl --script` process entrypoint for the devnet CLI without writing
   ASDF fasl cache files, and subprocess coverage verifies both help discovery

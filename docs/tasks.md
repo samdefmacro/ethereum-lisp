@@ -650,6 +650,11 @@ ones.
     endpoint, verifies the returned terminal total difficulty, block hash, and
     block number, and checks shutdown telemetry accounts for the extra Engine
     connection.
+  - Update (2026-07-01): the same external process coverage now also sends a
+    mismatched terminal-total-difficulty transition configuration through the
+    authenticated ready-file Engine endpoint and asserts JSON-RPC `-32602` plus
+    the mismatch message, with shutdown telemetry accounting for the extra
+    Engine request.
 - [x] `DEVNET-RUNNER-LISTENER-STARTUP-CLEANUP`: Close a successfully bound
   Engine listener if public listener construction fails during devnet startup.
   - Result (2026-06-29): `start-devnet-node` now registers the Engine listener

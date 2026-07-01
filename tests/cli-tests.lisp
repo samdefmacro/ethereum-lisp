@@ -7123,6 +7123,8 @@
                       "{\"jsonrpc\":\"2.0\",\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     (engine-transition-body
                       "{\"jsonrpc\":\"2.0\",\"id\":515,\"method\":\"engine_exchangeTransitionConfigurationV1\",\"params\":[{\"terminalTotalDifficulty\":\"0x3039\",\"terminalBlockHash\":\"0x3333333333333333333333333333333333333333333333333333333333333333\",\"terminalBlockNumber\":\"0x42\"}]}")
+                    (engine-transition-mismatch-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":530,\"method\":\"engine_exchangeTransitionConfigurationV1\",\"params\":[{\"terminalTotalDifficulty\":\"0x3038\",\"terminalBlockHash\":\"0x3333333333333333333333333333333333333333333333333333333333333333\",\"terminalBlockNumber\":\"0x42\"}]}")
                     (engine-public-body
                       "{\"jsonrpc\":\"2.0\",\"id\":507,\"method\":\"eth_chainId\",\"params\":[]}")
                     (engine-capabilities-body
@@ -7177,6 +7179,7 @@
                     engine-batch-response
                     engine-notification-response
                     engine-transition-response
+                    engine-transition-mismatch-response
                     engine-public-response
                     unauthenticated-engine-response
                     invalid-auth-engine-response
@@ -7234,6 +7237,12 @@
                             engine-endpoint
                             (devnet-cli-json-rpc-http-request
                              engine-transition-body
+                             :token token)))
+                     (setf engine-transition-mismatch-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-transition-mismatch-body
                              :token token)))
                      (setf engine-public-response
                            (devnet-cli-http-endpoint-request
@@ -7381,6 +7390,8 @@
                (is (= 200 (devnet-cli-http-status
                             engine-notification-response)))
                (is (= 200 (devnet-cli-http-status engine-transition-response)))
+               (is (= 200 (devnet-cli-http-status
+                            engine-transition-mismatch-response)))
                (is (= 200 (devnet-cli-http-status engine-public-response)))
                (is (= 401
                       (devnet-cli-http-status unauthenticated-engine-response)))
@@ -7448,6 +7459,13 @@
                       (engine-transition-result
                         (fixture-object-field engine-transition-json
                                               "result"))
+                      (engine-transition-mismatch-json
+                        (parse-json
+                         (devnet-cli-http-body
+                          engine-transition-mismatch-response)))
+                      (engine-transition-mismatch-error
+                        (fixture-object-field engine-transition-mismatch-json
+                                              "error"))
                       (public-json
                         (parse-json (devnet-cli-http-body public-response)))
                       (public-client-version-json
@@ -7567,6 +7585,15 @@
                               (fixture-object-field
                                engine-transition-result
                                "terminalBlockNumber")))
+                 (is (= 530
+                        (fixture-object-field
+                         engine-transition-mismatch-json "id")))
+                 (is (= -32602
+                        (fixture-object-field
+                         engine-transition-mismatch-error "code")))
+                 (is (search "terminalTotalDifficulty mismatch"
+                             (fixture-object-field
+                              engine-transition-mismatch-error "message")))
                  (is (= 507 (fixture-object-field engine-public-json "id")))
                  (is (= -32601
                         (fixture-object-field
@@ -7753,7 +7780,7 @@
                                                     :test #'string=))))))
                        (let ((shutdown-fields
                                (getf shutdown-record :fields)))
-                         (is (string= "8"
+                         (is (string= "9"
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
@@ -7761,7 +7788,7 @@
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "31"
+                         (is (string= "32"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))
