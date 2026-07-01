@@ -1743,7 +1743,12 @@ Detailed historical implementation notes for this section now live in
   reports the effective per-suite prefix. This keeps official v5.4.0 drift
   classification useful when the default discovery order is dominated by
   passing state/blockchain selectors or Prague/EIP-7702 transaction selectors
-  that are out of scope for the current Phase A/Phase B surface.
+  that are out of scope for the current Phase A/Phase B surface. The child
+  classifiers now also emit `known-implementation-drift` for explicit
+  unimplemented-feature diagnostics and the aggregate runner sums that bucket
+  into suite/overall `knownImplementationDriftCount`, so
+  `phaseAMaterializableClear` only stays true when known drift,
+  implementation-bug candidates, and fixture-harness errors are all absent.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

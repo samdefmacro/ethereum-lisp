@@ -5614,6 +5614,7 @@
     (is (search "--limit NUMBER" stdout))
     (is (search "--include-pinned" stdout))
     (is (search "--failures-only" stdout))
+    (is (search "known-implementation-drift" stdout))
     (is (search "implementation-bug-candidate" stdout))))
 
 (deftest blockchain-replay-classifier-script-json-summarizes-families
@@ -5649,8 +5650,15 @@
         (is (= 0 (fixture-object-field report "failingCount")))
         (is (= 0 (fixture-object-field
                   report
+                  "knownImplementationDriftCount")))
+        (is (= 0 (fixture-object-field
+                  report
                   "implementationBugCandidateCount")))
         (is (plusp (length families)))
+        (dolist (family families)
+          (is (= 0 (fixture-object-field
+                    family
+                    "knownImplementationDriftCount"))))
         (dolist (result results)
           (is (string= "passing"
                        (fixture-object-field result "classification")))
@@ -5713,6 +5721,7 @@
     (is (search "--limit NUMBER" stdout))
     (is (search "--include-pinned" stdout))
     (is (search "--failures-only" stdout))
+    (is (search "known-implementation-drift" stdout))
     (is (search "implementation-bug-candidate" stdout))))
 
 (deftest transaction-test-classifier-script-json-summarizes-families
@@ -5749,8 +5758,15 @@
         (is (= 0 (fixture-object-field report "failingCount")))
         (is (= 0 (fixture-object-field
                   report
+                  "knownImplementationDriftCount")))
+        (is (= 0 (fixture-object-field
+                  report
                   "implementationBugCandidateCount")))
         (is (plusp (length families)))
+        (dolist (family families)
+          (is (= 0 (fixture-object-field
+                    family
+                    "knownImplementationDriftCount"))))
         (dolist (result results)
           (is (string= "passing"
                        (fixture-object-field result "classification")))
@@ -5788,6 +5804,9 @@
         (is (= 1 (fixture-object-field report "classifiedCount")))
         (is (= 0 (fixture-object-field report "passingCount")))
         (is (= 1 (fixture-object-field report "failingCount")))
+        (is (= 0 (fixture-object-field
+                  report
+                  "knownImplementationDriftCount")))
         (is (= 1 (fixture-object-field report "outOfScopeCount")))
         (is (= 1 (length families)))
         (is (string= "out-of-scope"
@@ -5818,6 +5837,7 @@
     (is (search "--limit NUMBER" stdout))
     (is (search "--include-pinned" stdout))
     (is (search "--failures-only" stdout))
+    (is (search "known-implementation-drift" stdout))
     (is (search "implementation-bug-candidate" stdout))))
 
 (deftest state-test-classifier-script-json-summarizes-families
@@ -5853,8 +5873,15 @@
         (is (= 0 (fixture-object-field report "failingCount")))
         (is (= 0 (fixture-object-field
                   report
+                  "knownImplementationDriftCount")))
+        (is (= 0 (fixture-object-field
+                  report
                   "implementationBugCandidateCount")))
         (is (plusp (length families)))
+        (dolist (family families)
+          (is (= 0 (fixture-object-field
+                    family
+                    "knownImplementationDriftCount"))))
         (dolist (result results)
           (is (string= "passing"
                        (fixture-object-field result "classification")))
@@ -5973,6 +6000,9 @@
           (is (string= "" (fixture-object-field suite "prefix")))
           (is (= 1 (fixture-object-field suite "candidateCount")))
           (is (= 1 (fixture-object-field suite "classifiedCount")))
+          (is (= 0 (fixture-object-field
+                    suite
+                    "knownImplementationDriftCount")))
           (is (fixture-object-field suite "families")))
         (let* ((transaction-suite
                  (find "transaction" suites

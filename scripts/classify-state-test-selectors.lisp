@@ -36,8 +36,8 @@
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
-  (format t "Classifications: passing, implementation-bug-candidate, ~
-fixture-harness-error, out-of-scope.~%")
+  (format t "Classifications: passing, known-implementation-drift, ~
+implementation-bug-candidate, fixture-harness-error, out-of-scope.~%")
   (format t "Without --root, ~A is used when set.~%"
           +state-classifier-script-eest-root-env+))
 
@@ -210,6 +210,9 @@ fixture-harness-error, out-of-scope.~%")
            (search "cancun" lower)
            (search "prague" lower))
        "out-of-scope")
+      ((or (search "not implemented yet" lower)
+           (search "is not implemented" lower))
+       "known-implementation-drift")
       ((or (search "does not carry" lower)
            (search "fixture helper" lower)
            (search "is unavailable" lower)
@@ -265,6 +268,7 @@ fixture-harness-error, out-of-scope.~%")
                          (cons "family" family)
                          (cons "candidateCount" 0)
                          (cons "passingCount" 0)
+                         (cons "knownImplementationDriftCount" 0)
                          (cons "implementationBugCandidateCount" 0)
                          (cons "fixtureHarnessErrorCount" 0)
                          (cons "outOfScopeCount" 0)))))
@@ -272,6 +276,10 @@ fixture-harness-error, out-of-scope.~%")
         (cond
           ((string= classification "passing")
            (incf (cdr (assoc "passingCount" entry :test #'string=))))
+          ((string= classification "known-implementation-drift")
+           (incf (cdr (assoc "knownImplementationDriftCount"
+                             entry
+                             :test #'string=))))
           ((string= classification "implementation-bug-candidate")
            (incf (cdr (assoc "implementationBugCandidateCount"
                              entry
@@ -334,6 +342,10 @@ fixture-harness-error, out-of-scope.~%")
               (state-classifier-script-count-classification
                "passing"
                results)))
+     (cons "knownImplementationDriftCount"
+           (state-classifier-script-count-classification
+            "known-implementation-drift"
+            results))
      (cons "implementationBugCandidateCount"
            (state-classifier-script-count-classification
             "implementation-bug-candidate"
@@ -357,10 +369,13 @@ fixture-harness-error, out-of-scope.~%")
   (cdr (assoc name report :test #'string=)))
 
 (defun state-classifier-script-print-family-summary (family)
-  (format t "family=~A candidates=~D passing=~D implementationBugCandidates=~D fixtureHarnessErrors=~D outOfScope=~D~%"
+  (format t "family=~A candidates=~D passing=~D knownImplementationDrift=~D implementationBugCandidates=~D fixtureHarnessErrors=~D outOfScope=~D~%"
           (state-classifier-script-report-field family "family")
           (state-classifier-script-report-field family "candidateCount")
           (state-classifier-script-report-field family "passingCount")
+          (state-classifier-script-report-field
+           family
+           "knownImplementationDriftCount")
           (state-classifier-script-report-field
            family
            "implementationBugCandidateCount")
@@ -384,6 +399,7 @@ fixture-harness-error, out-of-scope.~%")
                    "classifiedCount"
                    "passingCount"
                    "failingCount"
+                   "knownImplementationDriftCount"
                    "implementationBugCandidateCount"
                    "fixtureHarnessErrorCount"
                    "outOfScopeCount"

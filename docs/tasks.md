@@ -1763,6 +1763,20 @@ ones.
     three Constantinople EIP-145 blockchain replay selectors passing, plus one
     Prague/EIP-7702 transaction selector out of scope, with no
     implementation-bug-candidate or fixture-harness-error records.
+- [x] `PHASE-A-DRIFT-MAP-KNOWN-DRIFT-BUCKET`: Make the consolidated official
+  fixture drift map report real known implementation drift counts instead of
+  advertising a bucket that child classifiers could not emit.
+  - Result (2026-07-01): state, transaction, and blockchain classifier scripts
+    now classify explicit `not implemented yet` / `is not implemented`
+    diagnostics as `known-implementation-drift`, include
+    `knownImplementationDriftCount` in report and per-family output, and print
+    the same count in text reports. The aggregate drift-map runner now
+    propagates those child counts into suite and overall JSON and marks
+    `phaseAMaterializableClear=false` when any known drift remains. A bounded
+    installed v5.4.0 follow-up over targeted state/blockchain CREATE-family
+    prefixes plus one Prague/EIP-7702 transaction selector classified 21
+    candidates with zero known-implementation-drift, implementation-bug, or
+    fixture-harness records.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

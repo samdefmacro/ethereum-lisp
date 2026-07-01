@@ -294,6 +294,9 @@ implementation drift.~%")
 (defun drift-map-suite-report (suite report)
   (let ((passing-count
           (drift-map-field report "passingCount"))
+        (known-implementation-drift-count
+          (or (drift-map-field report "knownImplementationDriftCount")
+              0))
         (implementation-bug-count
           (drift-map-field report "implementationBugCandidateCount"))
         (fixture-harness-error-count
@@ -310,7 +313,8 @@ implementation drift.~%")
      (cons "candidateCount" (drift-map-field report "candidateCount"))
      (cons "classifiedCount" (drift-map-field report "classifiedCount"))
      (cons "passingCount" passing-count)
-     (cons "knownImplementationDriftCount" 0)
+     (cons "knownImplementationDriftCount"
+           known-implementation-drift-count)
      (cons "outOfScopeForkFeatureCount" out-of-scope-count)
      (cons "implementationBugCandidateCount" implementation-bug-count)
      (cons "fixtureHarnessErrorCount" fixture-harness-error-count)
@@ -326,7 +330,9 @@ implementation drift.~%")
         sum (or (drift-map-field suite name) 0)))
 
 (defun drift-map-overall-report (suites)
-  (let ((implementation-bug-count
+  (let ((known-implementation-drift-count
+          (drift-map-sum-field suites "knownImplementationDriftCount"))
+        (implementation-bug-count
           (drift-map-sum-field suites "implementationBugCandidateCount"))
         (fixture-harness-error-count
           (drift-map-sum-field suites "fixtureHarnessErrorCount")))
@@ -336,13 +342,14 @@ implementation drift.~%")
      (cons "classifiedCount" (drift-map-sum-field suites "classifiedCount"))
      (cons "passingCount" (drift-map-sum-field suites "passingCount"))
      (cons "knownImplementationDriftCount"
-           (drift-map-sum-field suites "knownImplementationDriftCount"))
+           known-implementation-drift-count)
      (cons "outOfScopeForkFeatureCount"
            (drift-map-sum-field suites "outOfScopeForkFeatureCount"))
      (cons "implementationBugCandidateCount" implementation-bug-count)
      (cons "fixtureHarnessErrorCount" fixture-harness-error-count)
      (cons "phaseAMaterializableClear"
-           (if (and (zerop implementation-bug-count)
+           (if (and (zerop known-implementation-drift-count)
+                    (zerop implementation-bug-count)
                     (zerop fixture-harness-error-count))
                t
                :false)))))
