@@ -13,13 +13,51 @@
 (defconstant +drift-map-failures-only-flag+ "--failures-only")
 (defconstant +drift-map-eest-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
+(defparameter *drift-map-value-options*
+  (list +drift-map-root-option+
+        +drift-map-limit-option+
+        +drift-map-state-limit-option+
+        +drift-map-transaction-limit-option+
+        +drift-map-blockchain-limit-option+))
+(defparameter *drift-map-boolean-options*
+  (list +drift-map-json-flag+
+        +drift-map-help-flag+
+        +drift-map-failures-only-flag+))
+
+(defun drift-map-parse-boolean-assignment (option value)
+  (let ((normalized (and (stringp value) (string-downcase value))))
+    (cond
+      ((member normalized '("true" "1") :test #'string=) t)
+      ((member normalized '("false" "0") :test #'string=) nil)
+      (t (error "~A boolean value must be true or false" option)))))
+
+(defun drift-map-normalize-option-args (args)
+  (loop for arg in args
+        for equals-position = (and (stringp arg)
+                                   (<= 2 (length arg))
+                                   (string= "--" arg :end2 2)
+                                   (position #\= arg :start 2))
+        for option = (and equals-position (subseq arg 0 equals-position))
+        for value = (and equals-position (subseq arg (1+ equals-position)))
+        append
+        (cond
+          ((and equals-position
+                (member option *drift-map-value-options* :test #'string=))
+           (list option value))
+          ((and equals-position
+                (member option *drift-map-boolean-options* :test #'string=))
+           (if (drift-map-parse-boolean-assignment option value)
+               (list option)
+               '()))
+          (t
+           (list arg)))))
 
 (defun drift-map-arguments ()
   #+sbcl
   (let ((args (cdr sb-ext:*posix-argv*)))
     (when (and args (string= (first args) "--"))
       (setf args (cdr args)))
-    args)
+    (drift-map-normalize-option-args args))
   #-sbcl nil)
 
 (defun drift-map-help-p (args)
@@ -93,11 +131,7 @@ implementation drift.~%")
         ((or (string= arg +drift-map-json-flag+)
              (string= arg +drift-map-help-flag+)
              (string= arg +drift-map-failures-only-flag+)))
-        ((or (string= arg +drift-map-root-option+)
-             (string= arg +drift-map-limit-option+)
-             (string= arg +drift-map-state-limit-option+)
-             (string= arg +drift-map-transaction-limit-option+)
-             (string= arg +drift-map-blockchain-limit-option+))
+        ((member arg *drift-map-value-options* :test #'string=)
          (unless args
            (error "~A requires a value" arg))
          (let ((value (pop args)))
@@ -321,21 +355,21 @@ implementation drift.~%")
       (drift-map-print-suite suite))))
 
 (defun drift-map-main ()
-  (load (merge-pathnames "tests/load-tests.lisp"
-                         *ethereum-lisp-drift-map-script-root*))
   (let* ((args (drift-map-arguments))
          (options (drift-map-options args))
          (root (getf options :root))
-         (limit (getf options :limit))
-         (report
-           (drift-map-report
-            root
-            (or (getf options :state-limit) limit)
-            (or (getf options :transaction-limit) limit)
-            (or (getf options :blockchain-limit) limit)
-            (drift-map-failures-only-p args))))
-    (if (drift-map-json-p args)
-        (format t "~&~A~%" (drift-map-json-encode report))
-        (drift-map-print-text-report report))))
+         (limit (getf options :limit)))
+    (load (merge-pathnames "tests/load-tests.lisp"
+                           *ethereum-lisp-drift-map-script-root*))
+    (let ((report
+            (drift-map-report
+             root
+             (or (getf options :state-limit) limit)
+             (or (getf options :transaction-limit) limit)
+             (or (getf options :blockchain-limit) limit)
+             (drift-map-failures-only-p args))))
+      (if (drift-map-json-p args)
+          (format t "~&~A~%" (drift-map-json-encode report))
+          (drift-map-print-text-report report)))))
 
 (drift-map-main)

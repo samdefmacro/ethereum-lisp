@@ -1727,6 +1727,10 @@ Detailed historical implementation notes for this section now live in
   the 53 remaining transaction selectors are Prague/EIP-7702 out-of-scope for
   Phase A, with zero known-implementation-drift, implementation-bug-candidate,
   or fixture-harness-error records.
+  The consolidated drift-map runner now also accepts `--root=PATH`, assigned
+  limit options, and explicit boolean assignments for `--json` /
+  `--failures-only`, matching the smoke-gate runner convention and rejecting
+  malformed boolean values before the test system is loaded.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

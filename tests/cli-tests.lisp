@@ -5929,6 +5929,53 @@
           (is (= 1 (fixture-object-field suite "classifiedCount")))
           (is (fixture-object-field suite "families")))))))
 
+(deftest phase-a-drift-map-script-accepts-assigned-options
+  #-sbcl
+  (skip-test "Phase A drift map script requires SBCL")
+  #+sbcl
+  (let ((root "tests/fixtures/execution-spec-tests-root/"))
+    (multiple-value-bind (stdout stderr status)
+        (uiop:run-program
+         (list "sbcl"
+               "--script"
+               "scripts/phase-a-drift-map.lisp"
+               "--"
+               (format nil "--root=~A" root)
+               "--limit=1"
+               "--failures-only=true"
+               "--json=1")
+         :output :string
+         :error-output :string
+         :ignore-error-status t)
+      (is (= 0 status))
+      (is (string= "" stderr))
+      (when (= 0 status)
+        (let* ((report (parse-json stdout))
+               (overall (fixture-object-field report "overall")))
+          (is (string= "phase-a-drift-map"
+                       (fixture-object-field report "mode")))
+          (is (string= root (fixture-object-field report "root")))
+          (is (eq t (fixture-object-field report "failuresOnly")))
+          (is (= 3 (fixture-object-field overall "classifiedCount"))))))))
+
+(deftest phase-a-drift-map-script-rejects-malformed-boolean-assignment
+  #-sbcl
+  (skip-test "Phase A drift map script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-drift-map.lisp"
+             "--"
+             "--json=maybe")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (not (= 0 status)))
+    (is (string= "" stdout))
+    (is (search "--json boolean value must be true or false" stderr))))
+
 (deftest ethereum-lisp-script-dispatches-devnet-help
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL")

@@ -1721,6 +1721,14 @@ ones.
     selectors out-of-scope. It reported zero known-implementation-drift,
     implementation-bug-candidate, and fixture-harness-error records, so the
     current materializable v5.4.0 surface remains clear for Phase A.
+- [x] `PHASE-A-DRIFT-MAP-RUNNER-ASSIGNMENTS`: Keep the consolidated official
+  fixture drift-map runner aligned with the smoke-gate runner option contract.
+  - Result (2026-07-01): `scripts/phase-a-drift-map.lisp` now accepts
+    `--root=PATH` and assigned limit options, plus explicit boolean
+    assignments such as `--json=true|false` and `--failures-only=1|0`,
+    while rejecting malformed boolean assignments before loading the test
+    system. Script-level coverage locks assigned-option JSON output and
+    malformed boolean rejection.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
