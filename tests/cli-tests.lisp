@@ -11292,7 +11292,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "9"
+                        "10"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -11333,6 +11333,8 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":604,\"method\":\"web3_clientVersion\",\"params\":[]}")
                     (public-rpc-modules-body
                       "{\"jsonrpc\":\"2.0\",\"id\":605,\"method\":\"rpc_modules\",\"params\":[]}")
+                    (public-txpool-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":606,\"method\":\"txpool_status\",\"params\":[]}")
                     engine-prefixed-response
                     engine-preflight-response
                     engine-root-response
@@ -11345,6 +11347,7 @@
                     public-blocked-host-response
                     public-root-response
                     public-web3-response
+                    public-txpool-response
                     public-preflight-response
                     public-unsupported-method-response
                     public-unsupported-content-type-response)
@@ -11476,6 +11479,13 @@
                              public-web3-body
                              :target "/rpc"
                              :host "public.runner")))
+                     (setf public-txpool-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-txpool-body
+                             :target "/rpc"
+                             :host "public.runner")))
                      (setf public-preflight-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -11545,6 +11555,7 @@
                        public-blocked-host-response)))
                (is (= 404 (devnet-cli-http-status public-root-response)))
                (is (= 200 (devnet-cli-http-status public-web3-response)))
+               (is (= 200 (devnet-cli-http-status public-txpool-response)))
                (is (= 204 (devnet-cli-http-status public-preflight-response)))
                (is (= 405
                       (devnet-cli-http-status
@@ -11574,6 +11585,9 @@
                       (public-web3-json
                         (parse-json
                          (devnet-cli-http-body public-web3-response)))
+                      (public-txpool-json
+                        (parse-json
+                         (devnet-cli-http-body public-txpool-response)))
                       (client-version
                         (first (fixture-object-field engine-json "result")))
                       (public-modules
@@ -11603,6 +11617,11 @@
                  (is (= -32601
                         (fixture-object-field
                          (fixture-object-field public-web3-json "error")
+                         "code")))
+                 (is (= 606 (fixture-object-field public-txpool-json "id")))
+                 (is (= -32601
+                        (fixture-object-field
+                         (fixture-object-field public-txpool-json "error")
                          "code"))))
                (let ((status (devnet-cli-wait-process-exit process 10)))
                  (when (eq status :timeout)
@@ -11675,11 +11694,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "9"
+                         (is (string= "10"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "15"
+                         (is (string= "16"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

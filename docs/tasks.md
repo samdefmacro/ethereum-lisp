@@ -1300,6 +1300,10 @@ ones.
     launching with `--http.api eth,net`. It verifies only `eth`, `net`, and
     `rpc` are advertised while omitted `web3`/`txpool` modules stay hidden,
     and updates the public shutdown connection contract for the extra probe.
+  - Result (2026-07-01): the same external process now probes
+    `txpool_status` through the narrowed public listener and requires the
+    JSON-RPC `Method not found` error, locking disabled txpool namespace
+    enforcement alongside the existing omitted-module introspection check.
 - [x] `DEVNET-RUNNER-SCRIPT-IMPORT-FORKCHOICE`: Lock Engine payload import,
   forkchoice, and public retained-state reads at the external script process
   boundary.

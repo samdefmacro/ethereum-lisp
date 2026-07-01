@@ -1318,7 +1318,9 @@ first pass, but interfaces must not block that path.
   shutdown connection accounting. That HTTP-shaping subprocess now also asks
   `rpc_modules` through the configured public prefix and verifies narrowed
   module introspection advertises only `eth`, `net`, and `rpc` while keeping
-  omitted modules hidden. It also has external script-process coverage
+  omitted modules hidden, and it probes a disabled `txpool_status` request to
+  require the JSON-RPC `Method not found` response at the same external
+  listener boundary. It also has external script-process coverage
   for a fixture-derived Engine `engine_newPayloadV2` import,
   `engine_forkchoiceUpdatedV2`, authenticated payload-body retrieval by hash
   and range, public retained-state reads against the post-forkchoice retained
