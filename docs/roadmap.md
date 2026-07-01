@@ -1958,6 +1958,19 @@ Detailed historical implementation notes for this section now live in
   53 Prague/EIP-7702 transaction selectors out of scope, with zero
   known-implementation-drift, implementation-bug-candidate, or
   fixture-harness-error records.
+  The pinned state-transition table now also includes 16 official
+  London/Shanghai Frontier `CALLDATACOPY` selectors covering zero-length,
+  one-byte, truncated, negative-offset, caller-data, and stack-underflow
+  boundaries. Pre-pin targeted drift-map classification found all 16 unpinned
+  candidates passing with zero drift/bug/harness records, and post-pin
+  targeted classification reports zero remaining unpinned candidates for the
+  `frontier/opcodes/test_calldatacopy.json` prefix. The pinned smoke gate now
+  executes 1068 total fixture cases with 653 state selectors and 362
+  blockchain replay selectors, and the refreshed v5.4.0 drift map classifies
+  the remaining 345 candidates as 292 passing state selectors and 53
+  Prague/EIP-7702 transaction selectors out of scope, with zero
+  known-implementation-drift, implementation-bug-candidate, or
+  fixture-harness-error records.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting

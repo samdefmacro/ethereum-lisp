@@ -521,6 +521,26 @@
                               gas-shortage
                               callee-opcode))))))
 
+(defun phase-a-eest-calldatacopy-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (loop for case in '("cdc 0 0 0"
+                              "cdc 0 1 0"
+                              "cdc 0 1 1"
+                              "cdc 0 1 2"
+                              "cdc 0 neg6 9"
+                              "cdc 0 neg6 ff"
+                              "sec"
+                              "underflow")
+                collect
+                (format nil
+                        "~A[fork_~A-state_test-~A]"
+                        prefix
+                        fork
+                        case)))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -627,7 +647,8 @@
    (phase-a-eest-create-boundary-state-test-v5.4.0-case-names)
    (phase-a-eest-create-collision-state-test-v5.4.0-case-names)
    (phase-a-eest-core-boundary-state-test-v5.4.0-case-names)
-   (phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names)))
+   (phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names)
+   (phase-a-eest-calldatacopy-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")

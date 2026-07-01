@@ -7506,6 +7506,34 @@ splits can land after the Phase A smoke path closes.
     transaction selectors out of scope, with zero known-implementation-drift,
     implementation-bug-candidate, or fixture-harness-error records.
 
+- [x] `PINNED-V5.4.0-CALLDATACOPY-STATE`: Pin official Frontier
+  `CALLDATACOPY` state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned London/Shanghai state selectors from
+    `frontier/opcodes/test_calldatacopy.json` are included in the pinned
+    Phase A state selector table, classify with zero remaining unpinned
+    candidates for the prefix, and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --suite state --state-prefix frontier/opcodes/test_calldatacopy.json --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/opcodes/test_calldatacopy.json --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-02): added a generated selector helper for 16 official
+    London/Shanghai Frontier `CALLDATACOPY` state selectors covering
+    zero-length, one-byte, truncated, negative-offset, caller-data, and
+    stack-underflow boundaries. The pre-pin targeted drift-map run reported
+    16/16 unpinned candidates passing with zero drift/bug/harness records; the
+    post-pin targeted classifier reports `pinnedCount=653` and zero remaining
+    unpinned candidates for `frontier/opcodes/test_calldatacopy.json`. The
+    pinned smoke gate now reports `state.count=653`,
+    `blockchain.count=362`, and `fixtureCaseCount=1068`; the refreshed
+    consolidated drift map reports 345 remaining candidates: 292 passing
+    state selectors and 53 Prague/EIP-7702 transaction selectors out of scope,
+    with zero known-implementation-drift, implementation-bug-candidate, or
+    fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
