@@ -433,7 +433,10 @@ ones.
     and a public-listener Engine namespace request, requires HTTP 401 and
     JSON-RPC `-32601` respectively, records both outcomes in the smoke report,
     and updates CLI/Phase A aggregate assertions for the additional boundary
-    connections.
+    connections. Update (2026-07-01): the same standalone report now also
+    probes authenticated Engine rejection of public `eth_chainId`, records
+    `enginePublicNamespaceErrorCode`, and asserts the bidirectional namespace
+    split from the runner-facing JSON output.
 - [x] `DEVNET-RUNNER-PUBLIC-PARSE-BOUNDARY`: Extend the standalone devnet
   smoke-gate runner contract so public RPC malformed JSON handling is checked
   from the same listener/process surface as valid requests.

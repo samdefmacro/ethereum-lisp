@@ -1057,7 +1057,10 @@ first pass, but interfaces must not block that path.
   validates that ready files and lifecycle telemetry carry those same endpoints
   rather than placeholder listener names, and it probes the same runner surface
   to require unauthenticated Engine requests to fail with HTTP 401 while the
-  public listener rejects Engine namespace methods with JSON-RPC `-32601`.
+  public listener rejects Engine namespace methods with JSON-RPC `-32601`. The
+  standalone report now also checks the opposite namespace boundary by sending
+  authenticated public `eth_chainId` to the Engine listener and recording
+  `enginePublicNamespaceErrorCode` as `-32601`.
   The CLI also supports a
   Hive-style `--pid-file PATH`, reports `pidFilePath` in summaries and
   telemetry, and the standalone plus Phase A devnet smoke gates verify the

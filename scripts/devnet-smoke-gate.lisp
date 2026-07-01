@@ -91,7 +91,7 @@ references/ checkouts.~%")
   "0x0000000000000000000000000000000000003001")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
-(defconstant +devnet-smoke-gate-engine-boundary-connections+ 3)
+(defconstant +devnet-smoke-gate-engine-boundary-connections+ 4)
 (defconstant +devnet-smoke-gate-engine-workflow-connections+ 12)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
@@ -6767,6 +6767,8 @@ references/ checkouts.~%")
                     (make-string-output-stream))
                   (transition-configuration-mismatch-output
                     (make-string-output-stream))
+                  (engine-public-namespace-output
+                    (make-string-output-stream))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
                   (payload-bodies-by-hash-output
@@ -6973,6 +6975,13 @@ references/ checkouts.~%")
                                 (cons "terminalBlockNumber"
                                       expected-terminal-block-number))))))
                       transition-configuration-mismatch-output)
+                     (cons
+                      (json-encode
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 71)
+                             (cons "method" "eth_chainId")
+                             (cons "params" '())))
+                      engine-public-namespace-output)
                      (cons
                       (json-encode
                        (engine-fixture-payload-request 21 payload))
@@ -7502,6 +7511,9 @@ references/ checkouts.~%")
                       (transition-configuration-mismatch-response
                         (get-output-stream-string
                          transition-configuration-mismatch-output))
+                      (engine-public-namespace-response
+                        (get-output-stream-string
+                         engine-public-namespace-output))
                       (new-payload-response
                         (get-output-stream-string new-payload-output))
                       (unauthenticated-engine-response
@@ -7632,6 +7644,9 @@ references/ checkouts.~%")
                       (transition-configuration-mismatch-rpc
                         (devnet-smoke-gate-rpc-body
                          transition-configuration-mismatch-response))
+                      (engine-public-namespace-rpc
+                        (devnet-smoke-gate-rpc-body
+                         engine-public-namespace-response))
                       (new-payload-rpc
                         (devnet-smoke-gate-rpc-body new-payload-response))
                       (forkchoice-rpc
@@ -7953,6 +7968,10 @@ references/ checkouts.~%")
                           transition-configuration-mismatch-response))
                   "engine_exchangeTransitionConfigurationV1 mismatch HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          engine-public-namespace-response))
+                  "Engine public namespace probe HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
                   "engine_newPayloadV2 HTTP status mismatch")
                  (devnet-smoke-gate-require
@@ -8232,6 +8251,14 @@ references/ checkouts.~%")
                            transition-configuration-mismatch-error
                            "message"))
                   "engine_exchangeTransitionConfigurationV1 mismatch error message mismatch")
+                 (devnet-smoke-gate-require
+                  (= -32601
+                     (fixture-object-field
+                      (fixture-object-field
+                       engine-public-namespace-rpc
+                       "error")
+                      "code"))
+                  "Engine listener exposed public namespace")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
@@ -8880,6 +8907,12 @@ references/ checkouts.~%")
                         (fixture-object-field
                          transition-configuration-mismatch-error
                          "message"))
+                  (cons "enginePublicNamespaceErrorCode"
+                        (fixture-object-field
+                         (fixture-object-field
+                          engine-public-namespace-rpc
+                          "error")
+                         "code"))
                   (cons "publicEngineNamespaceErrorCode"
                         (fixture-object-field
                          (fixture-object-field
@@ -11003,6 +11036,9 @@ references/ checkouts.~%")
         (format t "engineTransitionMismatchErrorMessage=~A~%"
                 (devnet-smoke-gate-field
                  report "engineTransitionMismatchErrorMessage"))
+        (format t "enginePublicNamespaceErrorCode=~A~%"
+                (devnet-smoke-gate-field
+                 report "enginePublicNamespaceErrorCode"))
         (format t "publicClientVersion=~A~%"
                 (devnet-smoke-gate-field report "publicClientVersion"))
         (format t "publicNetVersion=~A~%"
