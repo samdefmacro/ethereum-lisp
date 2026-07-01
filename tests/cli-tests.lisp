@@ -11225,6 +11225,8 @@
                     engine-preflight-response
                     engine-root-response
                     engine-blocked-host-response
+                    engine-unsupported-method-response
+                    engine-unsupported-content-type-response
                     public-prefixed-response
                     public-net-response
                     public-rpc-modules-response
@@ -11297,6 +11299,28 @@
                              :target "/engine"
                              :host "blocked.engine"
                              :token token)))
+                     (setf engine-unsupported-method-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (with-output-to-string (stream)
+                              (format stream "PUT /engine HTTP/1.1~%")
+                              (format stream "Host: engine.runner~%")
+                              (format stream "Content-Type: application/json~%")
+                              (format stream "Authorization: Bearer ~A~%" token)
+                              (format stream "Content-Length: ~D~%~%~A"
+                                      (length engine-body)
+                                      engine-body))))
+                     (setf engine-unsupported-content-type-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (with-output-to-string (stream)
+                              (format stream "POST /engine HTTP/1.1~%")
+                              (format stream "Host: engine.runner~%")
+                              (format stream "Content-Type: text/plain~%")
+                              (format stream "Authorization: Bearer ~A~%" token)
+                              (format stream "Content-Length: ~D~%~%~A"
+                                      (length engine-body)
+                                      engine-body))))
                      (setf public-prefixed-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -11385,6 +11409,18 @@
                (is (= 403
                       (devnet-cli-http-status
                        engine-blocked-host-response)))
+               (is (= 405
+                      (devnet-cli-http-status
+                       engine-unsupported-method-response)))
+               (is (search "method not allowed"
+                           (devnet-cli-http-body
+                            engine-unsupported-method-response)))
+               (is (= 415
+                      (devnet-cli-http-status
+                       engine-unsupported-content-type-response)))
+               (is (search "invalid content type"
+                           (devnet-cli-http-body
+                            engine-unsupported-content-type-response)))
                (is (= 200 (devnet-cli-http-status public-prefixed-response)))
                (is (search "Access-Control-Allow-Origin: https://runner.example"
                            public-prefixed-response))
@@ -11523,7 +11559,7 @@
                                                     :test #'string=))))))
                        (let ((shutdown-fields
                                (getf shutdown-record :fields)))
-                         (is (string= "4"
+                         (is (string= "6"
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
@@ -11531,7 +11567,7 @@
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "13"
+                         (is (string= "15"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

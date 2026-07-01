@@ -1257,6 +1257,11 @@ ones.
     public request content types return 415 through the advertised prefixed
     listener, with shutdown telemetry accounting for the two additional
     public connections.
+  - Result (2026-07-01): extended that HTTP rejection coverage to the
+    authenticated Engine listener as well. The subprocess now sends
+    JWT-authenticated unsupported-method and unsupported-content-type requests
+    through the advertised Engine prefix and verifies 405/415 responses plus
+    the updated Engine shutdown connection count.
 - [x] `DEVNET-RUNNER-SCRIPT-HTTP-API-MODULES`: Lock public module
   introspection after geth/Hive-style `--http.api` filtering at the external
   script process boundary.
