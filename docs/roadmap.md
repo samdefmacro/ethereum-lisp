@@ -1901,6 +1901,17 @@ Detailed historical implementation notes for this section now live in
   selectors and 53 Prague/EIP-7702 transaction selectors out of scope, with
   zero known-implementation-drift, implementation-bug-candidate, or
   fixture-harness-error records.
+  The pinned state-transition table now also includes 20 official
+  London/Shanghai frontier CREATE boundary selectors covering CREATE/CREATE2
+  code-deposit out-of-gas, SELFDESTRUCT during initcode, and suicide-store
+  creation behavior. Pre-pin classification found all 20 unpinned selectors
+  passing with zero drift/bug/harness records. The pinned smoke gate now
+  executes 959 total fixture cases with 544 state selectors and 362 blockchain
+  replay selectors, and the refreshed v5.4.0 drift map classifies the
+  remaining 454 candidates as 401 passing state selectors and 53
+  Prague/EIP-7702 transaction selectors out of scope, with zero
+  known-implementation-drift, implementation-bug-candidate, or
+  fixture-harness-error records.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting

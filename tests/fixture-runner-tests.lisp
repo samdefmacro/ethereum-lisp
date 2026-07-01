@@ -342,6 +342,55 @@
                          fork
                          output-size))))))
 
+(defun phase-a-eest-create-boundary-state-test-v5.4.0-case-names ()
+  (append
+   (let ((prefix
+           "frontier/create/test_create_deposit_oog.json/tests/frontier/create/test_create_deposit_oog.py::test_create_deposit_oog"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for create-opcode in '("CREATE" "CREATE2")
+                 collect
+                 (format nil
+                         "~A[fork_~A-create_opcode_~A-evm_code_type_LEGACY-state_test]"
+                         prefix
+                         fork
+                         create-opcode))))
+   (let ((prefix
+           "frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (append
+            (loop for operation in '("Operation.SUICIDE"
+                                     "Operation.SUICIDE_TO_ITSELF")
+                  nconc
+                  (loop for transaction-create in '("False" "True")
+                        collect
+                        (format nil
+                                "~A[fork_~A-create_opcode_CREATE-evm_code_type_LEGACY-state_test-operation_~A-transaction_create_~A]"
+                                prefix
+                                fork
+                                operation
+                                transaction-create)))
+            (loop for operation in '("Operation.SUICIDE"
+                                     "Operation.SUICIDE_TO_ITSELF")
+                  collect
+                  (format nil
+                          "~A[fork_~A-create_opcode_CREATE2-evm_code_type_LEGACY-state_test-operation_~A-transaction_create_False]"
+                          prefix
+                          fork
+                          operation)))))
+   (let ((prefix
+           "frontier/create/test_create_suicide_store.json/tests/frontier/create/test_create_suicide_store.py::test_create_suicide_store"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for create-opcode in '("CREATE" "CREATE2")
+                 collect
+                 (format nil
+                         "~A[fork_~A-create_opcode_~A-evm_code_type_LEGACY-state_test]"
+                         prefix
+                         fork
+                         create-opcode))))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -443,7 +492,8 @@
    (phase-a-eest-modexp-state-test-v5.4.0-case-names)
    (phase-a-eest-bn254-gas-state-test-v5.4.0-case-names)
    (phase-a-eest-blake2f-state-test-v5.4.0-case-names)
-   (phase-a-eest-identity-precompile-state-test-v5.4.0-case-names)))
+   (phase-a-eest-identity-precompile-state-test-v5.4.0-case-names)
+   (phase-a-eest-create-boundary-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")

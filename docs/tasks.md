@@ -7353,6 +7353,34 @@ splits can land after the Phase A smoke path closes.
     out of scope, with zero known-implementation-drift,
     implementation-bug-candidate, or fixture-harness-error records.
 
+- [x] `PINNED-V5.4.0-CREATE-BOUNDARY-STATE`: Pin official frontier CREATE /
+  CREATE2 boundary state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned London/Shanghai state selectors from
+    `frontier/create` covering CREATE/CREATE2 code-deposit out-of-gas,
+    SELFDESTRUCT during initcode, and suicide-store creation boundaries are
+    included in the pinned Phase A state selector table, classify with zero
+    remaining unpinned candidates for the prefix, and pass the pinned v5.4.0
+    smoke gate.
+  - Validation: `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/create --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): added a generated selector helper for 20 official
+    London/Shanghai frontier CREATE boundary state selectors covering
+    CREATE/CREATE2 code-deposit out-of-gas, SELFDESTRUCT during initcode, and
+    suicide-store creation behavior. The pre-pin targeted classifier reported
+    20/20 unpinned candidates passing with zero drift/bug/harness records; the
+    post-pin targeted classifier reports `pinnedCount=544` and zero remaining
+    unpinned candidates for the `frontier/create` prefix. The pinned smoke
+    gate now reports `state.count=544`, `blockchain.count=362`, and
+    `fixtureCaseCount=959`; the refreshed consolidated drift map reports 454
+    remaining candidates: 401 passing state selectors and 53 Prague/EIP-7702
+    transaction selectors out of scope, with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
