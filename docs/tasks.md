@@ -6674,6 +6674,11 @@ splits can land after the Phase A smoke path closes.
     applies forkchoice, reads public latest-state RPCs, and prints text or JSON
     summaries with connection counts, payload status, latest valid hash,
     block number, and recipient balance.
+  - Result: tightened the standalone devnet smoke gate's public RPC report
+    contract so drained pending-transaction filter changes preserve the JSON
+    empty-array shape (`[]`) instead of collapsing to JSON `null` in the
+    runner-facing summary. CLI coverage now checks both the listener response
+    parse path and the emitted JSON report field.
   - Result: extended the standalone devnet smoke gate with Hive-style
     `--ready-file` and `--log-file` options. The gate now writes and verifies
     readiness JSON plus `devnet.ready`/`devnet.shutdown` telemetry around the

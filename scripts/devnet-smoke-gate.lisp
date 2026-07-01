@@ -353,8 +353,13 @@ references/ checkouts.~%")
            (devnet-smoke-gate-field report "safeBlockNumber"))
           state-prune-before)))
 
-(defun devnet-smoke-gate-rpc-body (response)
-  (parse-json (devnet-cli-http-body response)))
+(defun devnet-smoke-gate-rpc-body (response &key preserve-empty-arrays)
+  (parse-json (devnet-cli-http-body response)
+              :preserve-empty-arrays preserve-empty-arrays))
+
+(defun devnet-smoke-gate-empty-json-array-p (value)
+  (and (vectorp value)
+       (zerop (length value))))
 
 (defun devnet-smoke-gate-http-header (response name)
   (let* ((boundary (search (format nil "~C~C~C~C"
@@ -7560,7 +7565,8 @@ references/ checkouts.~%")
                          pending-filter-changes-response))
                       (empty-pending-filter-changes-rpc
                         (devnet-smoke-gate-rpc-body
-                         empty-pending-filter-changes-response))
+                         empty-pending-filter-changes-response
+                         :preserve-empty-arrays t))
                       (uninstall-pending-filter-rpc
                         (devnet-smoke-gate-rpc-body
                          uninstall-pending-filter-response))
@@ -8310,7 +8316,8 @@ references/ checkouts.~%")
                            (first pending-filter-changes))
                   "eth_getFilterChanges pending transaction hash mismatch")
                  (devnet-smoke-gate-require
-                  (null empty-pending-filter-changes)
+                  (devnet-smoke-gate-empty-json-array-p
+                   empty-pending-filter-changes)
                   "drained eth_getFilterChanges should be empty")
                  (devnet-smoke-gate-require
                   (member (fixture-object-field

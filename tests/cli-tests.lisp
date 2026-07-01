@@ -64,6 +64,14 @@
             (transaction-gas-limit transaction)
             (transaction-max-fee-per-gas transaction))))
 
+(defun devnet-cli-empty-json-array-p (value)
+  (and (vectorp value)
+       (zerop (length value))))
+
+(defun devnet-cli-empty-json-array-or-lossy-null-p (value)
+  (or (null value)
+      (devnet-cli-empty-json-array-p value)))
+
 (defun devnet-cli-temp-token ()
   (format nil "~A-~D-~A"
           (or (devnet-cli-current-process-id) "nopid")
@@ -424,7 +432,8 @@
     (is (= 1 (length filter-changes)))
     (is (string= (fixture-object-field report "txpoolPendingTransactionHash")
                  (first filter-changes))))
-  (is (null (fixture-object-field report "txpoolPendingFilterEmptyChanges")))
+  (is (devnet-cli-empty-json-array-or-lossy-null-p
+       (fixture-object-field report "txpoolPendingFilterEmptyChanges")))
   (is (eq t (fixture-object-field
              report "txpoolPendingFilterUninstallResult")))
   (is (= -32602
@@ -3680,6 +3689,7 @@
               :ignore-error-status t)
            (is (= 0 status))
            (is (string= "" stderr))
+           (is (search "\"txpoolPendingFilterEmptyChanges\":[]" stdout))
            (when (= 0 status)
              (let* ((report (parse-json stdout))
                     (ready-summary
@@ -7976,7 +7986,8 @@
                         (empty-pending-filter-changes-rpc
                           (parse-json
                            (devnet-cli-http-body
-                            empty-pending-filter-changes-response)))
+                            empty-pending-filter-changes-response)
+                           :preserve-empty-arrays t))
                         (uninstall-pending-filter-rpc
                           (parse-json
                            (devnet-cli-http-body
@@ -8170,7 +8181,8 @@
                    (is (= 1 (length pending-filter-changes)))
                    (is (string= pending-hash
                                 (first pending-filter-changes)))
-                   (is (null empty-pending-filter-changes))
+                   (is (devnet-cli-empty-json-array-p
+                        empty-pending-filter-changes))
                    (is (eq t (fixture-object-field
                               uninstall-pending-filter-rpc "result")))
                    (is (= -32602

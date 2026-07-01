@@ -1387,7 +1387,9 @@ first pass, but interfaces must not block that path.
   `eth_getFilterChanges` poll is empty, `eth_uninstallFilter` succeeds, and
   the removed filter id reports the expected missing-filter error. The
   standalone devnet smoke gate enforces the same pending-filter lifecycle in
-  its JSON/text runner report and public connection contract. That
+  its JSON/text runner report and public connection contract, preserving the
+  drained pending-filter result as a JSON empty array in the emitted report.
+  That
   same runner-facing txpool subprocess now also verifies pending block-tag
   transaction count, indexed transaction lookup, raw transaction lookup,
   full pending block body, and pending header reads through the advertised
