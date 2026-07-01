@@ -452,6 +452,64 @@
      . "engineNewPayloadV2")
     ("homestead/identity_precompile/test_identity_return_overwrite.json/tests/homestead/identity_precompile/test_identity.py::test_identity_return_overwrite[fork_Shanghai-call_opcode_STATICCALL-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
+    ("frontier/opcodes/test_call_large_args_offset_size_zero.json/tests/frontier/opcodes/test_call.py::test_call_large_args_offset_size_zero[fork_Shanghai-call_opcode_CALL-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_call_large_args_offset_size_zero.json/tests/frontier/opcodes/test_call.py::test_call_large_args_offset_size_zero[fork_Shanghai-call_opcode_CALLCODE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_call_large_args_offset_size_zero.json/tests/frontier/opcodes/test_call.py::test_call_large_args_offset_size_zero[fork_Shanghai-call_opcode_DELEGATECALL-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_call_large_args_offset_size_zero.json/tests/frontier/opcodes/test_call.py::test_call_large_args_offset_size_zero[fork_Shanghai-call_opcode_STATICCALL-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_call_large_offset_mstore.json/tests/frontier/opcodes/test_call.py::test_call_large_offset_mstore[fork_Shanghai-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy[fork_Shanghai-blockchain_test_engine_from_state_test-cdc 0 0 0]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy[fork_Shanghai-blockchain_test_engine_from_state_test-cdc 0 1 0]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy[fork_Shanghai-blockchain_test_engine_from_state_test-cdc 0 1 1]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy[fork_Shanghai-blockchain_test_engine_from_state_test-cdc 0 1 2]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy[fork_Shanghai-blockchain_test_engine_from_state_test-cdc 0 neg6 9]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy[fork_Shanghai-blockchain_test_engine_from_state_test-cdc 0 neg6 ff]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy[fork_Shanghai-blockchain_test_engine_from_state_test-sec]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatacopy.json/tests/frontier/opcodes/test_calldatacopy.py::test_calldatacopy[fork_Shanghai-blockchain_test_engine_from_state_test-underflow]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldataload.json/tests/frontier/opcodes/test_calldataload.py::test_calldataload[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_contract-34_bytes]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldataload.json/tests/frontier/opcodes/test_calldataload.py::test_calldataload[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_contract-two_bytes]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldataload.json/tests/frontier/opcodes/test_calldataload.py::test_calldataload[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_contract-word_n_byte]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldataload.json/tests/frontier/opcodes/test_calldataload.py::test_calldataload[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_tx-34_bytes]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldataload.json/tests/frontier/opcodes/test_calldataload.py::test_calldataload[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_tx-two_bytes]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldataload.json/tests/frontier/opcodes/test_calldataload.py::test_calldataload[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_tx-word_n_byte]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_contract-args_size_0]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_contract-args_size_16]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_contract-args_size_257]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_contract-args_size_2]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_contract-args_size_33]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_tx-args_size_0]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_tx-args_size_16]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_tx-args_size_257]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_tx-args_size_2]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize[fork_Shanghai-blockchain_test_engine_from_state_test-calldata_source_tx-args_size_33]"
+     . "engineNewPayloadV2")
     ("frontier/opcodes/test_all_opcodes.json/tests/frontier/opcodes/test_all_opcodes.py::test_all_opcodes[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
     ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE-transaction_create_False]"
