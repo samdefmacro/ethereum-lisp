@@ -5927,7 +5927,24 @@
                       :test #'string=))
           (is (= 1 (fixture-object-field suite "candidateCount")))
           (is (= 1 (fixture-object-field suite "classifiedCount")))
-          (is (fixture-object-field suite "families")))))))
+          (is (fixture-object-field suite "families")))
+        (let* ((transaction-suite
+                 (find "transaction" suites
+                       :key (lambda (suite)
+                              (fixture-object-field suite "suite"))
+                       :test #'string=))
+               (transaction-family
+                 (first (fixture-object-field transaction-suite "families")))
+               (transaction-result
+                 (first (fixture-object-field transaction-suite "results"))))
+          (is (= 1
+                 (fixture-object-field transaction-family
+                                       "outOfScopeForkFeatureCount")))
+          (is (null (fixture-object-field transaction-family
+                                          "outOfScopeCount")))
+          (is (string= "out-of-scope-fork-feature"
+                       (fixture-object-field transaction-result
+                                             "classification"))))))))
 
 (deftest phase-a-drift-map-script-accepts-assigned-options
   #-sbcl

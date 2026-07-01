@@ -1731,6 +1731,10 @@ Detailed historical implementation notes for this section now live in
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting
   malformed boolean values before the test system is loaded.
+  Its JSON output also canonicalizes child `out-of-scope` result labels and
+  family counts to the consolidated `out-of-scope-fork-feature` vocabulary, so
+  automation can consume one category schema across overall, suite, family,
+  and result records.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

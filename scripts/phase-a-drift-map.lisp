@@ -194,6 +194,27 @@ implementation drift.~%")
 (defun drift-map-field (object name)
   (cdr (assoc name object :test #'string=)))
 
+(defun drift-map-canonical-classification (classification)
+  (cond
+    ((string= classification "out-of-scope")
+     "out-of-scope-fork-feature")
+    (t classification)))
+
+(defun drift-map-canonical-result (result)
+  (loop for field in result
+        collect
+        (if (string= (car field) "classification")
+            (cons "classification"
+                  (drift-map-canonical-classification (cdr field)))
+            field)))
+
+(defun drift-map-canonical-family-summary (family)
+  (loop for field in family
+        collect
+        (if (string= (car field) "outOfScopeCount")
+            (cons "outOfScopeForkFeatureCount" (cdr field))
+            field)))
+
 (defun drift-map-script-path (relative-path)
   (namestring (merge-pathnames relative-path
                                *ethereum-lisp-drift-map-script-root*)))
@@ -255,8 +276,12 @@ implementation drift.~%")
      (cons "outOfScopeForkFeatureCount" out-of-scope-count)
      (cons "implementationBugCandidateCount" implementation-bug-count)
      (cons "fixtureHarnessErrorCount" fixture-harness-error-count)
-     (cons "families" (drift-map-field report "families"))
-     (cons "results" (drift-map-field report "results")))))
+     (cons "families"
+           (mapcar #'drift-map-canonical-family-summary
+                   (drift-map-field report "families")))
+     (cons "results"
+           (mapcar #'drift-map-canonical-result
+                   (drift-map-field report "results"))))))
 
 (defun drift-map-sum-field (suites name)
   (loop for suite in suites

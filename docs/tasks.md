@@ -1729,6 +1729,16 @@ ones.
     while rejecting malformed boolean assignments before loading the test
     system. Script-level coverage locks assigned-option JSON output and
     malformed boolean rejection.
+- [x] `PHASE-A-DRIFT-MAP-CANONICAL-JSON`: Keep the consolidated official
+  fixture drift-map JSON contract canonical at every machine-readable level.
+  - Result (2026-07-01): `scripts/phase-a-drift-map.lisp` now rewrites child
+    classifier `out-of-scope` result labels and per-family
+    `outOfScopeCount` fields to the consolidated
+    `out-of-scope-fork-feature` / `outOfScopeForkFeatureCount` vocabulary.
+    Script-level coverage locks the transaction-suite out-of-scope record
+    against the in-repo EEST fixture root, and an installed v5.4.0
+    one-candidate smoke confirmed the canonical labels against the upstream
+    fixture archive.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
