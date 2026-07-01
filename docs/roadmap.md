@@ -1815,6 +1815,17 @@ Detailed historical implementation notes for this section now live in
   Prague/EIP-7702 transaction selectors out of scope, with zero
   known-implementation-drift, implementation-bug-candidate, or
   fixture-harness-error records.
+  The pinned blockchain replay table now also includes four official Shanghai
+  `engineNewPayloadV2` selectors covering `CHAINID` across legacy,
+  access-list, and dynamic-fee transaction envelopes plus valid EIP-1559
+  typed transaction execution. Pre-pin classification found all four unpinned
+  selectors passing with zero drift/bug/harness records. The pinned smoke gate
+  now executes 809 total fixture cases with 280 blockchain replay selectors,
+  and the refreshed v5.4.0 drift map classifies the remaining 604 candidates
+  as 469 passing state selectors, 82 passing blockchain replay selectors, and
+  53 Prague/EIP-7702 transaction selectors out of scope, with zero
+  known-implementation-drift, implementation-bug-candidate, or
+  fixture-harness-error records.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting

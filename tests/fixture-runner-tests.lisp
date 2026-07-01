@@ -616,6 +616,14 @@
      . "engineNewPayloadV2")
     ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-modified-case8-data9-large-gas-limit-call_opcode_CALL]"
      . "engineNewPayloadV2")
+    ("istanbul/eip1344_chainid/test_chainid.json/tests/istanbul/eip1344_chainid/test_chainid.py::test_chainid[fork_Shanghai-typed_transaction_0-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip1344_chainid/test_chainid.json/tests/istanbul/eip1344_chainid/test_chainid.py::test_chainid[fork_Shanghai-typed_transaction_1-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip1344_chainid/test_chainid.json/tests/istanbul/eip1344_chainid/test_chainid.py::test_chainid[fork_Shanghai-typed_transaction_2-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("london/eip1559_fee_market_change/test_eip1559_tx_validity.json/tests/london/eip1559_fee_market_change/test_tx_type.py::test_eip1559_tx_validity[fork_Shanghai-valid-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
     ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-balance-correct-initcode]"
      . "engineNewPayloadV2")
     ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-balance-oog-initcode]"
