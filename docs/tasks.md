@@ -7534,6 +7534,37 @@ splits can land after the Phase A smoke path closes.
     with zero known-implementation-drift, implementation-bug-candidate, or
     fixture-harness-error records.
 
+- [x] `PINNED-V5.4.0-CALLDATA-READ-STATE`: Pin official Frontier
+  `CALLDATALOAD` and `CALLDATASIZE` state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned London/Shanghai state selectors from
+    `frontier/opcodes/test_calldataload.json` and
+    `frontier/opcodes/test_calldatasize.json` are included in the pinned
+    Phase A state selector table, classify with zero remaining unpinned
+    candidates for both prefixes, and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --suite state --state-prefix frontier/opcodes/test_calldataload.json --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --suite state --state-prefix frontier/opcodes/test_calldatasize.json --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/opcodes/test_calldataload.json --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/opcodes/test_calldatasize.json --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-02): added generated selector helpers for 32 official
+    London/Shanghai Frontier `CALLDATALOAD` and `CALLDATASIZE` state
+    selectors covering transaction and contract calldata sources, short and
+    word-plus calldata loads, and zero/2/16/33/257-byte calldata sizes. The
+    pre-pin targeted drift-map runs reported all 12 `CALLDATALOAD` and all
+    20 `CALLDATASIZE` unpinned candidates passing with zero drift/bug/harness
+    records; the post-pin targeted classifiers report `pinnedCount=685` and
+    zero remaining unpinned candidates for both prefixes. The pinned smoke gate
+    now reports `state.count=685`, `blockchain.count=362`, and
+    `fixtureCaseCount=1100`; the refreshed consolidated drift map reports 313
+    remaining candidates: 260 passing state selectors and 53 Prague/EIP-7702
+    transaction selectors out of scope, with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:

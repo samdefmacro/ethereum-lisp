@@ -541,6 +541,38 @@
                         fork
                         case)))))
 
+(defun phase-a-eest-calldataload-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "frontier/opcodes/test_calldataload.json/tests/frontier/opcodes/test_calldataload.py::test_calldataload"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (loop for source in '("contract" "tx")
+                nconc
+                (loop for case in '("34_bytes" "two_bytes" "word_n_byte")
+                      collect
+                      (format nil
+                              "~A[fork_~A-state_test-calldata_source_~A-~A]"
+                              prefix
+                              fork
+                              source
+                              case))))))
+
+(defun phase-a-eest-calldatasize-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "frontier/opcodes/test_calldatasize.json/tests/frontier/opcodes/test_calldatasize.py::test_calldatasize"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (loop for source in '("contract" "tx")
+                nconc
+                (loop for size in '("0" "16" "257" "2" "33")
+                      collect
+                      (format nil
+                              "~A[fork_~A-state_test-calldata_source_~A-args_size_~A]"
+                              prefix
+                              fork
+                              source
+                              size))))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -648,7 +680,9 @@
    (phase-a-eest-create-collision-state-test-v5.4.0-case-names)
    (phase-a-eest-core-boundary-state-test-v5.4.0-case-names)
    (phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names)
-   (phase-a-eest-calldatacopy-state-test-v5.4.0-case-names)))
+   (phase-a-eest-calldatacopy-state-test-v5.4.0-case-names)
+   (phase-a-eest-calldataload-state-test-v5.4.0-case-names)
+   (phase-a-eest-calldatasize-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
