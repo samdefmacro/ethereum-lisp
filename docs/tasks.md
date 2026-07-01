@@ -7021,6 +7021,31 @@ splits can land after the Phase A smoke path closes.
     candidates for both BN254 gas families, and the pinned smoke gate reports
     `state.count=476` and `fixtureCaseCount=729`.
 
+- [x] `PINNED-V5.4.0-CREATE-SELFDESTRUCT-BLOCKCHAIN`: Pin official CREATE /
+  CREATE2 init-code SELFDESTRUCT blockchain replay selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root.
+  - Acceptance: the Shanghai `engineNewPayloadV2` selectors from
+    `frontier/create/test_create_suicide_during_transaction_create.json` are
+    included in the pinned Phase A blockchain replay table, classify with zero
+    remaining unpinned candidates for that family, and pass the pinned v5.4.0
+    smoke gate.
+  - Validation: `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/create/test_create_suicide_during_transaction_create.json --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): added six official Shanghai
+    `engineNewPayloadV2` replay selectors covering CREATE and CREATE2
+    selfdestruct-during-init behavior. The targeted classifier reports
+    `pinnedCount=206` and zero unpinned candidates for the family. The
+    refreshed consolidated drift map reports 678 remaining candidates: 469
+    passing state selectors, 156 passing blockchain replay selectors, and 53
+    Prague/EIP-7702 transaction selectors out of scope, with zero
+    known-implementation-drift, implementation-bug-candidate, or
+    fixture-harness-error records. The pinned smoke gate reports
+    `state.count=476`, `blockchain.count=206`, and `fixtureCaseCount=735`.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:

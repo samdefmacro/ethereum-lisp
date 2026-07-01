@@ -426,6 +426,18 @@
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_all_opcodes.json/tests/frontier/opcodes/test_all_opcodes.py::test_all_opcodes[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
+    ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE-transaction_create_False]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE-transaction_create_True]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE_TO_ITSELF-transaction_create_False]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE_TO_ITSELF-transaction_create_True]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE2-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE-transaction_create_False]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE2-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE_TO_ITSELF-transaction_create_False]"
+     . "engineNewPayloadV2")
     ("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_Shanghai-blockchain_test_engine_from_state_test-account_warm_False-storage_key_warm_False]"
      . "engineNewPayloadV2")
     ("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_Shanghai-blockchain_test_engine_from_state_test-account_warm_True-storage_key_warm_False]"
