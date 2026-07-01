@@ -6665,8 +6665,14 @@ splits can land after the Phase A smoke path closes.
     `--authrpc.port`) authoritative over geth-style P2P `--port` after they
     are supplied, preventing Hive/geth launch lines that also include
     `--port 30303` from moving the authenticated Engine endpoint. Regression
-    coverage verifies both option orders while preserving legacy `--port`
-    behavior when no explicit Engine/authrpc port is present.
+    coverage verifies both option orders.
+  - Result (2026-07-01): `ethereum-lisp devnet --port PORT` now validates and
+    consumes the geth P2P port as a compatibility no-op instead of using it as
+    a fallback authenticated Engine port. `--engine-port` and
+    `--authrpc.port` are the only CLI port selectors for the Engine listener,
+    so Hive/geth launch lines that provide only `--port 30303` keep the
+    default `127.0.0.1:8551` Engine endpoint. Regression coverage locks the
+    explicit-authrpc and no-authrpc geth-shaped cases.
   - Result: tightened the Hive-style endpoint split so `--engine-host`
     changes only the authenticated Engine listener while the public RPC host
     keeps its default unless `--public-host` or legacy `--host` is supplied.

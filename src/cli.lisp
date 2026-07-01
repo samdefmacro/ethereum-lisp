@@ -704,7 +704,6 @@
   (let ((genesis-path nil)
         (host "127.0.0.1")
         (port +engine-rpc-default-http-port+)
-        (engine-port-explicit-p nil)
         (default-public-host "127.0.0.1")
         (public-host nil)
         (public-port +devnet-default-public-rpc-port+)
@@ -746,16 +745,13 @@
                ((string= option "--port")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
-                  (let ((parsed-port (devnet-cli-parse-port value option)))
-                    (unless engine-port-explicit-p
-                      (setf port parsed-port)))
+                  (devnet-cli-parse-port value option)
                   (setf args rest)))
                ((or (string= option "--engine-port")
                     (string= option "--authrpc.port"))
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
                   (setf port (devnet-cli-parse-port value option)
-                        engine-port-explicit-p t
                         args rest)))
                ((or (string= option "--public-host")
                     (string= option "--http.addr"))
@@ -1059,7 +1055,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet [--genesis PATH] [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--verbosity LEVEL] [--log.file PATH] [--log.format FORMAT] [--log.maxsize MB] [--log.maxbackups N] [--log.maxage DAYS] [--log.compress] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--rpc.gascap GAS] [--rpc.evmtimeout DURATION] [--rpc.txfeecap ETH] [--rpc.batch-request-limit N] [--rpc.batch-response-max-size BYTES] [--override.terminaltotaldifficulty TTD] [--override.terminaltotaldifficultypassed] [--override.terminalblockhash HASH] [--override.terminalblocknumber NUMBER] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--dev.period SECONDS] [--dev.gaslimit GAS] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet [--genesis PATH] [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port P2P-PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--verbosity LEVEL] [--log.file PATH] [--log.format FORMAT] [--log.maxsize MB] [--log.maxbackups N] [--log.maxage DAYS] [--log.compress] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--rpc.gascap GAS] [--rpc.evmtimeout DURATION] [--rpc.txfeecap ETH] [--rpc.batch-request-limit N] [--rpc.batch-response-max-size BYTES] [--override.terminaltotaldifficulty TTD] [--override.terminaltotaldifficultypassed] [--override.terminalblockhash HASH] [--override.terminalblocknumber NUMBER] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--dev.period SECONDS] [--dev.gaslimit GAS] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-top-level-help (stream)
   (format stream "Usage: ethereum-lisp COMMAND [options]~%")

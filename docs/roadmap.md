@@ -1067,8 +1067,10 @@ first pass, but interfaces must not block that path.
   aliases, mapping them onto the existing authenticated Engine and public RPC
   listener fields without changing the split-service contract. Explicit
   Engine/authrpc port selectors now stay authoritative over geth-style P2P
-  `--port`, so runner launch lines that include both `--authrpc.port` and
-  `--port 30303` do not accidentally move the authenticated Engine endpoint.
+  `--port`; the P2P port is validated and consumed as a compatibility no-op,
+  so runner launch lines that include `--port 30303`, with or without
+  `--authrpc.port`, do not accidentally move the authenticated Engine
+  endpoint.
   It also accepts geth-shaped `--http` as a compatibility no-op. Runner-facing
   script
   serve-mode coverage now performs actual TCP JSON-RPC

@@ -2132,7 +2132,7 @@
                   (ethereum-lisp.cli:main
                    (list "devnet"
                          "--genesis" +devnet-cli-genesis-fixture+
-                         "--port" "0"
+                         "--engine-port" "0"
                          "--database" (namestring database-path)
                          "--json"
                          "--no-serve")
@@ -2547,7 +2547,7 @@
                   (ethereum-lisp.cli:main
                    (list "devnet"
                          "--genesis" +devnet-cli-genesis-fixture+
-                         "--port" "0"
+                         "--engine-port" "0"
                          "--public-port" "8546"
                          "--jwt-secret" (namestring jwt-path)
                          "--ready-file" (namestring ready-path)
@@ -2813,7 +2813,7 @@
       (when (probe-file log-path)
         (delete-file log-path)))))
 
-(deftest devnet-cli-main-geth-p2p-port-does-not-override-authrpc-port
+(deftest devnet-cli-main-geth-p2p-port-does-not-override-engine-port
   (labels ((run-summary (args)
              (let ((output (make-string-output-stream))
                    (errors (make-string-output-stream)))
@@ -2837,18 +2837,28 @@
             (run-summary
              (list "--port=30303"
                    "--authrpc.port=9652"
-                   "--http.port=9646"))))
+                   "--http.port=9646")))
+          (p2p-without-authrpc
+            (run-summary
+             (list "--port=30303"
+                   "--http.port=9647"))))
       (is (string= "127.0.0.1:9651"
                    (fixture-object-field p2p-after-authrpc
                                          "engineEndpoint")))
       (is (string= "127.0.0.1:9652"
                    (fixture-object-field p2p-before-authrpc
                                          "engineEndpoint")))
+      (is (string= "127.0.0.1:8551"
+                   (fixture-object-field p2p-without-authrpc
+                                         "engineEndpoint")))
       (is (string= "127.0.0.1:9645"
                    (fixture-object-field p2p-after-authrpc
                                          "rpcEndpoint")))
       (is (string= "127.0.0.1:9646"
                    (fixture-object-field p2p-before-authrpc
+                                         "rpcEndpoint")))
+      (is (string= "127.0.0.1:9647"
+                   (fixture-object-field p2p-without-authrpc
                                          "rpcEndpoint"))))))
 
 (deftest devnet-cli-main-accepts-geth-style-txpool-and-database-flags
@@ -2980,7 +2990,7 @@
             :error-stream host-errors)))
     (is (string= "" (get-output-stream-string host-errors)))
     (let ((summary (parse-json (get-output-stream-string host-output))))
-      (is (string= "192.0.2.20:9552"
+      (is (string= "192.0.2.20:8551"
                    (fixture-object-field summary "engineEndpoint")))
       (is (string= "192.0.2.20:8545"
                    (fixture-object-field summary "rpcEndpoint"))))))
@@ -2998,7 +3008,7 @@
                     (ethereum-lisp.cli:main
                      (list "devnet"
                            "--genesis" +devnet-cli-genesis-fixture+
-                           "--port" "0"
+                           "--engine-port" "0"
                            "--public-port" "8546"
                            "--ready-file" (namestring ready-path)
                            "--log-file" log-path-string
