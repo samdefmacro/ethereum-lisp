@@ -7300,6 +7300,31 @@ splits can land after the Phase A smoke path closes.
     replay selectors, and 53 Prague/EIP-7702 transaction selectors out of
     scope.
 
+- [x] `PINNED-V5.4.0-BLOCKCHAIN-REMAINDER-CLOSURE`: Pin the remaining
+  materializable official v5.4.0 blockchain replay selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and prior blockchain replay drift classification.
+  - Acceptance: the remaining unpinned Shanghai `engineNewPayloadV2`
+    blockchain replay candidates classify as passing, are included in the
+    pinned Phase A blockchain replay table, and leave zero unpinned blockchain
+    replay candidates in the consolidated v5.4.0 drift map.
+  - Validation: `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/opcodes/test_swap --json`;
+    `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix homestead/coverage/test_coverage --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): pre-pin classification found the final 17 unpinned
+    blockchain replay candidates passing with zero drift/bug/harness records:
+    16 `frontier/opcodes/test_swap.json` SWAP1 through SWAP16 behavior
+    selectors and one `homestead/coverage/test_coverage.json` selector. The
+    post-pin consolidated drift map reports `blockchain.pinnedCount=362`,
+    `blockchain.candidateCount=0`, and 522 remaining materializable candidates
+    outside the blockchain suite: 469 passing state selectors plus 53
+    Prague/EIP-7702 transaction selectors out of scope. The pinned smoke gate
+    now reports `state.count=476`, `blockchain.count=362`, and
+    `fixtureCaseCount=891`.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:

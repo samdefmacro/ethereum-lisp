@@ -542,7 +542,41 @@
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_stack_underflow.json/tests/frontier/opcodes/test_swap.py::test_stack_underflow[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP16]"
      . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP1]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP2]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP3]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP4]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP5]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP6]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP7]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP8]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP9]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP10]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP11]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP12]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP13]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP14]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP15]"
+     . "engineNewPayloadV2")
+    ("frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap[fork_Shanghai-blockchain_test_engine_from_state_test-SWAP16]"
+     . "engineNewPayloadV2")
     ("frontier/opcodes/test_all_opcodes.json/tests/frontier/opcodes/test_all_opcodes.py::test_all_opcodes[fork_Shanghai-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("homestead/coverage/test_coverage.json/tests/homestead/coverage/test_coverage.py::test_coverage[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
     ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE-transaction_create_False]"
      . "engineNewPayloadV2")

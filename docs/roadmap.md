@@ -1880,6 +1880,16 @@ Detailed historical implementation notes for this section now live in
   selectors, 17 passing blockchain replay selectors, and 53 Prague/EIP-7702
   transaction selectors out of scope, with zero known-implementation-drift,
   implementation-bug-candidate, or fixture-harness-error records.
+  The current materializable official v5.4.0 blockchain replay remainder is
+  now closed for the bounded Shanghai Engine path: the final 17 unpinned
+  passing selectors, covering `frontier/opcodes/test_swap.json` SWAP1 through
+  SWAP16 behavior plus `homestead/coverage/test_coverage.json`, are pinned.
+  The pinned smoke gate now executes 891 total fixture cases with 362
+  blockchain replay selectors, and the refreshed v5.4.0 drift map reports
+  zero unpinned blockchain replay candidates. The remaining 522 materializable
+  drift-map candidates are 469 passing state selectors and 53 Prague/EIP-7702
+  transaction selectors out of scope, with zero known-implementation-drift,
+  implementation-bug-candidate, or fixture-harness-error records.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting
