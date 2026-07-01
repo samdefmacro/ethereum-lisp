@@ -342,6 +342,37 @@
                          fork
                          output-size))))))
 
+(defun phase-a-eest-identity-return-state-test-v5.4.0-case-names ()
+  (append
+   (let ((prefix
+           "homestead/identity_precompile/test_identity_return_buffer_modify.json/tests/homestead/identity_precompile/test_identity.py::test_identity_return_buffer_modify"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for call-opcode in '("CALL"
+                                      "CALLCODE"
+                                      "DELEGATECALL"
+                                      "STATICCALL")
+                 collect
+                 (format nil
+                         "~A[fork_~A-call_opcode_~A-evm_code_type_LEGACY-state_test]"
+                         prefix
+                         fork
+                         call-opcode))))
+   (let ((prefix
+           "homestead/identity_precompile/test_identity_return_overwrite.json/tests/homestead/identity_precompile/test_identity.py::test_identity_return_overwrite"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for call-opcode in '("CALL"
+                                      "CALLCODE"
+                                      "DELEGATECALL"
+                                      "STATICCALL")
+                 collect
+                 (format nil
+                         "~A[fork_~A-call_opcode_~A-evm_code_type_LEGACY-state_test]"
+                         prefix
+                         fork
+                         call-opcode))))))
+
 (defun phase-a-eest-create-boundary-state-test-v5.4.0-case-names ()
   (append
    (let ((prefix
@@ -512,6 +543,7 @@
    (phase-a-eest-bn254-gas-state-test-v5.4.0-case-names)
    (phase-a-eest-blake2f-state-test-v5.4.0-case-names)
    (phase-a-eest-identity-precompile-state-test-v5.4.0-case-names)
+   (phase-a-eest-identity-return-state-test-v5.4.0-case-names)
    (phase-a-eest-create-boundary-state-test-v5.4.0-case-names)
    (phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names)))
 

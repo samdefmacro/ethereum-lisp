@@ -7411,6 +7411,36 @@ splits can land after the Phase A smoke path closes.
     known-implementation-drift, implementation-bug-candidate, or
     fixture-harness-error records.
 
+- [x] `PINNED-V5.4.0-IDENTITY-RETURN-STATE`: Pin official Homestead identity
+  precompile return-buffer state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned London/Shanghai state selectors from
+    `homestead/identity_precompile/test_identity_return_buffer_modify.json`
+    and `homestead/identity_precompile/test_identity_return_overwrite.json`
+    covering `CALL`, `CALLCODE`, `DELEGATECALL`, and `STATICCALL` return-buffer
+    behavior are included in the pinned Phase A state selector table, classify
+    with zero remaining unpinned candidates for the prefix, and pass the pinned
+    v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix homestead/identity_precompile --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-02): added a generated selector helper for 16 official
+    London/Shanghai Homestead identity-precompile return-buffer selectors
+    covering return-buffer modification and overwrite behavior across `CALL`,
+    `CALLCODE`, `DELEGATECALL`, and `STATICCALL`. The pre-pin targeted
+    classifier reported 16/16 unpinned candidates passing with zero
+    drift/bug/harness records; the post-pin targeted classifier reports
+    `pinnedCount=576` and zero remaining unpinned candidates for the
+    `homestead/identity_precompile` prefix. The pinned smoke gate now reports
+    `state.count=576`, `blockchain.count=362`, and `fixtureCaseCount=991`;
+    the refreshed consolidated drift map reports 422 remaining candidates:
+    369 passing state selectors and 53 Prague/EIP-7702 transaction selectors
+    out of scope, with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:

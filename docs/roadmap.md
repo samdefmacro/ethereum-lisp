@@ -1922,6 +1922,17 @@ Detailed historical implementation notes for this section now live in
   candidates as 385 passing state selectors and 53 Prague/EIP-7702 transaction
   selectors out of scope, with zero known-implementation-drift,
   implementation-bug-candidate, or fixture-harness-error records.
+  The pinned state-transition table now also includes 16 official
+  London/Shanghai Homestead identity-precompile return-buffer selectors
+  covering return-buffer modification and overwrite behavior across `CALL`,
+  `CALLCODE`, `DELEGATECALL`, and `STATICCALL`. Pre-pin classification found
+  all 16 unpinned selectors passing with zero drift/bug/harness records. The
+  pinned smoke gate now executes 991 total fixture cases with 576 state
+  selectors and 362 blockchain replay selectors, and the refreshed v5.4.0
+  drift map classifies the remaining 422 candidates as 369 passing state
+  selectors and 53 Prague/EIP-7702 transaction selectors out of scope, with
+  zero known-implementation-drift, implementation-bug-candidate, or
+  fixture-harness-error records.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting
