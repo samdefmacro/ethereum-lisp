@@ -99,6 +99,8 @@ references/ checkouts.~%")
 (defparameter *devnet-smoke-gate-engine-cors-origins*
   '("https://engine-runner.example" "https://engine-observer.example"))
 (defconstant +devnet-smoke-gate-engine-cors-connections+ 3)
+(defconstant +devnet-smoke-gate-http-shaping-engine-connections+ 2)
+(defconstant +devnet-smoke-gate-http-shaping-public-connections+ 2)
 (defparameter *devnet-smoke-gate-engine-vhosts*
   '("engine.runner" "localhost"))
 (defparameter *devnet-smoke-gate-public-vhosts*
@@ -368,7 +370,8 @@ references/ checkouts.~%")
               return (subseq line (length prefix))))))
 
 (defun devnet-smoke-gate-http-request
-    (method target &key body origin content-type (host "localhost"))
+    (method target &key body origin content-type authorization
+       (host "localhost"))
   (let ((body (or body "")))
     (with-output-to-string (stream)
       (format stream "~A ~A HTTP/1.1~%Host: ~A~%"
@@ -377,6 +380,8 @@ references/ checkouts.~%")
         (format stream "Origin: ~A~%" origin))
       (when content-type
         (format stream "Content-Type: ~A~%" content-type))
+      (when authorization
+        (format stream "Authorization: ~A~%" authorization))
       (format stream "Content-Length: ~D~%~%~A" (length body) body))))
 
 (defun devnet-smoke-gate-call-with-telemetry-sink (log-file thunk)
@@ -1143,6 +1148,175 @@ references/ checkouts.~%")
         (delete-file jwt-path))))
   #-sbcl
   (error "Engine CORS smoke verification requires SBCL threads"))
+
+(defun devnet-smoke-gate-verify-http-shaping ()
+  #+sbcl
+  (let ((jwt-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-smoke-http-shaping-jwt"
+           "hex")))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (let* ((node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-path
+                     (namestring
+                      (devnet-smoke-gate-reference-path
+                       +devnet-cli-genesis-fixture+))
+                     :port 8551
+                     :public-port 8545
+                     :jwt-secret-path (namestring jwt-path)))
+                  (secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                  (token (engine-rpc-make-jwt-token secret 0))
+                  (engine-body
+                    (devnet-smoke-gate-json-rpc-request
+                     461
+                     "engine_getClientVersionV1"
+                     (list
+                      (list (cons "code" "TT")
+                            (cons "name" "test")
+                            (cons "version" "1.1.1")
+                            (cons "commit" "0x12345678")))))
+                  (public-body
+                    (devnet-smoke-gate-json-rpc-request
+                     462 "eth_chainId" '()))
+                  (engine-method-output (make-string-output-stream))
+                  (engine-content-type-output (make-string-output-stream))
+                  (public-method-output (make-string-output-stream))
+                  (public-content-type-output (make-string-output-stream))
+                  (engine-served-count 0)
+                  (engine-done-p nil)
+                  (engine-requests
+                    (list
+                     (cons
+                      (devnet-smoke-gate-http-request
+                       "PUT" "/"
+                       :content-type "application/json"
+                       :authorization (format nil "Bearer ~A" token)
+                       :body engine-body)
+                      engine-method-output)
+                     (cons
+                      (devnet-smoke-gate-http-request
+                       "POST" "/"
+                       :content-type "text/plain"
+                       :authorization (format nil "Bearer ~A" token)
+                       :body engine-body)
+                      engine-content-type-output)))
+                  (public-requests
+                    (list
+                     (cons
+                      (devnet-smoke-gate-http-request
+                       "PUT" "/"
+                       :content-type "application/json"
+                       :body public-body)
+                      public-method-output)
+                     (cons
+                      (devnet-smoke-gate-http-request
+                       "POST" "/"
+                       :content-type "text/plain"
+                       :body public-body)
+                      public-content-type-output)))
+                  (summary
+                    (ethereum-lisp.cli:start-devnet-node-listeners
+                     node
+                     (make-engine-rpc-http-listener
+                      :endpoint "http-shaping-engine"
+                      :accept-function
+                      (lambda ()
+                        (when engine-requests
+                          (destructuring-bind (request . output)
+                              (pop engine-requests)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream request)
+                             :output-stream output
+                             :close-function
+                             (lambda ()
+                               (incf engine-served-count)
+                               (when (= engine-served-count
+                                        +devnet-smoke-gate-http-shaping-engine-connections+)
+                                 (setf engine-done-p t)))))))
+                      :close-function (lambda () nil))
+                     (make-engine-rpc-http-listener
+                      :endpoint "http-shaping-public"
+                      :accept-function
+                      (lambda ()
+                        (loop until engine-done-p
+                              do (sleep 0.001))
+                        (when public-requests
+                          (destructuring-bind (request . output)
+                              (pop public-requests)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream request)
+                             :output-stream output
+                             :close-function (lambda () nil)))))
+                      :close-function (lambda () nil))
+                     :max-connections
+                     +devnet-smoke-gate-http-shaping-public-connections+))
+                  (engine-method-response
+                    (get-output-stream-string engine-method-output))
+                  (engine-content-type-response
+                    (get-output-stream-string engine-content-type-output))
+                  (public-method-response
+                    (get-output-stream-string public-method-output))
+                  (public-content-type-response
+                    (get-output-stream-string public-content-type-output)))
+             (devnet-smoke-gate-require
+              (= 405 (devnet-cli-http-status engine-method-response))
+              "Engine HTTP method rejection status mismatch")
+             (devnet-smoke-gate-require
+              (search "method not allowed"
+                      (devnet-cli-http-body engine-method-response))
+              "Engine HTTP method rejection body mismatch")
+             (devnet-smoke-gate-require
+              (= 415 (devnet-cli-http-status engine-content-type-response))
+              "Engine HTTP content-type rejection status mismatch")
+             (devnet-smoke-gate-require
+              (search "invalid content type"
+                      (devnet-cli-http-body engine-content-type-response))
+              "Engine HTTP content-type rejection body mismatch")
+             (devnet-smoke-gate-require
+              (= 405 (devnet-cli-http-status public-method-response))
+              "Public HTTP method rejection status mismatch")
+             (devnet-smoke-gate-require
+              (search "method not allowed"
+                      (devnet-cli-http-body public-method-response))
+              "Public HTTP method rejection body mismatch")
+             (devnet-smoke-gate-require
+              (= 415 (devnet-cli-http-status public-content-type-response))
+              "Public HTTP content-type rejection status mismatch")
+             (devnet-smoke-gate-require
+              (search "invalid content type"
+                      (devnet-cli-http-body public-content-type-response))
+              "Public HTTP content-type rejection body mismatch")
+             (devnet-smoke-gate-require
+              (= +devnet-smoke-gate-http-shaping-engine-connections+
+                 (getf summary :engine-connections))
+              "HTTP shaping Engine connection count mismatch")
+             (devnet-smoke-gate-require
+              (= +devnet-smoke-gate-http-shaping-public-connections+
+                 (getf summary :public-connections))
+              "HTTP shaping public connection count mismatch")
+             (list :engine-method-status
+                   (devnet-cli-http-status engine-method-response)
+                   :engine-content-type-status
+                   (devnet-cli-http-status engine-content-type-response)
+                   :public-method-status
+                   (devnet-cli-http-status public-method-response)
+                   :public-content-type-status
+                   (devnet-cli-http-status public-content-type-response)
+                   :engine-connections
+                   (getf summary :engine-connections)
+                   :public-connections
+                   (getf summary :public-connections)
+                   :total-connections
+                   (getf summary :total-connections))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))))
+  #-sbcl
+  (error "HTTP shaping smoke verification requires SBCL threads"))
 
 (defun devnet-smoke-gate-verify-vhosts ()
   #+sbcl
@@ -8255,6 +8429,8 @@ references/ checkouts.~%")
                          (devnet-smoke-gate-verify-public-cors))
                        (engine-cors-summary
                          (devnet-smoke-gate-verify-engine-cors))
+                       (http-shaping-summary
+                         (devnet-smoke-gate-verify-http-shaping))
                        (vhost-summary
                          (devnet-smoke-gate-verify-vhosts))
                        (rpc-prefix-summary
@@ -8344,6 +8520,22 @@ references/ checkouts.~%")
                         (getf engine-cors-summary :public-connections))
                   (cons "engineCorsTotalConnections"
                         (getf engine-cors-summary :total-connections))
+                  (cons "engineHttpMethodStatus"
+                        (getf http-shaping-summary :engine-method-status))
+                  (cons "engineHttpContentTypeStatus"
+                        (getf http-shaping-summary
+                              :engine-content-type-status))
+                  (cons "publicHttpMethodStatus"
+                        (getf http-shaping-summary :public-method-status))
+                  (cons "publicHttpContentTypeStatus"
+                        (getf http-shaping-summary
+                              :public-content-type-status))
+                  (cons "httpShapingEngineConnections"
+                        (getf http-shaping-summary :engine-connections))
+                  (cons "httpShapingPublicConnections"
+                        (getf http-shaping-summary :public-connections))
+                  (cons "httpShapingTotalConnections"
+                        (getf http-shaping-summary :total-connections))
                   (cons "engineVhosts"
                         (getf vhost-summary :engine-vhosts))
                   (cons "publicVhosts"

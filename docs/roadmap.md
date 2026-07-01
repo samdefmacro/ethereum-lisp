@@ -1107,7 +1107,10 @@ first pass, but interfaces must not block that path.
   standalone devnet smoke gate now verifies both authenticated Engine and
   public CORS contracts through real listener streams and exposes configured,
   summary-reported, and telemetry-reported origins plus preflight/RPC/blocked
-  status codes for Hive-style runner checks.
+  status codes for Hive-style runner checks. The same standalone report also
+  exposes Engine/public unsupported-method and invalid-content-type status
+  probes plus their split connection counts, giving Hive-style runners one
+  reusable readiness contract for the HTTP rejection surface.
   `--http.api LIST` now parses
   comma-separated public
   module names and applies them to the public listener method filter, so

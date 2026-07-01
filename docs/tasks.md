@@ -1024,6 +1024,16 @@ ones.
     configured, summary-reported, and telemetry-reported origins plus the
     CORS probe status and connection counts, and CLI smoke tests assert those
     fields for both single-case and all-fixtures runner reports.
+- [x] `DEVNET-RUNNER-HTTP-SHAPING-SMOKE`: Lock Engine/public HTTP method and
+  content-type rejection at the standalone devnet process-boundary smoke
+  surface.
+  - Result (2026-07-01): the standalone devnet smoke gate now sends
+    JWT-authenticated Engine and public unsupported-method plus invalid
+    content-type requests through listener streams, verifies HTTP 405/415
+    responses and error bodies, and exposes the four status codes plus
+    Engine/public/total connection counts for Hive-style runner reports. CLI
+    smoke tests assert those fields for both single-case and all-fixtures
+    reports.
 - [x] `DEVNET-RUNNER-VHOSTS`: Map geth/Hive-style `--authrpc.vhosts` and
   `--http.vhosts` onto Engine/public HTTP Host allowlists.
   - Result (2026-06-29): devnet startup now parses comma-separated Engine and
