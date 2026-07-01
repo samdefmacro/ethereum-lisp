@@ -26,6 +26,14 @@
   (format t "  --database PATH      Export and verify a file-backed KV chain snapshot.~%")
   (format t "  --prune-state-before NUMBER~%")
   (format t "                       Prune retained state before NUMBER when exporting --database.~%")
+  (format t "  --override.terminaltotaldifficulty TTD~%")
+  (format t "                       Configure the Engine transition total difficulty.~%")
+  (format t "  --override.terminaltotaldifficultypassed~%")
+  (format t "                       Mark terminal total difficulty as passed.~%")
+  (format t "  --override.terminalblockhash HASH~%")
+  (format t "                       Configure the Engine transition terminal block hash.~%")
+  (format t "  --override.terminalblocknumber NUMBER~%")
+  (format t "                       Configure the Engine transition terminal block number.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
@@ -56,6 +64,14 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-database-option+ "--database")
 (defconstant +devnet-smoke-gate-prune-state-before-option+
   "--prune-state-before")
+(defconstant +devnet-smoke-gate-terminal-total-difficulty-option+
+  "--override.terminaltotaldifficulty")
+(defconstant +devnet-smoke-gate-terminal-total-difficulty-passed-flag+
+  "--override.terminaltotaldifficultypassed")
+(defconstant +devnet-smoke-gate-terminal-block-hash-option+
+  "--override.terminalblockhash")
+(defconstant +devnet-smoke-gate-terminal-block-number-option+
+  "--override.terminalblocknumber")
 (defconstant +devnet-smoke-gate-all-fixtures-flag+ "--all-fixtures")
 (defconstant +devnet-smoke-gate-default-fixture-case+
   "shanghai-one-transfer-with-withdrawal")
@@ -127,13 +143,17 @@ references/ checkouts.~%")
                 +devnet-smoke-gate-log-file-option+
                 +devnet-smoke-gate-pid-file-option+
                 +devnet-smoke-gate-database-option+
-                +devnet-smoke-gate-prune-state-before-option+)
+                +devnet-smoke-gate-prune-state-before-option+
+                +devnet-smoke-gate-terminal-total-difficulty-option+
+                +devnet-smoke-gate-terminal-block-hash-option+
+                +devnet-smoke-gate-terminal-block-number-option+)
           :test #'string=))
 
 (defun devnet-smoke-gate-boolean-option-p (arg)
   (member arg
           (list +devnet-smoke-gate-json-flag+
-                +devnet-smoke-gate-all-fixtures-flag+)
+                +devnet-smoke-gate-all-fixtures-flag+
+                +devnet-smoke-gate-terminal-total-difficulty-passed-flag+)
           :test #'string=))
 
 (defun devnet-smoke-gate-parse-boolean-assignment (option value)
@@ -184,12 +204,20 @@ references/ checkouts.~%")
           (cond
             ((or (string= arg +devnet-smoke-gate-json-flag+)
                  (string= arg +devnet-smoke-gate-help-flag+)
-                 (string= arg +devnet-smoke-gate-all-fixtures-flag+)))
+                 (string= arg +devnet-smoke-gate-all-fixtures-flag+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-total-difficulty-passed-flag+)))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
                  (string= arg +devnet-smoke-gate-log-file-option+)
                  (string= arg +devnet-smoke-gate-pid-file-option+)
                  (string= arg +devnet-smoke-gate-database-option+)
                  (string= arg +devnet-smoke-gate-prune-state-before-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-total-difficulty-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-block-hash-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-block-number-option+)
                  (string= arg +devnet-smoke-gate-fixture-case-option+))
              (when (and (string= arg +devnet-smoke-gate-fixture-case-option+)
                         args)
@@ -210,11 +238,19 @@ references/ checkouts.~%")
             ((string= arg +devnet-smoke-gate-json-flag+))
             ((string= arg +devnet-smoke-gate-help-flag+))
             ((string= arg +devnet-smoke-gate-all-fixtures-flag+))
+            ((string= arg
+                      +devnet-smoke-gate-terminal-total-difficulty-passed-flag+))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
                  (string= arg +devnet-smoke-gate-log-file-option+)
                  (string= arg +devnet-smoke-gate-pid-file-option+)
                  (string= arg +devnet-smoke-gate-database-option+)
-                 (string= arg +devnet-smoke-gate-prune-state-before-option+))
+                 (string= arg +devnet-smoke-gate-prune-state-before-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-total-difficulty-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-block-hash-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-block-number-option+))
              (unless args
                (error "~A requires a value" arg))
              (let ((value (pop args)))
@@ -264,7 +300,13 @@ references/ checkouts.~%")
                  (string= arg +devnet-smoke-gate-log-file-option+)
                  (string= arg +devnet-smoke-gate-pid-file-option+)
                  (string= arg +devnet-smoke-gate-database-option+)
-                 (string= arg +devnet-smoke-gate-prune-state-before-option+))
+                 (string= arg +devnet-smoke-gate-prune-state-before-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-total-difficulty-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-block-hash-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-block-number-option+))
              (when args
                (pop args)))))
     path))
@@ -293,10 +335,68 @@ references/ checkouts.~%")
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
                  (string= arg +devnet-smoke-gate-log-file-option+)
                  (string= arg +devnet-smoke-gate-pid-file-option+)
-                 (string= arg +devnet-smoke-gate-database-option+))
+                 (string= arg +devnet-smoke-gate-database-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-total-difficulty-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-block-hash-option+)
+                 (string= arg
+                          +devnet-smoke-gate-terminal-block-number-option+))
              (when args
                (pop args)))))
     integer))
+
+(defun devnet-smoke-gate-quantity-token-p (value)
+  (and (stringp value)
+       (<= 2 (length value))
+       (char= #\0 (char value 0))
+       (char= #\x (char-downcase (char value 1)))))
+
+(defun devnet-smoke-gate-quantity-option (args option)
+  (let ((quantity nil))
+    (loop while args
+          for arg = (pop args)
+          do
+          (cond
+            ((string= arg option)
+             (when quantity
+               (error "Only one ~A option is supported" option))
+             (unless args
+               (error "~A requires a value" option))
+             (let ((value (pop args)))
+               (handler-case
+                   (setf quantity
+                         (if (devnet-smoke-gate-quantity-token-p value)
+                             (hex-to-quantity value)
+                             (parse-integer value :junk-allowed nil)))
+                 (error ()
+                   (error "~A requires a non-negative integer or hex quantity"
+                          option)))
+               (when (minusp quantity)
+                 (error "~A must be non-negative" option))))
+            ((and (devnet-smoke-gate-value-option-p arg) args)
+             (pop args))))
+    quantity))
+
+(defun devnet-smoke-gate-hash32-option (args option)
+  (let ((hash nil))
+    (loop while args
+          for arg = (pop args)
+          do
+          (cond
+            ((string= arg option)
+             (when hash
+               (error "Only one ~A option is supported" option))
+             (unless args
+               (error "~A requires a value" option))
+             (let ((value (pop args)))
+               (handler-case
+                   (setf hash (hash32-from-hex value))
+                 (error ()
+                   (error "~A requires a 32-byte hex hash" option)))))
+            ((and (devnet-smoke-gate-value-option-p arg) args)
+             (pop args))))
+    hash))
 
 (defun devnet-smoke-gate-print-help ()
   (format t "~&Usage: sbcl --script scripts/devnet-smoke-gate.lisp -- [options] [FIXTURE-CASE]~%")
@@ -310,6 +410,14 @@ references/ checkouts.~%")
   (format t "  --database PATH      Export and verify a file-backed KV chain snapshot.~%")
   (format t "  --prune-state-before NUMBER~%")
   (format t "                       Prune retained state before NUMBER when exporting --database.~%")
+  (format t "  --override.terminaltotaldifficulty TTD~%")
+  (format t "                       Configure the Engine transition total difficulty.~%")
+  (format t "  --override.terminaltotaldifficultypassed~%")
+  (format t "                       Mark terminal total difficulty as passed.~%")
+  (format t "  --override.terminalblockhash HASH~%")
+  (format t "                       Configure the Engine transition terminal block hash.~%")
+  (format t "  --override.terminalblocknumber NUMBER~%")
+  (format t "                       Configure the Engine transition terminal block number.~%")
   (format t "  --json               Print machine-readable JSON output.~%")
   (format t "  --help               Print this help.~%")
   (format t "~%")
@@ -6542,7 +6650,9 @@ references/ checkouts.~%")
 
 (defun devnet-smoke-gate-run
     (case-name &key ready-file log-file pid-file database-file
-       state-prune-before)
+       state-prune-before terminal-total-difficulty
+       terminal-total-difficulty-passed-p terminal-block-hash
+       terminal-block-number)
   #+sbcl
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-smoke-jwt" "hex")))
     (unwind-protect
@@ -6557,7 +6667,17 @@ references/ checkouts.~%")
                              (store
                                (devnet-smoke-gate-field fixture "store"))
                              (config
-                               (devnet-smoke-gate-field fixture "config"))
+                               (ethereum-lisp.cli::devnet-cli-apply-merge-overrides
+                                (devnet-smoke-gate-field fixture "config")
+                                :terminal-total-difficulty
+                                terminal-total-difficulty
+                                :terminal-total-difficulty-passed
+                                terminal-total-difficulty-passed-p
+                                :terminal-total-difficulty-passed-specified-p
+                                terminal-total-difficulty-passed-p
+                                :terminal-block-hash terminal-block-hash
+                                :terminal-block-number
+                                terminal-block-number))
                              (parent-state
                                (devnet-smoke-gate-field fixture
                                                         "parentState"))
@@ -6604,7 +6724,21 @@ references/ checkouts.~%")
                                 :log-path log-file
                                 :database-path database-file
                                 :pid-file-path pid-file
+                                :terminal-total-difficulty
+                                terminal-total-difficulty
+                                :terminal-total-difficulty-passed
+                                terminal-total-difficulty-passed-p
+                                :terminal-total-difficulty-passed-specified-p
+                                terminal-total-difficulty-passed-p
+                                :terminal-block-hash terminal-block-hash
+                                :terminal-block-number terminal-block-number
                                 :telemetry-sink telemetry-sink))
+                  (expected-terminal-total-difficulty
+                    (quantity-to-hex (or terminal-total-difficulty 0)))
+                  (expected-terminal-block-hash
+                    (hash32-to-hex (or terminal-block-hash (zero-hash32))))
+                  (expected-terminal-block-number
+                    (quantity-to-hex (or terminal-block-number 0)))
                   (balance-address nil)
                   (expected-balance nil)
                   (balance-field nil)
@@ -6810,10 +6944,12 @@ references/ checkouts.~%")
                         (cons "params"
                               (list
                                (list
-                                (cons "terminalTotalDifficulty" "0x0")
+                                (cons "terminalTotalDifficulty"
+                                      expected-terminal-total-difficulty)
                                 (cons "terminalBlockHash"
-                                      (hash32-to-hex (zero-hash32)))
-                                (cons "terminalBlockNumber" "0x0"))))))
+                                      expected-terminal-block-hash)
+                                (cons "terminalBlockNumber"
+                                      expected-terminal-block-number))))))
                       transition-configuration-output)
                      (cons
                       (json-encode
@@ -8032,19 +8168,19 @@ references/ checkouts.~%")
                            (fixture-object-field client-version-result "commit"))
                   "engine_getClientVersionV1 commit mismatch")
                  (devnet-smoke-gate-require
-                  (string= "0x0"
+                  (string= expected-terminal-total-difficulty
                            (fixture-object-field
                             transition-configuration-result
                             "terminalTotalDifficulty"))
                   "engine_exchangeTransitionConfigurationV1 terminalTotalDifficulty mismatch")
                  (devnet-smoke-gate-require
-                  (string= (hash32-to-hex (zero-hash32))
+                  (string= expected-terminal-block-hash
                            (fixture-object-field
                             transition-configuration-result
                             "terminalBlockHash"))
                   "engine_exchangeTransitionConfigurationV1 terminalBlockHash mismatch")
                  (devnet-smoke-gate-require
-                  (string= "0x0"
+                  (string= expected-terminal-block-number
                            (fixture-object-field
                             transition-configuration-result
                             "terminalBlockNumber"))
@@ -9858,7 +9994,9 @@ references/ checkouts.~%")
 
 (defun devnet-smoke-gate-run-all
     (case-names &key ready-file log-file pid-file database-file
-       state-prune-before)
+       state-prune-before terminal-total-difficulty
+       terminal-total-difficulty-passed-p terminal-block-hash
+       terminal-block-number)
   (let* ((reports
            (mapcar (lambda (case-name)
                      (devnet-smoke-gate-strip-run-metadata
@@ -9877,7 +10015,13 @@ references/ checkouts.~%")
                        (devnet-smoke-gate-case-path
                         database-file case-name
                         :default-name "devnet-chain")
-                       :state-prune-before state-prune-before)))
+                       :state-prune-before state-prune-before
+                       :terminal-total-difficulty
+                       terminal-total-difficulty
+                       :terminal-total-difficulty-passed-p
+                       terminal-total-difficulty-passed-p
+                       :terminal-block-hash terminal-block-hash
+                       :terminal-block-number terminal-block-number)))
                    case-names))
          (engine-connections
            (reduce #'+ reports
@@ -11452,6 +11596,21 @@ references/ checkouts.~%")
          (state-prune-before
            (devnet-smoke-gate-non-negative-integer-option
             args +devnet-smoke-gate-prune-state-before-option+))
+         (terminal-total-difficulty
+           (devnet-smoke-gate-quantity-option
+            args +devnet-smoke-gate-terminal-total-difficulty-option+))
+         (terminal-total-difficulty-passed-p
+           (not
+            (null
+             (member +devnet-smoke-gate-terminal-total-difficulty-passed-flag+
+                     args
+                     :test #'string=))))
+         (terminal-block-hash
+           (devnet-smoke-gate-hash32-option
+            args +devnet-smoke-gate-terminal-block-hash-option+))
+         (terminal-block-number
+           (devnet-smoke-gate-quantity-option
+            args +devnet-smoke-gate-terminal-block-number-option+))
          (case-name (devnet-smoke-gate-fixture-case-name args)))
     (if help-p
         (devnet-smoke-gate-print-help)
@@ -11467,14 +11626,26 @@ references/ checkouts.~%")
                        :log-file log-file
                        :pid-file pid-file
                        :database-file database-file
-                       :state-prune-before state-prune-before))
+                       :state-prune-before state-prune-before
+                       :terminal-total-difficulty
+                       terminal-total-difficulty
+                       :terminal-total-difficulty-passed-p
+                       terminal-total-difficulty-passed-p
+                       :terminal-block-hash terminal-block-hash
+                       :terminal-block-number terminal-block-number))
                     (devnet-smoke-gate-run
                      case-name
                      :ready-file ready-file
                      :log-file log-file
                      :pid-file pid-file
                      :database-file database-file
-                     :state-prune-before state-prune-before))))
+                     :state-prune-before state-prune-before
+                     :terminal-total-difficulty
+                     terminal-total-difficulty
+                     :terminal-total-difficulty-passed-p
+                     terminal-total-difficulty-passed-p
+                     :terminal-block-hash terminal-block-hash
+                     :terminal-block-number terminal-block-number))))
           (if json-p
               (format t "~&~A~%" (json-encode report))
               (devnet-smoke-gate-print-text report))))))

@@ -140,14 +140,18 @@
   (is (string= "0x00000000"
                (fixture-object-field report "engineClientVersionCommit"))))
 
-(defun devnet-cli-assert-engine-transition-configuration (report)
-  (is (string= "0x0"
+(defun devnet-cli-assert-engine-transition-configuration
+    (report &key
+       (terminal-total-difficulty "0x0")
+       (terminal-block-hash (hash32-to-hex (zero-hash32)))
+       (terminal-block-number "0x0"))
+  (is (string= terminal-total-difficulty
                (fixture-object-field
                 report "engineTransitionTerminalTotalDifficulty")))
-  (is (string= (hash32-to-hex (zero-hash32))
+  (is (string= terminal-block-hash
                (fixture-object-field
                 report "engineTransitionTerminalBlockHash")))
-  (is (string= "0x0"
+  (is (string= terminal-block-number
                (fixture-object-field
                 report "engineTransitionTerminalBlockNumber"))))
 
@@ -3751,6 +3755,10 @@
     (is (search "--pid-file PATH" stdout))
     (is (search "--database PATH" stdout))
     (is (search "--prune-state-before NUMBER" stdout))
+    (is (search "--override.terminaltotaldifficulty TTD" stdout))
+    (is (search "--override.terminaltotaldifficultypassed" stdout))
+    (is (search "--override.terminalblockhash HASH" stdout))
+    (is (search "--override.terminalblocknumber NUMBER" stdout))
     (is (search "ETHEREUM_LISP_GETH_ROOT" stdout))
     (is (search "ETHEREUM_LISP_NETHERMIND_ROOT" stdout))
     (is (search "ETHEREUM_LISP_RETH_ROOT" stdout))))
@@ -3769,6 +3777,8 @@
            (merge-pathnames "pid/nested/devnet.pid" artifact-root))
          (database-path
            (merge-pathnames "database/nested/devnet-chain.sexp" artifact-root))
+         (terminal-block-hash
+           "0x4444444444444444444444444444444444444444444444444444444444444444")
          (reference-token
            (format nil "~A-~A" (sb-unix:unix-getpid) (gensym))))
     (unwind-protect
@@ -3791,7 +3801,12 @@
                     (format nil "--log-file=~A" (namestring log-path))
                     (format nil "--pid-file=~A" (namestring pid-path))
                     (format nil "--database=~A" (namestring database-path))
-                    "--prune-state-before=42")
+                    "--prune-state-before=42"
+                    "--override.terminaltotaldifficulty=0x3039"
+                    "--override.terminaltotaldifficultypassed=true"
+                    (format nil "--override.terminalblockhash=~A"
+                            terminal-block-hash)
+                    "--override.terminalblocknumber=66")
               :output :string
               :error-output :string
               :ignore-error-status t)
@@ -3860,7 +3875,11 @@
                        "engineDuplicateAuthStatus")))
                (devnet-cli-assert-engine-capability-report report)
                (devnet-cli-assert-engine-client-version report)
-               (devnet-cli-assert-engine-transition-configuration report)
+               (devnet-cli-assert-engine-transition-configuration
+                report
+                :terminal-total-difficulty "0x3039"
+                :terminal-block-hash terminal-block-hash
+                :terminal-block-number "0x42")
                (devnet-cli-assert-engine-payload-bodies report)
                (devnet-cli-assert-engine-get-payload-v2 report)
                (is (= -32601

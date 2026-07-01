@@ -1281,7 +1281,10 @@ first pass, but interfaces must not block that path.
   `engine_exchangeTransitionConfigurationV1` through the same authenticated
   listener and reports the configured terminal total difficulty, block hash,
   and block number for consensus-client handshake checks, including geth/Hive
-  Merge override flags supplied at process launch. A runner-facing
+  Merge override flags supplied at process launch. The standalone devnet smoke
+  gate can also be launched with those Merge override flags, forwards them into
+  its spawned node, and asserts the authenticated transition-configuration
+  response reports the non-default terminal values. A runner-facing
   `scripts/ethereum-lisp.lisp` script now provides a
   stable `sbcl --script` process entrypoint for the devnet CLI without writing
   ASDF fasl cache files, and subprocess coverage verifies both help discovery

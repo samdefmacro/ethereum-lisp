@@ -568,6 +568,18 @@ ones.
     total difficulty, terminal block hash, and terminal block number. Coverage
     includes direct Engine RPC config tests, CLI parser-to-node config tests,
     and the external `scripts/ethereum-lisp.lisp` serve-mode process test.
+- [x] `DEVNET-SMOKE-GATE-MERGE-OVERRIDE-CONFIG`: Let the standalone devnet
+  smoke gate launch with geth/Hive Merge transition override flags and assert
+  the authenticated Engine transition-configuration report reflects them.
+  - Result (2026-07-01): `scripts/devnet-smoke-gate.lisp` now accepts
+    `--override.terminaltotaldifficulty`,
+    `--override.terminaltotaldifficultypassed`,
+    `--override.terminalblockhash`, and `--override.terminalblocknumber`,
+    routes them into the spawned local node, sends the same values in
+    `engine_exchangeTransitionConfigurationV1`, and asserts the JSON/text
+    report exposes the configured terminal total difficulty, terminal block
+    hash, and terminal block number. CLI coverage runs the standalone gate
+    with non-default override values.
 - [x] `DEVNET-RUNNER-PROCESS-ENTRYPOINT`: Add a runner-facing process script
   entrypoint for the devnet CLI.
   - Result (2026-06-28): added `scripts/ethereum-lisp.lisp`, which loads the
