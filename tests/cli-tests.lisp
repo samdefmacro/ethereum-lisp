@@ -2892,6 +2892,10 @@
                   "--rpc.txfeecap=0"
                   "--rpc.batch-request-limit=1000"
                   "--rpc.batch-response-max-size=25000000"
+                  "--override.terminaltotaldifficulty=0"
+                  "--override.terminaltotaldifficultypassed=true"
+                  "--override.terminalblockhash=0x0000000000000000000000000000000000000000000000000000000000000000"
+                  "--override.terminalblocknumber=0"
                   "--json"
                   "--no-serve")
             :output-stream output
@@ -5970,6 +5974,10 @@
     (is (search "--metrics" stdout))
     (is (search "--pprof" stdout))
     (is (search "--snapshot" stdout))
+    (is (search "--override.terminaltotaldifficulty TTD" stdout))
+    (is (search "--override.terminaltotaldifficultypassed" stdout))
+    (is (search "--override.terminalblockhash HASH" stdout))
+    (is (search "--override.terminalblocknumber NUMBER" stdout))
     (is (search "--allow-insecure-unlock" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
@@ -6071,6 +6079,10 @@
                              "--ws.addr=127.0.0.1"
                              "--ws.port" "0"
                              "--graphql=false"
+                             "--override.terminaltotaldifficulty" "0"
+                             "--override.terminaltotaldifficultypassed=false"
+                             "--override.terminalblockhash=0x0000000000000000000000000000000000000000000000000000000000000000"
+                             "--override.terminalblocknumber" "0"
                              "--ready-file" (namestring ready-path)
                              "--log-file" (namestring log-path)
                              "--pid-file" (namestring pid-path)
@@ -12157,6 +12169,10 @@
                 (run-error (list "devnet"
                                  "--rpc.allow-unprotected-txs=maybe"
                                  "--no-serve"))))
+    (is (search "--override.terminaltotaldifficultypassed boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--override.terminaltotaldifficultypassed=maybe"
+                                 "--no-serve"))))
     (is (search "--txpool.nolocals boolean value must be true or false"
                 (run-error (list "devnet"
                                  "--txpool.nolocals=maybe"
@@ -12245,6 +12261,10 @@
     (is (search "--db.engine requires a value"
                 (run-error (list "devnet"
                                  "--db.engine"
+                                 "--no-serve"))))
+    (is (search "--override.terminaltotaldifficulty requires a value"
+                (run-error (list "devnet"
+                                 "--override.terminaltotaldifficulty"
                                  "--no-serve"))))
     (is (search "--database requires a value"
                 (run-error (list "devnet" "--database"))))

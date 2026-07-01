@@ -1200,7 +1200,11 @@ first pass, but interfaces must not block that path.
   txpool price/slot/queue/lifetime knobs, `--rpc.allow-unprotected-txs`,
   RPC resource-limit flags (`--rpc.gascap`, `--rpc.evmtimeout`,
   `--rpc.txfeecap`, `--rpc.batch-request-limit`, and
-  `--rpc.batch-response-max-size`), `--state.scheme`, `--db.engine`,
+  `--rpc.batch-response-max-size`), Merge transition override flags
+  (`--override.terminaltotaldifficulty`,
+  `--override.terminaltotaldifficultypassed`,
+  `--override.terminalblockhash`, and `--override.terminalblocknumber`),
+  `--state.scheme`, `--db.engine`,
   `--datadir.ancient`, `--dev`, and `--nousb`. Geth/Hive node-key, discovery,
   network-restriction, and IPC path
   options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,

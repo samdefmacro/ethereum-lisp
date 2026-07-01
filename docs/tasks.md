@@ -541,6 +541,17 @@ ones.
     compatibility no-op value flags. CLI coverage locks a no-serve devnet
     invocation with those flags so Hive/geth-shaped runner templates reach
     the split Engine/public process instead of failing during argument parse.
+- [x] `DEVNET-RUNNER-MERGE-OVERRIDE-FLAGS`: Accept common geth/Hive Merge
+  transition override launch flags without changing the current genesis-driven
+  transition configuration.
+  - Result (2026-07-01): the shared devnet/init option table now consumes
+    `--override.terminaltotaldifficulty`,
+    `--override.terminaltotaldifficultypassed`,
+    `--override.terminalblockhash`, and `--override.terminalblocknumber` as
+    compatibility no-op runner flags. CLI coverage locks a no-serve devnet
+    invocation, help discovery, malformed boolean rejection, missing-value
+    diagnostics, and a runner-facing init subprocess launched with the same
+    override flags.
 - [x] `DEVNET-RUNNER-PROCESS-ENTRYPOINT`: Add a runner-facing process script
   entrypoint for the devnet CLI.
   - Result (2026-06-28): added `scripts/ethereum-lisp.lisp`, which loads the
