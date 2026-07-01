@@ -1614,6 +1614,15 @@ ones.
     values before loading the test system. Process-level tests cover accepted
     assignment spelling on the fast empty-root failure path and malformed
     `--devnet=VALUE` diagnostics.
+- [x] `PHASE-A-CLASSIFIER-OPTION-EQUALS`: Keep direct official fixture
+  classifier scripts compatible with assigned option spelling used by the
+  aggregate drift-map wrapper and runner automation.
+  - Result (2026-07-01): the state, transaction, and blockchain classifier
+    scripts now accept `--root=PATH`, `--prefix=VALUE`, `--limit=N`, and
+    explicit boolean assignments such as `--json=true`,
+    `--failures-only=false`, and `--include-pinned=true`. CLI regression
+    coverage runs all three direct classifiers against the in-repo EEST root
+    with assigned options and verifies the JSON classification summaries.
 - [x] `PINNED-V5.4.0-CREATE-RETURNDATA-GAS-DRIFT`: Fix the remaining official
   v5.4.0 `constantinople/eip1014_create2/test_create2_return_data.json`
   Engine replay drift before widening more adjacent CREATE/CREATE2 selectors.

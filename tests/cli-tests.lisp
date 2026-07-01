@@ -6031,6 +6031,55 @@
         (is (= 0 (length results)))
         (is (plusp (length families)))))))
 
+(deftest classifier-scripts-accept-assigned-options
+  #-sbcl
+  (skip-test "Fixture classifier scripts require SBCL")
+  #+sbcl
+  (labels ((run-classifier (script prefix &key include-pinned)
+             (let ((args
+                     (append
+                      (list "sbcl"
+                            "--script"
+                            script
+                            "--"
+                            "--root=tests/fixtures/execution-spec-tests-root/"
+                            (format nil "--prefix=~A" prefix)
+                            "--limit=1"
+                            "--json=true"
+                            "--failures-only=false")
+                      (when include-pinned
+                        (list "--include-pinned=true")))))
+               (multiple-value-bind (stdout stderr status)
+                   (uiop:run-program
+                    args
+                    :output :string
+                    :error-output :string
+                    :ignore-error-status t)
+                 (is (= 0 status))
+                 (is (string= "" stderr))
+                 (when (= 0 status)
+                   (let ((report (parse-json stdout)))
+                     (is (= 1 (fixture-object-field report "classifiedCount")))
+                     (is (= 1 (fixture-object-field report "candidateCount")))
+                     (is (= 1 (fixture-object-field report "passingCount")))
+                     (is (= 0 (fixture-object-field report "failingCount")))
+                     (is (not (fixture-object-field report "failuresOnly")))
+                     (is (string= prefix
+                                  (fixture-object-field report "prefix")))
+                     report))))))
+    (run-classifier
+     "scripts/classify-blockchain-replay-selectors.lisp"
+     "shanghai/phase-a")
+    (let ((transaction-report
+            (run-classifier
+             "scripts/classify-transaction-test-selectors.lisp"
+             "phase-a-sample.json"
+             :include-pinned t)))
+      (is (eq t (fixture-object-field transaction-report "includePinned"))))
+    (run-classifier
+     "scripts/classify-state-test-selectors.lisp"
+     "london/phase-a")))
+
 (deftest phase-a-drift-map-script-help-prints-without-loading-errors
   #-sbcl
   (skip-test "Phase A drift map script requires SBCL")

@@ -1601,7 +1601,11 @@ Detailed historical implementation notes for this section now live in
   mode now requires an explicit root or
   `ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT`, so missing pinned fixture
   configuration is reported as such instead of being misclassified as selector
-  drift against the in-repo seed root. The official v5.4.0
+  drift against the in-repo seed root. The direct state, transaction, and
+  blockchain classifier scripts now accept `--option=value` spelling and
+  explicit boolean assignments, matching the aggregate drift-map wrapper so
+  automation can classify pinned v5.4.0 drift through either entrypoint. The
+  official v5.4.0
   `fixtures_stable.tar.gz` archive is cached under
   `.cache/eest-v5.4.0/` and extracted at `.cache/eest-v5.4.0/root/fixtures`;
   the pinned smoke gate passes there with 14 Shanghai state selectors,

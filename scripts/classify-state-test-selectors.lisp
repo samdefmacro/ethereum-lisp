@@ -12,13 +12,54 @@
 (defconstant +state-classifier-script-failures-only-flag+ "--failures-only")
 (defconstant +state-classifier-script-eest-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
+(defparameter *state-classifier-script-value-options*
+  (list +state-classifier-script-root-option+
+        +state-classifier-script-prefix-option+
+        +state-classifier-script-limit-option+))
+(defparameter *state-classifier-script-boolean-options*
+  (list +state-classifier-script-json-flag+
+        +state-classifier-script-help-flag+
+        +state-classifier-script-include-pinned-flag+
+        +state-classifier-script-failures-only-flag+))
+
+(defun state-classifier-script-parse-boolean-assignment (option value)
+  (let ((normalized (and (stringp value) (string-downcase value))))
+    (cond
+      ((member normalized '("true" "1") :test #'string=) t)
+      ((member normalized '("false" "0") :test #'string=) nil)
+      (t (error "~A boolean value must be true or false" option)))))
+
+(defun state-classifier-script-normalize-option-args (args)
+  (loop for arg in args
+        for equals-position = (and (stringp arg)
+                                   (<= 2 (length arg))
+                                   (string= "--" arg :end2 2)
+                                   (position #\= arg :start 2))
+        for option = (and equals-position (subseq arg 0 equals-position))
+        for value = (and equals-position (subseq arg (1+ equals-position)))
+        append
+        (cond
+          ((and equals-position
+                (member option
+                        *state-classifier-script-value-options*
+                        :test #'string=))
+           (list option value))
+          ((and equals-position
+                (member option
+                        *state-classifier-script-boolean-options*
+                        :test #'string=))
+           (if (state-classifier-script-parse-boolean-assignment option value)
+               (list option)
+               '()))
+          (t
+           (list arg)))))
 
 (defun state-classifier-script-arguments ()
   #+sbcl
   (let ((args (cdr sb-ext:*posix-argv*)))
     (when (and args (string= (first args) "--"))
       (setf args (cdr args)))
-    args)
+    (state-classifier-script-normalize-option-args args))
   #-sbcl nil)
 
 (defun state-classifier-script-help-p (args)
