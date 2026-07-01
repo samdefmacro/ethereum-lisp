@@ -7381,6 +7381,36 @@ splits can land after the Phase A smoke path closes.
     transaction selectors out of scope, with zero known-implementation-drift,
     implementation-bug-candidate, or fixture-harness-error records.
 
+- [x] `PINNED-V5.4.0-VALUE-TRANSFER-GAS-STATE`: Pin official frontier
+  value-transfer gas calculation state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned London/Shanghai state selectors from
+    `frontier/opcodes/test_value_transfer_gas_calculation.json` covering
+    `CALL`, `CALLCODE`, `DELEGATECALL`, and `STATICCALL` gas-shortage
+    calculation boundaries are included in the pinned Phase A state selector
+    table, classify with zero remaining unpinned candidates for the prefix,
+    and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/opcodes/test_value_transfer_gas_calculation.json --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-02): added a generated selector helper for 16 official
+    London/Shanghai frontier value-transfer gas calculation state selectors
+    covering `CALL`, `CALLCODE`, `DELEGATECALL`, and `STATICCALL` with and
+    without gas shortage. The pre-pin targeted classifier reported 16/16
+    unpinned candidates passing with zero drift/bug/harness records; the
+    post-pin targeted classifier reports `pinnedCount=560` and zero remaining
+    unpinned candidates for the
+    `frontier/opcodes/test_value_transfer_gas_calculation.json` prefix. The
+    pinned smoke gate now reports `state.count=560`, `blockchain.count=362`,
+    and `fixtureCaseCount=975`; the refreshed consolidated drift map reports
+    438 remaining candidates: 385 passing state selectors and 53
+    Prague/EIP-7702 transaction selectors out of scope, with zero
+    known-implementation-drift, implementation-bug-candidate, or
+    fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
