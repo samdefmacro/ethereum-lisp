@@ -6993,6 +6993,12 @@ splits can land after the Phase A smoke path closes.
     side switch and after the second KV export/import, reports hidden receipt
     counts for both boundaries, and makes the parent/CLI validators compute
     side-reorg RPC connection budgets from the displaced transaction count.
+  - Result (2026-07-01): the devnet and init compatibility option tables now
+    accept geth/Hive `--ws.rpcprefix` and `--ipcapi` values as no-op runner
+    flags. Direct CLI parsing, missing-value validation, and the external
+    `sbcl --script scripts/ethereum-lisp.lisp -- ... init ...` path cover the
+    added invocation shape, preserving the current HTTP-only split-service
+    process while letting broader runner templates reach startup.
 
 - [x] Add Hive compatibility plan.
   - Milestone: 8

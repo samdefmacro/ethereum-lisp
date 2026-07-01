@@ -1124,9 +1124,11 @@ first pass, but interfaces must not block that path.
   omitted modules return JSON-RPC `-32601` while the authenticated
   Engine/public namespace split remains authoritative.
   Common geth/Hive WebSocket launch flags (`--ws`, `--ws.addr`, `--ws.port`,
-  `--ws.api`, and `--ws.origins`) are also accepted as compatibility no-ops so
-  existing runner templates can start the Lisp client without implying a
-  WebSocket transport.
+  `--ws.api`, `--ws.origins`, and `--ws.rpcprefix`) are also accepted as
+  compatibility no-ops so existing runner templates can start the Lisp client
+  without implying a WebSocket transport. IPC API selection flags such as
+  `--ipcapi` are consumed the same way, while the current process still
+  exposes only the split Engine/public HTTP services.
   `--authrpc.rpcprefix PATH` and `--http.rpcprefix PATH` now configure real
   HTTP path-prefix filters on the Engine and public services, and the selected
   prefixes are reported through stdout summaries, readiness JSON, and

@@ -2753,6 +2753,8 @@
                          "--ws.port=9646"
                          "--ws.api=eth,net"
                          "--ws.origins=*"
+                         "--ws.rpcprefix=/ws"
+                         "--ipcapi=eth,net,web3"
                          "--graphql=false"
                          "--graphql.addr=192.0.2.33"
                          "--graphql.port=9647"
@@ -6338,11 +6340,13 @@
     (is (search "--syncmode MODE" stdout))
     (is (search "--ws.api LIST" stdout))
     (is (search "--ws.origins ORIGINS" stdout))
+    (is (search "--ws.rpcprefix PATH" stdout))
     (is (search "--graphql" stdout))
     (is (search "--graphql.addr HOST" stdout))
     (is (search "--graphql.port PORT" stdout))
     (is (search "--nodiscover" stdout))
     (is (search "--ipcdisable" stdout))
+    (is (search "--ipcapi LIST" stdout))
     (is (search "--verbosity LEVEL" stdout))
     (is (search "--log.file PATH" stdout))
     (is (search "--log.compress" stdout))
@@ -6459,6 +6463,8 @@
                              "--ws"
                              "--ws.addr=127.0.0.1"
                              "--ws.port" "0"
+                             "--ws.rpcprefix=/ws"
+                             "--ipcapi=eth,net,web3"
                              "--graphql=false"
                              "--override.terminaltotaldifficulty" "0"
                              "--override.terminaltotaldifficultypassed=false"
@@ -12675,6 +12681,14 @@
     (is (search "--graphql.addr requires a value"
                 (run-error (list "devnet"
                                  "--graphql.addr"
+                                 "--no-serve"))))
+    (is (search "--ws.rpcprefix requires a value"
+                (run-error (list "devnet"
+                                 "--ws.rpcprefix"
+                                 "--no-serve"))))
+    (is (search "--ipcapi requires a value"
+                (run-error (list "devnet"
+                                 "--ipcapi"
                                  "--no-serve"))))
     (is (search "--nodekeyhex requires a value"
                 (run-error (list "devnet"
