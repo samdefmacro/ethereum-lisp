@@ -461,6 +461,47 @@
                                collision
                                initcode)))))))
 
+(defun phase-a-eest-core-boundary-state-test-v5.4.0-case-names ()
+  (append
+   (let ((prefix
+           "berlin/eip2929_gas_cost_increases/test_call_insufficient_balance.json/tests/berlin/eip2929_gas_cost_increases/test_call.py::test_call_insufficient_balance"))
+     (loop for fork in '("London" "Shanghai")
+           collect
+           (format nil
+                   "~A[fork_~A-state_test]"
+                   prefix
+                   fork)))
+   (let ((prefix
+           "constantinople/eip145_bitwise_shift/test_combinations.json/tests/constantinople/eip145_bitwise_shift/test_shift_combinations.py::test_combinations"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for opcode in '("sar" "shl" "shr")
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-~A]"
+                         prefix
+                         fork
+                         opcode))))
+   (let ((prefix
+           "frontier/opcodes/test_call_memory_expands_on_early_revert.json/tests/frontier/opcodes/test_call.py::test_call_memory_expands_on_early_revert"))
+     (loop for fork in '("London" "Shanghai")
+           collect
+           (format nil
+                   "~A[fork_~A-state_test]"
+                   prefix
+                   fork)))
+   (let ((prefix
+           "istanbul/eip1344_chainid/test_chainid.json/tests/istanbul/eip1344_chainid/test_chainid.py::test_chainid"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for tx-type in '("0" "1" "2")
+                 collect
+                 (format nil
+                         "~A[fork_~A-typed_transaction_~A-state_test]"
+                         prefix
+                         fork
+                         tx-type))))))
+
 (defun phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names ()
   (let ((prefix
           "frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation"))
@@ -585,6 +626,7 @@
    (phase-a-eest-identity-return-state-test-v5.4.0-case-names)
    (phase-a-eest-create-boundary-state-test-v5.4.0-case-names)
    (phase-a-eest-create-collision-state-test-v5.4.0-case-names)
+   (phase-a-eest-core-boundary-state-test-v5.4.0-case-names)
    (phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+

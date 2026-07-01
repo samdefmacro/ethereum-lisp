@@ -7472,6 +7472,40 @@ splits can land after the Phase A smoke path closes.
     out of scope, with zero known-implementation-drift,
     implementation-bug-candidate, or fixture-harness-error records.
 
+- [x] `PINNED-V5.4.0-CORE-BOUNDARY-STATE`: Pin small official core
+  state-transition boundary selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned London/Shanghai selectors from
+    `berlin/eip2929_gas_cost_increases/test_call_insufficient_balance.json`,
+    `constantinople/eip145_bitwise_shift/test_combinations.json`,
+    `frontier/opcodes/test_call_memory_expands_on_early_revert.json`, and
+    `istanbul/eip1344_chainid/test_chainid.json` are included in the pinned
+    Phase A state selector table, classify with zero remaining unpinned
+    candidates for their prefixes, and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix berlin/eip2929_gas_cost_increases/test_call_insufficient_balance --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix constantinople/eip145_bitwise_shift/test_combinations --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/opcodes/test_call_memory_expands_on_early_revert --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix istanbul/eip1344_chainid/test_chainid --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-02): added a generated selector helper for 16 official
+    London/Shanghai state selectors covering Berlin EIP-2929
+    insufficient-balance CALL gas behavior, Constantinople EIP-145
+    `SAR`/`SHL`/`SHR` shift combinations, Frontier CALL memory expansion on
+    early revert, and Istanbul EIP-1344 `CHAINID` across legacy/access-list/
+    dynamic-fee transaction types. Pre-pin targeted classifiers reported all
+    16 unpinned candidates passing with zero drift/bug/harness records;
+    post-pin targeted classifiers report `pinnedCount=637` and zero remaining
+    unpinned candidates for all four prefixes. The pinned smoke gate now
+    reports `state.count=637`, `blockchain.count=362`, and
+    `fixtureCaseCount=1052`; the refreshed consolidated drift map reports 361
+    remaining candidates: 308 passing state selectors and 53 Prague/EIP-7702
+    transaction selectors out of scope, with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
