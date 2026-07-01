@@ -1791,6 +1791,19 @@ Detailed historical implementation notes for this section now live in
   Prague/EIP-7702 transaction selectors out of scope, with zero
   known-implementation-drift, implementation-bug-candidate, or
   fixture-harness-error records.
+  The pinned blockchain replay table now also includes the remaining 36
+  official Shanghai `engineNewPayloadV2` BLAKE2F selectors from
+  `istanbul/eip152_blake2/test_blake2b.json` and
+  `istanbul/eip152_blake2/test_blake2b_large_gas_limit.json`, covering
+  malformed rounds lengths, valid round-count/input-offset boundaries, and
+  large gas-limit CALL/CALLCODE cases. Pre-pin classification found all 36
+  unpinned selectors passing with zero drift/bug/harness records. The pinned
+  smoke gate now executes 801 total fixture cases with 272 blockchain replay
+  selectors, and the refreshed v5.4.0 drift map classifies the remaining 612
+  candidates as 469 passing state selectors, 90 passing blockchain replay
+  selectors, and 53 Prague/EIP-7702 transaction selectors out of scope, with
+  zero known-implementation-drift, implementation-bug-candidate, or
+  fixture-harness-error records.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting

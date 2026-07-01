@@ -536,6 +536,78 @@
      . "engineNewPayloadV2")
     ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-oog-rounds-4294967295-call_opcode_CALL]"
      . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-invalid-rounds-length-long-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-invalid-rounds-length-short-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-different-message-offset-0x05-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-false-final-block-flag-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-0-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-1-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-1024-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-1024-offset-0x10-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-12-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-128-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-128-offset-0x10-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-16-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-16-offset-0x10-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-16-offset-0x78-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-256-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-256-offset-0x10-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-32-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-32-offset-0x10-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-32-offset-0x78-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-512-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-512-offset-0x10-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-64-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-64-offset-0x10-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b[fork_Shanghai-blockchain_test_engine_from_state_test-valid-rounds-64-offset-0x78-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case0-data0-large-gas-limit-call_opcode_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case0-data0-large-gas-limit-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case2-data1-large-gas-limit-call_opcode_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case2-data1-large-gas-limit-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case2-data2-large-gas-limit-call_opcode_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case2-data2-large-gas-limit-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case2-data3-large-gas-limit-call_opcode_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case2-data3-large-gas-limit-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case9-data10-large-gas-limit-call_opcode_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-case9-data10-large-gas-limit-call_opcode_CALL]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-modified-case8-data9-large-gas-limit-call_opcode_CALLCODE]"
+     . "engineNewPayloadV2")
+    ("istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit[fork_Shanghai-gas_limit_0x07270e00-blockchain_test_engine_from_state_test-EIP-152-modified-case8-data9-large-gas-limit-call_opcode_CALL]"
+     . "engineNewPayloadV2")
     ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-balance-correct-initcode]"
      . "engineNewPayloadV2")
     ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-balance-oog-initcode]"
