@@ -511,6 +511,12 @@ ones.
     unauthenticated Engine request is rejected with HTTP 401, authenticates an
     Engine request with the datadir secret, and checks stdout/readiness
     artifacts report `authRequired=true` plus the datadir `jwtSecretPath`.
+  - Result (2026-07-01): datadir JWT discovery now also falls back to
+    `DATADIR/geth/jwtsecret` when `DATADIR/jwtsecret` is absent, matching
+    geth-shaped datadir layouts while preserving explicit
+    `--jwt-secret` / `--authrpc.jwtsecret` precedence. CLI and external
+    script-process coverage verify the fallback path is reported as
+    `jwtSecretPath` and authenticates the Engine listener.
 - [x] `DEVNET-RUNNER-CONNECTION-CONTRACT`: Make the standalone devnet smoke
   gate's Engine/public listener accounting self-describing for Hive-style
   process runners.

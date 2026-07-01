@@ -1240,12 +1240,13 @@ first pass, but interfaces must not block that path.
   `devnet.error` while preserving the same structured error fields, letting
   launchers distinguish datadir initialization failures from devnet startup
   failures through the telemetry stream. Devnet runner invocation now also
-  discovers an existing `DATADIR/jwtsecret` as the Engine JWT secret when no
-  explicit `--jwt-secret` / `--authrpc.jwtsecret` path is provided, preserving
+  discovers an existing `DATADIR/jwtsecret` or fallback
+  `DATADIR/geth/jwtsecret` as the Engine JWT secret when no explicit
+  `--jwt-secret` / `--authrpc.jwtsecret` path is provided, preserving
   explicit-path precedence and leaving no-secret local devnets unauthenticated;
-  the external script-process datadir serve test now verifies that path by
-  rejecting unauthenticated Engine traffic and accepting a JWT signed with the
-  datadir secret.
+  the external script-process datadir serve test now verifies the geth-shaped
+  fallback path by rejecting unauthenticated Engine traffic and accepting a JWT
+  signed with the datadir secret.
   Listener startup failures before readiness now keep
   the lifecycle stream unambiguous: if the public RPC port cannot bind after
   the Engine listener was opened, the script process exits with status 1,

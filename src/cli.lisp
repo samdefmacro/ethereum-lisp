@@ -35,6 +35,7 @@
 (defconstant +devnet-datadir-database-file+ "ethereum-lisp-chain.sexp")
 (defconstant +devnet-datadir-genesis-file+ "genesis.json")
 (defconstant +devnet-datadir-jwt-secret-file+ "jwtsecret")
+(defconstant +devnet-geth-datadir-directory+ "geth/")
 
 (defun devnet-process-id ()
   #+sbcl
@@ -172,9 +173,22 @@
     +devnet-datadir-jwt-secret-file+
     (uiop:ensure-directory-pathname datadir))))
 
+(defun devnet-cli-datadir-geth-jwt-secret-path (datadir)
+  (namestring
+   (merge-pathnames
+    +devnet-datadir-jwt-secret-file+
+    (merge-pathnames
+     +devnet-geth-datadir-directory+
+     (uiop:ensure-directory-pathname datadir)))))
+
+(defun devnet-cli-datadir-jwt-secret-paths (datadir)
+  (list (devnet-cli-datadir-jwt-secret-path datadir)
+        (devnet-cli-datadir-geth-jwt-secret-path datadir)))
+
 (defun devnet-cli-existing-datadir-jwt-secret-path (datadir)
-  (let ((path (devnet-cli-datadir-jwt-secret-path datadir)))
-    (and (probe-file path) path)))
+  (loop for path in (devnet-cli-datadir-jwt-secret-paths datadir)
+        when (probe-file path)
+          return path))
 
 (defun devnet-cli-copy-file-string (source target)
   (let ((contents (devnet-cli-read-file-string source)))

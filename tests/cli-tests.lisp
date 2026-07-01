@@ -2178,6 +2178,8 @@
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
          (datadir-jwt-path
            (merge-pathnames "jwtsecret" datadir))
+         (datadir-geth-jwt-path
+           (merge-pathnames "geth/jwtsecret" datadir))
          (explicit-database-path
            (devnet-cli-temp-path "ethereum-lisp-devnet-explicit-chain" "sexp"))
          (explicit-jwt-path
@@ -2188,6 +2190,8 @@
          (override-errors (make-string-output-stream))
          (explicit-jwt-output (make-string-output-stream))
          (explicit-jwt-errors (make-string-output-stream))
+         (geth-jwt-output (make-string-output-stream))
+         (geth-jwt-errors (make-string-output-stream))
          (precommand-output (make-string-output-stream))
          (precommand-errors (make-string-output-stream)))
     (unwind-protect
@@ -2255,6 +2259,25 @@
                            (get-output-stream-string explicit-jwt-output))))
              (is (string= (namestring explicit-jwt-path)
                           (fixture-object-field summary "jwtSecretPath"))))
+           (ensure-directories-exist datadir-geth-jwt-path)
+           (devnet-cli-write-temp-file datadir-geth-jwt-path
+                                       +devnet-cli-jwt-secret+)
+           (delete-file datadir-jwt-path)
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--datadir" (namestring datadir)
+                         "--json"
+                         "--no-serve")
+                   :output-stream geth-jwt-output
+                   :error-stream geth-jwt-errors)))
+           (is (string= "" (get-output-stream-string geth-jwt-errors)))
+           (let ((summary (parse-json
+                           (get-output-stream-string geth-jwt-output))))
+             (is (string= (namestring datadir-geth-jwt-path)
+                          (fixture-object-field summary "jwtSecretPath")))
+             (is (fixture-object-field summary "authRequired")))
            (is (= 0
                   (ethereum-lisp.cli:main
                    (list "--identity" "init"
@@ -2275,6 +2298,8 @@
         (delete-file datadir-database-path))
       (when (probe-file datadir-jwt-path)
         (delete-file datadir-jwt-path))
+      (when (probe-file datadir-geth-jwt-path)
+        (delete-file datadir-geth-jwt-path))
       (when (probe-file explicit-database-path)
         (delete-file explicit-database-path))
       (when (probe-file explicit-jwt-path)
@@ -6414,7 +6439,7 @@
          (datadir-database-path
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
          (datadir-jwt-path
-           (merge-pathnames "jwtsecret" datadir))
+           (merge-pathnames "geth/jwtsecret" datadir))
          (ready-path
            (devnet-cli-temp-path "ethereum-lisp-script-serve-datadir-ready"
                                  "json"))
@@ -6449,6 +6474,7 @@
                                                     "databasePath"))))))
            (is (probe-file datadir-genesis-path))
            (is (probe-file datadir-database-path))
+           (ensure-directories-exist datadir-jwt-path)
            (devnet-cli-write-temp-file datadir-jwt-path +devnet-cli-jwt-secret+)
            (setf process
                  (uiop:launch-program
