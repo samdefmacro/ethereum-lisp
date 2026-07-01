@@ -566,6 +566,66 @@
      . "engineNewPayloadV2")
     ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_2-blockchain_test_engine_from_state_test-non-empty-balance-revert-initcode]"
      . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-code-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-code-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-code-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-nonce-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-nonce-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE-non-empty-nonce-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE2-non-empty-code-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE2-non-empty-code-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE2-non-empty-code-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE2-non-empty-nonce-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE2-non-empty-nonce-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode[fork_Shanghai-blockchain_test_engine_from_state_test-opcode_CREATE2-non-empty-nonce-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_0-blockchain_test_engine_from_state_test-non-empty-code-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_0-blockchain_test_engine_from_state_test-non-empty-code-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_0-blockchain_test_engine_from_state_test-non-empty-code-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_0-blockchain_test_engine_from_state_test-non-empty-nonce-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_0-blockchain_test_engine_from_state_test-non-empty-nonce-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_0-blockchain_test_engine_from_state_test-non-empty-nonce-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_1-blockchain_test_engine_from_state_test-non-empty-code-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_1-blockchain_test_engine_from_state_test-non-empty-code-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_1-blockchain_test_engine_from_state_test-non-empty-code-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_1-blockchain_test_engine_from_state_test-non-empty-nonce-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_1-blockchain_test_engine_from_state_test-non-empty-nonce-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_1-blockchain_test_engine_from_state_test-non-empty-nonce-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_2-blockchain_test_engine_from_state_test-non-empty-code-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_2-blockchain_test_engine_from_state_test-non-empty-code-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_2-blockchain_test_engine_from_state_test-non-empty-code-revert-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_2-blockchain_test_engine_from_state_test-non-empty-nonce-correct-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_2-blockchain_test_engine_from_state_test-non-empty-nonce-oog-initcode]"
+     . "engineNewPayloadV2")
+    ("paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx[fork_Shanghai-tx_type_2-blockchain_test_engine_from_state_test-non-empty-nonce-revert-initcode]"
+     . "engineNewPayloadV2")
     ("paris/security/test_tx_selfdestruct_balance_bug.json/tests/paris/security/test_selfdestruct_balance_bug.py::test_tx_selfdestruct_balance_bug[fork_Shanghai-blockchain_test_engine]"
      . "engineNewPayloadV2")
     ("frontier/opcodes/test_call_memory_expands_on_early_revert.json/tests/frontier/opcodes/test_call.py::test_call_memory_expands_on_early_revert[fork_Shanghai-blockchain_test_engine_from_state_test]"
