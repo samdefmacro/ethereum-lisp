@@ -4134,6 +4134,71 @@
     (is (= 22 (chain-store-account-balance store (block-hash block-b)
                                            address)))))
 
+(deftest chain-store-prune-state-before-prunes-non-head-checkpoint-state
+  (let* ((store (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (finalized
+           (make-block
+            :header
+            (make-block-header :number 0
+                               :parent-hash (zero-hash32)
+                               :timestamp 1
+                               :gas-limit 30000000)))
+         (safe
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash finalized)
+                               :timestamp 2
+                               :gas-limit 30000000)))
+         (side
+           (make-block
+            :header
+            (make-block-header :number 1
+                               :parent-hash (block-hash finalized)
+                               :timestamp 3
+                               :gas-limit 30000000)))
+         (head
+           (make-block
+            :header
+            (make-block-header :number 2
+                               :parent-hash (block-hash safe)
+                               :timestamp 4
+                               :gas-limit 30000000))))
+    (dolist (block (list finalized safe side head))
+      (chain-store-put-block store block :state-available-p t))
+    (chain-store-update-forkchoice-checkpoints
+     store
+     (make-forkchoice-state
+      :head-block-hash (block-hash head)
+      :safe-block-hash (block-hash safe)
+      :finalized-block-hash (block-hash finalized)))
+    (chain-store-put-account-balance store (block-hash finalized) address 11)
+    (chain-store-put-account-balance store (block-hash safe) address 22)
+    (chain-store-put-account-balance store (block-hash side) address 33)
+    (chain-store-put-account-balance store (block-hash head) address 44)
+    (is (= 3 (chain-store-prune-state-before store 2)))
+    (is (chain-store-known-block store (block-hash finalized)))
+    (is (chain-store-known-block store (block-hash safe)))
+    (is (not (chain-store-state-available-p store (block-hash finalized))))
+    (is (not (chain-store-state-available-p store (block-hash safe))))
+    (is (not (chain-store-state-available-p store (block-hash side))))
+    (is (chain-store-state-available-p store (block-hash head)))
+    (is (bytes= (hash32-bytes (block-hash safe))
+                (hash32-bytes
+                 (chain-store-checkpoint-block-hash
+                  (chain-store-safe-checkpoint store)))))
+    (is (bytes= (hash32-bytes (block-hash finalized))
+                (hash32-bytes
+                 (chain-store-checkpoint-block-hash
+                  (chain-store-finalized-checkpoint store)))))
+    (is (= 0 (chain-store-account-balance
+              store (block-hash finalized) address)))
+    (is (= 0 (chain-store-account-balance store (block-hash safe) address)))
+    (is (= 0 (chain-store-account-balance store (block-hash side) address)))
+    (is (= 44 (chain-store-account-balance store (block-hash head) address)))))
+
 (deftest chain-store-export-to-kv-syncs-readable-chain-records
   (let* ((path
            (merge-pathnames
