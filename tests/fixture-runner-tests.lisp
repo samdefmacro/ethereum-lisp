@@ -438,6 +438,14 @@
      . "engineNewPayloadV2")
     ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE2-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE_TO_ITSELF-transaction_create_False]"
      . "engineNewPayloadV2")
+    ("frontier/validation/test_gas_limit_below_minimum.json/tests/frontier/validation/test_header.py::test_gas_limit_below_minimum[fork_Shanghai-blockchain_test_engine-gas_limit_5000]"
+     . "engineNewPayloadV2")
+    ("frontier/validation/test_sender_balance.json/tests/frontier/validation/test_transaction.py::test_sender_balance[fork_Shanghai-blockchain_test_engine-balance_diff_0-expected_exception_None]"
+     . "engineNewPayloadV2")
+    ("frontier/validation/test_sender_balance.json/tests/frontier/validation/test_transaction.py::test_sender_balance[fork_Shanghai-blockchain_test_engine-balance_diff_1-expected_exception_None]"
+     . "engineNewPayloadV2")
+    ("frontier/validation/test_tx_nonce.json/tests/frontier/validation/test_transaction.py::test_tx_nonce[fork_Shanghai-blockchain_test_engine-nonce_diff_0-expected_exception_None]"
+     . "engineNewPayloadV2")
     ("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_Shanghai-blockchain_test_engine_from_state_test-account_warm_False-storage_key_warm_False]"
      . "engineNewPayloadV2")
     ("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_Shanghai-blockchain_test_engine_from_state_test-account_warm_True-storage_key_warm_False]"

@@ -7099,6 +7099,32 @@ splits can land after the Phase A smoke path closes.
     replay selectors, and 53 Prague/EIP-7702 transaction selectors out of
     scope.
 
+- [x] `PINNED-V5.4.0-FRONTIER-VALIDATION-BLOCKCHAIN`: Pin official frontier
+  validation blockchain replay selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root.
+  - Acceptance: the unpinned Shanghai `engineNewPayloadV2` selectors from
+    `frontier/validation` covering block gas limit below minimum, sender
+    balance, and sender nonce validity are included in the pinned Phase A
+    blockchain replay table, classify with zero remaining unpinned candidates
+    for the prefix, and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/validation --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): added four official Shanghai
+    `engineNewPayloadV2` replay selectors covering header gas-limit,
+    sender-balance, and sender-nonce validation boundaries. The pre-pin
+    targeted classifier reported 4/4 unpinned candidates passing with zero
+    drift/bug/harness records; the post-pin targeted classifier reports
+    `pinnedCount=276` and zero remaining unpinned candidates for the
+    `frontier/validation` prefix. The pinned smoke gate now reports
+    `state.count=476`, `blockchain.count=276`, and `fixtureCaseCount=805`;
+    the refreshed consolidated drift map reports 608 remaining candidates:
+    469 passing state selectors, 86 passing blockchain replay selectors, and
+    53 Prague/EIP-7702 transaction selectors out of scope.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
