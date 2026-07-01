@@ -11180,7 +11180,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "7"
+                        "9"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -11231,7 +11231,9 @@
                     public-blocked-host-response
                     public-root-response
                     public-web3-response
-                    public-preflight-response)
+                    public-preflight-response
+                    public-unsupported-method-response
+                    public-unsupported-content-type-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (dolist (summary-field
                          '(("engineRpcPrefix" . "/engine")
@@ -11349,7 +11351,27 @@
                              :request-headers
                              '(("Access-Control-Request-Method" . "POST")
                                ("Access-Control-Request-Headers" .
-                                "content-type"))))))
+                                "content-type")))))
+                     (setf public-unsupported-method-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (with-output-to-string (stream)
+                              (format stream "PUT /rpc HTTP/1.1~%")
+                              (format stream "Host: public.runner~%")
+                              (format stream "Content-Type: application/json~%")
+                              (format stream "Content-Length: ~D~%~%~A"
+                                      (length public-chain-body)
+                                      public-chain-body))))
+                     (setf public-unsupported-content-type-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (with-output-to-string (stream)
+                              (format stream "POST /rpc HTTP/1.1~%")
+                              (format stream "Host: public.runner~%")
+                              (format stream "Content-Type: text/plain~%")
+                              (format stream "Content-Length: ~D~%~%~A"
+                                      (length public-chain-body)
+                                      public-chain-body)))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
@@ -11376,6 +11398,18 @@
                (is (= 404 (devnet-cli-http-status public-root-response)))
                (is (= 200 (devnet-cli-http-status public-web3-response)))
                (is (= 204 (devnet-cli-http-status public-preflight-response)))
+               (is (= 405
+                      (devnet-cli-http-status
+                       public-unsupported-method-response)))
+               (is (search "method not allowed"
+                           (devnet-cli-http-body
+                            public-unsupported-method-response)))
+               (is (= 415
+                      (devnet-cli-http-status
+                       public-unsupported-content-type-response)))
+               (is (search "invalid content type"
+                           (devnet-cli-http-body
+                            public-unsupported-content-type-response)))
                (let* ((engine-json
                         (parse-json
                          (devnet-cli-http-body engine-prefixed-response)))
@@ -11493,11 +11527,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "7"
+                         (is (string= "9"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "11"
+                         (is (string= "13"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

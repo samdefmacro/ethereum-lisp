@@ -1101,11 +1101,13 @@ first pass, but interfaces must not block that path.
   The public listener returns configured `Access-Control-Allow-*` headers,
   answers allowed `OPTIONS` preflights with HTTP 204, supports wildcard `*`,
   and rejects disallowed origins with HTTP 403; the external script-process
-  HTTP-shaping coverage also verifies Engine CORS preflight and authenticated
-  Engine CORS response headers. The standalone devnet smoke gate now verifies
-  both authenticated Engine and public CORS contracts through real listener
-  streams and exposes configured, summary-reported, and telemetry-reported
-  origins plus preflight/RPC/blocked status codes for Hive-style runner checks.
+  HTTP-shaping coverage also verifies Engine CORS preflight, authenticated
+  Engine CORS response headers, public HTTP method rejection with 405, and
+  public content-type rejection with 415. The standalone devnet smoke gate now
+  verifies both authenticated Engine and public CORS contracts through real
+  listener streams and exposes configured, summary-reported, and
+  telemetry-reported origins plus preflight/RPC/blocked status codes for
+  Hive-style runner checks.
   `--http.api LIST` now parses
   comma-separated public
   module names and applies them to the public listener method filter, so

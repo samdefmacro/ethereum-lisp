@@ -1252,6 +1252,11 @@ ones.
     network-id-backed `net_version`, reported ready/stdout/log metadata, and
     shutdown telemetry for the three Engine and six public served
     connections.
+  - Result (2026-07-01): the same runner-facing HTTP-shaping subprocess now
+    also verifies unsupported public HTTP methods return 405 and unsupported
+    public request content types return 415 through the advertised prefixed
+    listener, with shutdown telemetry accounting for the two additional
+    public connections.
 - [x] `DEVNET-RUNNER-SCRIPT-HTTP-API-MODULES`: Lock public module
   introspection after geth/Hive-style `--http.api` filtering at the external
   script process boundary.
