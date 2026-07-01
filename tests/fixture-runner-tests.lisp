@@ -424,6 +424,12 @@
      . "engineNewPayloadV2")
     ("berlin/eip2929_gas_cost_increases/test_call_insufficient_balance.json/tests/berlin/eip2929_gas_cost_increases/test_call.py::test_call_insufficient_balance[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
+    ("constantinople/eip145_bitwise_shift/test_combinations.json/tests/constantinople/eip145_bitwise_shift/test_shift_combinations.py::test_combinations[fork_Shanghai-blockchain_test_engine_from_state_test-sar]"
+     . "engineNewPayloadV2")
+    ("constantinople/eip145_bitwise_shift/test_combinations.json/tests/constantinople/eip145_bitwise_shift/test_shift_combinations.py::test_combinations[fork_Shanghai-blockchain_test_engine_from_state_test-shl]"
+     . "engineNewPayloadV2")
+    ("constantinople/eip145_bitwise_shift/test_combinations.json/tests/constantinople/eip145_bitwise_shift/test_shift_combinations.py::test_combinations[fork_Shanghai-blockchain_test_engine_from_state_test-shr]"
+     . "engineNewPayloadV2")
     ("frontier/opcodes/test_all_opcodes.json/tests/frontier/opcodes/test_all_opcodes.py::test_all_opcodes[fork_Shanghai-blockchain_test_engine_from_state_test]"
      . "engineNewPayloadV2")
     ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE-transaction_create_False]"

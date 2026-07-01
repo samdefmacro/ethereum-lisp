@@ -7182,6 +7182,34 @@ splits can land after the Phase A smoke path closes.
     469 passing state selectors, 76 passing blockchain replay selectors, and
     53 Prague/EIP-7702 transaction selectors out of scope.
 
+- [x] `PINNED-V5.4.0-EIP145-SHIFT-BLOCKCHAIN`: Pin official EIP-145
+  bitwise-shift blockchain replay selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root.
+  - Acceptance: the remaining unpinned Shanghai `engineNewPayloadV2`
+    selectors from
+    `constantinople/eip145_bitwise_shift/test_combinations.json` are included
+    in the pinned Phase A blockchain replay table, classify with zero
+    remaining unpinned candidates for the prefix, and pass the pinned v5.4.0
+    smoke gate.
+  - Validation: `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix constantinople/eip145_bitwise_shift --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): added three official Shanghai
+    `engineNewPayloadV2` replay selectors covering EIP-145 `SAR`, `SHL`, and
+    `SHR` behavior through full blockchain import. The pre-pin targeted
+    classifier reported 3/3 unpinned candidates passing with zero
+    drift/bug/harness records; the post-pin targeted classifier reports
+    `pinnedCount=289` and zero remaining unpinned candidates for the
+    `constantinople/eip145_bitwise_shift` prefix. The pinned smoke gate now
+    reports `state.count=476`, `blockchain.count=289`, and
+    `fixtureCaseCount=818`; the refreshed consolidated drift map reports 595
+    remaining candidates: 469 passing state selectors, 73 passing blockchain
+    replay selectors, and 53 Prague/EIP-7702 transaction selectors out of
+    scope.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
