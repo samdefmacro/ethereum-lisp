@@ -1737,7 +1737,13 @@ Detailed historical implementation notes for this section now live in
   Its JSON output also canonicalizes child `out-of-scope` result labels and
   family counts to the consolidated `out-of-scope-fork-feature` vocabulary, so
   automation can consume one category schema across overall, suite, family,
-  and result records.
+  and result records. The same aggregate runner now accepts shared
+  `--prefix` and suite-specific `--state-prefix`, `--transaction-prefix`, and
+  `--blockchain-prefix` filters, forwards them to child classifiers, and
+  reports the effective per-suite prefix. This keeps official v5.4.0 drift
+  classification useful when the default discovery order is dominated by
+  passing state/blockchain selectors or Prague/EIP-7702 transaction selectors
+  that are out of scope for the current Phase A/Phase B surface.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

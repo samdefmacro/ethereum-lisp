@@ -5913,6 +5913,10 @@
     (is (string= "" stderr))
     (is (search "Usage: sbcl --script scripts/phase-a-drift-map.lisp"
                 stdout))
+    (is (search "--prefix PREFIX" stdout))
+    (is (search "--state-prefix PREFIX" stdout))
+    (is (search "--transaction-prefix PREFIX" stdout))
+    (is (search "--blockchain-prefix PREFIX" stdout))
     (is (search "--state-limit NUMBER" stdout))
     (is (search "--transaction-limit NUMBER" stdout))
     (is (search "--blockchain-limit NUMBER" stdout))
@@ -5966,6 +5970,7 @@
           (is (member (fixture-object-field suite "suite")
                       '("state" "transaction" "blockchain")
                       :test #'string=))
+          (is (string= "" (fixture-object-field suite "prefix")))
           (is (= 1 (fixture-object-field suite "candidateCount")))
           (is (= 1 (fixture-object-field suite "classifiedCount")))
           (is (fixture-object-field suite "families")))
@@ -6000,6 +6005,9 @@
                "--"
                (format nil "--root=~A" root)
                "--limit=1"
+               "--state-prefix=london/phase-a-state-sample.json/phase_a_london_access_list"
+               "--transaction-prefix=prague/eip7702_set_code_tx/test_empty_authorization_list"
+               "--blockchain-prefix=shanghai/phase-a-empty-engine"
                "--failures-only=true"
                "--json=1")
          :output :string
@@ -6009,11 +6017,33 @@
       (is (string= "" stderr))
       (when (= 0 status)
         (let* ((report (parse-json stdout))
-               (overall (fixture-object-field report "overall")))
+               (overall (fixture-object-field report "overall"))
+               (suites (fixture-object-field report "suites"))
+               (state-suite
+                 (find "state" suites
+                       :key (lambda (suite)
+                              (fixture-object-field suite "suite"))
+                       :test #'string=))
+               (transaction-suite
+                 (find "transaction" suites
+                       :key (lambda (suite)
+                              (fixture-object-field suite "suite"))
+                       :test #'string=))
+               (blockchain-suite
+                 (find "blockchain" suites
+                       :key (lambda (suite)
+                              (fixture-object-field suite "suite"))
+                       :test #'string=)))
           (is (string= "phase-a-drift-map"
                        (fixture-object-field report "mode")))
           (is (string= root (fixture-object-field report "root")))
           (is (eq t (fixture-object-field report "failuresOnly")))
+          (is (string= "london/phase-a-state-sample.json/phase_a_london_access_list"
+                       (fixture-object-field state-suite "prefix")))
+          (is (string= "prague/eip7702_set_code_tx/test_empty_authorization_list"
+                       (fixture-object-field transaction-suite "prefix")))
+          (is (string= "shanghai/phase-a-empty-engine"
+                       (fixture-object-field blockchain-suite "prefix")))
           (is (= 3 (fixture-object-field overall "classifiedCount"))))))))
 
 (deftest phase-a-drift-map-script-rejects-malformed-boolean-assignment

@@ -6,6 +6,10 @@
 (defconstant +drift-map-json-flag+ "--json")
 (defconstant +drift-map-help-flag+ "--help")
 (defconstant +drift-map-root-option+ "--root")
+(defconstant +drift-map-prefix-option+ "--prefix")
+(defconstant +drift-map-state-prefix-option+ "--state-prefix")
+(defconstant +drift-map-transaction-prefix-option+ "--transaction-prefix")
+(defconstant +drift-map-blockchain-prefix-option+ "--blockchain-prefix")
 (defconstant +drift-map-limit-option+ "--limit")
 (defconstant +drift-map-state-limit-option+ "--state-limit")
 (defconstant +drift-map-transaction-limit-option+ "--transaction-limit")
@@ -15,6 +19,10 @@
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 (defparameter *drift-map-value-options*
   (list +drift-map-root-option+
+        +drift-map-prefix-option+
+        +drift-map-state-prefix-option+
+        +drift-map-transaction-prefix-option+
+        +drift-map-blockchain-prefix-option+
         +drift-map-limit-option+
         +drift-map-state-limit-option+
         +drift-map-transaction-limit-option+
@@ -68,6 +76,10 @@
   (format t "~%")
   (format t "Options:~%")
   (format t "  --root PATH               EEST fixture suite root.~%")
+  (format t "  --prefix PREFIX           Classify only selectors with this prefix in every suite.~%")
+  (format t "  --state-prefix PREFIX     Override the state-test selector prefix.~%")
+  (format t "  --transaction-prefix PREFIX Override the transaction-test selector prefix.~%")
+  (format t "  --blockchain-prefix PREFIX Override the blockchain replay selector prefix.~%")
   (format t "  --limit NUMBER            Classify at most NUMBER candidates per suite.~%")
   (format t "  --state-limit NUMBER      Override the state-test candidate limit.~%")
   (format t "  --transaction-limit NUMBER Override the transaction-test candidate limit.~%")
@@ -120,6 +132,10 @@ implementation drift.~%")
 
 (defun drift-map-options (args)
   (let ((root nil)
+        (prefix nil)
+        (state-prefix nil)
+        (transaction-prefix nil)
+        (blockchain-prefix nil)
         (limit nil)
         (state-limit nil)
         (transaction-limit nil)
@@ -141,6 +157,18 @@ implementation drift.~%")
              ((string= arg +drift-map-root-option+)
               (setf root
                     (drift-map-set-single-value root arg value)))
+             ((string= arg +drift-map-prefix-option+)
+              (setf prefix
+                    (drift-map-set-single-value prefix arg value)))
+             ((string= arg +drift-map-state-prefix-option+)
+              (setf state-prefix
+                    (drift-map-set-single-value state-prefix arg value)))
+             ((string= arg +drift-map-transaction-prefix-option+)
+              (setf transaction-prefix
+                    (drift-map-set-single-value transaction-prefix arg value)))
+             ((string= arg +drift-map-blockchain-prefix-option+)
+              (setf blockchain-prefix
+                    (drift-map-set-single-value blockchain-prefix arg value)))
              ((string= arg +drift-map-limit-option+)
               (setf limit
                     (drift-map-set-single-value
@@ -174,6 +202,10 @@ implementation drift.~%")
                 +drift-map-root-option+
                 arg)))))
     (list :root root
+          :prefix prefix
+          :state-prefix state-prefix
+          :transaction-prefix transaction-prefix
+          :blockchain-prefix blockchain-prefix
           :limit limit
           :state-limit state-limit
           :transaction-limit transaction-limit
@@ -220,7 +252,7 @@ implementation drift.~%")
                                *ethereum-lisp-drift-map-script-root*)))
 
 (defun drift-map-classifier-command
-    (script root limit failures-only-p)
+    (script root limit prefix failures-only-p)
   (let ((command
           (list "sbcl"
                 "--script"
@@ -235,16 +267,21 @@ implementation drift.~%")
       (setf command
             (append command
                     (list "--limit" (write-to-string limit :base 10)))))
+    (unless (drift-map-blank-string-p prefix)
+      (setf command
+            (append command
+                    (list "--prefix" prefix))))
     (when failures-only-p
       (setf command
             (append command
                     (list "--failures-only"))))
     command))
 
-(defun drift-map-run-classifier (suite script root limit failures-only-p)
+(defun drift-map-run-classifier
+    (suite script root limit prefix failures-only-p)
   (multiple-value-bind (stdout stderr status)
       (uiop:run-program
-       (drift-map-classifier-command script root limit failures-only-p)
+       (drift-map-classifier-command script root limit prefix failures-only-p)
        :output :string
        :error-output :string
        :ignore-error-status t)
@@ -267,6 +304,7 @@ implementation drift.~%")
      (cons "suite" suite)
      (cons "mode" (drift-map-field report "mode"))
      (cons "root" (drift-map-field report "root"))
+     (cons "prefix" (drift-map-field report "prefix"))
      (cons "discoveredCount" (drift-map-field report "discoveredCount"))
      (cons "pinnedCount" (drift-map-field report "pinnedCount"))
      (cons "candidateCount" (drift-map-field report "candidateCount"))
@@ -310,7 +348,8 @@ implementation drift.~%")
                :false)))))
 
 (defun drift-map-report
-    (root state-limit transaction-limit blockchain-limit failures-only-p)
+    (root state-limit transaction-limit blockchain-limit
+     state-prefix transaction-prefix blockchain-prefix failures-only-p)
   (let* ((state
            (drift-map-suite-report
             "state"
@@ -319,6 +358,7 @@ implementation drift.~%")
              "scripts/classify-state-test-selectors.lisp"
              root
              state-limit
+             state-prefix
              failures-only-p)))
          (transaction
            (drift-map-suite-report
@@ -328,6 +368,7 @@ implementation drift.~%")
              "scripts/classify-transaction-test-selectors.lisp"
              root
              transaction-limit
+             transaction-prefix
              failures-only-p)))
          (blockchain
            (drift-map-suite-report
@@ -337,6 +378,7 @@ implementation drift.~%")
              "scripts/classify-blockchain-replay-selectors.lisp"
              root
              blockchain-limit
+             blockchain-prefix
              failures-only-p)))
          (suites (list state transaction blockchain)))
     (list
@@ -352,8 +394,9 @@ implementation drift.~%")
      (cons "suites" suites))))
 
 (defun drift-map-print-suite (suite)
-  (format t "suite=~A candidates=~D classified=~D passing=~D knownImplementationDrift=~D outOfScopeForkFeature=~D implementationBugCandidates=~D fixtureHarnessErrors=~D~%"
+  (format t "suite=~A prefix=~A candidates=~D classified=~D passing=~D knownImplementationDrift=~D outOfScopeForkFeature=~D implementationBugCandidates=~D fixtureHarnessErrors=~D~%"
           (drift-map-field suite "suite")
+          (drift-map-field suite "prefix")
           (drift-map-field suite "candidateCount")
           (drift-map-field suite "classifiedCount")
           (drift-map-field suite "passingCount")
@@ -383,7 +426,8 @@ implementation drift.~%")
   (let* ((args (drift-map-arguments))
          (options (drift-map-options args))
          (root (getf options :root))
-         (limit (getf options :limit)))
+         (limit (getf options :limit))
+         (prefix (getf options :prefix)))
     (load (merge-pathnames "tests/load-tests.lisp"
                            *ethereum-lisp-drift-map-script-root*))
     (let ((report
@@ -392,6 +436,9 @@ implementation drift.~%")
              (or (getf options :state-limit) limit)
              (or (getf options :transaction-limit) limit)
              (or (getf options :blockchain-limit) limit)
+             (or (getf options :state-prefix) prefix)
+             (or (getf options :transaction-prefix) prefix)
+             (or (getf options :blockchain-prefix) prefix)
              (drift-map-failures-only-p args))))
       (if (drift-map-json-p args)
           (format t "~&~A~%" (drift-map-json-encode report))

@@ -1748,6 +1748,21 @@ ones.
     against the in-repo EEST fixture root, and an installed v5.4.0
     one-candidate smoke confirmed the canonical labels against the upstream
     fixture archive.
+- [x] `PHASE-A-DRIFT-MAP-PREFIX-TARGETING`: Let the consolidated official
+  fixture drift-map runner target meaningful selector families directly.
+  - Result (2026-07-01): `scripts/phase-a-drift-map.lisp` now accepts a shared
+    `--prefix PREFIX` plus suite-specific `--state-prefix`,
+    `--transaction-prefix`, and `--blockchain-prefix` values and forwards them
+    to the child classifiers. Suite JSON/text output preserves the effective
+    prefix, and script-level coverage locks assigned suite-prefix parsing
+    against the in-repo EEST fixture root. A bounded installed v5.4.0 drift
+    run showed why this matters: the default first 20 transaction candidates
+    are all Prague/EIP-7702 out-of-scope, while state and blockchain candidates
+    pass. A targeted v5.4.0 follow-up using state, transaction, and blockchain
+    prefixes classified six candidates: two Berlin EIP-2929 state selectors and
+    three Constantinople EIP-145 blockchain replay selectors passing, plus one
+    Prague/EIP-7702 transaction selector out of scope, with no
+    implementation-bug-candidate or fixture-harness-error records.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
