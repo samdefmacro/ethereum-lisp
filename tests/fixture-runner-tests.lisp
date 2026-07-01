@@ -167,6 +167,34 @@
                          modulus-length
                          ctz))))))
 
+(defun phase-a-eest-bn254-gas-state-test-v5.4.0-case-names ()
+  (append
+   (let ((prefix
+           "byzantium/eip196_ec_add_mul/test_gas_costs.json/tests/byzantium/eip196_ec_add_mul/test_gas.py::test_gas_costs"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for precompile in '("ecadd" "ecmul")
+                 nconc
+                 (loop for enough-gas in '("False" "True")
+                       collect
+                       (format nil
+                               "~A[fork_~A-state_test-enough_gas_~A-~A]"
+                               prefix
+                               fork
+                               enough-gas
+                               precompile)))))
+   (let ((prefix
+           "byzantium/eip197_ec_pairing/test_gas_costs.json/tests/byzantium/eip197_ec_pairing/test_gas.py::test_gas_costs"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for enough-gas in '("False" "True")
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-enough_gas_~A-ecpairing]"
+                         prefix
+                         fork
+                         enough-gas))))))
+
 (defun phase-a-eest-blake2f-state-test-v5.4.0-case-names ()
   (let ((base-prefix
           "istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b")
@@ -362,6 +390,7 @@
    (phase-a-eest-create2-returndata-state-test-v5.4.0-case-names)
    (phase-a-eest-call-large-offset-state-test-v5.4.0-case-names)
    (phase-a-eest-modexp-state-test-v5.4.0-case-names)
+   (phase-a-eest-bn254-gas-state-test-v5.4.0-case-names)
    (phase-a-eest-blake2f-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+

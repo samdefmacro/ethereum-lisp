@@ -7000,6 +7000,27 @@ splits can land after the Phase A smoke path closes.
     added invocation shape, preserving the current HTTP-only split-service
     process while letting broader runner templates reach startup.
 
+- [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
+  state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root.
+  - Acceptance: the London/Shanghai EIP-196 and EIP-197 gas-cost state-test
+    selectors from `byzantium/eip196_ec_add_mul/test_gas_costs.json` and
+    `byzantium/eip197_ec_pairing/test_gas_costs.json` are included in the
+    pinned Phase A state selector table, classify with zero remaining unpinned
+    candidates for those families, and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix byzantium/eip196_ec_add_mul/test_gas_costs.json --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix byzantium/eip197_ec_pairing/test_gas_costs.json --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): added a generated selector helper for all 12
+    London/Shanghai BN254 gas-cost selectors: ECADD and ECMUL enough-gas and
+    out-of-gas cases plus ECPAIRING enough-gas and out-of-gas cases. The
+    targeted classifiers now report `pinnedCount=476` and zero unpinned
+    candidates for both BN254 gas families, and the pinned smoke gate reports
+    `state.count=476` and `fixtureCaseCount=729`.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:

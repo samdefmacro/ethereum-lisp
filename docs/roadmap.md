@@ -1764,6 +1764,13 @@ Detailed historical implementation notes for this section now live in
   the 53 remaining transaction selectors are Prague/EIP-7702 out-of-scope for
   Phase A, with zero known-implementation-drift, implementation-bug-candidate,
   or fixture-harness-error records.
+  The pinned state-transition table now also includes the 12 London/Shanghai
+  EIP-196/EIP-197 BN254 precompile gas-cost selectors from
+  `byzantium/eip196_ec_add_mul/test_gas_costs.json` and
+  `byzantium/eip197_ec_pairing/test_gas_costs.json`, covering ECADD, ECMUL,
+  and ECPAIRING enough-gas and out-of-gas boundaries. The pinned smoke gate
+  now executes 729 total fixture cases with 476 state selectors; targeted
+  classifier checks report both BN254 gas families fully pinned.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting
