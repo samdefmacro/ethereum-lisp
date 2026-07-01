@@ -573,6 +573,42 @@
                               source
                               size))))))
 
+(defun phase-a-eest-stack-underflow-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "frontier/opcodes/test_stack_underflow.json/tests/frontier/opcodes/test_swap.py::test_stack_underflow"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (loop for index from 1 to 16
+                collect
+                (format nil
+                        "~A[fork_~A-state_test-SWAP~D]"
+                        prefix
+                        fork
+                        index)))))
+
+(defun phase-a-eest-precompile-absence-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "frontier/precompiles/test_precompile_absence.json/tests/frontier/precompiles/test_precompile_absence.py::test_precompile_absence"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (loop for case in '("31_bytes" "32_bytes" "empty_calldata")
+                collect
+                (format nil
+                        "~A[fork_~A-state_test-~A]"
+                        prefix
+                        fork
+                        case)))))
+
+(defun phase-a-eest-homestead-coverage-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "homestead/coverage/test_coverage.json/tests/homestead/coverage/test_coverage.py::test_coverage"))
+    (loop for fork in '("London" "Shanghai")
+          collect
+          (format nil
+                  "~A[fork_~A-state_test]"
+                  prefix
+                  fork))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -682,7 +718,10 @@
    (phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names)
    (phase-a-eest-calldatacopy-state-test-v5.4.0-case-names)
    (phase-a-eest-calldataload-state-test-v5.4.0-case-names)
-   (phase-a-eest-calldatasize-state-test-v5.4.0-case-names)))
+   (phase-a-eest-calldatasize-state-test-v5.4.0-case-names)
+   (phase-a-eest-stack-underflow-state-test-v5.4.0-case-names)
+   (phase-a-eest-precompile-absence-state-test-v5.4.0-case-names)
+   (phase-a-eest-homestead-coverage-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")

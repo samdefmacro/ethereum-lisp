@@ -1986,6 +1986,22 @@ Detailed historical implementation notes for this section now live in
   Prague/EIP-7702 transaction selectors out of scope, with zero
   known-implementation-drift, implementation-bug-candidate, or
   fixture-harness-error records.
+  The pinned state-transition table now also includes 40 official
+  London/Shanghai selectors covering SWAP1 through SWAP16 stack-underflow
+  exceptional halts, absent-precompile calls with empty/31-byte/32-byte
+  calldata, and the Homestead coverage fixture. Pre-pin targeted drift-map
+  classification found all 40 unpinned candidates passing with zero
+  drift/bug/harness records, and post-pin targeted classification reports zero
+  remaining unpinned candidates for the
+  `frontier/opcodes/test_stack_underflow.json`,
+  `frontier/precompiles/test_precompile_absence.json`, and
+  `homestead/coverage/test_coverage.json` prefixes. The pinned smoke gate now
+  executes 1140 total fixture cases with 725 state selectors and 362
+  blockchain replay selectors, and the refreshed v5.4.0 drift map classifies
+  the remaining 273 candidates as 220 passing state selectors and 53
+  Prague/EIP-7702 transaction selectors out of scope, with zero
+  known-implementation-drift, implementation-bug-candidate, or
+  fixture-harness-error records.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting

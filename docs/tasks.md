@@ -7565,6 +7565,42 @@ splits can land after the Phase A smoke path closes.
     transaction selectors out of scope, with zero known-implementation-drift,
     implementation-bug-candidate, or fixture-harness-error records.
 
+- [x] `PINNED-V5.4.0-EXCEPTION-BOUNDARY-STATE`: Pin official Frontier
+  stack-underflow, absent-precompile, and Homestead coverage state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned London/Shanghai state selectors from
+    `frontier/opcodes/test_stack_underflow.json`,
+    `frontier/precompiles/test_precompile_absence.json`, and
+    `homestead/coverage/test_coverage.json` are included in the pinned Phase A
+    state selector table, classify with zero remaining unpinned candidates for
+    all three prefixes, and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/devnet-smoke-gate.lisp -- --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --suite state --state-prefix frontier/opcodes/test_stack_underflow.json --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --suite state --state-prefix frontier/precompiles/test_precompile_absence.json --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --suite state --state-prefix homestead/coverage/test_coverage.json --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/opcodes/test_stack_underflow.json --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/precompiles/test_precompile_absence.json --json`;
+    `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix homestead/coverage/test_coverage.json --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-02): after the escalated standalone devnet smoke gate
+    passed the live Engine/public process boundary, added generated selector
+    helpers for 40 official London/Shanghai state selectors covering SWAP1
+    through SWAP16 stack-underflow exceptional halts, absent-precompile calls
+    with empty/31-byte/32-byte calldata, and the Homestead coverage fixture.
+    Pre-pin targeted drift-map runs reported all 40 unpinned candidates passing
+    with zero drift/bug/harness records; the post-pin targeted classifiers
+    report `pinnedCount=725` and zero remaining unpinned candidates for all
+    three prefixes. The pinned smoke gate now reports `state.count=725`,
+    `blockchain.count=362`, and `fixtureCaseCount=1140`; the refreshed
+    consolidated drift map reports 273 remaining candidates: 220 passing state
+    selectors and 53 Prague/EIP-7702 transaction selectors out of scope, with
+    zero known-implementation-drift, implementation-bug-candidate, or
+    fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
