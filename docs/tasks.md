@@ -1857,6 +1857,22 @@ ones.
     prefixes plus one Prague/EIP-7702 transaction selector classified 21
     candidates with zero known-implementation-drift, implementation-bug, or
     fixture-harness records.
+- [x] `PINNED-V5.4.0-STATE-REMAINDER-CLOSURE`: Convert the final classified
+  official v5.4.0 materializable state-test selectors into stable pinned Phase
+  A guards before leaving only out-of-scope transaction drift.
+  - Result (2026-07-02): the state selector table now generates and pins the
+    remaining 220 London/Shanghai materializable state selectors from
+    `frontier/opcodes/test_dup.json`, `frontier/opcodes/test_push.json`,
+    `frontier/opcodes/test_swap.json`, and `frontier/opcodes/test_gas.json`.
+    Pre-pin targeted drift-map classification found all 220 passing with zero
+    known-implementation-drift, implementation-bug-candidate, or
+    fixture-harness-error records. The pinned v5.4.0 smoke gate now covers all
+    945 discovered materializable state selectors, 362 official Shanghai
+    `engineNewPayloadV2` blockchain selectors, and 53 Prague/EIP-7702
+    transaction selectors summarized as out of scope, for 1360 total fixture
+    cases. The refreshed consolidated drift map reports zero state and
+    blockchain candidates remaining; only the 53 Prague/EIP-7702 transaction
+    selectors remain out of scope.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not

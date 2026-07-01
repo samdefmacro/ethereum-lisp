@@ -609,6 +609,81 @@
                   prefix
                   fork))))
 
+(defun phase-a-eest-dup-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "frontier/opcodes/test_dup.json/tests/frontier/opcodes/test_dup.py::test_dup"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (loop for index from 1 to 16
+                collect
+                (format nil
+                        "~A[fork_~A-evm_code_type_LEGACY-state_test-DUP~D]"
+                        prefix
+                        fork
+                        index)))))
+
+(defun phase-a-eest-push-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "frontier/opcodes/test_push.json/tests/frontier/opcodes/test_push.py::test_push"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (loop for index from 1 to 32
+                collect
+                (format nil
+                        "~A[fork_~A-state_test-PUSH~D]"
+                        prefix
+                        fork
+                        index)))))
+
+(defun phase-a-eest-swap-state-test-v5.4.0-case-names ()
+  (let ((prefix
+          "frontier/opcodes/test_swap.json/tests/frontier/opcodes/test_swap.py::test_swap"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (loop for index from 1 to 16
+                collect
+                (format nil
+                        "~A[fork_~A-state_test-SWAP~D]"
+                        prefix
+                        fork
+                        index)))))
+
+(defun phase-a-eest-gas-state-test-v5.4.0-case-names ()
+  (let ((exp-prefix
+          "frontier/opcodes/test_gas.json/tests/frontier/opcodes/test_exp.py::test_gas")
+        (log-prefix
+          "frontier/opcodes/test_gas.json/tests/frontier/opcodes/test_log.py::test_gas"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (append
+           (loop for exponent in '("exponent2to255"
+                                   "exponent2to256minus1"
+                                   "exponent_0"
+                                   "exponent_1"
+                                   "exponent_1023"
+                                   "exponent_1024"
+                                   "exponent_2")
+                 nconc
+                 (loop for value in '("a2to256minus1" "a_0" "a_1")
+                       collect
+                       (format nil
+                               "~A[fork_~A-state_test-~A-~A]"
+                               exp-prefix
+                               fork
+                               exponent
+                               value)))
+           (loop for data-size in '(0 1 1023 1024 2)
+                 nconc
+                 (loop for topic from 0 to 4
+                       collect
+                       (format nil
+                               "~A[fork_~A-state_test-data_size_~D-opcode_LOG~D-topics_~D]"
+                               log-prefix
+                               fork
+                               data-size
+                               topic
+                               topic)))))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -721,7 +796,11 @@
    (phase-a-eest-calldatasize-state-test-v5.4.0-case-names)
    (phase-a-eest-stack-underflow-state-test-v5.4.0-case-names)
    (phase-a-eest-precompile-absence-state-test-v5.4.0-case-names)
-   (phase-a-eest-homestead-coverage-state-test-v5.4.0-case-names)))
+   (phase-a-eest-homestead-coverage-state-test-v5.4.0-case-names)
+   (phase-a-eest-dup-state-test-v5.4.0-case-names)
+   (phase-a-eest-push-state-test-v5.4.0-case-names)
+   (phase-a-eest-swap-state-test-v5.4.0-case-names)
+   (phase-a-eest-gas-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")

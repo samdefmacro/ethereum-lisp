@@ -2002,6 +2002,19 @@ Detailed historical implementation notes for this section now live in
   Prague/EIP-7702 transaction selectors out of scope, with zero
   known-implementation-drift, implementation-bug-candidate, or
   fixture-harness-error records.
+  The pinned state-transition table now also includes the final 220
+  materializable official London/Shanghai state selectors from the DUP, PUSH,
+  SWAP, and GAS opcode fixture families. Pre-pin targeted drift-map
+  classification found all 220 unpinned candidates passing with zero
+  drift/bug/harness records, and post-pin targeted classification reports zero
+  remaining unpinned candidates for `frontier/opcodes/test_dup.json`,
+  `frontier/opcodes/test_push.json`, `frontier/opcodes/test_swap.json`, and
+  `frontier/opcodes/test_gas.json`. The pinned smoke gate now executes 1360
+  total fixture cases with all 945 materializable state selectors and 362
+  blockchain replay selectors, and the refreshed v5.4.0 drift map classifies
+  the only remaining 53 candidates as Prague/EIP-7702 transaction selectors
+  out of scope, with zero known-implementation-drift,
+  implementation-bug-candidate, or fixture-harness-error records.
   The consolidated drift-map runner now also accepts `--root=PATH`, assigned
   limit options, and explicit boolean assignments for `--json` /
   `--failures-only`, matching the smoke-gate runner convention and rejecting
