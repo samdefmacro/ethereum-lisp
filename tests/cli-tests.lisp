@@ -5975,6 +5975,7 @@
     (is (string= "" stderr))
     (is (search "Usage: sbcl --script scripts/phase-a-drift-map.lisp"
                 stdout))
+    (is (search "--suite SUITE" stdout))
     (is (search "--prefix PREFIX" stdout))
     (is (search "--state-prefix PREFIX" stdout))
     (is (search "--transaction-prefix PREFIX" stdout))
@@ -6057,6 +6058,43 @@
                        (fixture-object-field transaction-result
                                              "classification"))))))))
 
+(deftest phase-a-drift-map-script-json-filters-suite
+  #-sbcl
+  (skip-test "Phase A drift map script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-drift-map.lisp"
+             "--"
+             "--root"
+             "tests/fixtures/execution-spec-tests-root/"
+             "--suite"
+             "transaction"
+             "--limit"
+             "1"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (= 0 status))
+    (is (string= "" stderr))
+    (when (= 0 status)
+      (let* ((report (parse-json stdout))
+             (overall (fixture-object-field report "overall"))
+             (suites (fixture-object-field report "suites"))
+             (suite (first suites)))
+        (is (string= "transaction" (fixture-object-field report "suite")))
+        (is (= 1 (length suites)))
+        (is (= 1 (fixture-object-field overall "suiteCount")))
+        (is (= 1 (fixture-object-field overall "candidateCount")))
+        (is (= 1 (fixture-object-field overall "classifiedCount")))
+        (is (string= "transaction"
+                     (fixture-object-field suite "suite")))
+        (is (= 1 (fixture-object-field suite "candidateCount")))
+        (is (= 1 (fixture-object-field suite "classifiedCount")))))))
+
 (deftest phase-a-drift-map-script-accepts-assigned-options
   #-sbcl
   (skip-test "Phase A drift map script requires SBCL")
@@ -6128,6 +6166,25 @@
     (is (not (= 0 status)))
     (is (string= "" stdout))
     (is (search "--json boolean value must be true or false" stderr))))
+
+(deftest phase-a-drift-map-script-rejects-unknown-suite
+  #-sbcl
+  (skip-test "Phase A drift map script requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-drift-map.lisp"
+             "--"
+             "--suite=receipts"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (not (= 0 status)))
+    (is (string= "" stdout))
+    (is (search "--suite requires state, transaction, or blockchain" stderr))))
 
 (deftest ethereum-lisp-script-dispatches-devnet-help
   #-sbcl

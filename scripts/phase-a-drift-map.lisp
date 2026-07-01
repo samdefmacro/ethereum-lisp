@@ -6,6 +6,7 @@
 (defconstant +drift-map-json-flag+ "--json")
 (defconstant +drift-map-help-flag+ "--help")
 (defconstant +drift-map-root-option+ "--root")
+(defconstant +drift-map-suite-option+ "--suite")
 (defconstant +drift-map-prefix-option+ "--prefix")
 (defconstant +drift-map-state-prefix-option+ "--state-prefix")
 (defconstant +drift-map-transaction-prefix-option+ "--transaction-prefix")
@@ -19,6 +20,7 @@
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 (defparameter *drift-map-value-options*
   (list +drift-map-root-option+
+        +drift-map-suite-option+
         +drift-map-prefix-option+
         +drift-map-state-prefix-option+
         +drift-map-transaction-prefix-option+
@@ -76,6 +78,7 @@
   (format t "~%")
   (format t "Options:~%")
   (format t "  --root PATH               EEST fixture suite root.~%")
+  (format t "  --suite SUITE             Run one suite: state, transaction, or blockchain.~%")
   (format t "  --prefix PREFIX           Classify only selectors with this prefix in every suite.~%")
   (format t "  --state-prefix PREFIX     Override the state-test selector prefix.~%")
   (format t "  --transaction-prefix PREFIX Override the transaction-test selector prefix.~%")
@@ -130,8 +133,16 @@ implementation drift.~%")
     (error ()
       (error "~A requires a positive integer, got ~A" option value))))
 
+(defun drift-map-parse-suite (value)
+  (unless (member value '("state" "transaction" "blockchain") :test #'string=)
+    (error "~A requires state, transaction, or blockchain, got ~A"
+           +drift-map-suite-option+
+           value))
+  value)
+
 (defun drift-map-options (args)
   (let ((root nil)
+        (suite nil)
         (prefix nil)
         (state-prefix nil)
         (transaction-prefix nil)
@@ -157,6 +168,12 @@ implementation drift.~%")
              ((string= arg +drift-map-root-option+)
               (setf root
                     (drift-map-set-single-value root arg value)))
+             ((string= arg +drift-map-suite-option+)
+              (setf suite
+                    (drift-map-set-single-value
+                     suite
+                     arg
+                     (drift-map-parse-suite value))))
              ((string= arg +drift-map-prefix-option+)
               (setf prefix
                     (drift-map-set-single-value prefix arg value)))
@@ -202,6 +219,7 @@ implementation drift.~%")
                 +drift-map-root-option+
                 arg)))))
     (list :root root
+          :suite suite
           :prefix prefix
           :state-prefix state-prefix
           :transaction-prefix transaction-prefix
@@ -355,39 +373,33 @@ implementation drift.~%")
                :false)))))
 
 (defun drift-map-report
-    (root state-limit transaction-limit blockchain-limit
+    (root suite state-limit transaction-limit blockchain-limit
      state-prefix transaction-prefix blockchain-prefix failures-only-p)
-  (let* ((state
-           (drift-map-suite-report
-            "state"
-            (drift-map-run-classifier
-             "state"
-             "scripts/classify-state-test-selectors.lisp"
-             root
-             state-limit
-             state-prefix
-             failures-only-p)))
-         (transaction
-           (drift-map-suite-report
-            "transaction"
-            (drift-map-run-classifier
-             "transaction"
-             "scripts/classify-transaction-test-selectors.lisp"
-             root
-             transaction-limit
-             transaction-prefix
-             failures-only-p)))
-         (blockchain
-           (drift-map-suite-report
-            "blockchain"
-            (drift-map-run-classifier
-             "blockchain"
-             "scripts/classify-blockchain-replay-selectors.lisp"
-             root
-             blockchain-limit
-             blockchain-prefix
-             failures-only-p)))
-         (suites (list state transaction blockchain)))
+  (let ((suites
+          (loop for (suite-name script limit prefix)
+                  in `(("state"
+                        "scripts/classify-state-test-selectors.lisp"
+                        ,state-limit
+                        ,state-prefix)
+                       ("transaction"
+                        "scripts/classify-transaction-test-selectors.lisp"
+                        ,transaction-limit
+                        ,transaction-prefix)
+                       ("blockchain"
+                        "scripts/classify-blockchain-replay-selectors.lisp"
+                        ,blockchain-limit
+                        ,blockchain-prefix))
+                when (or (null suite) (string= suite suite-name))
+                  collect
+                  (drift-map-suite-report
+                   suite-name
+                   (drift-map-run-classifier
+                    suite-name
+                    script
+                    root
+                    limit
+                    prefix
+                    failures-only-p)))))
     (list
      (cons "mode" "phase-a-drift-map")
      (cons "root" (or root
@@ -397,6 +409,7 @@ implementation drift.~%")
                             :false
                             configured))))
      (cons "failuresOnly" (if failures-only-p t :false))
+     (cons "suite" (or suite :false))
      (cons "overall" (drift-map-overall-report suites))
      (cons "suites" suites))))
 
@@ -440,6 +453,7 @@ implementation drift.~%")
     (let ((report
             (drift-map-report
              root
+             (getf options :suite)
              (or (getf options :state-limit) limit)
              (or (getf options :transaction-limit) limit)
              (or (getf options :blockchain-limit) limit)

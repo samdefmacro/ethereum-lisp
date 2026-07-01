@@ -1746,7 +1746,10 @@ Detailed historical implementation notes for this section now live in
   reports the effective per-suite prefix. This keeps official v5.4.0 drift
   classification useful when the default discovery order is dominated by
   passing state/blockchain selectors or Prague/EIP-7702 transaction selectors
-  that are out of scope for the current Phase A/Phase B surface. The child
+  that are out of scope for the current Phase A/Phase B surface. It can also
+  run one classifier directly with `--suite state|transaction|blockchain`, so
+  automation can target a single materializable surface without paying for
+  unrelated suites or post-filtering the aggregate report. The child
   classifiers now also emit `known-implementation-drift` for explicit
   unimplemented-feature diagnostics and the aggregate runner sums that bucket
   into suite/overall `knownImplementationDriftCount`, so

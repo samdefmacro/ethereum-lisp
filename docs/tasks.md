@@ -1769,6 +1769,15 @@ ones.
     three Constantinople EIP-145 blockchain replay selectors passing, plus one
     Prague/EIP-7702 transaction selector out of scope, with no
     implementation-bug-candidate or fixture-harness-error records.
+- [x] `PHASE-A-DRIFT-MAP-SUITE-TARGETING`: Let official fixture drift
+  classification run one materializable suite directly when triaging pinned
+  gaps.
+  - Result (2026-07-01): `scripts/phase-a-drift-map.lisp` now accepts
+    `--suite state|transaction|blockchain` (including assigned form) and runs
+    only the selected child classifier while preserving the same overall and
+    suite JSON/text schema. Script-level coverage locks discoverability,
+    transaction-only JSON summaries, and unknown-suite rejection before a
+    classifier run starts.
 - [x] `PHASE-A-DRIFT-MAP-KNOWN-DRIFT-BUCKET`: Make the consolidated official
   fixture drift map report real known implementation drift counts instead of
   advertising a bucket that child classifiers could not emit.
