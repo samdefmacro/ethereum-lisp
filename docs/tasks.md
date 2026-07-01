@@ -7154,6 +7154,34 @@ splits can land after the Phase A smoke path closes.
     replay selectors, and 53 Prague/EIP-7702 transaction selectors out of
     scope.
 
+- [x] `PINNED-V5.4.0-CREATE-BOUNDARY-BLOCKCHAIN`: Pin remaining official
+  CREATE boundary blockchain replay selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root.
+  - Acceptance: the remaining unpinned Shanghai `engineNewPayloadV2`
+    selectors from `frontier/create/test_create_deposit_oog.json`,
+    `frontier/create/test_create_one_byte.json`, and
+    `frontier/create/test_create_suicide_store.json` are included in the
+    pinned Phase A blockchain replay table, classify with zero remaining
+    unpinned candidates for the `frontier/create` prefix, and pass the pinned
+    v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/create --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): added six official Shanghai
+    `engineNewPayloadV2` replay selectors covering CREATE and CREATE2 deposit
+    out-of-gas, one-byte initcode, and suicide-store creation boundaries. The
+    pre-pin targeted classifier reported 6/6 unpinned candidates passing with
+    zero drift/bug/harness records; the post-pin targeted classifier reports
+    `pinnedCount=286` and zero remaining unpinned candidates for the
+    `frontier/create` prefix. The pinned smoke gate now reports
+    `state.count=476`, `blockchain.count=286`, and `fixtureCaseCount=815`;
+    the refreshed consolidated drift map reports 598 remaining candidates:
+    469 passing state selectors, 76 passing blockchain replay selectors, and
+    53 Prague/EIP-7702 transaction selectors out of scope.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:

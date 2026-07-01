@@ -438,6 +438,18 @@
      . "engineNewPayloadV2")
     ("frontier/create/test_create_suicide_during_transaction_create.json/tests/frontier/create/test_create_suicide_during_init.py::test_create_suicide_during_transaction_create[fork_Shanghai-create_opcode_CREATE2-evm_code_type_LEGACY-blockchain_test_engine_from_state_test-operation_Operation.SUICIDE_TO_ITSELF-transaction_create_False]"
      . "engineNewPayloadV2")
+    ("frontier/create/test_create_deposit_oog.json/tests/frontier/create/test_create_deposit_oog.py::test_create_deposit_oog[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_deposit_oog.json/tests/frontier/create/test_create_deposit_oog.py::test_create_deposit_oog[fork_Shanghai-create_opcode_CREATE2-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_one_byte.json/tests/frontier/create/test_create_one_byte.py::test_create_one_byte[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_one_byte.json/tests/frontier/create/test_create_one_byte.py::test_create_one_byte[fork_Shanghai-create_opcode_CREATE2-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_suicide_store.json/tests/frontier/create/test_create_suicide_store.py::test_create_suicide_store[fork_Shanghai-create_opcode_CREATE-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
+    ("frontier/create/test_create_suicide_store.json/tests/frontier/create/test_create_suicide_store.py::test_create_suicide_store[fork_Shanghai-create_opcode_CREATE2-evm_code_type_LEGACY-blockchain_test_engine_from_state_test]"
+     . "engineNewPayloadV2")
     ("frontier/validation/test_gas_limit_below_minimum.json/tests/frontier/validation/test_header.py::test_gas_limit_below_minimum[fork_Shanghai-blockchain_test_engine-gas_limit_5000]"
      . "engineNewPayloadV2")
     ("frontier/validation/test_sender_balance.json/tests/frontier/validation/test_transaction.py::test_sender_balance[fork_Shanghai-blockchain_test_engine-balance_diff_0-expected_exception_None]"
