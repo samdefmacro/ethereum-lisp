@@ -7325,6 +7325,34 @@ splits can land after the Phase A smoke path closes.
     now reports `state.count=476`, `blockchain.count=362`, and
     `fixtureCaseCount=891`.
 
+- [x] `PINNED-V5.4.0-IDENTITY-PRECOMPILE-STATE`: Pin official frontier
+  identity-precompile state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned London/Shanghai state selectors from
+    `frontier/identity_precompile` covering base identity calls, large
+    parameters, and returndata-size boundaries are included in the pinned
+    Phase A state selector table, classify with zero remaining unpinned
+    candidates for the prefix, and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/identity_precompile --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): added a generated selector helper for 48 official
+    London/Shanghai frontier identity-precompile state selectors covering
+    `CALL` and `CALLCODE` value, insufficient-balance, exact-gas,
+    insufficient-gas, large-parameter, and returndata-size boundaries. The
+    pre-pin targeted classifier reported 48/48 unpinned candidates passing
+    with zero drift/bug/harness records; the post-pin targeted classifier
+    reports `pinnedCount=524` and zero remaining unpinned candidates for the
+    `frontier/identity_precompile` prefix. The pinned smoke gate now reports
+    `state.count=524`, `blockchain.count=362`, and `fixtureCaseCount=939`;
+    the refreshed consolidated drift map reports 474 remaining candidates:
+    421 passing state selectors and 53 Prague/EIP-7702 transaction selectors
+    out of scope, with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:

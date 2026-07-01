@@ -291,6 +291,57 @@
                                name
                                call-opcode)))))))
 
+(defun phase-a-eest-identity-precompile-state-test-v5.4.0-case-names ()
+  (append
+   (let ((prefix
+           "frontier/identity_precompile/test_call_identity_precompile.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for identity in '("identity_0"
+                                   "identity_1"
+                                   "identity_1_nonzerovalue"
+                                   "identity_1_nonzerovalue_insufficient_balance"
+                                   "identity_2"
+                                   "identity_3"
+                                   "identity_4"
+                                   "identity_4_exact_gas"
+                                   "identity_4_insufficient_gas")
+                 nconc
+                 (loop for call-type in '("CALLCODE" "CALL")
+                       collect
+                       (format nil
+                               "~A[fork_~A-state_test-~A-call_type_~A]"
+                               prefix
+                               fork
+                               identity
+                               call-type)))))
+   (let ((prefix
+           "frontier/identity_precompile/test_call_identity_precompile_large_params.json/tests/frontier/identity_precompile/test_identity.py::test_call_identity_precompile_large_params"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for identity in '("identity_5" "identity_6")
+                 nconc
+                 (loop for call-type in '("CALLCODE" "CALL")
+                       collect
+                       (format nil
+                               "~A[fork_~A-state_test-tx_gas_limit_10000000-~A-call_type_~A]"
+                               prefix
+                               fork
+                               identity
+                               call-type)))))
+   (let ((prefix
+           "frontier/identity_precompile/test_identity_precompile_returndata.json/tests/frontier/identity_precompile/test_identity_returndatasize.py::test_identity_precompile_returndata"))
+     (loop for fork in '("London" "Shanghai")
+           nconc
+           (loop for output-size in '("output_size_greater_than_input"
+                                      "output_size_less_than_input")
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-~A]"
+                         prefix
+                         fork
+                         output-size))))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -391,7 +442,8 @@
    (phase-a-eest-call-large-offset-state-test-v5.4.0-case-names)
    (phase-a-eest-modexp-state-test-v5.4.0-case-names)
    (phase-a-eest-bn254-gas-state-test-v5.4.0-case-names)
-   (phase-a-eest-blake2f-state-test-v5.4.0-case-names)))
+   (phase-a-eest-blake2f-state-test-v5.4.0-case-names)
+   (phase-a-eest-identity-precompile-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")
