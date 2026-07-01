@@ -7441,6 +7441,37 @@ splits can land after the Phase A smoke path closes.
     out of scope, with zero known-implementation-drift,
     implementation-bug-candidate, or fixture-harness-error records.
 
+- [x] `PINNED-V5.4.0-CREATE-COLLISION-STATE`: Pin official Paris EIP-7610
+  CREATE collision state selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root and the existing official state-test classifier.
+  - Acceptance: the unpinned Shanghai state selectors from
+    `paris/eip7610_create_collision/test_init_collision_create_opcode.json`
+    and `paris/eip7610_create_collision/test_init_collision_create_tx.json`
+    covering CREATE/CREATE2 and contract-creation transaction collisions
+    against non-empty balance, code, and nonce accounts are included in the
+    pinned Phase A state selector table, classify with zero remaining unpinned
+    candidates for the prefix, and pass the pinned v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-state-test-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix paris/eip7610_create_collision --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-02): added a generated selector helper for 45 official
+    Shanghai Paris EIP-7610 CREATE collision selectors covering CREATE/CREATE2
+    opcode collisions and legacy/access-list/dynamic-fee contract-creation
+    transaction collisions against non-empty balance, code, and nonce accounts
+    with successful, out-of-gas, and reverting initcode. The pre-pin targeted
+    classifier reported 45/45 unpinned candidates passing with zero
+    drift/bug/harness records; the post-pin targeted classifier reports
+    `pinnedCount=621` and zero remaining unpinned candidates for the
+    `paris/eip7610_create_collision` prefix. The pinned smoke gate now reports
+    `state.count=621`, `blockchain.count=362`, and `fixtureCaseCount=1036`;
+    the refreshed consolidated drift map reports 377 remaining candidates:
+    324 passing state selectors and 53 Prague/EIP-7702 transaction selectors
+    out of scope, with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:

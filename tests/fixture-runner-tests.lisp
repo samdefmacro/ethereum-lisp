@@ -422,6 +422,45 @@
                          fork
                          create-opcode))))))
 
+(defun phase-a-eest-create-collision-state-test-v5.4.0-case-names ()
+  (append
+   (let ((prefix
+           "paris/eip7610_create_collision/test_init_collision_create_opcode.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_opcode"))
+     (loop for opcode in '("CREATE" "CREATE2")
+           nconc
+           (loop for collision in '("non-empty-balance"
+                                    "non-empty-code"
+                                    "non-empty-nonce")
+                 nconc
+                 (loop for initcode in '("correct-initcode"
+                                         "oog-initcode"
+                                         "revert-initcode")
+                       collect
+                       (format nil
+                               "~A[fork_Shanghai-state_test-opcode_~A-~A-~A]"
+                               prefix
+                               opcode
+                               collision
+                               initcode)))))
+   (let ((prefix
+           "paris/eip7610_create_collision/test_init_collision_create_tx.json/tests/paris/eip7610_create_collision/test_initcollision.py::test_init_collision_create_tx"))
+     (loop for tx-type in '("0" "1" "2")
+           nconc
+           (loop for collision in '("non-empty-balance"
+                                    "non-empty-code"
+                                    "non-empty-nonce")
+                 nconc
+                 (loop for initcode in '("correct-initcode"
+                                         "oog-initcode"
+                                         "revert-initcode")
+                       collect
+                       (format nil
+                               "~A[fork_Shanghai-tx_type_~A-state_test-~A-~A]"
+                               prefix
+                               tx-type
+                               collision
+                               initcode)))))))
+
 (defun phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names ()
   (let ((prefix
           "frontier/opcodes/test_value_transfer_gas_calculation.json/tests/frontier/opcodes/test_call_and_callcode_gas_calculation.py::test_value_transfer_gas_calculation"))
@@ -545,6 +584,7 @@
    (phase-a-eest-identity-precompile-state-test-v5.4.0-case-names)
    (phase-a-eest-identity-return-state-test-v5.4.0-case-names)
    (phase-a-eest-create-boundary-state-test-v5.4.0-case-names)
+   (phase-a-eest-create-collision-state-test-v5.4.0-case-names)
    (phase-a-eest-value-transfer-gas-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
