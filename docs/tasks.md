@@ -7210,6 +7210,37 @@ splits can land after the Phase A smoke path closes.
     replay selectors, and 53 Prague/EIP-7702 transaction selectors out of
     scope.
 
+- [x] `PINNED-V5.4.0-PRECOMPILE-BOUNDARY-BLOCKCHAIN`: Pin official
+  precompile-absence and identity-precompile blockchain replay selectors.
+  - Milestone: 3 / Phase A consensus fixtures
+  - Dependencies: installed `ethereum/execution-spec-tests` v5.4.0 stable
+    fixture root.
+  - Acceptance: the remaining unpinned Shanghai `engineNewPayloadV2`
+    selectors from `frontier/precompiles/test_precompile_absence.json`,
+    `homestead/identity_precompile/test_identity_return_buffer_modify.json`,
+    and `homestead/identity_precompile/test_identity_return_overwrite.json`
+    are included in the pinned Phase A blockchain replay table, classify with
+    zero remaining unpinned candidates for both prefixes, and pass the pinned
+    v5.4.0 smoke gate.
+  - Validation: `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix frontier/precompiles --json`;
+    `sbcl --script scripts/classify-blockchain-replay-selectors.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --prefix homestead/identity_precompile --json`;
+    `sbcl --script scripts/phase-a-drift-map.lisp -- --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --failures-only --json`;
+    `sbcl --script scripts/phase-a-smoke-gate.lisp -- --pinned-v5.4.0 --root /Users/sen/workspace/ethereum-lisp/.cache/eest-v5.4.0/root/fixtures --json`;
+    `sbcl --script tests/run-tests.lisp`.
+  - Result (2026-07-01): added eleven official Shanghai
+    `engineNewPayloadV2` replay selectors covering absent-precompile calls
+    with empty, 31-byte, and 32-byte calldata, plus identity-precompile return
+    buffer modification and overwrite behavior across `CALL`, `CALLCODE`,
+    `DELEGATECALL`, and `STATICCALL`. The pre-pin targeted classifiers
+    reported 11/11 unpinned candidates passing with zero drift/bug/harness
+    records; the post-pin targeted classifiers report `pinnedCount=300` and
+    zero remaining unpinned candidates for both prefixes. The pinned smoke gate
+    now reports `state.count=476`, `blockchain.count=300`, and
+    `fixtureCaseCount=829`; the refreshed consolidated drift map reports 584
+    remaining candidates: 469 passing state selectors, 62 passing blockchain
+    replay selectors, and 53 Prague/EIP-7702 transaction selectors out of
+    scope.
+
 - [x] Add Hive compatibility plan.
   - Milestone: 8
   - Acceptance: document what a Hive runner needs from the Lisp client:
