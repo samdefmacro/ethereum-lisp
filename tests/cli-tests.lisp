@@ -2982,6 +2982,48 @@
       (is (string= "127.0.0.1:8545"
                    (fixture-object-field summary "rpcEndpoint"))))))
 
+(deftest devnet-cli-merge-overrides-configure-transition-handshake
+  (let* ((terminal-block-hash-hex
+           "0x2222222222222222222222222222222222222222222222222222222222222222")
+         (options
+           (ethereum-lisp.cli::devnet-cli-options
+            (list "devnet"
+                  "--override.terminaltotaldifficulty=0x3039"
+                  "--override.terminaltotaldifficultypassed=false"
+                  "--override.terminalblockhash" terminal-block-hash-hex
+                  "--override.terminalblocknumber" "66"
+                  "--no-serve")))
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-path +devnet-cli-genesis-fixture+
+            :terminal-total-difficulty
+            (getf options :terminal-total-difficulty)
+            :terminal-total-difficulty-passed
+            (getf options :terminal-total-difficulty-passed)
+            :terminal-total-difficulty-passed-specified-p
+            (getf options :terminal-total-difficulty-passed-specified-p)
+            :terminal-block-hash
+            (getf options :terminal-block-hash)
+            :terminal-block-number
+            (getf options :terminal-block-number)))
+         (config (ethereum-lisp.cli:devnet-node-config node))
+         (transition
+           (ethereum-lisp.core::engine-rpc-transition-configuration-object
+            config)))
+    (is (= 12345 (chain-config-terminal-total-difficulty config)))
+    (is (not (chain-config-terminal-total-difficulty-passed config)))
+    (is (string= terminal-block-hash-hex
+                 (hash32-to-hex
+                  (chain-config-terminal-block-hash config))))
+    (is (= 66 (chain-config-terminal-block-number config)))
+    (is (string= "0x3039"
+                 (fixture-object-field transition
+                                       "terminalTotalDifficulty")))
+    (is (string= terminal-block-hash-hex
+                 (fixture-object-field transition "terminalBlockHash")))
+    (is (string= "0x42"
+                 (fixture-object-field transition "terminalBlockNumber")))))
+
 (deftest devnet-cli-main-engine-host-does-not-rewrite-public-default
   (let ((engine-output (make-string-output-stream))
         (engine-errors (make-string-output-stream))
@@ -6997,6 +7039,14 @@
                         (namestring pid-path)
                         "--max-connections"
                         "23"
+                        "--override.terminaltotaldifficulty"
+                        "12345"
+                        "--override.terminaltotaldifficultypassed"
+                        "true"
+                        "--override.terminalblockhash"
+                        "0x3333333333333333333333333333333333333333333333333333333333333333"
+                        "--override.terminalblocknumber"
+                        "66"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -7039,7 +7089,7 @@
                     (engine-notification-body
                       "{\"jsonrpc\":\"2.0\",\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     (engine-transition-body
-                      "{\"jsonrpc\":\"2.0\",\"id\":515,\"method\":\"engine_exchangeTransitionConfigurationV1\",\"params\":[{\"terminalTotalDifficulty\":\"0x0\",\"terminalBlockHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"terminalBlockNumber\":\"0x0\"}]}")
+                      "{\"jsonrpc\":\"2.0\",\"id\":515,\"method\":\"engine_exchangeTransitionConfigurationV1\",\"params\":[{\"terminalTotalDifficulty\":\"0x3039\",\"terminalBlockHash\":\"0x3333333333333333333333333333333333333333333333333333333333333333\",\"terminalBlockNumber\":\"0x42\"}]}")
                     (engine-public-body
                       "{\"jsonrpc\":\"2.0\",\"id\":507,\"method\":\"eth_chainId\",\"params\":[]}")
                     (engine-capabilities-body
@@ -7472,15 +7522,15 @@
                               (devnet-cli-http-body
                                engine-notification-response)))
                  (is (= 515 (fixture-object-field engine-transition-json "id")))
-                 (is (string= "0x0"
+                 (is (string= "0x3039"
                               (fixture-object-field
                                engine-transition-result
                                "terminalTotalDifficulty")))
-                 (is (string= "0x0000000000000000000000000000000000000000000000000000000000000000"
+                 (is (string= "0x3333333333333333333333333333333333333333333333333333333333333333"
                               (fixture-object-field
                                engine-transition-result
                                "terminalBlockHash")))
-                 (is (string= "0x0"
+                 (is (string= "0x42"
                               (fixture-object-field
                                engine-transition-result
                                "terminalBlockNumber")))

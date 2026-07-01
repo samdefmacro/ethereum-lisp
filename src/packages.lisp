@@ -276,6 +276,8 @@
    #:chain-config-enable-ubt-at-genesis-p
    #:chain-config-terminal-total-difficulty
    #:chain-config-terminal-total-difficulty-passed
+   #:chain-config-terminal-block-hash
+   #:chain-config-terminal-block-number
    #:chain-config-merge-netsplit-block
    #:chain-config-deposit-contract-address
    #:chain-config-custom-blob-schedule
@@ -1251,6 +1253,8 @@
    #:chain-config-enable-ubt-at-genesis-p
    #:chain-config-terminal-total-difficulty
    #:chain-config-terminal-total-difficulty-passed
+   #:chain-config-terminal-block-hash
+   #:chain-config-terminal-block-number
    #:chain-config-merge-netsplit-block
    #:chain-config-deposit-contract-address
    #:chain-config-custom-blob-schedule
@@ -2151,6 +2155,8 @@
    #:chain-config-enable-ubt-at-genesis-p
    #:chain-config-terminal-total-difficulty
    #:chain-config-terminal-total-difficulty-passed
+   #:chain-config-terminal-block-hash
+   #:chain-config-terminal-block-number
    #:chain-config-merge-netsplit-block
    #:chain-config-deposit-contract-address
    #:chain-config-custom-blob-schedule

@@ -397,8 +397,13 @@
   (list (cons "terminalTotalDifficulty"
               (quantity-to-hex
                (or (chain-config-terminal-total-difficulty config) 0)))
-        (cons "terminalBlockHash" (hash32-to-hex (zero-hash32)))
-        (cons "terminalBlockNumber" (quantity-to-hex 0))))
+        (cons "terminalBlockHash"
+              (hash32-to-hex
+               (or (chain-config-terminal-block-hash config)
+                   (zero-hash32))))
+        (cons "terminalBlockNumber"
+              (quantity-to-hex
+               (or (chain-config-terminal-block-number config) 0)))))
 
 (defun engine-rpc-new-payload-version (method)
   (cond

@@ -14092,15 +14092,21 @@
 (deftest engine-rpc-exchange-transition-configuration-returns-local-config
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
-    (let* ((config (make-chain-config :terminal-total-difficulty 12345))
+    (let* ((terminal-block-hash
+             (hash32-from-hex
+              "0x1111111111111111111111111111111111111111111111111111111111111111"))
+           (config (make-chain-config
+                    :terminal-total-difficulty 12345
+                    :terminal-block-hash terminal-block-hash
+                    :terminal-block-number 66))
            (request-json
              (concatenate
               'string
               "{\"jsonrpc\":\"2.0\",\"id\":15,"
               "\"method\":\"engine_exchangeTransitionConfigurationV1\","
               "\"params\":[{\"terminalTotalDifficulty\":\"0x3039\","
-              "\"terminalBlockHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\","
-              "\"terminalBlockNumber\":\"0x0\"}]}"))
+              "\"terminalBlockHash\":\"0x1111111111111111111111111111111111111111111111111111111111111111\","
+              "\"terminalBlockNumber\":\"0x42\"}]}"))
            (response
              (parse-json
               (engine-rpc-handle-request-json
@@ -14110,9 +14116,9 @@
            (result (field response "result")))
       (is (= 15 (field response "id")))
       (is (string= "0x3039" (field result "terminalTotalDifficulty")))
-      (is (string= (hash32-to-hex (zero-hash32))
+      (is (string= (hash32-to-hex terminal-block-hash)
                    (field result "terminalBlockHash")))
-      (is (string= "0x0" (field result "terminalBlockNumber"))))
+      (is (string= "0x42" (field result "terminalBlockNumber"))))
     (let* ((response
              (parse-json
               (engine-rpc-handle-request-json

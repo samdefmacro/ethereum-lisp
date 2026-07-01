@@ -548,16 +548,26 @@ ones.
     invocation with those flags so Hive/geth-shaped runner templates reach
     the split Engine/public process instead of failing during argument parse.
 - [x] `DEVNET-RUNNER-MERGE-OVERRIDE-FLAGS`: Accept common geth/Hive Merge
-  transition override launch flags without changing the current genesis-driven
-  transition configuration.
+  transition override launch flags.
   - Result (2026-07-01): the shared devnet/init option table now consumes
     `--override.terminaltotaldifficulty`,
     `--override.terminaltotaldifficultypassed`,
     `--override.terminalblockhash`, and `--override.terminalblocknumber` as
-    compatibility no-op runner flags. CLI coverage locks a no-serve devnet
+    runner flags. CLI coverage locks a no-serve devnet
     invocation, help discovery, malformed boolean rejection, missing-value
     diagnostics, and a runner-facing init subprocess launched with the same
     override flags.
+- [x] `DEVNET-RUNNER-MERGE-OVERRIDE-CONFIG`: Route geth/Hive Merge transition
+  override flags into the local Engine transition-configuration handshake.
+  - Result (2026-07-01): `devnet` now applies
+    `--override.terminaltotaldifficulty`,
+    `--override.terminaltotaldifficultypassed`,
+    `--override.terminalblockhash`, and `--override.terminalblocknumber` to
+    the node chain config before listener construction, and
+    `engine_exchangeTransitionConfigurationV1` returns the configured terminal
+    total difficulty, terminal block hash, and terminal block number. Coverage
+    includes direct Engine RPC config tests, CLI parser-to-node config tests,
+    and the external `scripts/ethereum-lisp.lisp` serve-mode process test.
 - [x] `DEVNET-RUNNER-PROCESS-ENTRYPOINT`: Add a runner-facing process script
   entrypoint for the devnet CLI.
   - Result (2026-06-28): added `scripts/ethereum-lisp.lisp`, which loads the

@@ -228,13 +228,26 @@
        public-cors-origins
        engine-vhosts
        public-vhosts
+       terminal-total-difficulty
+       terminal-total-difficulty-passed
+       terminal-total-difficulty-passed-specified-p
+       terminal-block-hash
+       terminal-block-number
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (and genesis-path (stringp genesis-path))
     (error "Devnet node requires a genesis JSON path"))
   (unless (functionp public-allowed-method-p)
     (error "Devnet public RPC method filter must be a function"))
-  (let* ((config (chain-config-from-genesis-json-file genesis-path))
+  (let* ((config
+           (devnet-cli-apply-merge-overrides
+            (chain-config-from-genesis-json-file genesis-path)
+            :terminal-total-difficulty terminal-total-difficulty
+            :terminal-total-difficulty-passed terminal-total-difficulty-passed
+            :terminal-total-difficulty-passed-specified-p
+            terminal-total-difficulty-passed-specified-p
+            :terminal-block-hash terminal-block-hash
+            :terminal-block-number terminal-block-number))
          (state (state-db-from-genesis-json-file genesis-path))
          (genesis-block
            (genesis-block-from-state-genesis-json-file genesis-path
@@ -308,6 +321,26 @@
                          (copy-list engine-vhosts))
      :public-vhosts (and public-vhosts
                          (copy-list public-vhosts)))))
+
+(defun devnet-cli-apply-merge-overrides
+    (config &key terminal-total-difficulty
+                  terminal-total-difficulty-passed
+                  terminal-total-difficulty-passed-specified-p
+                  terminal-block-hash
+                  terminal-block-number)
+  (unless (typep config 'chain-config)
+    (error "Devnet Merge overrides require a chain config"))
+  (when terminal-total-difficulty
+    (setf (chain-config-terminal-total-difficulty config)
+          terminal-total-difficulty))
+  (when terminal-total-difficulty-passed-specified-p
+    (setf (chain-config-terminal-total-difficulty-passed config)
+          terminal-total-difficulty-passed))
+  (when terminal-block-hash
+    (setf (chain-config-terminal-block-hash config) terminal-block-hash))
+  (when terminal-block-number
+    (setf (chain-config-terminal-block-number config) terminal-block-number))
+  config)
 
 (defun devnet-node-prune-state-before (node block-number)
   (unless (typep node 'devnet-node)
@@ -665,6 +698,31 @@
       (error "~A must be non-negative" option))
     integer))
 
+(defun devnet-cli-hex-quantity-token-p (value)
+  (and (stringp value)
+       (<= 2 (length value))
+       (char= #\0 (char value 0))
+       (char= #\x (char-downcase (char value 1)))))
+
+(defun devnet-cli-parse-non-negative-quantity (value option)
+  (let ((quantity
+          (handler-case
+              (if (devnet-cli-hex-quantity-token-p value)
+                  (hex-to-quantity value)
+                  (parse-integer value :junk-allowed nil))
+            (error ()
+              (error "~A requires a non-negative integer or hex quantity"
+                     option)))))
+    (when (minusp quantity)
+      (error "~A must be non-negative" option))
+    quantity))
+
+(defun devnet-cli-parse-hash32 (value option)
+  (handler-case
+      (hash32-from-hex value)
+    (error ()
+      (error "~A requires a 32-byte hex hash" option))))
+
 (defun devnet-cli-parse-http-api-list (value option)
   (let ((modules
           (loop for raw in (uiop:split-string value :separator ",")
@@ -734,6 +792,11 @@
         (http-vhosts nil)
         (state-prune-before nil)
         (max-connections nil)
+        (terminal-total-difficulty nil)
+        (terminal-total-difficulty-passed nil)
+        (terminal-total-difficulty-passed-specified-p nil)
+        (terminal-block-hash nil)
+        (terminal-block-number nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -817,6 +880,30 @@
                     (devnet-cli-next-value args option)
                   (setf max-connections
                         (devnet-cli-parse-non-negative-integer value option)
+                        args rest)))
+               ((string= option "--override.terminaltotaldifficulty")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf terminal-total-difficulty
+                        (devnet-cli-parse-non-negative-quantity value option)
+                        args rest)))
+               ((string= option "--override.terminaltotaldifficultypassed")
+                (multiple-value-bind (enabled-p rest)
+                    (devnet-cli-optional-boolean-value args option)
+                  (setf terminal-total-difficulty-passed enabled-p
+                        terminal-total-difficulty-passed-specified-p t
+                        args rest)))
+               ((string= option "--override.terminalblockhash")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf terminal-block-hash
+                        (devnet-cli-parse-hash32 value option)
+                        args rest)))
+               ((string= option "--override.terminalblocknumber")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf terminal-block-number
+                        (devnet-cli-parse-non-negative-quantity value option)
                         args rest)))
                ((string= option "--http")
                 (setf args
@@ -907,6 +994,12 @@
           :http-cors-origins http-cors-origins
           :engine-vhosts engine-vhosts
           :http-vhosts http-vhosts
+          :terminal-total-difficulty terminal-total-difficulty
+          :terminal-total-difficulty-passed terminal-total-difficulty-passed
+          :terminal-total-difficulty-passed-specified-p
+          terminal-total-difficulty-passed-specified-p
+          :terminal-block-hash terminal-block-hash
+          :terminal-block-number terminal-block-number
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1395,6 +1488,17 @@
                              (getf options :engine-vhosts)
                              :public-vhosts
                              (getf options :http-vhosts)
+                             :terminal-total-difficulty
+                             (getf options :terminal-total-difficulty)
+                             :terminal-total-difficulty-passed
+                             (getf options :terminal-total-difficulty-passed)
+                             :terminal-total-difficulty-passed-specified-p
+                             (getf options
+                                   :terminal-total-difficulty-passed-specified-p)
+                             :terminal-block-hash
+                             (getf options :terminal-block-hash)
+                             :terminal-block-number
+                             (getf options :terminal-block-number)
                              :public-allowed-method-p
                              (devnet-cli-public-api-method-filter
                               (getf options :http-api-modules))

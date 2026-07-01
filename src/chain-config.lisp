@@ -59,6 +59,8 @@
                                    enable-ubt-at-genesis-p
                                    terminal-total-difficulty
                                    terminal-total-difficulty-passed
+                                   terminal-block-hash
+                                   terminal-block-number
                                    merge-netsplit-block
                                    deposit-contract-address
                                    custom-blob-schedule)))
@@ -92,6 +94,8 @@
   enable-ubt-at-genesis-p
   terminal-total-difficulty
   terminal-total-difficulty-passed
+  terminal-block-hash
+  terminal-block-number
   merge-netsplit-block
   deposit-contract-address
   custom-blob-schedule)

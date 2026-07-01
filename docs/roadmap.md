@@ -1205,7 +1205,8 @@ first pass, but interfaces must not block that path.
   `--rpc.batch-response-max-size`), Merge transition override flags
   (`--override.terminaltotaldifficulty`,
   `--override.terminaltotaldifficultypassed`,
-  `--override.terminalblockhash`, and `--override.terminalblocknumber`),
+  `--override.terminalblockhash`, and `--override.terminalblocknumber`, which
+  now configure the local `engine_exchangeTransitionConfigurationV1` response),
   `--state.scheme`, `--db.engine`,
   `--datadir.ancient`, `--dev`, `--dev.period`, `--dev.gaslimit`, and
   `--nousb`. Geth/Hive node-key, discovery,
@@ -1278,8 +1279,9 @@ first pass, but interfaces must not block that path.
   point-proof and blob-proof verifier hooks are present, so Hive-style runners
   do not negotiate Cancun payloads against a shape-only verifier. It also probes
   `engine_exchangeTransitionConfigurationV1` through the same authenticated
-  listener and reports the returned terminal total difficulty, block hash, and
-  block number for consensus-client handshake checks. A runner-facing
+  listener and reports the configured terminal total difficulty, block hash,
+  and block number for consensus-client handshake checks, including geth/Hive
+  Merge override flags supplied at process launch. A runner-facing
   `scripts/ethereum-lisp.lisp` script now provides a
   stable `sbcl --script` process entrypoint for the devnet CLI without writing
   ASDF fasl cache files, and subprocess coverage verifies both help discovery
