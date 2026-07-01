@@ -909,6 +909,15 @@ ones.
     templates from failing before the supported split Engine/public devnet
     process starts. CLI coverage verifies a geth-shaped no-serve invocation and
     malformed boolean/missing-value failures.
+- [x] `DEVNET-RUNNER-DEV-MODE-NOOP-FLAGS`: Accept geth dev-mode subflags that
+  commonly accompany `--dev` in local runner templates.
+  - Result (2026-07-01): the shared devnet/init option table now consumes
+    `--dev.period` and `--dev.gaslimit` as compatibility no-op value flags.
+    These options do not alter the current genesis-driven block timing or gas
+    limit behavior; they let geth-shaped development-network launch and
+    datadir-initialization templates reach the split Engine/public process
+    instead of failing during argument parsing. CLI coverage locks successful
+    devnet and init parsing plus missing-value diagnostics.
 - [x] `DEVNET-RUNNER-PUBLIC-API-REPORTING`: Report geth/Hive-style public RPC
   module allowlists in runner-visible devnet startup artifacts.
   - Result (2026-06-28): devnet nodes now preserve the parsed `--http.api`

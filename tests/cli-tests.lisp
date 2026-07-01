@@ -2889,6 +2889,37 @@
                    (fixture-object-field summary "rpcEndpoint")))
       (is (eq nil (fixture-object-field summary "authRequired"))))))
 
+(deftest devnet-cli-main-accepts-geth-style-dev-mode-flags
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  (format nil "--genesis=~A" +devnet-cli-genesis-fixture+)
+                  "--dev=true"
+                  "--dev.period=1"
+                  "--dev.gaslimit"
+                  "30000000"
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (string= "127.0.0.1:8551"
+                   (fixture-object-field summary "engineEndpoint")))
+      (is (string= "127.0.0.1:8545"
+                   (fixture-object-field summary "rpcEndpoint")))))
+  (let ((init-options
+          (ethereum-lisp.cli::devnet-cli-init-options
+           (list "init"
+                 "--dev=true"
+                 "--dev.period=1"
+                 "--dev.gaslimit"
+                 "30000000"
+                 "--json=false"))))
+    (is (eq :sexp (getf init-options :summary-format)))))
+
 (deftest devnet-cli-main-accepts-geth-style-rpc-limit-flags
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))
@@ -12352,6 +12383,14 @@
     (is (search "--txpool.pricebump requires a value"
                 (run-error (list "devnet"
                                  "--txpool.pricebump"
+                                 "--no-serve"))))
+    (is (search "--dev.period requires a value"
+                (run-error (list "devnet"
+                                 "--dev.period"
+                                 "--no-serve"))))
+    (is (search "--dev.gaslimit requires a value"
+                (run-error (list "devnet"
+                                 "--dev.gaslimit"
                                  "--no-serve"))))
     (is (search "--db.engine requires a value"
                 (run-error (list "devnet"

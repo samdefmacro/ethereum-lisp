@@ -1205,7 +1205,8 @@ first pass, but interfaces must not block that path.
   `--override.terminaltotaldifficultypassed`,
   `--override.terminalblockhash`, and `--override.terminalblocknumber`),
   `--state.scheme`, `--db.engine`,
-  `--datadir.ancient`, `--dev`, and `--nousb`. Geth/Hive node-key, discovery,
+  `--datadir.ancient`, `--dev`, `--dev.period`, `--dev.gaslimit`, and
+  `--nousb`. Geth/Hive node-key, discovery,
   network-restriction, and IPC path
   options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,
   `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as
