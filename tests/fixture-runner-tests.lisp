@@ -167,6 +167,102 @@
                          modulus-length
                          ctz))))))
 
+(defun phase-a-eest-blake2f-state-test-v5.4.0-case-names ()
+  (let ((base-prefix
+          "istanbul/eip152_blake2/test_blake2b.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b")
+        (gas-prefix
+          "istanbul/eip152_blake2/test_blake2b_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_gas_limit")
+        (invalid-gas-prefix
+          "istanbul/eip152_blake2/test_blake2b_invalid_gas.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_invalid_gas")
+        (large-gas-prefix
+          "istanbul/eip152_blake2/test_blake2b_large_gas_limit.json/tests/istanbul/eip152_blake2/test_blake2.py::test_blake2b_large_gas_limit"))
+    (loop for fork in '("London" "Shanghai")
+          nconc
+          (append
+           (list
+            (format nil
+                    "istanbul/eip152_blake2/test_blake2_precompile_delegatecall.json/tests/istanbul/eip152_blake2/test_blake2_delegatecall.py::test_blake2_precompile_delegatecall[fork_~A-state_test]"
+                    fork))
+           (loop for name in '("EIP-152-RFC-7693-zero-input"
+                               "empty-input"
+                               "invalid-final-block-flag-value-0x02"
+                               "invalid-rounds-length-long"
+                               "invalid-rounds-length-short"
+                               "oog-rounds-4294967295"
+                               "valid-different-message-offset-0x05"
+                               "valid-false-final-block-flag"
+                               "valid-rounds-0"
+                               "valid-rounds-1"
+                               "valid-rounds-1024"
+                               "valid-rounds-1024-offset-0x10"
+                               "valid-rounds-12"
+                               "valid-rounds-128"
+                               "valid-rounds-128-offset-0x10"
+                               "valid-rounds-16"
+                               "valid-rounds-16-offset-0x10"
+                               "valid-rounds-16-offset-0x78"
+                               "valid-rounds-256"
+                               "valid-rounds-256-offset-0x10"
+                               "valid-rounds-32"
+                               "valid-rounds-32-offset-0x10"
+                               "valid-rounds-32-offset-0x78"
+                               "valid-rounds-512"
+                               "valid-rounds-512-offset-0x10"
+                               "valid-rounds-64"
+                               "valid-rounds-64-offset-0x10"
+                               "valid-rounds-64-offset-0x78")
+                 collect
+                 (format nil
+                         "~A[fork_~A-state_test-~A-call_opcode_CALL]"
+                         base-prefix
+                         fork
+                         name))
+           (loop for gas-limit in '("0x07270e00" "110000" "200000" "90000")
+                 nconc
+                 (loop for name in '("EIP-152-case3-data4-gas-limit"
+                                     "EIP-152-case4-data5-gas-limit"
+                                     "EIP-152-case5-data6-gas-limit"
+                                     "EIP-152-case6-data7-gas-limit"
+                                     "EIP-152-case7-data8-gas-limit")
+                       nconc
+                       (loop for call-opcode in '("CALLCODE" "CALL")
+                             collect
+                             (format nil
+                                     "~A[fork_~A-gas_limit_~A-state_test-~A-call_opcode_~A]"
+                                     gas-prefix
+                                     fork
+                                     gas-limit
+                                     name
+                                     call-opcode))))
+           (loop for data in '("data0" "data1" "data10" "data2" "data3" "data9")
+                 nconc
+                 (loop for gas-limit in '("110000" "200000" "90000")
+                       nconc
+                       (loop for call-opcode in '("CALLCODE" "CALL")
+                             collect
+                             (format nil
+                                     "~A[fork_~A-state_test-EIP-152-case1-~A-invalid-low-gas-gas_limit_~A-call_opcode_~A]"
+                                     invalid-gas-prefix
+                                     fork
+                                     data
+                                     gas-limit
+                                     call-opcode))))
+           (loop for name in '("EIP-152-case0-data0-large-gas-limit"
+                               "EIP-152-case2-data1-large-gas-limit"
+                               "EIP-152-case2-data2-large-gas-limit"
+                               "EIP-152-case2-data3-large-gas-limit"
+                               "EIP-152-case9-data10-large-gas-limit"
+                               "EIP-152-modified-case8-data9-large-gas-limit")
+                 nconc
+                 (loop for call-opcode in '("CALLCODE" "CALL")
+                       collect
+                       (format nil
+                               "~A[fork_~A-gas_limit_0x07270e00-state_test-~A-call_opcode_~A]"
+                               large-gas-prefix
+                               fork
+                               name
+                               call-opcode)))))))
+
 (defparameter +phase-a-eest-state-test-v5.4.0-case-names+
   (append
    '("berlin/eip2930_access_list/test_account_storage_warm_cold_state.json/tests/berlin/eip2930_access_list/test_acl.py::test_account_storage_warm_cold_state[fork_London-state_test-account_warm_False-storage_key_warm_False]"
@@ -265,7 +361,8 @@
     "shanghai/eip3651_warm_coinbase/test_warm_coinbase_gas_usage.json/tests/shanghai/eip3651_warm_coinbase/test_warm_coinbase.py::test_warm_coinbase_gas_usage[fork_Shanghai-state_test-STATICCALL]")
    (phase-a-eest-create2-returndata-state-test-v5.4.0-case-names)
    (phase-a-eest-call-large-offset-state-test-v5.4.0-case-names)
-   (phase-a-eest-modexp-state-test-v5.4.0-case-names)))
+   (phase-a-eest-modexp-state-test-v5.4.0-case-names)
+   (phase-a-eest-blake2f-state-test-v5.4.0-case-names)))
 
 (defconstant +phase-a-eest-blockchain-replay-selectors-env+
   "ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS")

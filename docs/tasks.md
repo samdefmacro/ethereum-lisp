@@ -1759,6 +1759,23 @@ ones.
     covers 230 official state selectors, 53 official Prague/EIP-7702 invalid
     transaction cases, and 200 official Shanghai `engineNewPayloadV2`
     blockchain selectors, for 483 total executed fixture cases.
+- [x] `PINNED-V5.4.0-STATE-BLAKE2F-WIDEN`: Convert the classified official
+  Istanbul BLAKE2F state-test families into stable pinned Phase A guards.
+  - Result (2026-07-01): the state selector table now generates and pins all
+    234 London/Shanghai `istanbul/eip152_blake2` state selectors covering the
+    BLAKE2F delegatecall boundary, base input/output cases, malformed final
+    block and rounds length cases, exact and low gas-limit combinations, and
+    large gas-limit cases across CALL and CALLCODE. The targeted classifier
+    reports 234/234 passing against the installed v5.4.0 fixture root with no
+    known-implementation-drift, implementation-bug, harness-error, or
+    out-of-scope records. The pinned v5.4.0 smoke gate now covers 464 official
+    state selectors, 53 official Prague/EIP-7702 invalid transaction cases,
+    and 200 official Shanghai `engineNewPayloadV2` blockchain selectors, for
+    717 total executed fixture cases. A refreshed consolidated drift map
+    classifies the remaining 696 candidates as 481 state selectors passing,
+    162 blockchain replay selectors passing, and 53 Prague/EIP-7702
+    transaction selectors out of scope, with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
 - [x] `PHASE-A-V5.4.0-DRIFT-MAP`: Add a consolidated official-fixture drift
   map runner so automation can classify remaining materializable selectors
   before widening pinned coverage.

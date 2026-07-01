@@ -1741,6 +1741,17 @@ Detailed historical implementation notes for this section now live in
   `prague/eip7702_set_code_tx` families, all classified out-of-scope for the
   current Phase A valid-envelope contract with no implementation-bug-candidate
   or fixture-harness-error records.
+  The pinned state-transition table now also includes all 234
+  London/Shanghai BLAKE2F state selectors from
+  `istanbul/eip152_blake2`, covering delegatecall, base input/output,
+  malformed final-block and rounds-length inputs, exact/low gas-limit
+  combinations, and large gas-limit CALL/CALLCODE cases. The pinned smoke gate
+  now executes 717 total fixture cases across state, transaction, and
+  blockchain suites. A refreshed consolidated v5.4.0 drift map classifies the
+  remaining 696 current candidates as 481 unpinned state selectors passing,
+  162 unpinned blockchain replay selectors passing, and 53 Prague/EIP-7702
+  transaction selectors out of scope, with zero known implementation drift,
+  implementation-bug-candidate, or fixture-harness-error records.
   `scripts/phase-a-drift-map.lisp` now consolidates the state, transaction,
   and blockchain classifiers into one drift-map runner with canonical buckets
   for passing, known implementation drift, out-of-scope fork/feature, and
