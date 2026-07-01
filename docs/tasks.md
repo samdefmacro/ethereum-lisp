@@ -620,6 +620,15 @@ ones.
     registered and before the serve threads start. Coverage verifies both the
     Engine and public listeners close while the callback error still surfaces
     to the caller.
+- [x] `DEVNET-RUNNER-READY-FILE-ERROR-TELEMETRY`: Lock the external process
+  contract when runner readiness artifact publication fails after listeners
+  bind.
+  - Result (2026-07-01): runner-facing `scripts/ethereum-lisp.lisp`
+    subprocess coverage now launches serve mode with random Engine/public
+    ports and an unusable ready-file directory path, verifies startup exits
+    with status 1, leaves stdout empty, preserves the child pid artifact, and
+    records exactly one `devnet.error` log record with no `devnet.ready` or
+    `devnet.shutdown` lifecycle records.
 - [x] `DEVNET-RUNNER-BIND-FAILURE-TELEMETRY`: Keep runner-facing lifecycle
   telemetry unambiguous when listener startup fails before readiness.
   - Result (2026-06-29): serve-mode CLI cleanup now emits `devnet.shutdown`

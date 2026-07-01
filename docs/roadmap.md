@@ -1049,7 +1049,9 @@ first pass, but interfaces must not block that path.
   foreground public listener, and reports the Engine error to the caller.
   Readiness artifact publication failures after both listeners register now
   also request coordinated shutdown, closing both listeners before surfacing
-  the callback error. The
+  the callback error; the runner-facing script process now locks that path by
+  verifying an unusable ready-file path exits with status 1, preserves the pid
+  artifact, and emits only `devnet.error` telemetry. The
   standalone devnet gate now also
   reports concrete HTTP loopback `engineEndpoint` / `rpcEndpoint` values and
   validates that ready files and lifecycle telemetry carry those same endpoints
