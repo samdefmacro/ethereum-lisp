@@ -1498,6 +1498,15 @@ ones.
     `eth_getHeaderByNumber("pending")` expose the displaced child transaction
     as pending with null committed block-location fields and parent hash set
     to the replacement head.
+- [x] `DEVNET-RUNNER-SCRIPT-REORG-PENDING-NONCE`: Lock pending sender nonce
+  visibility for displaced transactions after a same-height reorg at the
+  external script process boundary.
+  - Result (2026-07-01): the same runner-facing import subprocess now also
+    calls `eth_getTransactionCount(SENDER, "pending")` after the side-sibling
+    forkchoice replacement. It verifies the displaced child transaction
+    advances the public pending sender nonce to the same post-child nonce
+    expected before the reorg, with shutdown telemetry updated for the extra
+    public request.
 - [x] `DEVNET-RUNNER-PHASE-A-WRAPPER-OPTION-EQUALS`: Keep the outer Phase A
   devnet smoke-gate wrapper compatible with geth/Hive-style option assignment
   syntax.

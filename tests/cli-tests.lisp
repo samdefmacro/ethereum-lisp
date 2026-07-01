@@ -9054,7 +9054,15 @@
                    (list (cons "jsonrpc" "2.0")
                          (cons "id" 659)
                          (cons "method" "eth_getHeaderByNumber")
-                         (cons "params" (list "pending"))))))
+                         (cons "params" (list "pending")))))
+                (post-reorg-pending-sender-nonce-body
+                  (json-encode
+                   (list (cons "jsonrpc" "2.0")
+                         (cons "id" 660)
+                         (cons "method" "eth_getTransactionCount")
+                         (cons "params"
+                               (list (address-to-hex sender)
+                                     "pending"))))))
            (devnet-cli-write-temp-file
             genesis-path
             (json-encode
@@ -9094,7 +9102,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "49"
+                        "50"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -9184,6 +9192,7 @@
                     post-reorg-pending-raw-transaction-by-index-response
                     post-reorg-pending-block-response
                     post-reorg-pending-header-response
+                    post-reorg-pending-sender-nonce-response
                     block-filter-id
                     log-filter-id)
                (is (= pid (fixture-object-field ready-summary "processId")))
@@ -9532,6 +9541,11 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              post-reorg-pending-header-body)))
+                     (setf post-reorg-pending-sender-nonce-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             post-reorg-pending-sender-nonce-body)))
                      (let ((post-reorg-block-filter-changes-body
                              (json-encode
                               (list
@@ -9657,6 +9671,8 @@
                             post-reorg-pending-block-response)))
                (is (= 200 (devnet-cli-http-status
                             post-reorg-pending-header-response)))
+               (is (= 200 (devnet-cli-http-status
+                            post-reorg-pending-sender-nonce-response)))
                (let* ((new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
@@ -9735,6 +9751,10 @@
                         (parse-json
                          (devnet-cli-http-body
                           post-reorg-pending-header-response)))
+                      (post-reorg-pending-sender-nonce-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          post-reorg-pending-sender-nonce-response)))
                       (block-number-rpc
                         (parse-json
                          (devnet-cli-http-body block-number-response)))
@@ -9928,6 +9948,9 @@
                       (post-reorg-pending-header
                         (fixture-object-field
                          post-reorg-pending-header-rpc "result"))
+                      (post-reorg-pending-sender-nonce
+                        (fixture-object-field
+                         post-reorg-pending-sender-nonce-rpc "result"))
                       (post-reorg-pending-block-transactions
                         (fixture-object-field
                          post-reorg-pending-block "transactions"))
@@ -10103,6 +10126,8 @@
                               post-reorg-pending-block-rpc "id")))
                  (is (= 659 (fixture-object-field
                               post-reorg-pending-header-rpc "id")))
+                 (is (= 660 (fixture-object-field
+                              post-reorg-pending-sender-nonce-rpc "id")))
                  (is (= 615 (fixture-object-field
                               post-status-block-number-rpc "id")))
                  (is (= 616 (fixture-object-field
@@ -10282,6 +10307,8 @@
                  (is (string= side-sibling-block-hash-hex
                               (fixture-object-field
                                post-reorg-pending-header "parentHash")))
+                 (is (string= (fixture-object-field expect "senderNonce")
+                              post-reorg-pending-sender-nonce))
                  (is (null (fixture-object-field
                             post-reorg-receipt-rpc "result")))
                  (is (null post-reorg-logs))
@@ -10570,11 +10597,11 @@
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "49"
+                       (is (string= "50"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "59"
+                       (is (string= "60"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))))))))))
