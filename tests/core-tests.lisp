@@ -14119,12 +14119,79 @@
       (is (string= (hash32-to-hex terminal-block-hash)
                    (field result "terminalBlockHash")))
       (is (string= "0x42" (field result "terminalBlockNumber"))))
-    (let* ((response
+    (let* ((terminal-block-hash
+             (hash32-from-hex
+              "0x1111111111111111111111111111111111111111111111111111111111111111"))
+           (config (make-chain-config
+                    :terminal-total-difficulty 12345
+                    :terminal-block-hash terminal-block-hash
+                    :terminal-block-number 66))
+           (response
              (parse-json
               (engine-rpc-handle-request-json
                (concatenate
                 'string
                 "{\"jsonrpc\":\"2.0\",\"id\":16,"
+                "\"method\":\"engine_exchangeTransitionConfigurationV1\","
+                "\"params\":[{\"terminalTotalDifficulty\":\"0x3039\","
+                "\"terminalBlockHash\":\"0x1111111111111111111111111111111111111111111111111111111111111111\","
+                "\"terminalBlockNumber\":\"0x43\"}]}")
+               (make-engine-payload-memory-store)
+               config)))
+           (result (field response "result")))
+      (is (= 16 (field response "id")))
+      (is (string= "0x3039" (field result "terminalTotalDifficulty")))
+      (is (string= (hash32-to-hex terminal-block-hash)
+                   (field result "terminalBlockHash")))
+      (is (string= "0x42" (field result "terminalBlockNumber"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":17,"
+                "\"method\":\"engine_exchangeTransitionConfigurationV1\","
+                "\"params\":[{\"terminalTotalDifficulty\":\"0x303a\","
+                "\"terminalBlockHash\":\"0x1111111111111111111111111111111111111111111111111111111111111111\","
+                "\"terminalBlockNumber\":\"0x42\"}]}")
+               (make-engine-payload-memory-store)
+               (make-chain-config
+                :terminal-total-difficulty 12345
+                :terminal-block-hash
+                (hash32-from-hex
+                 "0x1111111111111111111111111111111111111111111111111111111111111111")
+                :terminal-block-number 66))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code")))
+      (is (search "terminalTotalDifficulty mismatch"
+                  (field error "message"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":18,"
+                "\"method\":\"engine_exchangeTransitionConfigurationV1\","
+                "\"params\":[{\"terminalTotalDifficulty\":\"0x3039\","
+                "\"terminalBlockHash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\","
+                "\"terminalBlockNumber\":\"0x42\"}]}")
+               (make-engine-payload-memory-store)
+               (make-chain-config
+                :terminal-total-difficulty 12345
+                :terminal-block-hash
+                (hash32-from-hex
+                 "0x1111111111111111111111111111111111111111111111111111111111111111")
+                :terminal-block-number 66))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code")))
+      (is (search "terminalBlockHash mismatch"
+                  (field error "message"))))
+    (let* ((response
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "{\"jsonrpc\":\"2.0\",\"id\":19,"
                 "\"method\":\"engine_exchangeTransitionConfigurationV1\","
                 "\"params\":[{\"terminalTotalDifficulty\":\"bad\"}]}")
                (make-engine-payload-memory-store)

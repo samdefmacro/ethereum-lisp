@@ -486,20 +486,36 @@
              "engine_getClientVersionV1 client version fields must be strings"))))))
   (list (engine-rpc-client-version)))
 
-(defun engine-rpc-validate-transition-configuration (object)
+(defun engine-rpc-validate-transition-configuration (object config)
   (unless (json-object-p object)
     (block-validation-fail
      "engine_exchangeTransitionConfigurationV1 params must contain transition configuration object"))
-  (engine-rpc-required-quantity-field object "terminalTotalDifficulty")
-  (engine-rpc-required-hash32-field object "terminalBlockHash")
-  (engine-rpc-required-quantity-field object "terminalBlockNumber")
+  (unless (typep config 'chain-config)
+    (block-validation-fail
+     "engine_exchangeTransitionConfigurationV1 config must be chain-config"))
+  (let ((terminal-total-difficulty
+          (engine-rpc-required-quantity-field object
+                                              "terminalTotalDifficulty"))
+        (terminal-block-hash
+          (engine-rpc-required-hash32-field object "terminalBlockHash")))
+    (engine-rpc-required-quantity-field object "terminalBlockNumber")
+    (unless (= terminal-total-difficulty
+               (or (chain-config-terminal-total-difficulty config) 0))
+      (block-validation-fail
+       "engine_exchangeTransitionConfigurationV1 terminalTotalDifficulty mismatch"))
+    (unless (equalp (hash32-bytes terminal-block-hash)
+                    (hash32-bytes
+                     (or (chain-config-terminal-block-hash config)
+                         (zero-hash32))))
+      (block-validation-fail
+       "engine_exchangeTransitionConfigurationV1 terminalBlockHash mismatch")))
   t)
 
 (defun engine-rpc-handle-exchange-transition-configuration (params config)
   (unless params
     (block-validation-fail
      "engine_exchangeTransitionConfigurationV1 params must include transition configuration"))
-  (engine-rpc-validate-transition-configuration (first params))
+  (engine-rpc-validate-transition-configuration (first params) config)
   (engine-rpc-transition-configuration-object config))
 
 (defconstant +engine-rpc-error-unknown-payload+ -38001)

@@ -580,6 +580,15 @@ ones.
     report exposes the configured terminal total difficulty, terminal block
     hash, and terminal block number. CLI coverage runs the standalone gate
     with non-default override values.
+- [x] `DEVNET-ENGINE-TRANSITION-CONFIG-MISMATCH`: Reject mismatched Engine
+  transition-configuration handshakes and lock the standalone smoke report.
+  - Result (2026-07-01): `engine_exchangeTransitionConfigurationV1` now rejects
+    consensus-layer terminal total difficulty and terminal block hash mismatches
+    with invalid-params while still tolerating `terminalBlockNumber` drift per
+    the Engine API exception. The devnet smoke gate sends an authenticated
+    mismatched transition-configuration probe, requires the JSON-RPC error, and
+    exposes the error code/message in JSON and text reports for Hive-style
+    process-boundary readiness checks.
 - [x] `DEVNET-RUNNER-PROCESS-ENTRYPOINT`: Add a runner-facing process script
   entrypoint for the devnet CLI.
   - Result (2026-06-28): added `scripts/ethereum-lisp.lisp`, which loads the

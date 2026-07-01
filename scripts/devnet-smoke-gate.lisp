@@ -92,7 +92,7 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
 (defconstant +devnet-smoke-gate-engine-boundary-connections+ 3)
-(defconstant +devnet-smoke-gate-engine-workflow-connections+ 11)
+(defconstant +devnet-smoke-gate-engine-workflow-connections+ 12)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
@@ -6739,6 +6739,9 @@ references/ checkouts.~%")
                     (hash32-to-hex (or terminal-block-hash (zero-hash32))))
                   (expected-terminal-block-number
                     (quantity-to-hex (or terminal-block-number 0)))
+                  (mismatched-terminal-total-difficulty
+                    (quantity-to-hex
+                     (if (= 1 (or terminal-total-difficulty 0)) 2 1)))
                   (balance-address nil)
                   (expected-balance nil)
                   (balance-field nil)
@@ -6761,6 +6764,8 @@ references/ checkouts.~%")
                   (client-version-output (make-string-output-stream))
                   (capabilities-output (make-string-output-stream))
                   (transition-configuration-output
+                    (make-string-output-stream))
+                  (transition-configuration-mismatch-output
                     (make-string-output-stream))
                   (new-payload-output (make-string-output-stream))
                   (forkchoice-output (make-string-output-stream))
@@ -6951,6 +6956,23 @@ references/ checkouts.~%")
                                 (cons "terminalBlockNumber"
                                       expected-terminal-block-number))))))
                       transition-configuration-output)
+                     (cons
+                      (json-encode
+                       (list
+                        (cons "jsonrpc" "2.0")
+                        (cons "id" 28)
+                        (cons "method"
+                              "engine_exchangeTransitionConfigurationV1")
+                        (cons "params"
+                              (list
+                               (list
+                                (cons "terminalTotalDifficulty"
+                                      mismatched-terminal-total-difficulty)
+                                (cons "terminalBlockHash"
+                                      expected-terminal-block-hash)
+                                (cons "terminalBlockNumber"
+                                      expected-terminal-block-number))))))
+                      transition-configuration-mismatch-output)
                      (cons
                       (json-encode
                        (engine-fixture-payload-request 21 payload))
@@ -7477,6 +7499,9 @@ references/ checkouts.~%")
                       (transition-configuration-response
                         (get-output-stream-string
                          transition-configuration-output))
+                      (transition-configuration-mismatch-response
+                        (get-output-stream-string
+                         transition-configuration-mismatch-output))
                       (new-payload-response
                         (get-output-stream-string new-payload-output))
                       (unauthenticated-engine-response
@@ -7604,6 +7629,9 @@ references/ checkouts.~%")
                       (transition-configuration-rpc
                         (devnet-smoke-gate-rpc-body
                          transition-configuration-response))
+                      (transition-configuration-mismatch-rpc
+                        (devnet-smoke-gate-rpc-body
+                         transition-configuration-mismatch-response))
                       (new-payload-rpc
                         (devnet-smoke-gate-rpc-body new-payload-response))
                       (forkchoice-rpc
@@ -7738,6 +7766,9 @@ references/ checkouts.~%")
                       (transition-configuration-result
                         (fixture-object-field
                          transition-configuration-rpc "result"))
+                      (transition-configuration-mismatch-error
+                        (fixture-object-field
+                         transition-configuration-mismatch-rpc "error"))
                       (new-payload-result
                         (fixture-object-field new-payload-rpc "result"))
                       (forkchoice-status
@@ -7917,6 +7948,10 @@ references/ checkouts.~%")
                   (= 200 (devnet-cli-http-status
                           transition-configuration-response))
                   "engine_exchangeTransitionConfigurationV1 HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          transition-configuration-mismatch-response))
+                  "engine_exchangeTransitionConfigurationV1 mismatch HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status new-payload-response))
                   "engine_newPayloadV2 HTTP status mismatch")
@@ -8185,6 +8220,18 @@ references/ checkouts.~%")
                             transition-configuration-result
                             "terminalBlockNumber"))
                   "engine_exchangeTransitionConfigurationV1 terminalBlockNumber mismatch")
+                 (devnet-smoke-gate-require
+                  (= -32602
+                     (fixture-object-field
+                      transition-configuration-mismatch-error
+                      "code"))
+                  "engine_exchangeTransitionConfigurationV1 mismatch error code mismatch")
+                 (devnet-smoke-gate-require
+                  (search "terminalTotalDifficulty mismatch"
+                          (fixture-object-field
+                           transition-configuration-mismatch-error
+                           "message"))
+                  "engine_exchangeTransitionConfigurationV1 mismatch error message mismatch")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
@@ -8825,6 +8872,14 @@ references/ checkouts.~%")
                         (fixture-object-field
                          transition-configuration-result
                          "terminalBlockNumber"))
+                  (cons "engineTransitionMismatchErrorCode"
+                        (fixture-object-field
+                         transition-configuration-mismatch-error
+                         "code"))
+                  (cons "engineTransitionMismatchErrorMessage"
+                        (fixture-object-field
+                         transition-configuration-mismatch-error
+                         "message"))
                   (cons "publicEngineNamespaceErrorCode"
                         (fixture-object-field
                          (fixture-object-field
@@ -10942,6 +10997,12 @@ references/ checkouts.~%")
         (format t "engineTransitionTerminalBlockNumber=~A~%"
                 (devnet-smoke-gate-field
                  report "engineTransitionTerminalBlockNumber"))
+        (format t "engineTransitionMismatchErrorCode=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineTransitionMismatchErrorCode"))
+        (format t "engineTransitionMismatchErrorMessage=~A~%"
+                (devnet-smoke-gate-field
+                 report "engineTransitionMismatchErrorMessage"))
         (format t "publicClientVersion=~A~%"
                 (devnet-smoke-gate-field report "publicClientVersion"))
         (format t "publicNetVersion=~A~%"

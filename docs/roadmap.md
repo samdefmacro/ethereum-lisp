@@ -1284,7 +1284,10 @@ first pass, but interfaces must not block that path.
   Merge override flags supplied at process launch. The standalone devnet smoke
   gate can also be launched with those Merge override flags, forwards them into
   its spawned node, and asserts the authenticated transition-configuration
-  response reports the non-default terminal values. A runner-facing
+  response reports the non-default terminal values. The Engine handshake now
+  rejects terminal total difficulty and terminal block hash mismatches while
+  continuing to tolerate terminal block number drift, and the standalone smoke
+  report exposes that authenticated mismatch probe. A runner-facing
   `scripts/ethereum-lisp.lisp` script now provides a
   stable `sbcl --script` process entrypoint for the devnet CLI without writing
   ASDF fasl cache files, and subprocess coverage verifies both help discovery
