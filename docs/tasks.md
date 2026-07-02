@@ -7276,6 +7276,18 @@ splits can land after the Phase A smoke path closes.
     transition configuration plus mismatch error, keeps public `eth_chainId`
     available through `/rpc`, and updates shutdown telemetry to four Engine /
     four public requests.
+- [x] `DEVNET-RUNNER-NO-COMMAND-SPLIT-IMPORT-HANDSHAKE`: Carry the Engine
+  capability and transition-configuration handshake through the direct
+  geth/Hive-shaped split fixture-import process boundary.
+  - Result (2026-07-03): the no-command split fixture-genesis subprocess now
+    launches with non-default Merge transition override flags, performs
+    `engine_exchangeCapabilities`,
+    `engine_exchangeTransitionConfigurationV1`, and mismatch rejection over
+    `/engine` before importing `engine_newPayloadV2` and applying
+    forkchoice, keeps public block/balance/readiness RPCs available through
+    `/rpc`, exports the imported database, verifies direct no-command
+    `--no-serve` restore, and updates shutdown telemetry to five Engine /
+    five public requests.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

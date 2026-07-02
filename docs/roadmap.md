@@ -1338,6 +1338,13 @@ first pass, but interfaces must not block that path.
   `/engine`, rejects a terminal-total-difficulty mismatch, advertises the
   Shanghai-safe V1/V2 capability set, keeps `eth_chainId` reachable through
   `/rpc`, and records four Engine / four public shutdown requests.
+  The direct no-command split fixture-import path now performs that same
+  handshake before executable work: with a fixture-derived genesis and
+  database export enabled, it verifies capability advertisement, override-backed
+  transition configuration, mismatch rejection, `engine_newPayloadV2`,
+  `engine_forkchoiceUpdatedV2`, public retained-state reads, and direct
+  no-command `--no-serve` database restore, with five Engine / five public
+  shutdown requests.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

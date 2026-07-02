@@ -13641,6 +13641,8 @@
   (skip-test "Ethereum Lisp process script requires SBCL")
   #+sbcl
   (let* ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+         (terminal-block-hash
+           "0x5555555555555555555555555555555555555555555555555555555555555555")
          (case
            (select-engine-newpayload-v2-fixture-case
             +engine-newpayload-v2-fixture-path+
@@ -13654,6 +13656,45 @@
          (expect (fixture-object-field case "expect"))
          (recipient (fixture-address-field expect "recipient"))
          (block-hash-hex (hash32-to-hex (block-hash child-block)))
+         (capabilities-body
+           (json-encode
+            (list
+             (cons "jsonrpc" "2.0")
+             (cons "id" 819)
+             (cons "method" "engine_exchangeCapabilities")
+             (cons "params"
+                   (list
+                    (list
+                     "engine_newPayloadV1"
+                     "engine_forkchoiceUpdatedV1"
+                     "engine_getPayloadV1"
+                     "engine_newPayloadV2"
+                     "engine_forkchoiceUpdatedV2"
+                     "engine_getPayloadV2"))))))
+         (transition-configuration-body
+           (json-encode
+            (list
+             (cons "jsonrpc" "2.0")
+             (cons "id" 820)
+             (cons "method" "engine_exchangeTransitionConfigurationV1")
+             (cons "params"
+                   (list
+                    (list
+                     (cons "terminalTotalDifficulty" "0x3039")
+                     (cons "terminalBlockHash" terminal-block-hash)
+                     (cons "terminalBlockNumber" "0x42")))))))
+         (transition-configuration-mismatch-body
+           (json-encode
+            (list
+             (cons "jsonrpc" "2.0")
+             (cons "id" 825)
+             (cons "method" "engine_exchangeTransitionConfigurationV1")
+             (cons "params"
+                   (list
+                    (list
+                     (cons "terminalTotalDifficulty" "0x3038")
+                     (cons "terminalBlockHash" terminal-block-hash)
+                     (cons "terminalBlockNumber" "0x42")))))))
          (new-payload-body
            (json-encode (engine-fixture-payload-request 821 payload)))
          (forkchoice-body
@@ -13671,6 +13712,24 @@
                   (cons "params" '()))))
          (balance-body
            (json-encode (engine-fixture-balance-request 824 recipient)))
+         (net-version-body
+           (json-encode
+            (list (cons "jsonrpc" "2.0")
+                  (cons "id" 826)
+                  (cons "method" "net_version")
+                  (cons "params" '()))))
+         (client-version-body
+           (json-encode
+            (list (cons "jsonrpc" "2.0")
+                  (cons "id" 827)
+                  (cons "method" "web3_clientVersion")
+                  (cons "params" '()))))
+         (rpc-modules-body
+           (json-encode
+            (list (cons "jsonrpc" "2.0")
+                  (cons "id" 828)
+                  (cons "method" "rpc_modules")
+                  (cons "params" '()))))
          (genesis-path
            (devnet-cli-temp-path
             "ethereum-lisp-script-no-command-split-import-genesis" "json"))
@@ -13713,6 +13772,12 @@
                         (namestring jwt-path)
                         "--authrpc.rpcprefix"
                         "/engine"
+                        "--override.terminaltotaldifficulty"
+                        "0x3039"
+                        "--override.terminalblockhash"
+                        terminal-block-hash
+                        "--override.terminalblocknumber"
+                        "66"
                         "--http"
                         "--http.addr"
                         "127.0.0.1"
@@ -13729,7 +13794,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "2"
+                        "5"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -13760,10 +13825,16 @@
                       (fixture-object-field ready-summary "rpcEndpoint"))
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    capabilities-response
+                    transition-configuration-response
+                    transition-configuration-mismatch-response
                     new-payload-response
                     forkchoice-response
                     block-number-response
-                    balance-response)
+                    balance-response
+                    net-version-response
+                    client-version-response
+                    rpc-modules-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (stringp engine-endpoint))
                (is (stringp rpc-endpoint))
@@ -13778,6 +13849,27 @@
                       (fixture-object-field ready-summary "headNumber")))
                (handler-case
                    (progn
+                     (setf capabilities-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             capabilities-body
+                             :token token
+                             :target "/engine")))
+                     (setf transition-configuration-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transition-configuration-body
+                             :token token
+                             :target "/engine")))
+                     (setf transition-configuration-mismatch-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transition-configuration-mismatch-body
+                             :token token
+                             :target "/engine")))
                      (setf new-payload-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -13803,15 +13895,87 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              balance-body
+                             :target "/rpc")))
+                     (setf net-version-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             net-version-body
+                             :target "/rpc")))
+                     (setf client-version-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             client-version-body
+                             :target "/rpc")))
+                     (setf rpc-modules-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             rpc-modules-body
                              :target "/rpc"))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
-               (dolist (response (list new-payload-response
+               (dolist (response (list capabilities-response
+                                       transition-configuration-response
+                                       transition-configuration-mismatch-response
+                                       new-payload-response
                                        forkchoice-response
                                        block-number-response
-                                       balance-response))
+                                       balance-response
+                                       net-version-response
+                                       client-version-response
+                                       rpc-modules-response))
                  (is (= 200 (devnet-cli-http-status response))))
+               (let* ((capabilities-rpc
+                        (parse-json
+                         (devnet-cli-http-body capabilities-response)))
+                      (capabilities-result
+                        (fixture-object-field capabilities-rpc "result"))
+                      (transition-configuration-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transition-configuration-response)))
+                      (transition-configuration-result
+                        (fixture-object-field
+                         transition-configuration-rpc "result"))
+                      (transition-configuration-mismatch-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transition-configuration-mismatch-response)))
+                      (transition-configuration-mismatch-error
+                        (fixture-object-field
+                         transition-configuration-mismatch-rpc "error")))
+                 (is (= 819 (fixture-object-field capabilities-rpc "id")))
+                 (devnet-cli-assert-engine-capability-list
+                  capabilities-result)
+                 (is (= 820
+                        (fixture-object-field
+                         transition-configuration-rpc "id")))
+                 (is (string= "0x3039"
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalTotalDifficulty")))
+                 (is (string= terminal-block-hash
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalBlockHash")))
+                 (is (string= "0x42"
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalBlockNumber")))
+                 (is (= 825
+                        (fixture-object-field
+                         transition-configuration-mismatch-rpc "id")))
+                 (is (= -32602
+                        (fixture-object-field
+                         transition-configuration-mismatch-error
+                         "code")))
+                 (is (search "terminalTotalDifficulty mismatch"
+                             (fixture-object-field
+                              transition-configuration-mismatch-error
+                              "message"))))
                (let* ((new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
@@ -13829,11 +13993,23 @@
                          (devnet-cli-http-body block-number-response)))
                       (balance-rpc
                         (parse-json
-                         (devnet-cli-http-body balance-response))))
+                         (devnet-cli-http-body balance-response)))
+                      (net-version-rpc
+                        (parse-json
+                         (devnet-cli-http-body net-version-response)))
+                      (client-version-rpc
+                        (parse-json
+                         (devnet-cli-http-body client-version-response)))
+                      (rpc-modules-rpc
+                        (parse-json
+                         (devnet-cli-http-body rpc-modules-response))))
                  (is (= 821 (fixture-object-field new-payload-rpc "id")))
                  (is (= 822 (fixture-object-field forkchoice-rpc "id")))
                  (is (= 823 (fixture-object-field block-number-rpc "id")))
                  (is (= 824 (fixture-object-field balance-rpc "id")))
+                 (is (= 826 (fixture-object-field net-version-rpc "id")))
+                 (is (= 827 (fixture-object-field client-version-rpc "id")))
+                 (is (= 828 (fixture-object-field rpc-modules-rpc "id")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -13848,7 +14024,15 @@
                                                     "result")))
                  (is (string= (fixture-object-field expect
                                                     "recipientBalance")
-                              (fixture-object-field balance-rpc "result"))))
+                              (fixture-object-field balance-rpc "result")))
+                 (is (string= "1"
+                              (fixture-object-field net-version-rpc "result")))
+                 (is (search "ethereum-lisp/"
+                             (fixture-object-field
+                              client-version-rpc "result")))
+                 (is (fixture-object-field
+                      (fixture-object-field rpc-modules-rpc "result")
+                      "eth")))
                (let ((status (devnet-cli-wait-process-exit process 10)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -13907,15 +14091,15 @@
                                     (cdr (assoc "headHash"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "5"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "5"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "4"
+                       (is (string= "10"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
