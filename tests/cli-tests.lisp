@@ -1541,6 +1541,21 @@
     (is (= 1 (getf summary :public-connections)))
     (is (= 2 (getf summary :total-connections)))))
 
+(deftest devnet-node-start-serves-engine-only-when-public-listener-is-disabled
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-path +devnet-cli-genesis-fixture+
+                :port 8551
+                :public-port 8545))
+         (summary
+           (ethereum-lisp.cli:start-devnet-node-listeners
+            node
+            (make-devnet-cli-one-shot-listener "engine")
+            nil
+            :max-connections 1)))
+    (is (= 1 (getf summary :engine-connections)))
+    (is (= 0 (getf summary :public-connections)))
+    (is (= 1 (getf summary :total-connections)))))
+
 (deftest devnet-node-split-listeners-serve-authenticated-engine-and-public-rpc
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex")))
     (unwind-protect
@@ -2939,8 +2954,8 @@
              (dolist (summary (list stdout-summary ready-summary))
                (is (string= "192.0.2.30:9651"
                             (fixture-object-field summary "engineEndpoint")))
-               (is (string= "192.0.2.31:9645"
-                            (fixture-object-field summary "rpcEndpoint")))
+               (is (not (fixture-object-field summary "rpcEndpoint")))
+               (is (not (fixture-object-field summary "publicRpcEnabled")))
                (is (string= "/engine"
                             (fixture-object-field summary
                                                   "engineRpcPrefix")))
@@ -2974,6 +2989,12 @@
                                           :test #'string=))))
                  (is (string= "/rpc"
                               (cdr (assoc "publicRpcPrefix" fields
+                                          :test #'string=))))
+                 (is (string= ""
+                              (cdr (assoc "rpcEndpoint" fields
+                                          :test #'string=))))
+                 (is (string= "false"
+                              (cdr (assoc "publicRpcEnabled" fields
                                           :test #'string=))))
                  (is (string= "eth,net,web3,txpool"
                               (cdr (assoc "publicApiModules" fields
@@ -12633,17 +12654,20 @@
                  "--pprof=false"
                  "--snapshot"
                  "false")))
-        (enabled
+         (enabled
           (ethereum-lisp.cli::devnet-cli-options
            (list "devnet"
                  "--json=1"
                  "--no-serve=true"
+                 "--http=false"
                  "--dev"))))
     (is (eq :sexp (getf disabled :summary-format)))
     (is (getf disabled :serve-p))
+    (is (getf disabled :public-rpc-enabled-p))
     (is (not (getf disabled :dev-mode-p)))
     (is (eq :json (getf enabled :summary-format)))
     (is (not (getf enabled :serve-p)))
+    (is (not (getf enabled :public-rpc-enabled-p)))
     (is (getf enabled :dev-mode-p))))
 
 (deftest devnet-cli-init-json-boolean-values-affect-summary-format

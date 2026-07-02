@@ -411,7 +411,8 @@
 (defun devnet-block-hash-hex (block)
   (and block (hash32-to-hex (block-hash block))))
 
-(defun devnet-node-summary (node &key engine-endpoint rpc-endpoint)
+(defun devnet-node-summary
+    (node &key engine-endpoint rpc-endpoint (public-rpc-enabled-p t))
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (let* ((store (devnet-node-store node))
@@ -420,15 +421,17 @@
          (finalized (chain-store-finalized-block store))
          (engine-endpoint
            (or engine-endpoint
-               (engine-rpc-http-service-endpoint
+                (engine-rpc-http-service-endpoint
                 (devnet-node-service node))))
          (rpc-endpoint
-           (or rpc-endpoint
-               (engine-rpc-http-service-endpoint
-                (devnet-node-public-service node)))))
+           (and public-rpc-enabled-p
+                (or rpc-endpoint
+                    (engine-rpc-http-service-endpoint
+                     (devnet-node-public-service node))))))
     (list :genesis-path (devnet-node-genesis-path node)
           :engine-endpoint engine-endpoint
           :rpc-endpoint rpc-endpoint
+          :public-rpc-enabled-p public-rpc-enabled-p
           :engine-rpc-prefix
           (engine-rpc-http-service-rpc-prefix (devnet-node-service node))
           :public-rpc-prefix
@@ -465,14 +468,18 @@
                (chain-store-state-available-p store (block-hash head))))))
 
 (defun devnet-node-summary-json-object
-    (node &key engine-endpoint rpc-endpoint)
+    (node &key engine-endpoint rpc-endpoint (public-rpc-enabled-p t))
   (let ((summary (devnet-node-summary
                   node
                   :engine-endpoint engine-endpoint
-                  :rpc-endpoint rpc-endpoint)))
+                  :rpc-endpoint rpc-endpoint
+                  :public-rpc-enabled-p public-rpc-enabled-p)))
     `(("genesisPath" . ,(getf summary :genesis-path))
       ("engineEndpoint" . ,(getf summary :engine-endpoint))
-      ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
+      ("rpcEndpoint" . ,(or (getf summary :rpc-endpoint) :false))
+      ("publicRpcEnabled" . ,(if (getf summary :public-rpc-enabled-p)
+                                 t
+                                 :false))
       ("engineRpcPrefix" . ,(getf summary :engine-rpc-prefix))
       ("publicRpcPrefix" . ,(getf summary :public-rpc-prefix))
       ("processId" . ,(or (getf summary :process-id) :false))
@@ -506,7 +513,8 @@
     (error "Devnet node must be devnet-node"))
   (unless (typep engine-listener 'engine-rpc-http-listener)
     (error "Devnet Engine listener must be engine-rpc-http-listener"))
-  (unless (typep public-listener 'engine-rpc-http-listener)
+  (when (and public-listener
+             (not (typep public-listener 'engine-rpc-http-listener)))
     (error "Devnet public listener must be engine-rpc-http-listener"))
   (when (and stop-p (not (functionp stop-p)))
     (error "Devnet stop predicate must be a function"))
@@ -539,44 +547,60 @@
       (error (condition)
         (devnet-shutdown-request shutdown-controller)
         (error condition)))
-    (let ((engine-thread
-            (sb-thread:make-thread
-             (lambda ()
-               (handler-case
-                   (setf engine-count
-                         (engine-rpc-http-service-serve-listener
-                          (devnet-node-service node)
-                          engine-listener
-                          :max-connections max-connections
-                          :stop-p stop-requested-p))
-                 (error (condition)
-                   (setf engine-error condition)
-                   (devnet-shutdown-request shutdown-controller))))
-             :name "ethereum-lisp-devnet-engine-rpc")))
-      (handler-case
-          (setf public-count
-                (engine-rpc-http-service-serve-listener
-                 (devnet-node-public-service node)
-                 public-listener
-                 :max-connections max-connections
-                 :stop-p stop-requested-p))
-        (error (condition)
-          (setf public-error condition)
-          (devnet-shutdown-request shutdown-controller)))
-      (when public-count
-        (devnet-shutdown-request shutdown-controller))
-      (sb-thread:join-thread engine-thread)
-      (cond
-        (public-error (error public-error))
-        (engine-error (error engine-error))
-        (t
-         (list :engine-connections engine-count
-               :public-connections public-count
-               :total-connections (+ engine-count public-count)))))))
+    (if public-listener
+        (let ((engine-thread
+                (sb-thread:make-thread
+                 (lambda ()
+                   (handler-case
+                       (setf engine-count
+                             (engine-rpc-http-service-serve-listener
+                              (devnet-node-service node)
+                              engine-listener
+                              :max-connections max-connections
+                              :stop-p stop-requested-p))
+                     (error (condition)
+                       (setf engine-error condition)
+                       (devnet-shutdown-request shutdown-controller))))
+                 :name "ethereum-lisp-devnet-engine-rpc")))
+          (handler-case
+              (setf public-count
+                    (engine-rpc-http-service-serve-listener
+                     (devnet-node-public-service node)
+                     public-listener
+                     :max-connections max-connections
+                     :stop-p stop-requested-p))
+            (error (condition)
+              (setf public-error condition)
+              (devnet-shutdown-request shutdown-controller)))
+          (when public-count
+            (devnet-shutdown-request shutdown-controller))
+          (sb-thread:join-thread engine-thread)
+          (cond
+            (public-error (error public-error))
+            (engine-error (error engine-error))
+            (t
+             (list :engine-connections engine-count
+                   :public-connections public-count
+                   :total-connections (+ engine-count public-count)))))
+        (handler-case
+            (let ((engine-count
+                    (engine-rpc-http-service-serve-listener
+                     (devnet-node-service node)
+                     engine-listener
+                     :max-connections max-connections
+                     :stop-p stop-requested-p)))
+              (devnet-shutdown-request shutdown-controller)
+              (list :engine-connections engine-count
+                    :public-connections 0
+                    :total-connections engine-count))
+          (error (condition)
+            (devnet-shutdown-request shutdown-controller)
+            (error condition))))))
 
 (defun start-devnet-node
     (node &key max-connections stop-p shutdown-controller
-            install-signal-handlers-p signal-stream on-listeners-ready)
+            install-signal-handlers-p signal-stream on-listeners-ready
+            (public-rpc-enabled-p t))
   (unless (typep node 'devnet-node)
     (error "Devnet node must be devnet-node"))
   (when (and shutdown-controller
@@ -596,9 +620,10 @@
                   (devnet-node-service node)))
            (devnet-shutdown-controller-register-listeners
             shutdown-controller engine-listener nil)
-           (setf public-listener
-                 (make-engine-rpc-http-socket-listener
-                  (devnet-node-public-service node)))
+           (when public-rpc-enabled-p
+             (setf public-listener
+                   (make-engine-rpc-http-socket-listener
+                    (devnet-node-public-service node))))
            (devnet-shutdown-controller-register-listeners
             shutdown-controller engine-listener public-listener)
            (prog1
@@ -858,6 +883,7 @@
         (http-cors-origins nil)
         (engine-vhosts nil)
         (http-vhosts nil)
+        (public-rpc-enabled-p t)
         (state-prune-before nil)
         (max-connections nil)
         (terminal-total-difficulty nil)
@@ -978,9 +1004,10 @@
                         (devnet-cli-parse-non-negative-quantity value option)
                         args rest)))
                ((string= option "--http")
-                (setf args
-                      (devnet-cli-consume-optional-boolean-value
-                       args option)))
+                (multiple-value-bind (enabled-p rest)
+                    (devnet-cli-optional-boolean-value args option)
+                  (setf public-rpc-enabled-p enabled-p
+                        args rest)))
                ((string= option "--http.api")
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1089,6 +1116,7 @@
           :http-cors-origins http-cors-origins
           :engine-vhosts engine-vhosts
           :http-vhosts http-vhosts
+          :public-rpc-enabled-p public-rpc-enabled-p
           :terminal-total-difficulty terminal-total-difficulty
           :terminal-total-difficulty-passed terminal-total-difficulty-passed
           :terminal-total-difficulty-passed-specified-p
@@ -1305,13 +1333,15 @@
                :test #'string=)))
 
 (defun devnet-cli-print-summary
-    (node stream &key (format :sexp) engine-endpoint rpc-endpoint)
+    (node stream &key (format :sexp) engine-endpoint rpc-endpoint
+            (public-rpc-enabled-p t))
   (ecase format
     (:sexp
      (write (devnet-node-summary
              node
              :engine-endpoint engine-endpoint
-             :rpc-endpoint rpc-endpoint)
+             :rpc-endpoint rpc-endpoint
+             :public-rpc-enabled-p public-rpc-enabled-p)
             :stream stream :pretty nil))
     (:json
      (write-string
@@ -1319,7 +1349,8 @@
        (devnet-node-summary-json-object
         node
         :engine-endpoint engine-endpoint
-        :rpc-endpoint rpc-endpoint))
+        :rpc-endpoint rpc-endpoint
+        :public-rpc-enabled-p public-rpc-enabled-p))
       stream)))
   (terpri stream))
 
@@ -1337,7 +1368,7 @@
   path)
 
 (defun devnet-cli-write-ready-file
-    (node path &key engine-endpoint rpc-endpoint)
+    (node path &key engine-endpoint rpc-endpoint (public-rpc-enabled-p t))
   (devnet-cli-ensure-path-parent-directory path)
   (let ((temp-path (devnet-cli-ready-temp-path path))
         (renamed-p nil))
@@ -1352,7 +1383,8 @@
                (devnet-node-summary-json-object
                 node
                 :engine-endpoint engine-endpoint
-                :rpc-endpoint rpc-endpoint))
+                :rpc-endpoint rpc-endpoint
+                :public-rpc-enabled-p public-rpc-enabled-p))
               stream)
              (terpri stream))
            (uiop:rename-file-overwriting-target temp-path path)
@@ -1385,13 +1417,17 @@
 
 (defun devnet-node-telemetry-fields
     (node &key engine-endpoint rpc-endpoint lifecycle-phase
-            connection-summary)
+            connection-summary (public-rpc-enabled-p t))
   (let ((summary (devnet-node-summary
                   node
                   :engine-endpoint engine-endpoint
-                  :rpc-endpoint rpc-endpoint)))
+                  :rpc-endpoint rpc-endpoint
+                  :public-rpc-enabled-p public-rpc-enabled-p)))
     `(("engineEndpoint" . ,(getf summary :engine-endpoint))
-      ("rpcEndpoint" . ,(getf summary :rpc-endpoint))
+      ("rpcEndpoint" . ,(or (getf summary :rpc-endpoint) ""))
+      ("publicRpcEnabled" . ,(if (getf summary :public-rpc-enabled-p)
+                                 "true"
+                                 "false"))
       ("lifecyclePhase" . ,(or lifecycle-phase ""))
       ("engineConnections" . ,(write-to-string
                                (or (getf connection-summary
@@ -1459,7 +1495,8 @@
       ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
 
 (defun devnet-cli-log-event
-    (node name &key engine-endpoint rpc-endpoint connection-summary)
+    (node name &key engine-endpoint rpc-endpoint connection-summary
+            (public-rpc-enabled-p t))
   (ethereum-lisp.telemetry:telemetry-log
    :info
    name
@@ -1468,6 +1505,7 @@
             node
             :engine-endpoint engine-endpoint
             :rpc-endpoint rpc-endpoint
+            :public-rpc-enabled-p public-rpc-enabled-p
             :lifecycle-phase
             (cond
               ((string= name "devnet.ready") "ready")
@@ -1647,27 +1685,38 @@
                                            (engine-rpc-http-listener-endpoint
                                             engine-listener)
                                            bound-rpc-endpoint
-                                           (engine-rpc-http-listener-endpoint
-                                            public-listener))
+                                           (and public-listener
+                                                (engine-rpc-http-listener-endpoint
+                                                 public-listener)))
                                      (when (getf options :ready-file)
                                        (devnet-cli-write-ready-file
                                         node
                                         (getf options :ready-file)
                                         :engine-endpoint bound-engine-endpoint
-                                        :rpc-endpoint bound-rpc-endpoint))
+                                        :rpc-endpoint bound-rpc-endpoint
+                                        :public-rpc-enabled-p
+                                        (getf options
+                                              :public-rpc-enabled-p)))
                                      (when (getf options :log-file)
                                        (devnet-cli-log-event
                                         node
                                         "devnet.ready"
                                         :engine-endpoint bound-engine-endpoint
-                                        :rpc-endpoint bound-rpc-endpoint))
+                                        :rpc-endpoint bound-rpc-endpoint
+                                        :public-rpc-enabled-p
+                                        (getf options
+                                              :public-rpc-enabled-p)))
                                      (setf ready-p t)
                                      (devnet-cli-print-summary
                                       node
                                       output-stream
                                       :format (getf options :summary-format)
                                       :engine-endpoint bound-engine-endpoint
-                                      :rpc-endpoint bound-rpc-endpoint))))
+                                      :rpc-endpoint bound-rpc-endpoint
+                                      :public-rpc-enabled-p
+                                      (getf options :public-rpc-enabled-p)))
+                                   :public-rpc-enabled-p
+                                   (getf options :public-rpc-enabled-p)))
                               (devnet-node-export-database
                                node
                                :state-prune-before
@@ -1679,6 +1728,8 @@
                                  "devnet.shutdown"
                                  :engine-endpoint bound-engine-endpoint
                                  :rpc-endpoint bound-rpc-endpoint
+                                 :public-rpc-enabled-p
+                                 (getf options :public-rpc-enabled-p)
                                  :connection-summary serve-summary))))
                           (progn
                             (devnet-node-export-database
@@ -1688,15 +1739,27 @@
                             (when (getf options :ready-file)
                               (devnet-cli-write-ready-file
                                node
-                               (getf options :ready-file)))
+                               (getf options :ready-file)
+                               :public-rpc-enabled-p
+                               (getf options :public-rpc-enabled-p)))
                             (when (getf options :log-file)
-                              (devnet-cli-log-event node "devnet.ready"))
+                              (devnet-cli-log-event
+                               node
+                               "devnet.ready"
+                               :public-rpc-enabled-p
+                               (getf options :public-rpc-enabled-p)))
                             (devnet-cli-print-summary
                              node
                              output-stream
-                             :format (getf options :summary-format))
+                             :format (getf options :summary-format)
+                             :public-rpc-enabled-p
+                             (getf options :public-rpc-enabled-p))
                             (when (getf options :log-file)
-                              (devnet-cli-log-event node "devnet.shutdown"))))
+                              (devnet-cli-log-event
+                               node
+                               "devnet.shutdown"
+                               :public-rpc-enabled-p
+                               (getf options :public-rpc-enabled-p)))))
                       0))))))))))
     (error (condition)
       (ignore-errors

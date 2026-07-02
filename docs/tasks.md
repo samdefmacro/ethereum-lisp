@@ -7061,6 +7061,13 @@ splits can land after the Phase A smoke path closes.
     `sbcl --script scripts/ethereum-lisp.lisp -- ... init ...` path cover the
     added invocation shape, preserving the current HTTP-only split-service
     process while letting broader runner templates reach startup.
+  - Result (2026-07-02): `--http=false` is now a real serve-mode switch rather
+    than a parse-only compatibility flag. The devnet CLI starts an Engine-only
+    process when public HTTP is disabled, reports `publicRpcEnabled=false`,
+    emits `rpcEndpoint=false` in JSON summaries/readiness, leaves telemetry
+    `rpcEndpoint` empty, and returns zero public connections in the shutdown
+    summary while preserving default public RPC behavior when `--http` is
+    absent or true.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

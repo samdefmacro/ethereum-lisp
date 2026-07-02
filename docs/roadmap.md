@@ -1236,6 +1236,12 @@ first pass, but interfaces must not block that path.
   across ready files, lifecycle telemetry, and restored database summaries, so
   process runners can detect gas-limit drift at the same boundary where they
   consume readiness and shutdown artifacts.
+  `--http=false` now disables the public JSON-RPC listener while keeping the
+  authenticated Engine listener active; startup summaries, readiness JSON, and
+  lifecycle telemetry report `publicRpcEnabled=false`, `rpcEndpoint=false` in
+  JSON readiness/summary output, an empty telemetry `rpcEndpoint`, and zero
+  public connections at shutdown. This lets Hive-style runners request an
+  Engine-only process instead of relying on a public listener being ignored.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
