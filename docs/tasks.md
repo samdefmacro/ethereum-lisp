@@ -839,6 +839,13 @@ ones.
     PATH` can then boot without restating `--genesis` by loading the stored
     genesis file. CLI coverage verifies both direct `main` invocation and the
     runner-facing `scripts/ethereum-lisp.lisp` subprocess path.
+  - Result (2026-07-02): datadir initialization now also seeds
+    `PATH/jwtsecret` when neither `PATH/jwtsecret` nor
+    `PATH/geth/jwtsecret` already exists, reports the seeded `jwtSecretPath`
+    and `authRequired=true`, and leaves existing datadir JWT material intact.
+    The follow-on `devnet --datadir PATH` launch discovers that initialized
+    secret, so a Hive-style init-then-run flow starts with authenticated Engine
+    RPC without requiring a separate JWT setup step.
 - [x] `DEVNET-RUNNER-PRECOMMAND-DISPATCH`: Make geth/Hive-shaped command
   detection robust when runner flags appear before the command token.
   - Result (2026-06-30): command dispatch now skips known option values and

@@ -226,6 +226,35 @@
                             :if-does-not-exist :create)
       (write-string contents stream))))
 
+(defun devnet-cli-random-bytes (length)
+  (let ((bytes (make-array length :element-type '(unsigned-byte 8))))
+    (handler-case
+        (with-open-file (stream #P"/dev/urandom"
+                                :direction :input
+                                :element-type '(unsigned-byte 8))
+          (unless (= length (read-sequence bytes stream))
+            (error "Unable to read enough bytes from /dev/urandom"))
+          bytes)
+      (error ()
+        (let ((state (make-random-state t)))
+          (dotimes (index length bytes)
+            (setf (aref bytes index) (random 256 state))))))))
+
+(defun devnet-cli-ensure-datadir-jwt-secret (datadir)
+  (when datadir
+    (or (devnet-cli-existing-datadir-jwt-secret-path datadir)
+        (let ((path (devnet-cli-datadir-jwt-secret-path datadir)))
+          (with-open-file (stream (devnet-cli-ensure-path-parent-directory path)
+                                  :direction :output
+                                  :if-exists nil
+                                  :if-does-not-exist :create)
+            (when stream
+              (write-string
+               (bytes-to-hex (devnet-cli-random-bytes 32) :prefix nil)
+               stream)
+              (terpri stream)))
+          path))))
+
 (defun devnet-cli-validate-imported-genesis (store genesis-block database-path)
   (let ((restored-genesis (chain-store-block-by-number store 0)))
     (when (and restored-genesis
@@ -1260,7 +1289,8 @@
 (defun devnet-cli-run-init (options output-stream)
   (let ((genesis-path (getf options :genesis-path))
         (datadir-path (getf options :datadir-path))
-        (database-path (getf options :database-path)))
+        (database-path (getf options :database-path))
+        (jwt-secret-path nil))
     (unless genesis-path
       (error "init requires a genesis file"))
     (unless database-path
@@ -1268,7 +1298,9 @@
     (when datadir-path
       (devnet-cli-copy-file-string
        genesis-path
-       (devnet-cli-datadir-genesis-path datadir-path)))
+       (devnet-cli-datadir-genesis-path datadir-path))
+      (setf jwt-secret-path
+            (devnet-cli-ensure-datadir-jwt-secret datadir-path)))
     (call-with-devnet-cli-telemetry-sink
      options
      output-stream
@@ -1277,6 +1309,7 @@
                (make-devnet-node
                 :genesis-path genesis-path
                 :database-path database-path
+                :jwt-secret-path jwt-secret-path
                 :log-path (getf options :log-file)
                 :pid-file-path (getf options :pid-file)
                 :telemetry-sink telemetry-sink)))

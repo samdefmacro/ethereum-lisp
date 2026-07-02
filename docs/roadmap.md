@@ -1236,6 +1236,12 @@ first pass, but interfaces must not block that path.
   across ready files, lifecycle telemetry, and restored database summaries, so
   process runners can detect gas-limit drift at the same boundary where they
   consume readiness and shutdown artifacts.
+  Datadir initialization now also seeds `DATADIR/jwtsecret` when neither
+  `DATADIR/jwtsecret` nor `DATADIR/geth/jwtsecret` already exists, reports
+  that path with `authRequired=true`, and leaves existing datadir JWT material
+  intact. A subsequent `devnet --datadir DATADIR` launch therefore discovers an
+  initialized Engine JWT secret and starts the authenticated listener without
+  an out-of-band runner setup step.
   `--http=false` now disables the public JSON-RPC listener while keeping the
   authenticated Engine listener active; startup summaries, readiness JSON, and
   lifecycle telemetry report `publicRpcEnabled=false`, `rpcEndpoint=false` in

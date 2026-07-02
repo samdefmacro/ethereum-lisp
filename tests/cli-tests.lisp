@@ -2392,6 +2392,8 @@
            (merge-pathnames "genesis.json" datadir))
          (datadir-database-path
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
+         (datadir-jwt-path
+           (merge-pathnames "jwtsecret" datadir))
          (init-output (make-string-output-stream))
          (init-errors (make-string-output-stream))
          (devnet-output (make-string-output-stream))
@@ -2415,7 +2417,17 @@
              (is (= 0 (fixture-object-field init-summary "headNumber")))
              (is (string= (namestring datadir-database-path)
                           (fixture-object-field init-summary "databasePath")))
+             (is (string= (namestring datadir-jwt-path)
+                          (fixture-object-field init-summary "jwtSecretPath")))
+             (is (fixture-object-field init-summary "authRequired"))
              (is (probe-file datadir-genesis-path))
+             (is (probe-file datadir-jwt-path))
+             (is (= 32
+                    (length
+                     (hex-to-bytes
+                      (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                   (devnet-cli-file-string
+                                    datadir-jwt-path))))))
              (is (string= (devnet-cli-file-string
                            +devnet-cli-genesis-fixture+)
                           (devnet-cli-file-string datadir-genesis-path)))
@@ -2437,9 +2449,14 @@
              (is (string= (namestring (truename datadir-genesis-path))
                           (fixture-object-field summary "genesisPath")))
              (is (string= (namestring datadir-database-path)
-                          (fixture-object-field summary "databasePath")))))
+                          (fixture-object-field summary "databasePath")))
+             (is (string= (namestring datadir-jwt-path)
+                          (fixture-object-field summary "jwtSecretPath")))
+             (is (fixture-object-field summary "authRequired"))))
       (when (probe-file datadir-genesis-path)
         (delete-file datadir-genesis-path))
+      (when (probe-file datadir-jwt-path)
+        (delete-file datadir-jwt-path))
       (when (probe-file datadir-database-path)
         (delete-file datadir-database-path)))))
 
@@ -7099,7 +7116,7 @@
          (datadir-database-path
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
          (datadir-jwt-path
-           (merge-pathnames "geth/jwtsecret" datadir))
+           (merge-pathnames "jwtsecret" datadir))
          (ready-path
            (devnet-cli-temp-path "ethereum-lisp-script-serve-datadir-ready"
                                  "json"))
@@ -7131,11 +7148,15 @@
                (let ((summary (parse-json init-stdout)))
                  (is (string= (namestring datadir-database-path)
                               (fixture-object-field summary
-                                                    "databasePath"))))))
+                                                    "databasePath")))
+                 (is (string= (namestring datadir-jwt-path)
+                              (fixture-object-field summary
+                                                    "jwtSecretPath")))
+                 (is (eq t (fixture-object-field summary
+                                                  "authRequired"))))))
            (is (probe-file datadir-genesis-path))
            (is (probe-file datadir-database-path))
-           (ensure-directories-exist datadir-jwt-path)
-           (devnet-cli-write-temp-file datadir-jwt-path +devnet-cli-jwt-secret+)
+           (is (probe-file datadir-jwt-path))
            (setf process
                  (uiop:launch-program
                   (list "sbcl"
@@ -7191,7 +7212,11 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":702,\"method\":\"eth_chainId\",\"params\":[]}")
                     (public-net-body
                       "{\"jsonrpc\":\"2.0\",\"id\":703,\"method\":\"net_version\",\"params\":[]}")
-                    (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                    (jwt-secret
+                      (hex-to-bytes
+                       (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                    (devnet-cli-file-string
+                                     datadir-jwt-path))))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
                     engine-unauthenticated-response
                     engine-response
