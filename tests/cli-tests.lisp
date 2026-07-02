@@ -13367,6 +13367,9 @@
          (pid-path
            (devnet-cli-temp-path
             "ethereum-lisp-script-no-command-split-import" "pid"))
+         (database-path
+           (devnet-cli-temp-path
+            "ethereum-lisp-script-no-command-split-import" "db"))
          (process nil))
     (unwind-protect
          (progn
@@ -13398,6 +13401,8 @@
                         "0"
                         "--http.rpcprefix"
                         "/rpc"
+                        "--database"
+                        (namestring database-path)
                         "--ready-file"
                         (namestring ready-path)
                         "--log-file"
@@ -13568,7 +13573,10 @@
                                        summary "engineRpcPrefix")))
                          (is (string= "/rpc"
                                       (fixture-object-field
-                                       summary "publicRpcPrefix"))))
+                                       summary "publicRpcPrefix")))
+                         (is (string= (namestring database-path)
+                                      (fixture-object-field
+                                       summary "databasePath"))))
                        (is ready-record)
                        (is shutdown-record)
                        (is (string= (fixture-object-field payload-case
@@ -13591,10 +13599,62 @@
                        (is (string= "4"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
-                                                :test #'string=)))))))))))
+                                                :test #'string=))))
+                       (is (probe-file database-path))
+                       (multiple-value-bind
+                             (restore-stdout restore-stderr restore-status)
+                           (uiop:run-program
+                            (list "sbcl"
+                                  "--script"
+                                  script
+                                  "--"
+                                  "--genesis"
+                                  (namestring genesis-path)
+                                  "--database"
+                                  (namestring database-path)
+                                  "--authrpc.rpcprefix"
+                                  "/engine"
+                                  "--http"
+                                  "--http.rpcprefix"
+                                  "/rpc"
+                                  "--no-serve"
+                                  "--json")
+                            :directory #P"/private/tmp/"
+                            :output :string
+                            :error-output :string
+                            :ignore-error-status t)
+                         (is (= 0 restore-status))
+                         (is (string= "" restore-stderr))
+                         (when (= 0 restore-status)
+                           (let ((restore-summary
+                                   (parse-json restore-stdout)))
+                             (is (string= (namestring database-path)
+                                          (fixture-object-field
+                                           restore-summary
+                                           "databasePath")))
+                             (is (= (fixture-quantity-field
+                                     payload-case "number")
+                                    (fixture-object-field
+                                     restore-summary "headNumber")))
+                             (is (string= block-hash-hex
+                                          (fixture-object-field
+                                           restore-summary "headHash")))
+                             (is (fixture-object-field
+                                  restore-summary "stateAvailable"))
+                             (is (fixture-object-field
+                                  restore-summary "publicRpcEnabled"))
+                             (is (string= "/engine"
+                                          (fixture-object-field
+                                           restore-summary
+                                           "engineRpcPrefix")))
+                             (is (string= "/rpc"
+                                          (fixture-object-field
+                                           restore-summary
+                                           "publicRpcPrefix")))))))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
-      (dolist (path (list genesis-path jwt-path ready-path log-path pid-path))
+      (dolist (path (list genesis-path jwt-path ready-path log-path pid-path
+                          database-path))
         (when (probe-file path)
           (delete-file path))))))
 

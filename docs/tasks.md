@@ -7145,6 +7145,12 @@ splits can land after the Phase A smoke path closes.
     `eth_blockNumber` and `eth_getBalance` through the public `/rpc` endpoint,
     and requires shutdown telemetry to report the imported child head with two
     Engine connections, two public connections, and four total connections.
+  - Result (2026-07-02): that direct no-command fixture-genesis path now also
+    runs with `--database`, requires the subprocess startup artifacts to report
+    the configured database file, and verifies a second direct no-command
+    `--no-serve` process restores the imported child head, state
+    availability, and split `/engine` plus `/rpc` reporting from the persisted
+    store.
 - [x] `DEVNET-ENGINE-ONLY-PUBLIC-PORT-CLOSED`: Prove `--http=false` leaves an
   explicitly configured public HTTP port unbound.
   - Result (2026-07-02): the focused Engine-only smoke gate and external
