@@ -5585,6 +5585,11 @@
                   devnet-engine-only "publicRpcEnabled")))
         (is (not (fixture-object-field
                   devnet-engine-only "rpcEndpoint")))
+        (is (search "http://127.0.0.1:"
+                    (fixture-object-field
+                     devnet-engine-only "configuredPublicEndpoint")))
+        (is (not (fixture-object-field
+                  devnet-engine-only "publicEndpointConnectable")))
         (is (= 1 (fixture-object-field
                   devnet-engine-only "engineConnections")))
         (is (= 0 (fixture-object-field
@@ -5966,6 +5971,11 @@
                         devnet-engine-only "mode")))
           (is (= 1 (fixture-object-field
                     devnet-engine-only "caseCount")))
+          (is (search "http://127.0.0.1:"
+                      (fixture-object-field
+                       devnet-engine-only "configuredPublicEndpoint")))
+          (is (not (fixture-object-field
+                    devnet-engine-only "publicEndpointConnectable")))
           (is (= 1 (fixture-object-field
                     devnet-engine-only "engineConnections")))
           (is (= 0 (fixture-object-field

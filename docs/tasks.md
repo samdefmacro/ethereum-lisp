@@ -7102,6 +7102,13 @@ splits can land after the Phase A smoke path closes.
     not accept a TCP connection. The smoke report exposes
     `configuredPublicEndpoint` and `publicEndpointConnectable=false` alongside
     the existing one-Engine/zero-public shutdown accounting.
+- [x] `PHASE-A-ENGINE-ONLY-PUBLIC-PORT-CONTRACT`: Carry the Engine-only closed
+  public-port proof through the top-level Phase A devnet wrapper.
+  - Result (2026-07-02): `scripts/phase-a-smoke-gate.lisp -- --devnet` now
+    rejects `devnetEngineOnly` child reports that omit a probeable
+    `configuredPublicEndpoint` or report `publicEndpointConnectable=true`, and
+    the JSON/text wrapper output preserves those fields for Hive/process-runner
+    diagnostics.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

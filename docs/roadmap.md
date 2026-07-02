@@ -1259,6 +1259,9 @@ first pass, but interfaces must not block that path.
   The same Engine-only smoke path now configures a concrete public HTTP port
   and proves that endpoint stays unbound, so `--http=false` is validated as a
   real listener-disable contract rather than only a readiness/reporting flag.
+  The top-level Phase A `--devnet` wrapper now preserves and validates that
+  closed-public-port proof in its `devnetEngineOnly` child report, keeping the
+  aggregate process gate aligned with the standalone Engine-only smoke gate.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

@@ -191,6 +191,10 @@ references/ checkouts.~%"))
 (defun smoke-gate-false-p (value)
   (or (null value) (eq value :false)))
 
+(defun smoke-gate-http-endpoint-p (value)
+  (and (stringp value)
+       (uiop:string-prefix-p "http://127.0.0.1:" value)))
+
 (defun smoke-gate-root-directory ()
   (make-pathname :name nil
                  :type nil
@@ -863,6 +867,13 @@ references/ checkouts.~%"))
   (smoke-gate-devnet-require-field report "totalConnections" 1)
   (smoke-gate-devnet-require-field report "publicRpcEnabled" nil)
   (smoke-gate-devnet-require-field report "rpcEndpoint" nil)
+  (unless (and (stringp (smoke-gate-field report "configuredPublicEndpoint"))
+               (smoke-gate-http-endpoint-p
+                (smoke-gate-field report "configuredPublicEndpoint")))
+    (error "Devnet Engine-only configured public endpoint is not probeable: ~S"
+           report))
+  (smoke-gate-devnet-require-field
+   report "publicEndpointConnectable" nil)
   (let ((contract (smoke-gate-field report "connectionContract")))
     (smoke-gate-devnet-require-field
      contract "expectedEngineConnections" 1)
@@ -1267,6 +1278,12 @@ references/ checkouts.~%"))
               (smoke-gate-field devnet-engine-only "caseCount"))
       (format t "devnetEngineOnlyPublicRpcEnabled=~A~%"
               (smoke-gate-field devnet-engine-only "publicRpcEnabled"))
+      (format t "devnetEngineOnlyConfiguredPublicEndpoint=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "configuredPublicEndpoint"))
+      (format t "devnetEngineOnlyPublicEndpointConnectable=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "publicEndpointConnectable"))
       (format t "devnetEngineOnlyEngineConnections=~D~%"
               (smoke-gate-field devnet-engine-only "engineConnections"))
       (format t "devnetEngineOnlyPublicConnections=~D~%"
