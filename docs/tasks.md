@@ -7240,6 +7240,17 @@ splits can land after the Phase A smoke path closes.
     fields, and updates the Engine-only connection contract to seven Engine /
     zero public requests. The top-level Phase A `--devnet` wrapper validates
     and prints the same fields through `devnetEngineOnly`.
+- [x] `DEVNET-RUNNER-SCRIPT-ENGINE-ONLY-HANDSHAKE`: Carry the Engine-only
+  capability and transition-configuration handshake through the runner-facing
+  `scripts/ethereum-lisp.lisp -- devnet --http=false` process boundary.
+  - Result (2026-07-03): the runner-facing Engine-only subprocess test now
+    sends `engine_exchangeCapabilities`,
+    `engine_exchangeTransitionConfigurationV1`, and a mismatched transition
+    configuration through the ready-file `/engine` endpoint before importing
+    the Shanghai payload. It asserts the advertised Shanghai-safe V1/V2
+    capability set, verifies blob/KZG-gated methods remain absent, checks the
+    default transition configuration plus mismatch error, and updates shutdown
+    telemetry to seven Engine / zero public requests.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

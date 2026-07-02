@@ -12825,6 +12825,45 @@
             (block-hash child-block)
             :safe (block-hash parent-block)
             :finalized (block-hash parent-block))))
+        (capabilities-body
+          (json-encode
+           (list
+            (cons "jsonrpc" "2.0")
+            (cons "id" 704)
+            (cons "method" "engine_exchangeCapabilities")
+            (cons "params"
+                  (list
+                   (list
+                    "engine_newPayloadV1"
+                    "engine_forkchoiceUpdatedV1"
+                    "engine_getPayloadV1"
+                    "engine_newPayloadV2"
+                    "engine_forkchoiceUpdatedV2"
+                    "engine_getPayloadV2"))))))
+        (transition-configuration-body
+          (json-encode
+           (list
+            (cons "jsonrpc" "2.0")
+            (cons "id" 705)
+            (cons "method" "engine_exchangeTransitionConfigurationV1")
+            (cons "params"
+                  (list
+                   (list
+                    (cons "terminalTotalDifficulty" "0x0")
+                    (cons "terminalBlockHash" (hash32-to-hex (zero-hash32)))
+                    (cons "terminalBlockNumber" "0x0")))))))
+        (transition-configuration-mismatch-body
+          (json-encode
+           (list
+            (cons "jsonrpc" "2.0")
+            (cons "id" 706)
+            (cons "method" "engine_exchangeTransitionConfigurationV1")
+            (cons "params"
+                  (list
+                   (list
+                    (cons "terminalTotalDifficulty" "0x1")
+                    (cons "terminalBlockHash" (hash32-to-hex (zero-hash32)))
+                    (cons "terminalBlockNumber" "0x0")))))))
         (genesis-path
           (devnet-cli-temp-path
            "ethereum-lisp-script-engine-only-genesis" "json"))
@@ -12885,7 +12924,7 @@
 	                        "--database"
 	                        (namestring database-path)
 	                        "--max-connections"
-	                        "4"
+	                        "7"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -12926,6 +12965,9 @@
                        "\"version\":\"1\",\"commit\":\"0x00000000\"}]}"))
                     blocked-engine-response
                     engine-response
+                    capabilities-response
+                    transition-configuration-response
+                    transition-configuration-mismatch-response
                     new-payload-response
                     forkchoice-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
@@ -12956,6 +12998,30 @@
                              :host "engine.runner"
                              :origin "https://engine.runner"
                              :target "/engine")))
+                     (setf capabilities-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             capabilities-body
+                             :token token
+                             :host "engine.runner"
+                             :target "/engine")))
+                     (setf transition-configuration-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transition-configuration-body
+                             :token token
+                             :host "engine.runner"
+                             :target "/engine")))
+                     (setf transition-configuration-mismatch-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transition-configuration-mismatch-body
+                             :token token
+                             :host "engine.runner"
+                             :target "/engine")))
                      (setf new-payload-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -12977,6 +13043,11 @@
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 404 (devnet-cli-http-status blocked-engine-response)))
                (is (= 200 (devnet-cli-http-status engine-response)))
+               (is (= 200 (devnet-cli-http-status capabilities-response)))
+               (is (= 200 (devnet-cli-http-status
+                            transition-configuration-response)))
+               (is (= 200 (devnet-cli-http-status
+                            transition-configuration-mismatch-response)))
                (is (= 200 (devnet-cli-http-status new-payload-response)))
                (is (= 200 (devnet-cli-http-status forkchoice-response)))
                (is (search "Access-Control-Allow-Origin: https://engine.runner"
@@ -12985,6 +13056,27 @@
                         (parse-json (devnet-cli-http-body engine-response)))
                       (engine-result
                         (first (fixture-object-field engine-rpc "result")))
+                      (capabilities-rpc
+                        (parse-json
+                         (devnet-cli-http-body capabilities-response)))
+                      (capabilities-result
+                        (fixture-object-field capabilities-rpc "result"))
+                      (transition-configuration-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transition-configuration-response)))
+                      (transition-configuration-result
+                        (fixture-object-field
+                         transition-configuration-rpc
+                         "result"))
+                      (transition-configuration-mismatch-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transition-configuration-mismatch-response)))
+                      (transition-configuration-mismatch-error
+                        (fixture-object-field
+                         transition-configuration-mismatch-rpc
+                         "error"))
                       (new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
@@ -13000,6 +13092,35 @@
                  (is (= 701 (fixture-object-field engine-rpc "id")))
                  (is (string= "ethereum-lisp"
                               (fixture-object-field engine-result "name")))
+                 (is (= 704 (fixture-object-field capabilities-rpc "id")))
+                 (devnet-cli-assert-engine-capability-list
+                  capabilities-result)
+                 (is (= 705 (fixture-object-field
+                              transition-configuration-rpc
+                              "id")))
+                 (is (string= "0x0"
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalTotalDifficulty")))
+                 (is (string= (hash32-to-hex (zero-hash32))
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalBlockHash")))
+                 (is (string= "0x0"
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalBlockNumber")))
+                 (is (= 706 (fixture-object-field
+                              transition-configuration-mismatch-rpc
+                              "id")))
+                 (is (= -32602
+                        (fixture-object-field
+                         transition-configuration-mismatch-error
+                         "code")))
+                 (is (search "terminalTotalDifficulty mismatch"
+                             (fixture-object-field
+                              transition-configuration-mismatch-error
+                              "message")))
                  (is (string= +payload-status-valid+
                               (fixture-object-field new-payload-result
                                                     "status")))
@@ -13089,7 +13210,7 @@
                                     (cdr (assoc "headHash"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "4"
+                       (is (string= "7"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
@@ -13097,7 +13218,7 @@
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-	                       (is (string= "4"
+	                       (is (string= "7"
 	                                    (cdr (assoc "totalConnections"
 	                                                shutdown-fields
 	                                                :test #'string=))))

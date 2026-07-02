@@ -1318,6 +1318,12 @@ first pass, but interfaces must not block that path.
   Engine methods to be advertised while KZG-gated methods stay absent, and
   carries the client-version, capability, and transition fields through the
   top-level Phase A `devnetEngineOnly` report.
+  The same handshake is now locked at the external script-process boundary:
+  `scripts/ethereum-lisp.lisp -- devnet --http=false` uses the ready-file
+  Engine endpoint to verify the advertised Shanghai-safe capability set,
+  default transition configuration, and terminal-total-difficulty mismatch
+  error before importing the payload, with shutdown telemetry accounting for
+  seven Engine and zero public requests.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
