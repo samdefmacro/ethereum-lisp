@@ -1228,7 +1228,12 @@ first pass, but interfaces must not block that path.
   header coinbase when no file-backed genesis is supplied.
   `--dev.period` remains a compatibility no-op until block production timing
   is implemented. Startup summaries and lifecycle telemetry report
-  `headGasLimit` and `coinbase` for process-runner checks. Geth/Hive node-key,
+  `headGasLimit` and `coinbase` for process-runner checks. The runner-facing
+  script also accepts direct geth/Hive-shaped launch lines whose option stream
+  starts immediately after `--` without an explicit `devnet` token; serve-mode
+  coverage locks that no-command `--dev --http=false` path through ready/log/pid
+  artifacts, authenticated Engine RPC, closed public HTTP port behavior, and
+  shutdown telemetry. Geth/Hive node-key,
   discovery, network-restriction, and IPC path
   options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,
   `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as

@@ -7121,6 +7121,15 @@ splits can land after the Phase A smoke path closes.
     endpoint, verifies stdout/ready telemetry report `rpcEndpoint=false` and
     `publicRpcEnabled=false`, and requires shutdown telemetry to record one
     Engine connection, zero public connections, and one total connection.
+- [x] `DEVNET-RUNNER-SCRIPT-NO-COMMAND-ENGINE-ONLY`: Lock direct
+  geth/Hive-shaped script launch without an explicit `devnet` token.
+  - Result (2026-07-02): runner-facing subprocess coverage now invokes
+    `sbcl --script scripts/ethereum-lisp.lisp -- --dev ... --http=false`
+    with the option stream immediately after `--`, waits for ready/log/pid
+    artifacts, verifies `--dev` supplies the embedded genesis, authenticates
+    the Engine listener through `/engine`, proves the configured public HTTP
+    port stays closed, and checks shutdown telemetry reports two Engine
+    connections, zero public connections, and two total connections.
 - [x] `DEVNET-ENGINE-ONLY-PUBLIC-PORT-CLOSED`: Prove `--http=false` leaves an
   explicitly configured public HTTP port unbound.
   - Result (2026-07-02): the focused Engine-only smoke gate and external
