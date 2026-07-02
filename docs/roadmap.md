@@ -1324,6 +1324,13 @@ first pass, but interfaces must not block that path.
   default transition configuration, and terminal-total-difficulty mismatch
   error before importing the payload, with shutdown telemetry accounting for
   seven Engine and zero public requests.
+  The direct geth/Hive-shaped no-command Engine-only launch path now carries
+  the same authenticated handshake: `scripts/ethereum-lisp.lisp -- --dev
+  --http=false` accepts Merge transition override flags, reports the
+  override-backed `engine_exchangeTransitionConfigurationV1` values through
+  `/engine`, rejects a terminal-total-difficulty mismatch, advertises the
+  Shanghai-safe V1/V2 capability set while hiding blob/KZG-gated methods, and
+  records five Engine / zero public shutdown requests.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
