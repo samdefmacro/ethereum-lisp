@@ -1430,7 +1430,10 @@ first pass, but interfaces must not block that path.
   runner invocations that pass `--kzg-verifier-command` now prove the opposite
   process contract as well: readiness/stdout/telemetry report the configured
   verifier command and the live Engine listener advertises the KZG-backed
-  blob-era methods through `engine_exchangeCapabilities`. It also probes
+  blob-era methods through `engine_exchangeCapabilities`. That live capability
+  handshake now accepts an empty remote capability list (`params:[[]]`) at the
+  preserved JSON-array process boundary while continuing to reject malformed
+  non-string capability entries. It also probes
   `engine_exchangeTransitionConfigurationV1` through the same authenticated
   listener and reports the configured terminal total difficulty, block hash,
   and block number for consensus-client handshake checks, including geth/Hive

@@ -464,11 +464,15 @@
       (declare (ignore block))
       (engine-rpc-payload-status-object status))))
 
+(defun engine-rpc-string-list-p (value)
+  (and (not (stringp value))
+       (json-array-p value)
+       (every #'stringp (json-array-values value))))
+
 (defun engine-rpc-handle-exchange-capabilities (params)
   (when params
     (let ((remote (first params)))
-      (unless (and (listp remote)
-                   (every #'stringp remote))
+      (unless (engine-rpc-string-list-p remote)
         (block-validation-fail
          "engine_exchangeCapabilities params must contain a string list"))))
   (engine-rpc-capabilities))

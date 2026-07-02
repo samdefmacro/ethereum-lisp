@@ -2300,7 +2300,7 @@
                     (engine-endpoint
                       (fixture-object-field ready-summary "engineEndpoint"))
                     (capabilities-body
-                      "{\"jsonrpc\":\"2.0\",\"id\":715,\"method\":\"engine_exchangeCapabilities\",\"params\":[[\"engine_newPayloadV1\"]]}")
+                      "{\"jsonrpc\":\"2.0\",\"id\":715,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     capabilities-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (stringp engine-endpoint))

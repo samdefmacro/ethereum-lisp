@@ -14010,6 +14010,18 @@
       (is (not (member "engine_exchangeCapabilities"
                        capabilities
                        :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (response (parse-json
+                      (engine-rpc-handle-request-json
+                       "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}"
+                       store
+                       config)))
+           (capabilities (field response "result")))
+      (is (= 14 (field response "id")))
+      (is (not (field response "error")))
+      (is (member "engine_newPayloadV1" capabilities :test #'string=))
+      (is (member "engine_forkchoiceUpdatedV1" capabilities :test #'string=)))
     (let ((old-point-verifier ethereum-lisp.core:*kzg-point-proof-verifier*)
           (old-blob-verifier ethereum-lisp.core:*kzg-blob-proof-verifier*))
       (unwind-protect
@@ -14051,6 +14063,20 @@
     (let* ((response (parse-json
                       (engine-rpc-handle-request-json
                        "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"engine_exchangeCapabilities\",\"params\":[7]}"
+                       (make-engine-payload-memory-store)
+                       (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response (parse-json
+                      (engine-rpc-handle-request-json
+                       "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"engine_exchangeCapabilities\",\"params\":[[7]]}"
+                       (make-engine-payload-memory-store)
+                       (make-chain-config))))
+           (error (field response "error")))
+      (is (= -32602 (field error "code"))))
+    (let* ((response (parse-json
+                      (engine-rpc-handle-request-json
+                       "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"engine_exchangeCapabilities\",\"params\":[\"\"]}"
                        (make-engine-payload-memory-store)
                        (make-chain-config))))
            (error (field response "error")))

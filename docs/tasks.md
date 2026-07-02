@@ -1109,6 +1109,15 @@ ones.
     and `engine_getBlobsV1` are advertised only after explicit verifier
     opt-in. This locks the Hive capability contract without claiming the
     command path is a production c-kzg backend.
+- [x] `DEVNET-RUNNER-EMPTY-CAPABILITY-HANDSHAKE`: Accept empty remote Engine
+  capability lists at the JSON-RPC and process boundary.
+  - Result (2026-07-03): `engine_exchangeCapabilities` now validates remote
+    capability parameters with the repository JSON-array helpers, so live
+    requests parsed with preserved empty arrays accept `params:[[]]` while
+    still rejecting scalar values, strings, and non-string capability members.
+    Core JSON-RPC coverage locks the empty-list and malformed-list behavior,
+    and the runner-facing KZG subprocess probe now performs its live
+    capability negotiation with an empty remote list.
 - [x] `DEVNET-RUNNER-CLIENT-VERSION-SMOKE`: Extend the standalone devnet smoke
   gate so authenticated Engine readiness probes include
   `engine_getClientVersionV1`.
