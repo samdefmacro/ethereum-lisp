@@ -7,7 +7,7 @@
                       database-path pid-file-path network-id
                       public-api-modules engine-cors-origins
                       public-cors-origins
-                      engine-vhosts public-vhosts)))
+                      engine-vhosts public-vhosts dev-mode-p)))
   genesis-path
   store
   config
@@ -24,7 +24,8 @@
   engine-cors-origins
   public-cors-origins
   engine-vhosts
-  public-vhosts)
+  public-vhosts
+  dev-mode-p)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -36,6 +37,28 @@
 (defconstant +devnet-datadir-genesis-file+ "genesis.json")
 (defconstant +devnet-datadir-jwt-secret-file+ "jwtsecret")
 (defconstant +devnet-geth-datadir-directory+ "geth/")
+
+(defparameter +devnet-default-dev-genesis-json+
+  (concatenate
+   'string
+   "{"
+   "\"config\":{\"chainId\":1337,\"terminalTotalDifficulty\":0,"
+   "\"londonBlock\":0,\"shanghaiTime\":0},"
+   "\"nonce\":\"0x0\","
+   "\"timestamp\":\"0x0\","
+   "\"extraData\":\"0x\","
+   "\"gasLimit\":\"0x1c9c380\","
+   "\"difficulty\":\"0x0\","
+   "\"mixHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\","
+   "\"coinbase\":\"0x0000000000000000000000000000000000000000\","
+   "\"stateRoot\":\"0x23cc0c47d1238030e9c1ec18013dcb17024d3d42729567adbb6406a64d3007f3\","
+   "\"alloc\":{"
+   "\"0x0000000000000000000000000000000000001001\":{"
+   "\"balance\":\"0xde0b6b3a7640000\",\"nonce\":\"0x1\"},"
+   "\"0x0000000000000000000000000000000000001002\":{"
+   "\"balance\":\"0x5\",\"code\":\"0x6001600055\","
+   "\"storage\":{\"0x00\":\"0x2a\",\"0x01\":\"0x00\"}}"
+   "}}"))
 
 (defun devnet-process-id ()
   #+sbcl
@@ -212,6 +235,8 @@
 (defun make-devnet-node
     (&key
        genesis-path
+       genesis-json
+       dev-mode-p
        (host "127.0.0.1")
        (port +engine-rpc-default-http-port+)
        (public-host host)
@@ -235,23 +260,35 @@
        terminal-block-number
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
-  (unless (and genesis-path (stringp genesis-path))
-    (error "Devnet node requires a genesis JSON path"))
+  (unless (or (and genesis-path (stringp genesis-path))
+              (and genesis-json (stringp genesis-json)))
+    (error "Devnet node requires a genesis JSON path or source"))
   (unless (functionp public-allowed-method-p)
     (error "Devnet public RPC method filter must be a function"))
-  (let* ((config
+  (let* ((genesis-json (and (null genesis-path) genesis-json))
+         (config
            (devnet-cli-apply-merge-overrides
-            (chain-config-from-genesis-json-file genesis-path)
+            (if genesis-json
+                (chain-config-from-genesis-json-string genesis-json)
+                (chain-config-from-genesis-json-file genesis-path))
             :terminal-total-difficulty terminal-total-difficulty
             :terminal-total-difficulty-passed terminal-total-difficulty-passed
             :terminal-total-difficulty-passed-specified-p
             terminal-total-difficulty-passed-specified-p
             :terminal-block-hash terminal-block-hash
             :terminal-block-number terminal-block-number))
-         (state (state-db-from-genesis-json-file genesis-path))
+         (state
+           (if genesis-json
+               (state-db-from-genesis-json-string genesis-json)
+               (state-db-from-genesis-json-file genesis-path)))
          (genesis-block
-           (genesis-block-from-state-genesis-json-file genesis-path
-                                                       :config config))
+           (if genesis-json
+               (genesis-block-from-state-genesis-json-string
+                genesis-json
+                :config config)
+               (genesis-block-from-state-genesis-json-file
+                genesis-path
+                :config config)))
          (effective-network-id (or network-id (chain-config-chain-id config)))
          (store (make-engine-payload-memory-store))
          (jwt-secret (and jwt-secret-path
@@ -320,7 +357,8 @@
      :engine-vhosts (and engine-vhosts
                          (copy-list engine-vhosts))
      :public-vhosts (and public-vhosts
-                         (copy-list public-vhosts)))))
+                         (copy-list public-vhosts))
+     :dev-mode-p dev-mode-p)))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty
@@ -401,6 +439,7 @@
           :public-cors-origins (devnet-node-public-cors-origins node)
           :engine-vhosts (devnet-node-engine-vhosts node)
           :public-vhosts (devnet-node-public-vhosts node)
+          :dev-mode-p (devnet-node-dev-mode-p node)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -429,6 +468,7 @@
       ("logPath" . ,(getf summary :log-path))
       ("databasePath" . ,(getf summary :database-path))
       ("pidFilePath" . ,(getf summary :pid-file-path))
+      ("devMode" . ,(if (getf summary :dev-mode-p) t :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -798,6 +838,7 @@
         (terminal-total-difficulty-passed-specified-p nil)
         (terminal-block-hash nil)
         (terminal-block-number nil)
+        (dev-mode-p nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -961,6 +1002,11 @@
                   (when enabled-p
                     (setf summary-format :json))
                   (setf args rest)))
+               ((string= option "--dev")
+                (multiple-value-bind (enabled-p rest)
+                    (devnet-cli-optional-boolean-value args option)
+                  (setf dev-mode-p enabled-p
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1001,6 +1047,7 @@
           terminal-total-difficulty-passed-specified-p
           :terminal-block-hash terminal-block-hash
           :terminal-block-number terminal-block-number
+          :dev-mode-p dev-mode-p
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1117,6 +1164,11 @@
                   (devnet-cli-datadir-genesis-path datadir-path)))
             (and (probe-file stored-genesis)
                  (namestring (truename stored-genesis))))))))
+
+(defun devnet-cli-resolve-genesis-json (options genesis-path)
+  (when (and (getf options :dev-mode-p)
+             (null genesis-path))
+    +devnet-default-dev-genesis-json+))
 
 (defun devnet-cli-print-init-usage (stream)
   (format stream
@@ -1457,8 +1509,12 @@
                (progn
                  (let ((genesis-path
                          (devnet-cli-resolve-genesis-path options)))
-                   (unless genesis-path
-                     (error "--genesis is required unless --datadir contains an initialized genesis"))
+                   (let ((genesis-json
+                           (devnet-cli-resolve-genesis-json
+                            options
+                            genesis-path)))
+                     (unless (or genesis-path genesis-json)
+                       (error "--genesis is required unless --datadir contains an initialized genesis or --dev is enabled"))
                  (call-with-devnet-cli-telemetry-sink
                   options
                   output-stream
@@ -1466,6 +1522,9 @@
                     (let ((node
                             (make-devnet-node
                              :genesis-path genesis-path
+                             :genesis-json genesis-json
+                             :dev-mode-p (and genesis-json
+                                              (getf options :dev-mode-p))
                              :host (getf options :host)
                              :port (getf options :port)
                              :public-host (getf options :public-host)
@@ -1577,7 +1636,7 @@
                              :format (getf options :summary-format))
                             (when (getf options :log-file)
                               (devnet-cli-log-event node "devnet.shutdown"))))
-                      0)))))))))
+                      0))))))))))
     (error (condition)
       (ignore-errors
        (devnet-cli-log-error-event args condition))

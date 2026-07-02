@@ -948,12 +948,15 @@ ones.
     `--rpc.allow-unprotected-txs`, `--txpool.locals`, `--txpool.nolocals`,
     `--txpool.journal`, `--txpool.rejournal`, txpool price/slot/queue/lifetime
     knobs, blobpool capacity/price-bump knobs, `--state.scheme`,
-    `--db.engine`, `--datadir.ancient`, `--dev`, and `--nousb` as compatibility
-    options. These flags do not alter the current in-memory txpool, database,
-    development-network, or USB behavior; they prevent geth-shaped process
-    templates from failing before the supported split Engine/public devnet
-    process starts. CLI coverage verifies a geth-shaped no-serve invocation and
-    malformed boolean/missing-value failures.
+    `--db.engine`, `--datadir.ancient`, `--dev`, and `--nousb` as runner
+    options. At this stage `--dev` was still a compatibility no-op; later
+    `DEVNET-RUNNER-DEV-GENESIS-FALLBACK` makes enabled `--dev` select an
+    embedded local genesis when no file-backed genesis exists. The remaining
+    flags do not alter the current in-memory txpool, database, or USB behavior;
+    they prevent geth-shaped process templates from failing before the
+    supported split Engine/public devnet process starts. CLI coverage verifies
+    a geth-shaped no-serve invocation and malformed boolean/missing-value
+    failures.
 - [x] `DEVNET-RUNNER-DEV-MODE-NOOP-FLAGS`: Accept geth dev-mode subflags that
   commonly accompany `--dev` in local runner templates.
   - Result (2026-07-01): the shared devnet/init option table now consumes
@@ -963,6 +966,15 @@ ones.
     datadir-initialization templates reach the split Engine/public process
     instead of failing during argument parsing. CLI coverage locks successful
     devnet and init parsing plus missing-value diagnostics.
+- [x] `DEVNET-RUNNER-DEV-GENESIS-FALLBACK`: Make geth-style `--dev` launch a
+  usable local chain without requiring an explicit genesis file.
+  - Result (2026-07-02): `ethereum-lisp devnet --dev` now uses an embedded
+    Shanghai dev genesis when neither `--genesis` nor an initialized datadir
+    genesis is available. Explicit `--genesis` and datadir genesis files still
+    take precedence, `--dev=false` leaves the existing missing-genesis error
+    path intact, and runner-visible JSON/ready summaries now expose
+    `devMode=true` with `genesisPath=null` for the embedded fallback. CLI
+    no-serve coverage verifies successful startup without socket binding.
 - [x] `DEVNET-RUNNER-PUBLIC-API-REPORTING`: Report geth/Hive-style public RPC
   module allowlists in runner-visible devnet startup artifacts.
   - Result (2026-06-28): devnet nodes now preserve the parsed `--http.api`

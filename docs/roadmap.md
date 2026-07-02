@@ -1214,7 +1214,10 @@ first pass, but interfaces must not block that path.
   now configure the local `engine_exchangeTransitionConfigurationV1` response),
   `--state.scheme`, `--db.engine`,
   `--datadir.ancient`, `--dev`, `--dev.period`, `--dev.gaslimit`, and
-  `--nousb`. Geth/Hive node-key, discovery,
+  `--nousb`. Enabled `--dev` now supplies an embedded Shanghai dev genesis
+  when no explicit or datadir genesis is present, while `--dev.period` and
+  `--dev.gaslimit` remain compatibility no-ops until block production timing
+  is implemented. Geth/Hive node-key, discovery,
   network-restriction, and IPC path
   options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,
   `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as

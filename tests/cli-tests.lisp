@@ -2373,6 +2373,23 @@
       (when (probe-file datadir-database-path)
         (delete-file datadir-database-path)))))
 
+(deftest devnet-cli-main-dev-mode-uses-embedded-genesis
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet" "--dev" "--json" "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (= 1337 (fixture-object-field summary "chainId")))
+      (is (= 0 (fixture-object-field summary "headNumber")))
+      (is (fixture-field-present-p summary "genesisPath"))
+      (is (null (fixture-object-field summary "genesisPath")))
+      (is (eq t (fixture-object-field summary "devMode")))
+      (is (eq t (fixture-object-field summary "stateAvailable"))))))
+
 (deftest devnet-cli-main-treats-empty-database-as-new-chain
   (labels ((write-empty-kv-database (path)
              (with-open-file (stream path
@@ -12428,6 +12445,7 @@
                  "--nodiscover=0"
                  "--ipcdisable=1"
                  "--mine=false"
+                 "--dev=false"
                  "--metrics=0"
                  "--pprof=false"
                  "--snapshot"
@@ -12436,11 +12454,14 @@
           (ethereum-lisp.cli::devnet-cli-options
            (list "devnet"
                  "--json=1"
-                 "--no-serve=true"))))
+                 "--no-serve=true"
+                 "--dev"))))
     (is (eq :sexp (getf disabled :summary-format)))
     (is (getf disabled :serve-p))
+    (is (not (getf disabled :dev-mode-p)))
     (is (eq :json (getf enabled :summary-format)))
-    (is (not (getf enabled :serve-p)))))
+    (is (not (getf enabled :serve-p)))
+    (is (getf enabled :dev-mode-p))))
 
 (deftest devnet-cli-init-json-boolean-values-affect-summary-format
   (let ((disabled
