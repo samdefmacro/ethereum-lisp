@@ -7109,6 +7109,19 @@ splits can land after the Phase A smoke path closes.
     `configuredPublicEndpoint` or report `publicEndpointConnectable=true`, and
     the JSON/text wrapper output preserves those fields for Hive/process-runner
     diagnostics.
+- [x] `DEVNET-ENGINE-ONLY-RPC-PREFIX-CONTRACT`: Keep Engine HTTP path shaping
+  enforced when Hive/geth `--http=false` disables the public listener.
+  - Result (2026-07-02): the focused Engine-only smoke gate now starts the
+    authenticated Engine listener with `engineRpcPrefix=/engine`, verifies that
+    a root-path Engine JSON-RPC request returns HTTP 404 while the prefixed
+    request succeeds, and exposes `engineRpcPrefix`,
+    `engineRpcPrefixStatus=200`, and `engineRpcPrefixBlockedStatus=404`
+    alongside the closed-public-port fields. The runner-facing
+    `scripts/ethereum-lisp.lisp -- devnet --http=false` subprocess coverage
+    launches with `--authrpc.rpcprefix /engine` and checks the same
+    readiness/stdout/telemetry prefix contract with two Engine and zero public
+    shutdown connections. The top-level Phase A `--devnet` wrapper validates
+    and prints the same fields for `devnetEngineOnly`.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

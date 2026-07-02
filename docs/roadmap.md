@@ -1248,7 +1248,7 @@ first pass, but interfaces must not block that path.
   contract.
   The top-level Phase A `--devnet` wrapper now runs that Engine-only child
   as `devnetEngineOnly`, validates its ready/log/pid artifacts and
-  one-Engine/zero-public shutdown accounting, and includes it in aggregate
+  Engine/public shutdown accounting, and includes it in aggregate
   process-case counts so the regular bounded devnet gate covers both split
   Engine/public and public-disabled runner launches.
   The external `scripts/ethereum-lisp.lisp -- devnet --http=false` process
@@ -1262,6 +1262,12 @@ first pass, but interfaces must not block that path.
   The top-level Phase A `--devnet` wrapper now preserves and validates that
   closed-public-port proof in its `devnetEngineOnly` child report, keeping the
   aggregate process gate aligned with the standalone Engine-only smoke gate.
+  Engine-only mode also keeps authenticated Engine HTTP path shaping active:
+  the focused smoke gate and runner-facing script subprocess now launch with
+  `engineRpcPrefix=/engine`, require the root path to return HTTP 404, require
+  the prefixed Engine client-version probe to succeed, and report two Engine /
+  zero public shutdown connections through readiness, stdout, telemetry, and
+  the top-level Phase A `devnetEngineOnly` wrapper report.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

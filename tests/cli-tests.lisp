@@ -4049,14 +4049,21 @@
                (is (search "http://127.0.0.1:" engine-endpoint))
                (is (not (fixture-object-field report "publicRpcEnabled")))
                (is (not (fixture-object-field report "rpcEndpoint")))
+               (is (string= "/engine"
+                            (fixture-object-field report "engineRpcPrefix")))
+               (is (= 200 (fixture-object-field report
+                                                 "engineRpcPrefixStatus")))
+               (is (= 404 (fixture-object-field
+                            report
+                            "engineRpcPrefixBlockedStatus")))
                (is (search "http://127.0.0.1:"
                            (fixture-object-field report
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 1 (fixture-object-field report "engineConnections")))
+               (is (= 2 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 1 (fixture-object-field report "totalConnections")))
+               (is (= 2 (fixture-object-field report "totalConnections")))
                (is (string= "ethereum-lisp"
                             (fixture-object-field report
                                                   "engineClientVersionName")))
@@ -4064,12 +4071,15 @@
                (is (string= engine-endpoint
                             (fixture-object-field ready-summary
                                                   "engineEndpoint")))
+               (is (string= "/engine"
+                            (fixture-object-field ready-summary
+                                                  "engineRpcPrefix")))
                (is (not (fixture-object-field ready-summary "rpcEndpoint")))
                (is (not (fixture-object-field ready-summary
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "1"
+               (is (string= "2"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -4077,7 +4087,7 @@
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "1"
+               (is (string= "2"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -5585,16 +5595,24 @@
                   devnet-engine-only "publicRpcEnabled")))
         (is (not (fixture-object-field
                   devnet-engine-only "rpcEndpoint")))
+        (is (string= "/engine"
+                     (fixture-object-field
+                      devnet-engine-only "engineRpcPrefix")))
+        (is (= 200 (fixture-object-field
+                    devnet-engine-only "engineRpcPrefixStatus")))
+        (is (= 404 (fixture-object-field
+                    devnet-engine-only
+                    "engineRpcPrefixBlockedStatus")))
         (is (search "http://127.0.0.1:"
                     (fixture-object-field
                      devnet-engine-only "configuredPublicEndpoint")))
         (is (not (fixture-object-field
                   devnet-engine-only "publicEndpointConnectable")))
-        (is (= 1 (fixture-object-field
+        (is (= 2 (fixture-object-field
                   devnet-engine-only "engineConnections")))
         (is (= 0 (fixture-object-field
                   devnet-engine-only "publicConnections")))
-        (is (= 1 (fixture-object-field
+        (is (= 2 (fixture-object-field
                   devnet-engine-only "totalConnections")))
         (let ((side-reorg-cases
                 (fixture-object-field devnet-side-reorg "cases")))
@@ -5971,12 +5989,20 @@
                         devnet-engine-only "mode")))
           (is (= 1 (fixture-object-field
                     devnet-engine-only "caseCount")))
+          (is (string= "/engine"
+                       (fixture-object-field
+                        devnet-engine-only "engineRpcPrefix")))
+          (is (= 200 (fixture-object-field
+                      devnet-engine-only "engineRpcPrefixStatus")))
+          (is (= 404 (fixture-object-field
+                      devnet-engine-only
+                      "engineRpcPrefixBlockedStatus")))
           (is (search "http://127.0.0.1:"
                       (fixture-object-field
                        devnet-engine-only "configuredPublicEndpoint")))
           (is (not (fixture-object-field
                     devnet-engine-only "publicEndpointConnectable")))
-          (is (= 1 (fixture-object-field
+          (is (= 2 (fixture-object-field
                     devnet-engine-only "engineConnections")))
           (is (= 0 (fixture-object-field
                     devnet-engine-only "publicConnections"))))))))
@@ -12599,6 +12625,8 @@
                         (write-to-string public-port)
                         "--authrpc.jwtsecret"
                         (namestring jwt-path)
+                        "--authrpc.rpcprefix"
+                        "/engine"
                         "--ready-file"
                         (namestring ready-path)
                         "--log-file"
@@ -12606,7 +12634,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "1"
+                        "2"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -12645,24 +12673,37 @@
                        "\"params\":[{\"code\":\"runner\","
                        "\"name\":\"engine-only-script\","
                        "\"version\":\"1\",\"commit\":\"0x00000000\"}]}"))
+                    blocked-engine-response
                     engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (stringp engine-endpoint))
                (is (not (fixture-object-field ready-summary "rpcEndpoint")))
                (is (not (fixture-object-field ready-summary
                                                "publicRpcEnabled")))
+               (is (string= "/engine"
+                            (fixture-object-field ready-summary
+                                                  "engineRpcPrefix")))
                (is (not (devnet-cli-http-endpoint-connectable-p
                          configured-public-endpoint)))
                (handler-case
-                   (setf engine-response
-                         (devnet-cli-http-endpoint-request
-                          engine-endpoint
-                          (devnet-cli-json-rpc-http-request
-                           engine-body
-                           :token token)))
+                   (progn
+                     (setf blocked-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :token token)))
+                     (setf engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :token token
+                             :target "/engine"))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
+               (is (= 404 (devnet-cli-http-status blocked-engine-response)))
                (is (= 200 (devnet-cli-http-status engine-response)))
                (let* ((engine-rpc
                         (parse-json (devnet-cli-http-body engine-response)))
@@ -12705,12 +12746,19 @@
                          (is (not (fixture-object-field summary
                                                          "rpcEndpoint")))
                          (is (not (fixture-object-field
-                                   summary "publicRpcEnabled"))))
+                                   summary "publicRpcEnabled")))
+                         (is (string= "/engine"
+                                      (fixture-object-field
+                                       summary "engineRpcPrefix"))))
                        (is ready-record)
                        (is shutdown-record)
                        (dolist (fields (list ready-fields shutdown-fields))
                          (is (string= engine-endpoint
                                       (cdr (assoc "engineEndpoint"
+                                                  fields
+                                                  :test #'string=))))
+                         (is (string= "/engine"
+                                      (cdr (assoc "engineRpcPrefix"
                                                   fields
                                                   :test #'string=))))
                          (is (string= ""
@@ -12721,7 +12769,7 @@
                                       (cdr (assoc "publicRpcEnabled"
                                                   fields
                                                   :test #'string=)))))
-                       (is (string= "1"
+                       (is (string= "2"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
@@ -12729,7 +12777,7 @@
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "1"
+                       (is (string= "2"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=)))))))))))

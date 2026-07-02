@@ -2297,6 +2297,7 @@ references/ checkouts.~%")
           (devnet-cli-temp-path "ethereum-lisp-devnet-engine-only" "jwt"))
         (client-thread nil)
         (client-response nil)
+        (blocked-client-response nil)
         (client-error nil)
         (engine-endpoint nil)
         (configured-public-endpoint nil)
@@ -2317,6 +2318,7 @@ references/ checkouts.~%")
                         :port 0
                         :public-port (devnet-cli-unused-loopback-port)
                         :jwt-secret-path (namestring jwt-path)
+                        :engine-rpc-prefix +devnet-smoke-gate-engine-rpc-prefix+
                         :log-path log-file
                         :pid-file-path pid-file
                         :telemetry-sink telemetry-sink))
@@ -2342,9 +2344,9 @@ references/ checkouts.~%")
              (when pid-file
                (ethereum-lisp.cli::devnet-cli-write-pid-file pid-file))
              (let ((summary
-                     (ethereum-lisp.cli:start-devnet-node
+                      (ethereum-lisp.cli:start-devnet-node
                       node
-                      :max-connections 1
+                      :max-connections 2
                       :public-rpc-enabled-p nil
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
@@ -2379,12 +2381,20 @@ references/ checkouts.~%")
                                  (handler-case
                                      (progn
                                        (sleep 0.05)
+                                       (setf blocked-client-response
+                                             (devnet-cli-http-endpoint-request
+                                              engine-endpoint
+                                              (devnet-cli-json-rpc-http-request
+                                               engine-body
+                                               :token token)))
                                        (setf client-response
                                              (devnet-cli-http-endpoint-request
                                               engine-endpoint
                                               (devnet-cli-json-rpc-http-request
                                                engine-body
-                                               :token token))))
+                                               :token token
+                                               :target
+                                               +devnet-smoke-gate-engine-rpc-prefix+))))
                                    (error (condition)
                                      (setf client-error condition))))
                                :name
@@ -2402,13 +2412,13 @@ references/ checkouts.~%")
                   :connection-summary summary
                   :public-rpc-enabled-p nil))
                (devnet-smoke-gate-require
-                (= 1 (getf summary :engine-connections))
+                (= 2 (getf summary :engine-connections))
                 "Engine-only serve Engine connection count mismatch")
                (devnet-smoke-gate-require
                 (= 0 (getf summary :public-connections))
                 "Engine-only serve public connection count mismatch")
                (devnet-smoke-gate-require
-                (= 1 (getf summary :total-connections))
+                (= 2 (getf summary :total-connections))
                 "Engine-only serve total connection count mismatch")
                (devnet-smoke-gate-require
                 (and engine-endpoint
@@ -2420,6 +2430,9 @@ references/ checkouts.~%")
                (devnet-smoke-gate-require
                 (not public-endpoint-connectable-p)
                 "Engine-only serve public endpoint unexpectedly accepted a connection")
+               (devnet-smoke-gate-require
+                (= 404 (devnet-cli-http-status blocked-client-response))
+                "Engine-only serve root Engine response HTTP status mismatch")
                (devnet-smoke-gate-require
                 (= 200 (devnet-cli-http-status client-response))
                 "Engine-only serve Engine response HTTP status mismatch")
@@ -2444,6 +2457,11 @@ references/ checkouts.~%")
                              (fixture-object-field ready-summary
                                                    "engineEndpoint"))
                     "Engine-only ready file Engine endpoint mismatch")
+                   (devnet-smoke-gate-require
+                    (string= +devnet-smoke-gate-engine-rpc-prefix+
+                             (fixture-object-field ready-summary
+                                                   "engineRpcPrefix"))
+                    "Engine-only ready file Engine RPC prefix mismatch")
                    (devnet-smoke-gate-require
                     (not (fixture-object-field ready-summary "rpcEndpoint"))
                     "Engine-only ready file must disable rpcEndpoint")
@@ -2487,6 +2505,11 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "Engine-only log Engine endpoint mismatch")
                        (devnet-smoke-gate-require
+                        (string= +devnet-smoke-gate-engine-rpc-prefix+
+                                 (cdr (assoc "engineRpcPrefix" fields
+                                             :test #'string=)))
+                        "Engine-only log Engine RPC prefix mismatch")
+                       (devnet-smoke-gate-require
                         (string= ""
                                  (cdr (assoc "rpcEndpoint" fields
                                              :test #'string=)))
@@ -2513,6 +2536,12 @@ references/ checkouts.~%")
                        (cons "mode" "devnet-engine-only-serve")
                        (cons "publicRpcEnabled" :false)
                        (cons "engineEndpoint" engine-endpoint)
+                       (cons "engineRpcPrefix"
+                             +devnet-smoke-gate-engine-rpc-prefix+)
+                       (cons "engineRpcPrefixStatus"
+                             (devnet-cli-http-status client-response))
+                       (cons "engineRpcPrefixBlockedStatus"
+                             (devnet-cli-http-status blocked-client-response))
                        (cons "rpcEndpoint" :false)
                        (cons "configuredPublicEndpoint"
                              configured-public-endpoint)
@@ -2529,9 +2558,9 @@ references/ checkouts.~%")
                              (getf summary :total-connections))
                        (cons "connectionContract"
                              (list
-                              (cons "expectedEngineConnections" 1)
+                              (cons "expectedEngineConnections" 2)
                               (cons "expectedPublicConnections" 0)
-                              (cons "expectedTotalConnections" 1)))
+                              (cons "expectedTotalConnections" 2)))
                        (cons "engineClientVersionName" "ethereum-lisp")
                        (cons "headNumber" head-number)
                        (cons "headHash" head-hash)

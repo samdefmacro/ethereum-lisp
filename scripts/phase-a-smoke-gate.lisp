@@ -862,9 +862,13 @@ references/ checkouts.~%"))
   (smoke-gate-devnet-require-field report "readyFile" ready-file)
   (smoke-gate-devnet-require-field report "logFile" log-file)
   (smoke-gate-devnet-require-field report "pidFile" pid-file)
-  (smoke-gate-devnet-require-field report "engineConnections" 1)
+  (smoke-gate-devnet-require-field report "engineConnections" 2)
   (smoke-gate-devnet-require-field report "publicConnections" 0)
-  (smoke-gate-devnet-require-field report "totalConnections" 1)
+  (smoke-gate-devnet-require-field report "totalConnections" 2)
+  (smoke-gate-devnet-require-field report "engineRpcPrefix" "/engine")
+  (smoke-gate-devnet-require-field report "engineRpcPrefixStatus" 200)
+  (smoke-gate-devnet-require-field
+   report "engineRpcPrefixBlockedStatus" 404)
   (smoke-gate-devnet-require-field report "publicRpcEnabled" nil)
   (smoke-gate-devnet-require-field report "rpcEndpoint" nil)
   (unless (and (stringp (smoke-gate-field report "configuredPublicEndpoint"))
@@ -876,11 +880,11 @@ references/ checkouts.~%"))
    report "publicEndpointConnectable" nil)
   (let ((contract (smoke-gate-field report "connectionContract")))
     (smoke-gate-devnet-require-field
-     contract "expectedEngineConnections" 1)
+     contract "expectedEngineConnections" 2)
     (smoke-gate-devnet-require-field
      contract "expectedPublicConnections" 0)
     (smoke-gate-devnet-require-field
-     contract "expectedTotalConnections" 1))
+     contract "expectedTotalConnections" 2))
   (append report (list (cons "caseCount" 1))))
 
 (defun smoke-gate-devnet-script-json (arguments)
@@ -1278,6 +1282,14 @@ references/ checkouts.~%"))
               (smoke-gate-field devnet-engine-only "caseCount"))
       (format t "devnetEngineOnlyPublicRpcEnabled=~A~%"
               (smoke-gate-field devnet-engine-only "publicRpcEnabled"))
+      (format t "devnetEngineOnlyEngineRpcPrefix=~A~%"
+              (smoke-gate-field devnet-engine-only "engineRpcPrefix"))
+      (format t "devnetEngineOnlyEngineRpcPrefixStatus=~D~%"
+              (smoke-gate-field devnet-engine-only
+                                "engineRpcPrefixStatus"))
+      (format t "devnetEngineOnlyEngineRpcPrefixBlockedStatus=~D~%"
+              (smoke-gate-field devnet-engine-only
+                                "engineRpcPrefixBlockedStatus"))
       (format t "devnetEngineOnlyConfiguredPublicEndpoint=~A~%"
               (smoke-gate-field devnet-engine-only
                                 "configuredPublicEndpoint"))
