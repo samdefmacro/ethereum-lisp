@@ -724,7 +724,10 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   blocker is external: the repository still needs a pinned c-kzg or equivalent
   verifier binding, a pinned trusted-setup artifact path plus checksum, and a
   canonical KZG vector source before the existing verifier hooks can be treated
-  as consensus proof verification.
+  as consensus proof verification. The hooks now also have command-backed
+  verifier adapters, so a pinned backend executable can be connected through an
+  explicit `point`/`blob` plus hex-argument protocol without changing the
+  consensus call sites.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* wire a trusted KZG backend before treating Cancun blob payloads as

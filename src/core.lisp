@@ -9061,6 +9061,91 @@ vectors. It should return true only when the proof is valid.")
   (and (kzg-point-proof-verification-available-p)
        (kzg-blob-proof-verification-available-p)))
 
+(defun normalize-kzg-verifier-command (command)
+  (labels ((valid-command-string-p (value)
+             (and (stringp value)
+                  (plusp (length value))
+                  (not (every (lambda (char)
+                                (find char '(#\Space #\Tab #\Newline #\Return)))
+                              value)))))
+    (cond
+      ((valid-command-string-p command)
+       (list command))
+      ((and (listp command)
+            command
+            (every #'valid-command-string-p command))
+       (copy-list command))
+      (t
+       (error "KZG verifier command must be a non-empty string or list of non-empty strings")))))
+
+(defun kzg-verifier-command-accepted-output-p (output)
+  (let ((token (string-downcase
+                (string-trim '(#\Space #\Tab #\Newline #\Return)
+                             output))))
+    (member token '("1" "ok" "true" "valid") :test #'string=)))
+
+(defun run-kzg-verifier-command (command mode byte-arguments)
+  (let ((argv (append command
+                      (list mode)
+                      (mapcar (lambda (bytes)
+                                (bytes-to-hex bytes))
+                              byte-arguments))))
+    (multiple-value-bind (stdout stderr status)
+        (handler-case
+            (uiop:run-program argv
+                              :output :string
+                              :error-output :string
+                              :ignore-error-status t)
+          (error (condition)
+            (error "KZG verifier command failed to start: ~A" condition)))
+      (declare (ignore stderr))
+      (and (numberp status)
+           (= 0 status)
+           (kzg-verifier-command-accepted-output-p stdout)))))
+
+(defun make-kzg-point-proof-command-verifier (command)
+  "Return a point-proof verifier backed by COMMAND.
+
+COMMAND is a string executable name/path or a list of executable plus fixed
+arguments. The command is invoked as:
+
+  COMMAND point COMMITMENT_HEX Z_HEX Y_HEX PROOF_HEX
+
+It must exit 0 and print one of true, ok, valid, or 1 to stdout when the proof
+is valid."
+  (let ((command (normalize-kzg-verifier-command command)))
+    (lambda (commitment z y proof)
+      (run-kzg-verifier-command command
+                                "point"
+                                (list commitment z y proof)))))
+
+(defun make-kzg-blob-proof-command-verifier (command)
+  "Return a blob-proof verifier backed by COMMAND.
+
+COMMAND is a string executable name/path or a list of executable plus fixed
+arguments. The command is invoked as:
+
+  COMMAND blob BLOB_HEX COMMITMENT_HEX PROOF_HEX
+
+It must exit 0 and print one of true, ok, valid, or 1 to stdout when the proof
+is valid."
+  (let ((command (normalize-kzg-verifier-command command)))
+    (lambda (blob commitment proof)
+      (run-kzg-verifier-command command
+                                "blob"
+                                (list blob commitment proof)))))
+
+(defun configure-kzg-proof-command-verifiers (command)
+  "Install COMMAND-backed point and blob proof verifiers.
+
+This wires the existing KZG verification hooks to an external verifier process
+without changing consensus behavior when no verifier is configured."
+  (setf *kzg-point-proof-verifier*
+        (make-kzg-point-proof-command-verifier command)
+        *kzg-blob-proof-verifier*
+        (make-kzg-blob-proof-command-verifier command))
+  t)
+
 (defun validate-kzg-field-element (bytes label)
   (let ((bytes (ensure-byte-vector bytes)))
     (unless (= +kzg-field-element-size+ (length bytes))

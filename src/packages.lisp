@@ -201,6 +201,9 @@
    #:kzg-proof-verification-available-p
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
+   #:make-kzg-point-proof-command-verifier
+   #:make-kzg-blob-proof-command-verifier
+   #:configure-kzg-proof-command-verifiers
    #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
@@ -1179,6 +1182,9 @@
    #:kzg-proof-verification-available-p
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
+   #:make-kzg-point-proof-command-verifier
+   #:make-kzg-blob-proof-command-verifier
+   #:configure-kzg-proof-command-verifiers
    #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+
@@ -2082,6 +2088,9 @@
    #:kzg-proof-verification-available-p
    #:verify-kzg-point-proof
    #:verify-kzg-blob-proof
+   #:make-kzg-point-proof-command-verifier
+   #:make-kzg-blob-proof-command-verifier
+   #:configure-kzg-proof-command-verifiers
    #:+cell-proofs-per-blob+
    #:+target-blobs-per-block+
    #:+max-blobs-per-block+

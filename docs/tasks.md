@@ -5888,6 +5888,14 @@ splits can land after the Phase A smoke path closes.
     boundary: Cancun blob sidecars and the point-evaluation precompile may be
     shape/versioned-hash checked, but cannot be claimed as consensus-valid KZG
     executions.
+  - Progress (2026-07-03): added command-backed verifier adapters for the
+    existing point-proof and blob-proof hooks. A configured verifier command
+    receives a mode (`point` or `blob`) plus hex-encoded proof inputs, and is
+    accepted only when it exits successfully and prints `true`, `ok`, `valid`,
+    or `1`. Tests use a local fake command to prove both hooks invoke the
+    adapter with canonicalized argument sizes and that rejected command output
+    fails verification. This makes the backend boundary executable while the
+    production c-kzg/trusted-setup/vector-source blocker remains open.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4

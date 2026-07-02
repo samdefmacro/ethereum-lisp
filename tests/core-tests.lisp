@@ -25894,6 +25894,74 @@ Content-Type: application/json
                             :proofs (list proof))
          :transaction transaction)))))
 
+(deftest kzg-command-verifier-adapter
+  (let* ((suffix (format nil "~A-~A" (get-universal-time) (random 1000000)))
+         (script-path
+           (merge-pathnames
+            (format nil "ethereum-lisp-kzg-verifier-~A.sh" suffix)
+            (uiop:temporary-directory)))
+         (log-path
+           (merge-pathnames
+            (format nil "ethereum-lisp-kzg-verifier-~A.log" suffix)
+            (uiop:temporary-directory)))
+         (blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proof (make-byte-vector +kzg-proof-size+))
+         (z (make-byte-vector ethereum-lisp.core::+kzg-field-element-size+))
+         (y (make-byte-vector ethereum-lisp.core::+kzg-field-element-size+))
+         (old-point-verifier *kzg-point-proof-verifier*)
+         (old-blob-verifier *kzg-blob-proof-verifier*))
+    (labels ((file-contents (path)
+               (with-open-file (stream path :direction :input)
+                 (let ((contents (make-string (file-length stream))))
+                   (read-sequence contents stream)
+                   contents))))
+      (unwind-protect
+           (progn
+             (with-open-file (stream script-path
+                                     :direction :output
+                                     :if-exists :supersede
+                                     :if-does-not-exist :create)
+               (format stream "#!/bin/sh~%")
+               (format stream "log=\"$1\"~%")
+               (format stream "verdict=\"$2\"~%")
+               (format stream "shift 2~%")
+               (format stream "case \"$1\" in~%")
+               (format stream "  point) printf 'point %s %s %s %s\\n' \"${#2}\" \"${#3}\" \"${#4}\" \"${#5}\" > \"$log\" ;;~%")
+               (format stream "  blob) printf 'blob %s %s %s\\n' \"${#2}\" \"${#3}\" \"${#4}\" > \"$log\" ;;~%")
+               (format stream "  *) printf 'unknown\\n' > \"$log\" ;;~%")
+               (format stream "esac~%")
+               (format stream "if [ \"$verdict\" = accept ]; then echo true; else echo false; fi~%"))
+             (configure-kzg-proof-command-verifiers
+              (list "sh" (namestring script-path)
+                    (namestring log-path)
+                    "accept"))
+             (is (kzg-proof-verification-available-p))
+             (is (verify-kzg-point-proof commitment z y proof))
+             (is (string= (format nil "point 98 66 66 98~%")
+                          (file-contents log-path)))
+             (is (verify-kzg-blob-proof blob commitment proof))
+             (is (string=
+                  (format nil "blob ~D 98 98~%"
+                          (+ 2 (* 2 +blob-byte-size+)))
+                  (file-contents log-path)))
+             (configure-kzg-proof-command-verifiers
+              (list "sh" (namestring script-path)
+                    (namestring log-path)
+                    "reject"))
+             (signals error
+               (verify-kzg-point-proof commitment z y proof))
+             (signals error
+               (verify-kzg-blob-proof blob commitment proof))
+             (signals error
+               (make-kzg-point-proof-command-verifier '())))
+        (setf *kzg-point-proof-verifier* old-point-verifier
+              *kzg-blob-proof-verifier* old-blob-verifier)
+        (when (probe-file script-path)
+          (delete-file script-path))
+        (when (probe-file log-path)
+          (delete-file log-path))))))
+
 (deftest blob-transaction-fee-cap-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (blob-hash (hash32-from-hex
