@@ -13277,7 +13277,48 @@
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL")
   #+sbcl
-  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+  (let* ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+         (terminal-block-hash
+           "0x4444444444444444444444444444444444444444444444444444444444444444")
+         (capabilities-body
+           (json-encode
+            (list
+             (cons "jsonrpc" "2.0")
+             (cons "id" 813)
+             (cons "method" "engine_exchangeCapabilities")
+             (cons "params"
+                   (list
+                    (list
+                     "engine_newPayloadV1"
+                     "engine_forkchoiceUpdatedV1"
+                     "engine_getPayloadV1"
+                     "engine_newPayloadV2"
+                     "engine_forkchoiceUpdatedV2"
+                     "engine_getPayloadV2"))))))
+         (transition-configuration-body
+           (json-encode
+            (list
+             (cons "jsonrpc" "2.0")
+             (cons "id" 814)
+             (cons "method" "engine_exchangeTransitionConfigurationV1")
+             (cons "params"
+                   (list
+                    (list
+                     (cons "terminalTotalDifficulty" "0x3039")
+                     (cons "terminalBlockHash" terminal-block-hash)
+                     (cons "terminalBlockNumber" "0x42")))))))
+         (transition-configuration-mismatch-body
+           (json-encode
+            (list
+             (cons "jsonrpc" "2.0")
+             (cons "id" 815)
+             (cons "method" "engine_exchangeTransitionConfigurationV1")
+             (cons "params"
+                   (list
+                    (list
+                     (cons "terminalTotalDifficulty" "0x3038")
+                     (cons "terminalBlockHash" terminal-block-hash)
+                     (cons "terminalBlockNumber" "0x42")))))))
         (jwt-path
           (devnet-cli-temp-path "ethereum-lisp-script-no-command-split" "jwt"))
         (ready-path
@@ -13306,6 +13347,12 @@
                         (namestring jwt-path)
                         "--authrpc.rpcprefix"
                         "/engine"
+                        "--override.terminaltotaldifficulty"
+                        "0x3039"
+                        "--override.terminalblockhash"
+                        terminal-block-hash
+                        "--override.terminalblocknumber"
+                        "66"
                         "--http"
                         "--http.addr"
                         "127.0.0.1"
@@ -13320,7 +13367,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "1"
+                        "4"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -13361,8 +13408,20 @@
                        "\"version\":\"1\",\"commit\":\"0x00000000\"}]}"))
                     (public-body
                       "{\"jsonrpc\":\"2.0\",\"id\":812,\"method\":\"eth_chainId\",\"params\":[]}")
+                    (public-net-version-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":816,\"method\":\"net_version\",\"params\":[]}")
+                    (public-client-version-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":817,\"method\":\"web3_clientVersion\",\"params\":[]}")
+                    (public-rpc-modules-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":818,\"method\":\"rpc_modules\",\"params\":[]}")
                     engine-response
-                    public-response)
+                    public-response
+                    public-net-version-response
+                    public-client-version-response
+                    public-rpc-modules-response
+                    capabilities-response
+                    transition-configuration-response
+                    transition-configuration-mismatch-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (stringp engine-endpoint))
                (is (stringp rpc-endpoint))
@@ -13382,17 +13441,65 @@
                              engine-body
                              :token token
                              :target "/engine")))
+                     (setf capabilities-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             capabilities-body
+                             :token token
+                             :target "/engine")))
+                     (setf transition-configuration-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transition-configuration-body
+                             :token token
+                             :target "/engine")))
+                     (setf transition-configuration-mismatch-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             transition-configuration-mismatch-body
+                             :token token
+                             :target "/engine")))
                      (setf public-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-body
+                             :target "/rpc")))
+                     (setf public-net-version-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-net-version-body
+                             :target "/rpc")))
+                     (setf public-client-version-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-client-version-body
+                             :target "/rpc")))
+                     (setf public-rpc-modules-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-rpc-modules-body
                              :target "/rpc"))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status engine-response)))
-               (is (= 200 (devnet-cli-http-status public-response)))
+               (is (= 200 (devnet-cli-http-status capabilities-response)))
+               (is (= 200 (devnet-cli-http-status
+                            transition-configuration-response)))
+               (is (= 200 (devnet-cli-http-status
+                            transition-configuration-mismatch-response)))
+               (dolist (response (list public-response
+                                       public-net-version-response
+                                       public-client-version-response
+                                       public-rpc-modules-response))
+                 (is (= 200 (devnet-cli-http-status response))))
                (let* ((engine-rpc
                         (parse-json (devnet-cli-http-body engine-response)))
                       (engine-result
@@ -13405,6 +13512,54 @@
                  (is (= 812 (fixture-object-field public-rpc "id")))
                  (is (string= "0x539"
                               (fixture-object-field public-rpc "result"))))
+               (let* ((capabilities-rpc
+                        (parse-json
+                         (devnet-cli-http-body capabilities-response)))
+                      (capabilities-result
+                        (fixture-object-field capabilities-rpc "result"))
+                      (transition-configuration-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transition-configuration-response)))
+                      (transition-configuration-result
+                        (fixture-object-field
+                         transition-configuration-rpc "result"))
+                      (transition-configuration-mismatch-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transition-configuration-mismatch-response)))
+                      (transition-configuration-mismatch-error
+                        (fixture-object-field
+                         transition-configuration-mismatch-rpc "error")))
+                 (is (= 813 (fixture-object-field capabilities-rpc "id")))
+                 (devnet-cli-assert-engine-capability-list
+                  capabilities-result)
+                 (is (= 814
+                        (fixture-object-field
+                         transition-configuration-rpc "id")))
+                 (is (string= "0x3039"
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalTotalDifficulty")))
+                 (is (string= terminal-block-hash
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalBlockHash")))
+                 (is (string= "0x42"
+                              (fixture-object-field
+                               transition-configuration-result
+                               "terminalBlockNumber")))
+                 (is (= 815
+                        (fixture-object-field
+                         transition-configuration-mismatch-rpc "id")))
+                 (is (= -32602
+                        (fixture-object-field
+                         transition-configuration-mismatch-error
+                         "code")))
+                 (is (search "terminalTotalDifficulty mismatch"
+                             (fixture-object-field
+                              transition-configuration-mismatch-error
+                              "message"))))
                (let ((status (devnet-cli-wait-process-exit process 10)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -13463,15 +13618,15 @@
                                     (cdr (assoc "publicRpcEnabled"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "1"
+                       (is (string= "4"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "1"
+                       (is (string= "4"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "8"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=)))))))))))

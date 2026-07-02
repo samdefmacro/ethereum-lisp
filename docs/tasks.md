@@ -7264,6 +7264,18 @@ splits can land after the Phase A smoke path closes.
     absent, verifies the override-backed transition configuration plus
     mismatch error, and updates shutdown telemetry to five Engine / zero
     public requests.
+- [x] `DEVNET-RUNNER-NO-COMMAND-SPLIT-HANDSHAKE`: Carry the Engine capability
+  and transition-configuration handshake through the direct geth/Hive-shaped
+  split `scripts/ethereum-lisp.lisp -- --dev --http` process boundary.
+  - Result (2026-07-03): the no-command split subprocess test now launches
+    with non-default Merge transition override flags, sends
+    `engine_exchangeCapabilities`,
+    `engine_exchangeTransitionConfigurationV1`, and a mismatched transition
+    configuration through the ready-file `/engine` endpoint, asserts the
+    Shanghai-safe V1/V2 capability set, verifies the override-backed
+    transition configuration plus mismatch error, keeps public `eth_chainId`
+    available through `/rpc`, and updates shutdown telemetry to four Engine /
+    four public requests.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

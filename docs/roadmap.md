@@ -1331,6 +1331,13 @@ first pass, but interfaces must not block that path.
   `/engine`, rejects a terminal-total-difficulty mismatch, advertises the
   Shanghai-safe V1/V2 capability set while hiding blob/KZG-gated methods, and
   records five Engine / zero public shutdown requests.
+  The direct geth/Hive-shaped no-command split launch path now has the same
+  consensus-client handshake coverage while public RPC stays enabled:
+  `scripts/ethereum-lisp.lisp -- --dev --http` accepts the same Merge override
+  flags, reports the override-backed transition configuration through
+  `/engine`, rejects a terminal-total-difficulty mismatch, advertises the
+  Shanghai-safe V1/V2 capability set, keeps `eth_chainId` reachable through
+  `/rpc`, and records four Engine / four public shutdown requests.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
