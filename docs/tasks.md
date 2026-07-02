@@ -7130,6 +7130,15 @@ splits can land after the Phase A smoke path closes.
     the Engine listener through `/engine`, proves the configured public HTTP
     port stays closed, and checks shutdown telemetry reports two Engine
     connections, zero public connections, and two total connections.
+- [x] `DEVNET-RUNNER-SCRIPT-NO-COMMAND-SPLIT`: Lock direct geth/Hive-shaped
+  script launch for the normal split Engine/public devnet process.
+  - Result (2026-07-02): runner-facing subprocess coverage now invokes
+    `sbcl --script scripts/ethereum-lisp.lisp -- --dev ... --http` without a
+    `devnet` token, waits for ready/log/pid artifacts, authenticates
+    `engine_getClientVersionV1` through the advertised `/engine` endpoint,
+    calls public `eth_chainId` through the advertised `/rpc` endpoint, and
+    checks stdout/readiness/telemetry agree on one Engine connection, one
+    public connection, and two total connections.
 - [x] `DEVNET-ENGINE-ONLY-PUBLIC-PORT-CLOSED`: Prove `--http=false` leaves an
   explicitly configured public HTTP port unbound.
   - Result (2026-07-02): the focused Engine-only smoke gate and external
