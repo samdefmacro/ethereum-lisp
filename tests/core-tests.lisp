@@ -14302,6 +14302,18 @@
       (is (= 42 (field (fourth responses) "id")))
       (is (string= (quantity-to-hex 0)
                    (field (fourth responses) "result"))))
+    (let* ((coinbase
+             (address-from-hex "0x00000000000000000000000000000000000000cb"))
+           (response-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"eth_coinbase\",\"params\":[]}"
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :coinbase coinbase))
+           (response (parse-json response-json)))
+      (is (= 24 (field response "id")))
+      (is (string= (address-to-hex coinbase)
+                   (field response "result"))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :london-block 0
                                       :cancun-time 0))
@@ -24743,7 +24755,9 @@ Content-Type: application/json
              (let* ((line-end (position #\Return response))
                     (status-line (subseq response 0 line-end)))
                (parse-integer status-line :start 9 :end 12))))
-    (let* ((default-service (make-engine-rpc-http-service))
+    (let* ((coinbase
+             (address-from-hex "0x00000000000000000000000000000000000000cb"))
+           (default-service (make-engine-rpc-http-service))
            (secret (make-byte-vector 32 :initial-element #x55))
            (sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
            (now 3000)
@@ -24755,6 +24769,7 @@ Content-Type: application/json
               :now-provider (lambda () now)
               :import-function #'execute-and-commit-engine-payload
               :rpc-prefix "/engine"
+              :coinbase coinbase
               :telemetry-sink sink)))
       (is (string= "localhost:8551"
                    (engine-rpc-http-service-endpoint default-service)))
@@ -24768,6 +24783,12 @@ Content-Type: application/json
               (engine-rpc-http-service-import-function default-service)))
       (is (string= "/" (engine-rpc-http-service-rpc-prefix default-service)))
       (is (string= "/engine" (engine-rpc-http-service-rpc-prefix service)))
+      (is (string= (address-to-hex (zero-address))
+                   (address-to-hex
+                    (engine-rpc-http-service-coinbase default-service))))
+      (is (string= (address-to-hex coinbase)
+                   (address-to-hex
+                    (engine-rpc-http-service-coinbase service))))
       (is (typep (engine-rpc-http-service-store service)
                  'engine-payload-memory-store))
       (is (typep (engine-rpc-http-service-config service) 'chain-config))

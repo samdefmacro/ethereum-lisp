@@ -6998,6 +6998,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-request
     (request store config &key import-function
                             network-id
+                            coinbase
                             (allowed-method-p #'engine-rpc-any-method-p))
   (let ((id (and (listp request)
                  (genesis-object-field request "id")))
@@ -7033,6 +7034,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                          (engine-rpc-handle-public-method
                           id method params store config
                           :network-id network-id
+                          :coinbase coinbase
                           :allowed-method-p allowed-method-p)
                          (engine-rpc-response
                           id
@@ -7061,12 +7063,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-request-value
     (request store config &key import-function
                             network-id
+                            coinbase
                             (allowed-method-p #'engine-rpc-any-method-p))
   (cond
     ((json-object-p request)
      (engine-rpc-handle-request request store config
                                 :import-function import-function
                                 :network-id network-id
+                                :coinbase coinbase
                                 :allowed-method-p allowed-method-p))
     ((and (listp request) request)
      (loop for item in request
@@ -7075,6 +7079,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                item store config
                                :import-function import-function
                                :network-id network-id
+                               :coinbase coinbase
                                :allowed-method-p allowed-method-p)
                               (engine-rpc-invalid-request-response))
            when response
@@ -7084,6 +7089,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-request-string
     (request-json store config &key import-function
                                   network-id
+                                  coinbase
                                   (allowed-method-p #'engine-rpc-any-method-p))
   (let ((request
           (handler-case
@@ -7097,17 +7103,20 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      config
      :import-function import-function
      :network-id network-id
+     :coinbase coinbase
      :allowed-method-p allowed-method-p)))
 
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function
                                   network-id
+                                  coinbase
                                   (allowed-method-p #'engine-rpc-any-method-p))
   (let ((response
           (engine-rpc-handle-request-string
            request-json store config
            :import-function import-function
            :network-id network-id
+           :coinbase coinbase
            :allowed-method-p allowed-method-p)))
     (if response
         (json-encode response)
@@ -7132,7 +7141,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
             (:constructor %make-engine-rpc-http-service
                 (&key host port store config jwt-secret now-provider
                       import-function telemetry-sink allowed-method-p
-                      network-id rpc-prefix cors-origins allowed-hosts)))
+                      network-id coinbase rpc-prefix cors-origins
+                      allowed-hosts)))
   host
   port
   store
@@ -7143,6 +7153,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   telemetry-sink
   allowed-method-p
   network-id
+  coinbase
   rpc-prefix
   cors-origins
   allowed-hosts)
@@ -7180,6 +7191,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (import-function (engine-rpc-default-import-function))
        (allowed-method-p #'engine-rpc-any-method-p)
        network-id
+       (coinbase (zero-address))
        (rpc-prefix "/")
        cors-origins
        allowed-hosts
@@ -7208,6 +7220,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
              (not (and (integerp network-id) (not (minusp network-id)))))
     (block-validation-fail
      "Engine RPC HTTP network id must be a non-negative integer"))
+  (unless (typep coinbase 'address)
+    (block-validation-fail "Engine RPC HTTP coinbase must be an address"))
   (unless (and (stringp rpc-prefix)
                (plusp (length rpc-prefix))
                (char= #\/ (char rpc-prefix 0)))
@@ -7233,6 +7247,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :telemetry-sink telemetry-sink
    :allowed-method-p allowed-method-p
    :network-id network-id
+   :coinbase coinbase
    :rpc-prefix rpc-prefix
    :cors-origins cors-origins
    :allowed-hosts allowed-hosts))
@@ -7896,6 +7911,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 (defun engine-rpc-handle-http-request-string
     (request store config &key jwt-secret now import-function
                                network-id
+                               coinbase
                                (rpc-prefix "/")
                                (allowed-method-p #'engine-rpc-any-method-p)
                                cors-origins
@@ -7973,6 +7989,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      config
                      :import-function import-function
                      :network-id network-id
+                     :coinbase coinbase
                      :allowed-method-p allowed-method-p)
                     :extra-headers cors-headers))))))))
     (error (condition)
@@ -7984,6 +8001,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (input-stream output-stream store config
      &key jwt-secret now import-function
           network-id
+          coinbase
           (rpc-prefix "/")
           (allowed-method-p #'engine-rpc-any-method-p)
           cors-origins
@@ -8002,6 +8020,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :now now
                  :import-function import-function
                  :network-id network-id
+                 :coinbase coinbase
                  :rpc-prefix rpc-prefix
                  :allowed-method-p allowed-method-p
                  :cors-origins cors-origins
@@ -8049,6 +8068,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           :now (funcall (engine-rpc-http-service-now-provider service))
           :import-function (engine-rpc-http-service-import-function service)
           :network-id (engine-rpc-http-service-network-id service)
+          :coinbase (engine-rpc-http-service-coinbase service)
           :rpc-prefix (engine-rpc-http-service-rpc-prefix service)
           :allowed-method-p
           (engine-rpc-http-service-allowed-method-p service)

@@ -1295,11 +1295,14 @@
            (chain-store-account-balance store head-hash funded)))))
 
 (deftest devnet-node-splits-engine-and-public-rpc-methods
-  (let* ((node (ethereum-lisp.cli:make-devnet-node
+  (let* ((coinbase
+           (address-from-hex "0x00000000000000000000000000000000000000cb"))
+         (node (ethereum-lisp.cli:make-devnet-node
                 :genesis-path +devnet-cli-genesis-fixture+
                 :port 8551
                 :public-port 8545
-                :network-id 7331))
+                :network-id 7331
+                :coinbase coinbase))
          (engine-service (ethereum-lisp.cli:devnet-node-service node))
          (public-service (ethereum-lisp.cli:devnet-node-public-service node))
          (engine-store (engine-rpc-http-service-store engine-service))
@@ -1348,6 +1351,22 @@
               :network-id
               (ethereum-lisp.core::engine-rpc-http-service-network-id
                public-service)
+              :coinbase
+              (ethereum-lisp.core::engine-rpc-http-service-coinbase
+               public-service)
+              :allowed-method-p public-filter)))
+          (public-coinbase-response
+            (parse-json
+             (engine-rpc-handle-request-json
+              "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"eth_coinbase\",\"params\":[]}"
+              engine-store
+              engine-config
+              :network-id
+              (ethereum-lisp.core::engine-rpc-http-service-network-id
+               public-service)
+              :coinbase
+              (ethereum-lisp.core::engine-rpc-http-service-coinbase
+               public-service)
               :allowed-method-p public-filter)))
           (network-response
             (parse-json
@@ -1359,6 +1378,17 @@
               (ethereum-lisp.core::engine-rpc-http-service-network-id
                public-service)
               :allowed-method-p public-filter))))
+      (is (string= (address-to-hex coinbase)
+                   (getf (ethereum-lisp.cli:devnet-node-summary node)
+                         :coinbase)))
+      (is (bytes= (address-bytes coinbase)
+                  (address-bytes
+                   (ethereum-lisp.core::engine-rpc-http-service-coinbase
+                    engine-service))))
+      (is (bytes= (address-bytes coinbase)
+                  (address-bytes
+                   (ethereum-lisp.core::engine-rpc-http-service-coinbase
+                    public-service))))
       (is (= -32601
              (fixture-object-field
               (fixture-object-field engine-response "error")
@@ -1380,6 +1410,9 @@
         (is (string= "1.0" (fixture-object-field modules "web3"))))
       (is (string= "0x539"
                    (fixture-object-field chain-id-response "result")))
+      (is (string= (address-to-hex coinbase)
+                   (fixture-object-field public-coinbase-response
+                                         "result")))
       (is (string= "7331"
                    (fixture-object-field network-response "result"))))))
 
@@ -2447,6 +2480,45 @@
     (let ((summary (parse-json (get-output-stream-string output))))
       (is (= 33000000
              (fixture-object-field summary "headGasLimit"))))))
+
+(deftest devnet-cli-main-miner-etherbase-shapes-dev-coinbase
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream))
+        (coinbase "0x00000000000000000000000000000000000000cb"))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  "--dev"
+                  "--miner.etherbase"
+                  coinbase
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (eq t (fixture-object-field summary "devMode")))
+      (is (string= coinbase
+                   (fixture-object-field summary "coinbase")))))
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream))
+        (coinbase "0x00000000000000000000000000000000000000cc"))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  "--dev"
+                  "--miner.etherbase"
+                  "0x00000000000000000000000000000000000000cb"
+                  "--etherbase"
+                  coinbase
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (string= coinbase
+                   (fixture-object-field summary "coinbase"))))))
 
 (deftest devnet-cli-main-treats-empty-database-as-new-chain
   (labels ((write-empty-kv-database (path)
@@ -12827,6 +12899,14 @@
     (is (search "--miner.gaslimit requires a non-negative integer or hex quantity"
                 (run-error (list "devnet"
                                  "--miner.gaslimit=abc"
+                                 "--no-serve"))))
+    (is (search "--miner.etherbase requires a 20-byte hex address"
+                (run-error (list "devnet"
+                                 "--miner.etherbase=0x1234"
+                                 "--no-serve"))))
+    (is (search "--etherbase requires a 20-byte hex address"
+                (run-error (list "devnet"
+                                 "--etherbase=not-address"
                                  "--no-serve"))))
     (is (search "--db.engine requires a value"
                 (run-error (list "devnet"

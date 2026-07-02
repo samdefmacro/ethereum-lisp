@@ -7,7 +7,7 @@
                       database-path pid-file-path network-id
                       public-api-modules engine-cors-origins
                       public-cors-origins
-                      engine-vhosts public-vhosts dev-mode-p)))
+                      engine-vhosts public-vhosts dev-mode-p coinbase)))
   genesis-path
   store
   config
@@ -25,7 +25,8 @@
   public-cors-origins
   engine-vhosts
   public-vhosts
-  dev-mode-p)
+  dev-mode-p
+  coinbase)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -41,7 +42,8 @@
 
 (defun devnet-cli-dev-genesis-json (&key
                                       (gas-limit
-                                       +devnet-default-dev-gas-limit+))
+                                       +devnet-default-dev-gas-limit+)
+                                      (coinbase (zero-address)))
   (concatenate
    'string
    "{"
@@ -53,7 +55,7 @@
    "\"gasLimit\":\"" (quantity-to-hex gas-limit) "\","
    "\"difficulty\":\"0x0\","
    "\"mixHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\","
-   "\"coinbase\":\"0x0000000000000000000000000000000000000000\","
+   "\"coinbase\":\"" (address-to-hex coinbase) "\","
    "\"stateRoot\":\"0x23cc0c47d1238030e9c1ec18013dcb17024d3d42729567adbb6406a64d3007f3\","
    "\"alloc\":{"
    "\"0x0000000000000000000000000000000000001001\":{"
@@ -261,6 +263,7 @@
        terminal-total-difficulty-passed-specified-p
        terminal-block-hash
        terminal-block-number
+       (coinbase (zero-address))
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (or (and genesis-path (stringp genesis-path))
@@ -303,6 +306,7 @@
             :store store
             :config config
             :network-id effective-network-id
+            :coinbase coinbase
             :jwt-secret jwt-secret
             :rpc-prefix engine-rpc-prefix
             :allowed-method-p #'engine-rpc-engine-method-p
@@ -316,6 +320,7 @@
             :store store
             :config config
             :network-id effective-network-id
+            :coinbase coinbase
             :rpc-prefix public-rpc-prefix
             :allowed-method-p public-allowed-method-p
             :cors-origins public-cors-origins
@@ -361,7 +366,8 @@
                          (copy-list engine-vhosts))
      :public-vhosts (and public-vhosts
                          (copy-list public-vhosts))
-     :dev-mode-p dev-mode-p)))
+     :dev-mode-p dev-mode-p
+     :coinbase coinbase)))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty
@@ -443,6 +449,7 @@
           :engine-vhosts (devnet-node-engine-vhosts node)
           :public-vhosts (devnet-node-public-vhosts node)
           :dev-mode-p (devnet-node-dev-mode-p node)
+          :coinbase (address-to-hex (devnet-node-coinbase node))
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -475,6 +482,7 @@
       ("databasePath" . ,(getf summary :database-path))
       ("pidFilePath" . ,(getf summary :pid-file-path))
       ("devMode" . ,(if (getf summary :dev-mode-p) t :false))
+      ("coinbase" . ,(getf summary :coinbase))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -777,6 +785,12 @@
     (error ()
       (error "~A requires a 32-byte hex hash" option))))
 
+(defun devnet-cli-parse-address (value option)
+  (handler-case
+      (address-from-hex value)
+    (error ()
+      (error "~A requires a 20-byte hex address" option))))
+
 (defun devnet-cli-parse-http-api-list (value option)
   (let ((modules
           (loop for raw in (uiop:split-string value :separator ",")
@@ -854,6 +868,7 @@
         (dev-mode-p nil)
         (dev-gas-limit nil)
         (miner-gas-limit nil)
+        (coinbase (zero-address))
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1034,6 +1049,12 @@
                   (setf miner-gas-limit
                         (devnet-cli-parse-uint64-quantity value option)
                         args rest)))
+               ((or (string= option "--miner.etherbase")
+                    (string= option "--etherbase"))
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf coinbase (devnet-cli-parse-address value option)
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1077,6 +1098,7 @@
           :dev-mode-p dev-mode-p
           :dev-gas-limit dev-gas-limit
           :miner-gas-limit miner-gas-limit
+          :coinbase coinbase
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1200,7 +1222,8 @@
     (devnet-cli-dev-genesis-json
      :gas-limit (or (getf options :dev-gas-limit)
                     (getf options :miner-gas-limit)
-                    +devnet-default-dev-gas-limit+))))
+                    +devnet-default-dev-gas-limit+)
+     :coinbase (getf options :coinbase))))
 
 (defun devnet-cli-print-init-usage (stream)
   (format stream
@@ -1389,6 +1412,7 @@
       ("chainId" . ,(quantity-to-hex (getf summary :chain-id)))
       ("headNumber" . ,(quantity-to-hex (getf summary :head-number)))
       ("headHash" . ,(getf summary :head-hash))
+      ("coinbase" . ,(getf summary :coinbase))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -1595,6 +1619,7 @@
                              (getf options :terminal-block-hash)
                              :terminal-block-number
                              (getf options :terminal-block-number)
+                             :coinbase (getf options :coinbase)
                              :public-allowed-method-p
                              (devnet-cli-public-api-method-filter
                               (getf options :http-api-modules))

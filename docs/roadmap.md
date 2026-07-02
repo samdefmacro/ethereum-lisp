@@ -1191,9 +1191,11 @@ first pass, but interfaces must not block that path.
   flags remain compatibility no-ops against the current split-service process.
   It also accepts common geth/Hive archive, mining, account, and diagnostics
   flags (`--gcmode`, cache sizing flags, tx history knobs, `--bootnodes`,
-  mining/etherbase/gas-price flags, `--unlock`, `--password`, `--metrics`,
-  `--pprof`, and `--snapshot`) as explicit no-op compatibility options, and
-  accepts common geth/Hive logging flags (`--log.file`, `--log.format`,
+  mining/gas-price flags, `--unlock`, `--password`, `--metrics`,
+  `--pprof`, and `--snapshot`) as explicit no-op compatibility options, while
+  `--miner.etherbase` / `--etherbase` configure the devnet coinbase reported
+  through startup artifacts and public `eth_coinbase`. The CLI also accepts
+  common geth/Hive logging flags (`--log.file`, `--log.format`,
   `--log.maxsize`, `--log.maxbackups`, `--log.maxage`, and `--log.compress`)
   as no-op launch compatibility while keeping `--log-file` as the Lisp
   lifecycle telemetry artifact path. It
@@ -1220,10 +1222,12 @@ first pass, but interfaces must not block that path.
   geth/Hive-style `--miner.gaslimit` now supplies the same embedded dev-genesis
   gas limit when `--dev.gaslimit` is absent, while remaining lower precedence
   than the dev-specific flag and not enabling mining or block production.
+  `--miner.etherbase` / `--etherbase` also shape the embedded dev genesis
+  header coinbase when no file-backed genesis is supplied.
   `--dev.period` remains a compatibility no-op until block production timing
   is implemented. Startup summaries and lifecycle telemetry report
-  `headGasLimit` for process-runner checks. Geth/Hive node-key, discovery,
-  network-restriction, and IPC path
+  `headGasLimit` and `coinbase` for process-runner checks. Geth/Hive node-key,
+  discovery, network-restriction, and IPC path
   options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,
   `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as
   explicit compatibility no-ops, so those launch templates reach the current

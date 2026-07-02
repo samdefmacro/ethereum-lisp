@@ -995,6 +995,13 @@ ones.
     explicit `--dev.gaslimit` still wins and file-backed genesis inputs remain
     authoritative. Malformed `--miner.gaslimit` values now fail during option
     parsing instead of being silently consumed as no-op text.
+  - Result (2026-07-02): geth/Hive-style `--miner.etherbase` / `--etherbase`
+    now configure the devnet coinbase address reported in JSON summaries,
+    lifecycle telemetry, and public `eth_coinbase`. For embedded `--dev`
+    genesis startup, the configured address is also used as the genesis header
+    coinbase. The setting remains a reporting/header input only and does not
+    enable mining or block production; malformed addresses fail during option
+    parsing.
 - [x] `DEVNET-RUNNER-PUBLIC-API-REPORTING`: Report geth/Hive-style public RPC
   module allowlists in runner-visible devnet startup artifacts.
   - Result (2026-06-28): devnet nodes now preserve the parsed `--http.api`
@@ -1289,8 +1296,9 @@ ones.
     `eth_hashrate` through the public listener after the authenticated Engine
     workflow. The gate verifies and reports the current non-networked,
     non-wallet, non-mining local node contract: zero peers, zero local account
-    count, zero coinbase, not mining, and zero hash rate, and updates the
-    public canonical-read connection contract for Hive-style runners.
+    count, the configured coinbase address (zero by default), not mining, and
+    zero hash rate, and updates the public canonical-read connection contract
+    for Hive-style runners.
 - [x] `DEVNET-RUNNER-PUBLIC-BATCH-READINESS`: Lock public JSON-RPC batch
   readiness at the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate now sends a public

@@ -714,6 +714,7 @@
    #:engine-rpc-http-service-import-function
    #:engine-rpc-http-service-telemetry-sink
    #:engine-rpc-http-service-allowed-method-p
+   #:engine-rpc-http-service-coinbase
    #:engine-rpc-http-service-rpc-prefix
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection
@@ -1691,6 +1692,7 @@
    #:engine-rpc-http-service-import-function
    #:engine-rpc-http-service-telemetry-sink
    #:engine-rpc-http-service-allowed-method-p
+   #:engine-rpc-http-service-coinbase
    #:engine-rpc-http-service-rpc-prefix
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection
@@ -2593,6 +2595,7 @@
    #:engine-rpc-http-service-import-function
    #:engine-rpc-http-service-telemetry-sink
    #:engine-rpc-http-service-allowed-method-p
+   #:engine-rpc-http-service-coinbase
    #:engine-rpc-http-service-rpc-prefix
    #:engine-rpc-http-service-endpoint
    #:engine-rpc-http-connection

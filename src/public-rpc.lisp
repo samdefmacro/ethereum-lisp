@@ -76,10 +76,10 @@
     (block-validation-fail "eth_accounts params must be empty"))
   (make-array 0))
 
-(defun engine-rpc-handle-eth-coinbase (params)
+(defun engine-rpc-handle-eth-coinbase (params &key coinbase)
   (when params
     (block-validation-fail "eth_coinbase params must be empty"))
-  (address-to-hex (zero-address)))
+  (address-to-hex (or coinbase (zero-address))))
 
 (defun engine-rpc-handle-eth-mining (params)
   (when params
@@ -2638,7 +2638,8 @@
 
 (defun engine-rpc-handle-public-method
     (id method params store config
-     &key network-id (allowed-method-p #'engine-rpc-any-method-p))
+     &key network-id coinbase
+          (allowed-method-p #'engine-rpc-any-method-p))
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -2675,7 +2676,9 @@
       id :result (engine-rpc-handle-eth-accounts params)))
     ((string= method "eth_coinbase")
      (engine-rpc-response
-      id :result (engine-rpc-handle-eth-coinbase params)))
+      id :result (engine-rpc-handle-eth-coinbase
+                  params
+                  :coinbase coinbase)))
     ((string= method "eth_mining")
      (engine-rpc-response
       id :result (engine-rpc-handle-eth-mining params)))
