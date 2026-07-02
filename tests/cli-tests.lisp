@@ -2178,6 +2178,36 @@
       (is (string= "127.0.0.1:8545" (getf summary :rpc-endpoint)))
       (is (getf summary :state-available-p)))))
 
+(deftest devnet-cli-main-kzg-verifier-command-scopes-hooks
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream))
+        (old-point-verifier *kzg-point-proof-verifier*)
+        (old-blob-verifier *kzg-blob-proof-verifier*))
+    (unwind-protect
+         (progn
+           (setf *kzg-point-proof-verifier* nil
+                 *kzg-blob-proof-verifier* nil)
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--port" "0"
+                         "--kzg-verifier-command" "/tmp/ethereum-lisp-kzg"
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let ((summary (parse-json (get-output-stream-string output))))
+             (is (string= "/tmp/ethereum-lisp-kzg"
+                          (fixture-object-field
+                           summary "kzgVerifierCommand")))
+             (is (fixture-object-field
+                  summary "kzgProofVerificationAvailable")))
+           (is (not (kzg-proof-verification-available-p))))
+      (setf *kzg-point-proof-verifier* old-point-verifier
+            *kzg-blob-proof-verifier* old-blob-verifier))))
+
 (deftest devnet-cli-main-database-restores-and-exports-chain-store
   (let ((database-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-chain" "sexp"))

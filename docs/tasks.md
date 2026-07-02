@@ -5896,6 +5896,17 @@ splits can land after the Phase A smoke path closes.
     adapter with canonicalized argument sizes and that rejected command output
     fails verification. This makes the backend boundary executable while the
     production c-kzg/trusted-setup/vector-source blocker remains open.
+  - Progress (2026-07-03): added a runner-facing
+    `--kzg-verifier-command PATH` / `--kzg.verifier-command PATH` devnet
+    option that installs the command-backed verifier hooks for the lifetime of
+    a devnet CLI invocation, reports the configured command and availability
+    in stdout/ready JSON and lifecycle telemetry, and restores the previous
+    verifier hooks after the invocation. Focused CLI coverage proves no-serve
+    runs expose the configured verifier boundary without leaking global KZG
+    availability into later runs. This lets Hive-style runner templates opt
+    into blob-era capability advertisement only when they explicitly provide a
+    verifier command; the production c-kzg/trusted-setup/vector-source blocker
+    remains open.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4

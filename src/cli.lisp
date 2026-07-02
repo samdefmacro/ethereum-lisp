@@ -7,7 +7,8 @@
                       database-path pid-file-path network-id
                       public-api-modules engine-cors-origins
                       public-cors-origins
-                      engine-vhosts public-vhosts dev-mode-p coinbase)))
+                      engine-vhosts public-vhosts dev-mode-p coinbase
+                      kzg-verifier-command)))
   genesis-path
   store
   config
@@ -26,7 +27,8 @@
   engine-vhosts
   public-vhosts
   dev-mode-p
-  coinbase)
+  coinbase
+  kzg-verifier-command)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -304,6 +306,7 @@
        terminal-block-hash
        terminal-block-number
        (coinbase (zero-address))
+       kzg-verifier-command
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (or (and genesis-path (stringp genesis-path))
@@ -407,7 +410,8 @@
      :public-vhosts (and public-vhosts
                          (copy-list public-vhosts))
      :dev-mode-p dev-mode-p
-     :coinbase coinbase)))
+     :coinbase coinbase
+     :kzg-verifier-command kzg-verifier-command)))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty
@@ -493,6 +497,9 @@
           :public-vhosts (devnet-node-public-vhosts node)
           :dev-mode-p (devnet-node-dev-mode-p node)
           :coinbase (address-to-hex (devnet-node-coinbase node))
+          :kzg-verifier-command (devnet-node-kzg-verifier-command node)
+          :kzg-proof-verification-available-p
+          (kzg-proof-verification-available-p)
           :chain-id (chain-config-chain-id (devnet-node-config node))
           :head-number (devnet-block-number head)
           :head-hash (devnet-block-hash-hex head)
@@ -536,6 +543,10 @@
       ("publicCorsOrigins" . ,(getf summary :public-cors-origins))
       ("engineVhosts" . ,(getf summary :engine-vhosts))
       ("publicVhosts" . ,(getf summary :public-vhosts))
+      ("kzgVerifierCommand" . ,(or (getf summary :kzg-verifier-command)
+                                   :false))
+      ("kzgProofVerificationAvailable" .
+       ,(if (getf summary :kzg-proof-verification-available-p) t :false))
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
@@ -745,6 +756,7 @@
     "--txpool.accountqueue" "--txpool.globalqueue" "--txpool.lifetime"
     "--txpool.blobpool.datacap" "--txpool.blobpool.pricebump"
     "--dev.period" "--dev.gaslimit"
+    "--kzg-verifier-command" "--kzg.verifier-command"
     "--ready-file" "--log-file" "--pid-file"))
 
 (defparameter *devnet-cli-optional-boolean-options*
@@ -942,6 +954,7 @@
         (ready-file nil)
         (log-file nil)
         (pid-file nil)
+        (kzg-verifier-command nil)
         (help-p nil))
     (loop while args
           for option = (pop args)
@@ -1089,6 +1102,10 @@
                ((string= option "--pid-file")
                 (multiple-value-setq (pid-file args)
                   (devnet-cli-next-value args option)))
+               ((or (string= option "--kzg-verifier-command")
+                    (string= option "--kzg.verifier-command"))
+                (multiple-value-setq (kzg-verifier-command args)
+                  (devnet-cli-next-value args option)))
                ((string= option "--no-serve")
                 (multiple-value-bind (enabled-p rest)
                     (devnet-cli-optional-boolean-value args option)
@@ -1176,6 +1193,7 @@
           :ready-file ready-file
           :log-file log-file
           :pid-file pid-file
+          :kzg-verifier-command kzg-verifier-command
           :help-p help-p)))
 
 (defun devnet-cli-remove-command-token (args command)
@@ -1353,7 +1371,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet [--genesis PATH] [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port P2P-PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--http.maxclients N] [--http.readtimeout DURATION] [--http.writetimeout DURATION] [--http.idletimeout DURATION] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--ws.rpcprefix PATH] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--ipcapi LIST] [--verbosity LEVEL] [--log.file PATH] [--log.format FORMAT] [--log.maxsize MB] [--log.maxbackups N] [--log.maxage DAYS] [--log.compress] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--rpc.gascap GAS] [--rpc.evmtimeout DURATION] [--rpc.txfeecap ETH] [--rpc.batch-request-limit N] [--rpc.batch-response-max-size BYTES] [--override.terminaltotaldifficulty TTD] [--override.terminaltotaldifficultypassed] [--override.terminalblockhash HASH] [--override.terminalblocknumber NUMBER] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--dev.period SECONDS] [--dev.gaslimit GAS] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet [--genesis PATH] [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port P2P-PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--http.maxclients N] [--http.readtimeout DURATION] [--http.writetimeout DURATION] [--http.idletimeout DURATION] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--ws.rpcprefix PATH] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--ipcapi LIST] [--verbosity LEVEL] [--log.file PATH] [--log.format FORMAT] [--log.maxsize MB] [--log.maxbackups N] [--log.maxage DAYS] [--log.compress] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--rpc.gascap GAS] [--rpc.evmtimeout DURATION] [--rpc.txfeecap ETH] [--rpc.batch-request-limit N] [--rpc.batch-response-max-size BYTES] [--override.terminaltotaldifficulty TTD] [--override.terminaltotaldifficultypassed] [--override.terminalblockhash HASH] [--override.terminalblocknumber NUMBER] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--dev.period SECONDS] [--dev.gaslimit GAS] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--kzg-verifier-command PATH] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-top-level-help (stream)
   (format stream "Usage: ethereum-lisp COMMAND [options]~%")
@@ -1547,7 +1565,26 @@
        ,(if (getf summary :public-vhosts)
             (format nil "~{~A~^,~}" (getf summary :public-vhosts))
             ""))
+      ("kzgVerifierCommand" .
+       ,(or (getf summary :kzg-verifier-command) ""))
+      ("kzgProofVerificationAvailable" .
+       ,(if (getf summary :kzg-proof-verification-available-p)
+            "true"
+            "false"))
       ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
+
+(defun call-with-devnet-cli-kzg-verifier (command thunk)
+  (unless (functionp thunk)
+    (error "Devnet KZG verifier thunk must be a function"))
+  (let ((old-point-verifier *kzg-point-proof-verifier*)
+        (old-blob-verifier *kzg-blob-proof-verifier*))
+    (unwind-protect
+         (progn
+           (when command
+             (configure-kzg-proof-command-verifiers command))
+           (funcall thunk))
+      (setf *kzg-point-proof-verifier* old-point-verifier
+            *kzg-blob-proof-verifier* old-blob-verifier))))
 
 (defun devnet-cli-log-event
     (node name &key engine-endpoint rpc-endpoint connection-summary
@@ -1659,163 +1696,171 @@
                (progn
                  (devnet-cli-print-usage output-stream)
                  0)
-               (progn
-                 (let ((genesis-path
-                         (devnet-cli-resolve-genesis-path options)))
-                   (let ((genesis-json
-                           (devnet-cli-resolve-genesis-json
-                            options
-                            genesis-path)))
-                     (unless (or genesis-path genesis-json)
-                       (error "--genesis is required unless --datadir contains an initialized genesis or --dev is enabled"))
+               (let* ((genesis-path (devnet-cli-resolve-genesis-path options))
+                      (genesis-json
+                        (devnet-cli-resolve-genesis-json
+                         options genesis-path)))
+                 (unless (or genesis-path genesis-json)
+                   (error "--genesis is required unless --datadir contains an initialized genesis or --dev is enabled"))
                  (call-with-devnet-cli-telemetry-sink
                   options
                   output-stream
                   (lambda (telemetry-sink)
-                    (let ((node
-                            (make-devnet-node
-                             :genesis-path genesis-path
-                             :genesis-json genesis-json
-                             :dev-mode-p (and genesis-json
-                                              (getf options :dev-mode-p))
-                             :host (getf options :host)
-                             :port (getf options :port)
-                             :public-host (getf options :public-host)
-                             :public-port (getf options :public-port)
-                             :jwt-secret-path (getf options :jwt-secret-path)
-                             :engine-rpc-prefix
-                             (getf options :engine-rpc-prefix)
-                             :public-rpc-prefix
-                             (getf options :public-rpc-prefix)
-                             :log-path (getf options :log-file)
-                             :database-path (getf options :database-path)
-                             :pid-file-path (getf options :pid-file)
-                             :network-id (getf options :network-id)
-                             :public-api-modules
-                             (getf options :http-api-modules)
-                             :engine-cors-origins
-                             (getf options :authrpc-cors-origins)
-                             :public-cors-origins
-                             (getf options :http-cors-origins)
-                             :engine-vhosts
-                             (getf options :engine-vhosts)
-                             :public-vhosts
-                             (getf options :http-vhosts)
-                             :terminal-total-difficulty
-                             (getf options :terminal-total-difficulty)
-                             :terminal-total-difficulty-passed
-                             (getf options :terminal-total-difficulty-passed)
-                             :terminal-total-difficulty-passed-specified-p
-                             (getf options
-                                   :terminal-total-difficulty-passed-specified-p)
-                             :terminal-block-hash
-                             (getf options :terminal-block-hash)
-                             :terminal-block-number
-                             (getf options :terminal-block-number)
-                             :coinbase (getf options :coinbase)
-                             :public-allowed-method-p
-                             (devnet-cli-public-api-method-filter
-                              (getf options :http-api-modules))
-                             :telemetry-sink telemetry-sink)))
-                      (when (getf options :pid-file)
-                        (devnet-cli-write-pid-file
-                         (getf options :pid-file)))
-                      (if (getf options :serve-p)
-                          (let ((bound-engine-endpoint nil)
-                                (bound-rpc-endpoint nil)
-                                (ready-p nil)
-                                (serve-summary nil))
-                            (unwind-protect
-                                 (setf
-                                  serve-summary
-                                  (start-devnet-node
-                                   node
-                                   :max-connections
-                                   (getf options :max-connections)
-                                   :install-signal-handlers-p t
-                                   :signal-stream error-stream
-                                   :on-listeners-ready
-                                   (lambda (engine-listener public-listener)
-                                     (setf bound-engine-endpoint
-                                           (engine-rpc-http-listener-endpoint
-                                            engine-listener)
-                                           bound-rpc-endpoint
-                                           (and public-listener
-                                                (engine-rpc-http-listener-endpoint
-                                                 public-listener)))
-                                     (when (getf options :ready-file)
-                                       (devnet-cli-write-ready-file
-                                        node
-                                        (getf options :ready-file)
-                                        :engine-endpoint bound-engine-endpoint
-                                        :rpc-endpoint bound-rpc-endpoint
-                                        :public-rpc-enabled-p
-                                        (getf options
-                                              :public-rpc-enabled-p)))
-                                     (when (getf options :log-file)
-                                       (devnet-cli-log-event
-                                        node
-                                        "devnet.ready"
-                                        :engine-endpoint bound-engine-endpoint
-                                        :rpc-endpoint bound-rpc-endpoint
-                                        :public-rpc-enabled-p
-                                        (getf options
-                                              :public-rpc-enabled-p)))
-                                     (setf ready-p t)
-                                     (devnet-cli-print-summary
+                    (call-with-devnet-cli-kzg-verifier
+                     (getf options :kzg-verifier-command)
+                     (lambda ()
+                       (let ((node
+                               (make-devnet-node
+                                :genesis-path genesis-path
+                                :genesis-json genesis-json
+                                :dev-mode-p (and genesis-json
+                                                 (getf options :dev-mode-p))
+                                :host (getf options :host)
+                                :port (getf options :port)
+                                :public-host (getf options :public-host)
+                                :public-port (getf options :public-port)
+                                :jwt-secret-path (getf options :jwt-secret-path)
+                                :engine-rpc-prefix
+                                (getf options :engine-rpc-prefix)
+                                :public-rpc-prefix
+                                (getf options :public-rpc-prefix)
+                                :log-path (getf options :log-file)
+                                :database-path (getf options :database-path)
+                                :pid-file-path (getf options :pid-file)
+                                :network-id (getf options :network-id)
+                                :public-api-modules
+                                (getf options :http-api-modules)
+                                :engine-cors-origins
+                                (getf options :authrpc-cors-origins)
+                                :public-cors-origins
+                                (getf options :http-cors-origins)
+                                :engine-vhosts
+                                (getf options :engine-vhosts)
+                                :public-vhosts
+                                (getf options :http-vhosts)
+                                :terminal-total-difficulty
+                                (getf options :terminal-total-difficulty)
+                                :terminal-total-difficulty-passed
+                                (getf options
+                                      :terminal-total-difficulty-passed)
+                                :terminal-total-difficulty-passed-specified-p
+                                (getf options
+                                      :terminal-total-difficulty-passed-specified-p)
+                                :terminal-block-hash
+                                (getf options :terminal-block-hash)
+                                :terminal-block-number
+                                (getf options :terminal-block-number)
+                                :coinbase (getf options :coinbase)
+                                :kzg-verifier-command
+                                (getf options :kzg-verifier-command)
+                                :public-allowed-method-p
+                                (devnet-cli-public-api-method-filter
+                                 (getf options :http-api-modules))
+                                :telemetry-sink telemetry-sink)))
+                         (when (getf options :pid-file)
+                           (devnet-cli-write-pid-file
+                            (getf options :pid-file)))
+                         (if (getf options :serve-p)
+                             (let ((bound-engine-endpoint nil)
+                                   (bound-rpc-endpoint nil)
+                                   (ready-p nil)
+                                   (serve-summary nil))
+                               (unwind-protect
+                                    (setf
+                                     serve-summary
+                                     (start-devnet-node
                                       node
-                                      output-stream
-                                      :format (getf options :summary-format)
-                                      :engine-endpoint bound-engine-endpoint
-                                      :rpc-endpoint bound-rpc-endpoint
+                                      :max-connections
+                                      (getf options :max-connections)
+                                      :install-signal-handlers-p t
+                                      :signal-stream error-stream
+                                      :on-listeners-ready
+                                      (lambda (engine-listener public-listener)
+                                        (setf bound-engine-endpoint
+                                              (engine-rpc-http-listener-endpoint
+                                               engine-listener)
+                                              bound-rpc-endpoint
+                                              (and public-listener
+                                                   (engine-rpc-http-listener-endpoint
+                                                    public-listener)))
+                                        (when (getf options :ready-file)
+                                          (devnet-cli-write-ready-file
+                                           node
+                                           (getf options :ready-file)
+                                           :engine-endpoint
+                                           bound-engine-endpoint
+                                           :rpc-endpoint bound-rpc-endpoint
+                                           :public-rpc-enabled-p
+                                           (getf options
+                                                 :public-rpc-enabled-p)))
+                                        (when (getf options :log-file)
+                                          (devnet-cli-log-event
+                                           node
+                                           "devnet.ready"
+                                           :engine-endpoint
+                                           bound-engine-endpoint
+                                           :rpc-endpoint bound-rpc-endpoint
+                                           :public-rpc-enabled-p
+                                           (getf options
+                                                 :public-rpc-enabled-p)))
+                                        (setf ready-p t)
+                                        (devnet-cli-print-summary
+                                         node
+                                         output-stream
+                                         :format
+                                         (getf options :summary-format)
+                                         :engine-endpoint
+                                         bound-engine-endpoint
+                                         :rpc-endpoint bound-rpc-endpoint
+                                         :public-rpc-enabled-p
+                                         (getf options
+                                               :public-rpc-enabled-p)))
                                       :public-rpc-enabled-p
                                       (getf options :public-rpc-enabled-p)))
-                                   :public-rpc-enabled-p
-                                   (getf options :public-rpc-enabled-p)))
-                              (devnet-node-export-database
-                               node
-                               :state-prune-before
-                               (getf options :state-prune-before))
-                              (when (and (getf options :log-file)
-                                         (or ready-p serve-summary))
-                                (devnet-cli-log-event
-                                 node
-                                 "devnet.shutdown"
-                                 :engine-endpoint bound-engine-endpoint
-                                 :rpc-endpoint bound-rpc-endpoint
-                                 :public-rpc-enabled-p
-                                 (getf options :public-rpc-enabled-p)
-                                 :connection-summary serve-summary))))
-                          (progn
-                            (devnet-node-export-database
-                             node
-                             :state-prune-before
-                             (getf options :state-prune-before))
-                            (when (getf options :ready-file)
-                              (devnet-cli-write-ready-file
-                               node
-                               (getf options :ready-file)
-                               :public-rpc-enabled-p
-                               (getf options :public-rpc-enabled-p)))
-                            (when (getf options :log-file)
-                              (devnet-cli-log-event
-                               node
-                               "devnet.ready"
-                               :public-rpc-enabled-p
-                               (getf options :public-rpc-enabled-p)))
-                            (devnet-cli-print-summary
-                             node
-                             output-stream
-                             :format (getf options :summary-format)
-                             :public-rpc-enabled-p
-                             (getf options :public-rpc-enabled-p))
-                            (when (getf options :log-file)
-                              (devnet-cli-log-event
-                               node
-                               "devnet.shutdown"
-                               :public-rpc-enabled-p
-                               (getf options :public-rpc-enabled-p)))))
-                      0))))))))))
+                                 (devnet-node-export-database
+                                  node
+                                  :state-prune-before
+                                  (getf options :state-prune-before))
+                                 (when (and (getf options :log-file)
+                                            (or ready-p serve-summary))
+                                   (devnet-cli-log-event
+                                    node
+                                    "devnet.shutdown"
+                                    :engine-endpoint bound-engine-endpoint
+                                    :rpc-endpoint bound-rpc-endpoint
+                                    :public-rpc-enabled-p
+                                    (getf options :public-rpc-enabled-p)
+                                    :connection-summary serve-summary))))
+                             (progn
+                               (devnet-node-export-database
+                                node
+                                :state-prune-before
+                                (getf options :state-prune-before))
+                               (when (getf options :ready-file)
+                                 (devnet-cli-write-ready-file
+                                  node
+                                  (getf options :ready-file)
+                                  :public-rpc-enabled-p
+                                  (getf options :public-rpc-enabled-p)))
+                               (when (getf options :log-file)
+                                 (devnet-cli-log-event
+                                  node
+                                  "devnet.ready"
+                                  :public-rpc-enabled-p
+                                  (getf options :public-rpc-enabled-p)))
+                               (devnet-cli-print-summary
+                                node
+                                output-stream
+                                :format (getf options :summary-format)
+                                :public-rpc-enabled-p
+                                (getf options :public-rpc-enabled-p))
+                               (when (getf options :log-file)
+                                 (devnet-cli-log-event
+                                  node
+                                  "devnet.shutdown"
+                                  :public-rpc-enabled-p
+                                  (getf options :public-rpc-enabled-p)))))
+                         0))))))))))
     (error (condition)
       (ignore-errors
        (devnet-cli-log-error-event args condition))

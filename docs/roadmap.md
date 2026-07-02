@@ -727,7 +727,11 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   as consensus proof verification. The hooks now also have command-backed
   verifier adapters, so a pinned backend executable can be connected through an
   explicit `point`/`blob` plus hex-argument protocol without changing the
-  consensus call sites.
+  consensus call sites. The devnet CLI can now install that command-backed
+  verifier for a single runner invocation with `--kzg-verifier-command` /
+  `--kzg.verifier-command`, reports the configured verifier and availability
+  in runner summaries/telemetry, and restores prior hooks after exit so KZG
+  capability advertisement stays opt-in.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* wire a trusted KZG backend before treating Cancun blob payloads as
