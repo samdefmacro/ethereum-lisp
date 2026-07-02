@@ -1345,6 +1345,12 @@ first pass, but interfaces must not block that path.
   `engine_forkchoiceUpdatedV2`, public retained-state reads, and direct
   no-command `--no-serve` database restore, with five Engine / five public
   shutdown requests.
+  Direct no-command process coverage now also boots from an initialized
+  datadir: `scripts/ethereum-lisp.lisp -- --datadir PATH --http` discovers
+  the stored genesis, derived database, and datadir JWT secret without an
+  explicit `devnet` token, reports split `/engine` and `/rpc` prefixes through
+  readiness/stdout artifacts, serves authenticated Engine and public JSON-RPC
+  probes, and records the expected split shutdown counts.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
