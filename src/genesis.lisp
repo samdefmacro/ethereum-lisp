@@ -431,6 +431,7 @@
 
 (defun json-empty-array-p (value)
   (and (vectorp value)
+       (not (stringp value))
        (zerop (length value))))
 
 (defun json-array-p (value)

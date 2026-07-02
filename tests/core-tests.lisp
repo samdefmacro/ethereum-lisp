@@ -887,6 +887,14 @@
     (is (string= (format nil "line~%break")
                  (cdr (assoc "quote" result :test #'string=))))))
 
+(deftest json-empty-array-marker-rejects-empty-strings
+  (let ((empty-array
+          (parse-json "[]" :preserve-empty-arrays t)))
+    (is (ethereum-lisp.core::json-empty-array-p empty-array))
+    (is (ethereum-lisp.core::json-array-p empty-array))
+    (is (not (ethereum-lisp.core::json-empty-array-p "")))
+    (is (not (ethereum-lisp.core::json-array-p "")))))
+
 (deftest genesis-alloc-from-json-parses-account-fields
   (let* ((json (concatenate
                 'string
@@ -10914,6 +10922,15 @@
                 config))
              (scalar-params-response (parse-json scalar-params-json))
              (scalar-params-error (field scalar-params-response "error"))
+             (empty-string-params-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"engine_nope\",\"params\":\"\"}"
+                store
+                config))
+             (empty-string-params-response
+               (parse-json empty-string-params-json))
+             (empty-string-params-error
+               (field empty-string-params-response "error"))
              (malformed-no-id-json
                (engine-rpc-handle-request-json
                 "{\"method\":\"engine_nope\",\"params\":[]}"
@@ -10927,6 +10944,7 @@
         (is (= -32600 (field missing-method-error "code")))
         (is (= -32600 (field numeric-method-error "code")))
         (is (= -32600 (field scalar-params-error "code")))
+        (is (= -32600 (field empty-string-params-error "code")))
         (is (= -32600 (field malformed-no-id-error "code"))))
       (let* ((batch-json
                (engine-rpc-handle-request-json

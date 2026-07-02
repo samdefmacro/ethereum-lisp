@@ -419,6 +419,13 @@ ones.
     Shanghai `engineNewPayloadV2` blockchain selectors, for 327 total executed
     fixture cases. The remaining unpinned materializable candidate map has no
     failing `implementation-bug-candidate` records.
+- [x] `JSON-RPC-EMPTY-STRING-PARAMS-SHAPE`: Tighten preserved empty-array
+  handling so malformed JSON-RPC envelopes cannot treat `params:""` as an
+  empty parameter list.
+  - Result (2026-07-03): `json-empty-array-p` no longer classifies strings as
+    preserved empty-array markers. Focused parser and Engine JSON-RPC envelope
+    regressions now require an empty JSON string in `params` to return
+    `-32600 Invalid Request` instead of dispatching as `params:[]`.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.
