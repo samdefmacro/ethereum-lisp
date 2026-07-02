@@ -556,6 +556,15 @@ ones.
     compatibility no-op value flags. CLI coverage locks a no-serve devnet
     invocation with those flags so Hive/geth-shaped runner templates reach
     the split Engine/public process instead of failing during argument parse.
+- [x] `DEVNET-RUNNER-HTTP-LIMIT-FLAGS`: Accept common Hive/geth-shaped HTTP
+  server resource flags without changing the current one-request-per-connection
+  serving contract.
+  - Result (2026-07-02): the shared devnet/init option table now consumes
+    `--http.maxclients`, `--http.readtimeout`, `--http.writetimeout`, and
+    `--http.idletimeout` as compatibility no-op value flags. CLI coverage
+    locks help text, no-serve startup with the flags, and missing-value
+    diagnostics so runner launch templates do not fail before the local
+    Engine/public process can start.
 - [x] `DEVNET-RUNNER-MERGE-OVERRIDE-FLAGS`: Accept common geth/Hive Merge
   transition override launch flags.
   - Result (2026-07-01): the shared devnet/init option table now consumes

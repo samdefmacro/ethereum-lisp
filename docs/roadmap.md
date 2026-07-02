@@ -1209,7 +1209,9 @@ first pass, but interfaces must not block that path.
   txpool price/slot/queue/lifetime knobs, `--rpc.allow-unprotected-txs`,
   RPC resource-limit flags (`--rpc.gascap`, `--rpc.evmtimeout`,
   `--rpc.txfeecap`, `--rpc.batch-request-limit`, and
-  `--rpc.batch-response-max-size`), Merge transition override flags
+  `--rpc.batch-response-max-size`), HTTP server resource flags
+  (`--http.maxclients`, `--http.readtimeout`, `--http.writetimeout`, and
+  `--http.idletimeout`), Merge transition override flags
   (`--override.terminaltotaldifficulty`,
   `--override.terminaltotaldifficultypassed`,
   `--override.terminalblockhash`, and `--override.terminalblocknumber`, which

@@ -3231,6 +3231,11 @@
                   "--rpc.txfeecap=0"
                   "--rpc.batch-request-limit=1000"
                   "--rpc.batch-response-max-size=25000000"
+                  "--http.maxclients=128"
+                  "--http.readtimeout=30s"
+                  "--http.writetimeout"
+                  "30s"
+                  "--http.idletimeout=2m"
                   "--override.terminaltotaldifficulty=0"
                   "--override.terminaltotaldifficultypassed=true"
                   "--override.terminalblockhash=0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -6897,6 +6902,10 @@
     (is (search "--override.terminalblockhash HASH" stdout))
     (is (search "--override.terminalblocknumber NUMBER" stdout))
     (is (search "--allow-insecure-unlock" stdout))
+    (is (search "--http.maxclients N" stdout))
+    (is (search "--http.readtimeout DURATION" stdout))
+    (is (search "--http.writetimeout DURATION" stdout))
+    (is (search "--http.idletimeout DURATION" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
 (deftest ethereum-lisp-script-dispatches-top-level-help-and-version
@@ -13702,6 +13711,14 @@
     (is (search "--log.file requires a value"
                 (run-error (list "devnet"
                                  "--log.file"
+                                 "--no-serve"))))
+    (is (search "--http.maxclients requires a value"
+                (run-error (list "devnet"
+                                 "--http.maxclients"
+                                 "--no-serve"))))
+    (is (search "--http.readtimeout requires a value"
+                (run-error (list "devnet"
+                                 "--http.readtimeout"
                                  "--no-serve"))))
     (is (search "--txpool.pricebump requires a value"
                 (run-error (list "devnet"
