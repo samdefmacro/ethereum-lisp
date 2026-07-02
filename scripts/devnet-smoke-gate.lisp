@@ -2302,8 +2302,15 @@ references/ checkouts.~%")
         (client-thread nil)
         (client-response nil)
         (blocked-client-response nil)
+        (capabilities-response nil)
+        (capabilities-result nil)
+        (transition-configuration-response nil)
+        (transition-configuration-result nil)
+        (transition-configuration-mismatch-response nil)
+        (transition-configuration-mismatch-error nil)
         (new-payload-response nil)
         (forkchoice-response nil)
+        (client-version nil)
         (client-error nil)
         (engine-endpoint nil)
         (configured-public-endpoint nil)
@@ -2372,6 +2379,49 @@ references/ checkouts.~%")
                   (token (engine-rpc-make-jwt-token jwt-secret 0))
                   (engine-body
                     "{\"jsonrpc\":\"2.0\",\"id\":901,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"engine-only-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
+                  (capabilities-body
+                    (json-encode
+                     (list
+                      (cons "jsonrpc" "2.0")
+                      (cons "id" 904)
+                      (cons "method" "engine_exchangeCapabilities")
+                      (cons "params"
+                            (list
+                             (list
+                              "engine_newPayloadV1"
+                              "engine_forkchoiceUpdatedV1"
+                              "engine_getPayloadV1"
+                              "engine_newPayloadV2"
+                              "engine_forkchoiceUpdatedV2"
+                              "engine_getPayloadV2"))))))
+                  (transition-configuration-body
+                    (json-encode
+                     (list
+                      (cons "jsonrpc" "2.0")
+                      (cons "id" 905)
+                      (cons "method"
+                            "engine_exchangeTransitionConfigurationV1")
+                      (cons "params"
+                            (list
+                             (list
+                              (cons "terminalTotalDifficulty" "0x0")
+                              (cons "terminalBlockHash"
+                                    (hash32-to-hex (zero-hash32)))
+                              (cons "terminalBlockNumber" "0x0")))))))
+                  (transition-configuration-mismatch-body
+                    (json-encode
+                     (list
+                      (cons "jsonrpc" "2.0")
+                      (cons "id" 906)
+                      (cons "method"
+                            "engine_exchangeTransitionConfigurationV1")
+                      (cons "params"
+                            (list
+                             (list
+                              (cons "terminalTotalDifficulty" "0x1")
+                              (cons "terminalBlockHash"
+                                    (hash32-to-hex (zero-hash32)))
+                              (cons "terminalBlockNumber" "0x0")))))))
                   (new-payload-body
                     (json-encode
                      (engine-fixture-payload-request 902 payload)))
@@ -2393,7 +2443,7 @@ references/ checkouts.~%")
              (let ((summary
                       (ethereum-lisp.cli:start-devnet-node
                       node
-                      :max-connections 4
+                      :max-connections 7
                       :public-rpc-enabled-p nil
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
@@ -2446,6 +2496,33 @@ references/ checkouts.~%")
                                                "https://engine-runner.example"
                                                :target
                                                +devnet-smoke-gate-engine-rpc-prefix+)))
+                                      (setf capabilities-response
+                                            (devnet-cli-http-endpoint-request
+                                             engine-endpoint
+                                             (devnet-cli-json-rpc-http-request
+                                              capabilities-body
+                                              :token token
+                                              :host "engine.runner"
+                                              :target
+                                              +devnet-smoke-gate-engine-rpc-prefix+)))
+                                      (setf transition-configuration-response
+                                            (devnet-cli-http-endpoint-request
+                                             engine-endpoint
+                                             (devnet-cli-json-rpc-http-request
+                                              transition-configuration-body
+                                              :token token
+                                              :host "engine.runner"
+                                              :target
+                                              +devnet-smoke-gate-engine-rpc-prefix+)))
+                                      (setf transition-configuration-mismatch-response
+                                            (devnet-cli-http-endpoint-request
+                                             engine-endpoint
+                                             (devnet-cli-json-rpc-http-request
+                                              transition-configuration-mismatch-body
+                                              :token token
+                                              :host "engine.runner"
+                                              :target
+                                              +devnet-smoke-gate-engine-rpc-prefix+)))
                                       (setf new-payload-response
                                             (devnet-cli-http-endpoint-request
                                              engine-endpoint
@@ -2510,13 +2587,13 @@ references/ checkouts.~%")
                     "Engine-only database restore head state unavailable")
                    (setf database-summary restored-summary)))
                (devnet-smoke-gate-require
-                (= 4 (getf summary :engine-connections))
+                (= 7 (getf summary :engine-connections))
                 "Engine-only serve Engine connection count mismatch")
                (devnet-smoke-gate-require
                 (= 0 (getf summary :public-connections))
                 "Engine-only serve public connection count mismatch")
                (devnet-smoke-gate-require
-                (= 4 (getf summary :total-connections))
+                (= 7 (getf summary :total-connections))
                 "Engine-only serve total connection count mismatch")
                (devnet-smoke-gate-require
                 (and engine-endpoint
@@ -2534,6 +2611,17 @@ references/ checkouts.~%")
                (devnet-smoke-gate-require
                 (= 200 (devnet-cli-http-status client-response))
                 "Engine-only serve Engine response HTTP status mismatch")
+               (devnet-smoke-gate-require
+                (= 200 (devnet-cli-http-status capabilities-response))
+                "Engine-only serve engine_exchangeCapabilities HTTP status mismatch")
+               (devnet-smoke-gate-require
+                (= 200 (devnet-cli-http-status
+                        transition-configuration-response))
+                "Engine-only serve engine_exchangeTransitionConfigurationV1 HTTP status mismatch")
+               (devnet-smoke-gate-require
+                (= 200 (devnet-cli-http-status
+                        transition-configuration-mismatch-response))
+                "Engine-only serve engine_exchangeTransitionConfigurationV1 mismatch HTTP status mismatch")
                (devnet-smoke-gate-require
                 (= 200 (devnet-cli-http-status new-payload-response))
                 "Engine-only serve engine_newPayloadV2 HTTP status mismatch")
@@ -2555,6 +2643,27 @@ references/ checkouts.~%")
                (let* ((engine-rpc
                         (parse-json
                          (devnet-cli-http-body client-response)))
+                      (capabilities-rpc
+                        (parse-json
+                         (devnet-cli-http-body capabilities-response)))
+                      (parsed-capabilities-result
+                        (fixture-object-field capabilities-rpc "result"))
+                      (transition-configuration-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transition-configuration-response)))
+                      (parsed-transition-configuration-result
+                        (fixture-object-field
+                         transition-configuration-rpc
+                         "result"))
+                      (transition-configuration-mismatch-rpc
+                        (parse-json
+                         (devnet-cli-http-body
+                          transition-configuration-mismatch-response)))
+                      (parsed-transition-configuration-mismatch-error
+                        (fixture-object-field
+                         transition-configuration-mismatch-rpc
+                         "error"))
                       (new-payload-rpc
                         (parse-json
                          (devnet-cli-http-body new-payload-response)))
@@ -2567,15 +2676,76 @@ references/ checkouts.~%")
                         (fixture-object-field
                          (fixture-object-field forkchoice-rpc "result")
                          "payloadStatus"))
-                      (client-version
+                      (parsed-client-version
                         (first (fixture-object-field engine-rpc "result"))))
+                 (setf capabilities-result parsed-capabilities-result
+                       transition-configuration-result
+                       parsed-transition-configuration-result
+                       transition-configuration-mismatch-error
+                       parsed-transition-configuration-mismatch-error
+                       client-version parsed-client-version)
                  (devnet-smoke-gate-require
                   (= 901 (fixture-object-field engine-rpc "id"))
                   "Engine-only serve Engine response id mismatch")
                  (devnet-smoke-gate-require
                   (string= "ethereum-lisp"
                            (fixture-object-field client-version "name"))
-                  "Engine-only serve client version mismatch")
+                 "Engine-only serve client version mismatch")
+                 (devnet-smoke-gate-require
+                  (and capabilities-result
+                       (listp capabilities-result))
+                  "Engine-only serve engine_exchangeCapabilities result missing from ~A"
+                  (devnet-cli-http-body capabilities-response))
+                 (dolist (method '("engine_newPayloadV1"
+                                    "engine_forkchoiceUpdatedV1"
+                                    "engine_getPayloadV1"
+                                    "engine_newPayloadV2"
+                                    "engine_forkchoiceUpdatedV2"
+                                    "engine_getPayloadV2"
+                                    "engine_getPayloadBodiesByHashV1"
+                                    "engine_getPayloadBodiesByRangeV1"))
+                   (devnet-smoke-gate-require
+                   (member method capabilities-result :test #'string=)
+                    "Engine-only serve engine_exchangeCapabilities omitted ~A from ~S"
+                    method
+                    capabilities-result))
+                 (dolist (method '("engine_newPayloadV3"
+                                    "engine_getBlobsV1"
+                                    "engine_getPayloadBodiesByHashV2"))
+                   (devnet-smoke-gate-require
+                    (not (member method capabilities-result :test #'string=))
+                    "Engine-only serve engine_exchangeCapabilities advertised ~A"
+                    method))
+                 (devnet-smoke-gate-require
+                  (string= "0x0"
+                           (fixture-object-field
+                            transition-configuration-result
+                            "terminalTotalDifficulty"))
+                  "Engine-only serve transition terminalTotalDifficulty mismatch")
+                 (devnet-smoke-gate-require
+                  (string= (hash32-to-hex (zero-hash32))
+                           (fixture-object-field
+                            transition-configuration-result
+                            "terminalBlockHash"))
+                  "Engine-only serve transition terminalBlockHash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "0x0"
+                           (fixture-object-field
+                            transition-configuration-result
+                            "terminalBlockNumber"))
+                  "Engine-only serve transition terminalBlockNumber mismatch")
+                 (devnet-smoke-gate-require
+                  (= -32602
+                     (fixture-object-field
+                      transition-configuration-mismatch-error
+                      "code"))
+                  "Engine-only serve transition mismatch error code mismatch")
+                 (devnet-smoke-gate-require
+                  (search "terminalTotalDifficulty mismatch"
+                          (fixture-object-field
+                           transition-configuration-mismatch-error
+                           "message"))
+                  "Engine-only serve transition mismatch error message mismatch")
                  (devnet-smoke-gate-require
                   (string= +payload-status-valid+
                            (fixture-object-field new-payload-result "status"))
@@ -2758,10 +2928,95 @@ references/ checkouts.~%")
                              (getf summary :total-connections))
                        (cons "connectionContract"
                              (list
-                              (cons "expectedEngineConnections" 4)
+                              (cons "expectedEngineConnections" 7)
                               (cons "expectedPublicConnections" 0)
-                              (cons "expectedTotalConnections" 4)))
+                              (cons "expectedTotalConnections" 7)))
+                       (cons "engineCapabilityCount"
+                             (length capabilities-result))
+                       (cons "engineCapabilityHasNewPayloadV1"
+                             (if (member "engine_newPayloadV1"
+                                         capabilities-result
+                                         :test #'string=)
+                                 t
+                                 :false))
+                       (cons "engineCapabilityHasForkchoiceUpdatedV1"
+                             (if (member "engine_forkchoiceUpdatedV1"
+                                         capabilities-result
+                                         :test #'string=)
+                                 t
+                                 :false))
+                       (cons "engineCapabilityHasGetPayloadV1"
+                             (if (member "engine_getPayloadV1"
+                                         capabilities-result
+                                         :test #'string=)
+                                 t
+                                 :false))
+                       (cons "engineCapabilityHasNewPayloadV2"
+                             (if (member "engine_newPayloadV2"
+                                         capabilities-result
+                                         :test #'string=)
+                                 t
+                                 :false))
+                       (cons "engineCapabilityHasForkchoiceUpdatedV2"
+                             (if (member "engine_forkchoiceUpdatedV2"
+                                         capabilities-result
+                                         :test #'string=)
+                                 t
+                                 :false))
+                       (cons "engineCapabilityHasGetPayloadV2"
+                             (if (member "engine_getPayloadV2"
+                                         capabilities-result
+                                         :test #'string=)
+                                 t
+                                 :false))
+                       (cons "engineCapabilityHasNewPayloadV3"
+                             (if (member "engine_newPayloadV3"
+                                         capabilities-result
+                                         :test #'string=)
+                                 t
+                                 :false))
+                       (cons "engineCapabilityHasGetBlobsV1"
+                             (if (member "engine_getBlobsV1"
+                                         capabilities-result
+                                         :test #'string=)
+                                 t
+                                 :false))
+                       (cons "engineCapabilityHasPayloadBodiesV2"
+                             (if (or (member "engine_getPayloadBodiesByHashV2"
+                                             capabilities-result
+                                             :test #'string=)
+                                     (member "engine_getPayloadBodiesByRangeV2"
+                                             capabilities-result
+                                             :test #'string=))
+                                 t
+                                 :false))
+                       (cons "engineClientVersionCode"
+                             (fixture-object-field client-version "code"))
                        (cons "engineClientVersionName" "ethereum-lisp")
+                       (cons "engineClientVersionVersion"
+                             (fixture-object-field client-version "version"))
+                       (cons "engineClientVersionCommit"
+                             (fixture-object-field client-version "commit"))
+                       (cons "engineTransitionTerminalTotalDifficulty"
+                             (fixture-object-field
+                              transition-configuration-result
+                              "terminalTotalDifficulty"))
+                       (cons "engineTransitionTerminalBlockHash"
+                             (fixture-object-field
+                              transition-configuration-result
+                              "terminalBlockHash"))
+                       (cons "engineTransitionTerminalBlockNumber"
+                             (fixture-object-field
+                              transition-configuration-result
+                              "terminalBlockNumber"))
+                       (cons "engineTransitionMismatchErrorCode"
+                             (fixture-object-field
+                              transition-configuration-mismatch-error
+                              "code"))
+                       (cons "engineTransitionMismatchErrorMessage"
+                             (fixture-object-field
+                              transition-configuration-mismatch-error
+                              "message"))
                        (cons "headNumber" head-number)
                        (cons "headHash" head-hash)
                        (cons "headGasLimit" head-gas-limit)))))))))
@@ -11523,8 +11778,50 @@ references/ checkouts.~%")
             (devnet-smoke-gate-field report "publicConnections"))
     (format t "totalConnections=~D~%"
             (devnet-smoke-gate-field report "totalConnections"))
+    (format t "engineCapabilityCount=~D~%"
+            (devnet-smoke-gate-field report "engineCapabilityCount"))
+    (format t "engineCapabilityHasNewPayloadV1=~A~%"
+            (devnet-smoke-gate-field
+             report "engineCapabilityHasNewPayloadV1"))
+    (format t "engineCapabilityHasForkchoiceUpdatedV1=~A~%"
+            (devnet-smoke-gate-field
+             report "engineCapabilityHasForkchoiceUpdatedV1"))
+    (format t "engineCapabilityHasGetPayloadV1=~A~%"
+            (devnet-smoke-gate-field report "engineCapabilityHasGetPayloadV1"))
+    (format t "engineCapabilityHasNewPayloadV2=~A~%"
+            (devnet-smoke-gate-field report "engineCapabilityHasNewPayloadV2"))
+    (format t "engineCapabilityHasForkchoiceUpdatedV2=~A~%"
+            (devnet-smoke-gate-field
+             report "engineCapabilityHasForkchoiceUpdatedV2"))
+    (format t "engineCapabilityHasGetPayloadV2=~A~%"
+            (devnet-smoke-gate-field report "engineCapabilityHasGetPayloadV2"))
+    (format t "engineCapabilityHasNewPayloadV3=~A~%"
+            (devnet-smoke-gate-field report "engineCapabilityHasNewPayloadV3"))
+    (format t "engineCapabilityHasGetBlobsV1=~A~%"
+            (devnet-smoke-gate-field report "engineCapabilityHasGetBlobsV1"))
+    (format t "engineCapabilityHasPayloadBodiesV2=~A~%"
+            (devnet-smoke-gate-field report "engineCapabilityHasPayloadBodiesV2"))
+    (format t "engineClientVersionCode=~A~%"
+            (devnet-smoke-gate-field report "engineClientVersionCode"))
     (format t "engineClientVersionName=~A~%"
             (devnet-smoke-gate-field report "engineClientVersionName"))
+    (format t "engineClientVersionVersion=~A~%"
+            (devnet-smoke-gate-field report "engineClientVersionVersion"))
+    (format t "engineClientVersionCommit=~A~%"
+            (devnet-smoke-gate-field report "engineClientVersionCommit"))
+    (format t "engineTransitionTerminalTotalDifficulty=~A~%"
+            (devnet-smoke-gate-field
+             report "engineTransitionTerminalTotalDifficulty"))
+    (format t "engineTransitionTerminalBlockHash=~A~%"
+            (devnet-smoke-gate-field report "engineTransitionTerminalBlockHash"))
+    (format t "engineTransitionTerminalBlockNumber=~A~%"
+            (devnet-smoke-gate-field
+             report "engineTransitionTerminalBlockNumber"))
+    (format t "engineTransitionMismatchErrorCode=~A~%"
+            (devnet-smoke-gate-field report "engineTransitionMismatchErrorCode"))
+    (format t "engineTransitionMismatchErrorMessage=~A~%"
+            (devnet-smoke-gate-field
+             report "engineTransitionMismatchErrorMessage"))
     (format t "headNumber=~A~%"
             (devnet-smoke-gate-field report "headNumber"))
     (return-from devnet-smoke-gate-print-text nil))

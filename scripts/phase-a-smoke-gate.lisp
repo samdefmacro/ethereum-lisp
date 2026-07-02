@@ -871,9 +871,9 @@ references/ checkouts.~%"))
   (smoke-gate-devnet-require-field report "logFile" log-file)
   (smoke-gate-devnet-require-field report "pidFile" pid-file)
   (smoke-gate-devnet-require-field report "databaseFile" database-file)
-  (smoke-gate-devnet-require-field report "engineConnections" 4)
+  (smoke-gate-devnet-require-field report "engineConnections" 7)
   (smoke-gate-devnet-require-field report "publicConnections" 0)
-  (smoke-gate-devnet-require-field report "totalConnections" 4)
+  (smoke-gate-devnet-require-field report "totalConnections" 7)
   (smoke-gate-devnet-require-field report "engineRpcPrefix" "/engine")
   (smoke-gate-devnet-require-field report "engineRpcPrefixStatus" 200)
   (smoke-gate-devnet-require-field
@@ -888,6 +888,40 @@ references/ checkouts.~%"))
    report "engineCorsVaryHeader" "Origin")
   (smoke-gate-devnet-require-field
    report "engineVhosts" '("engine.runner" "localhost"))
+  (unless (plusp (or (smoke-gate-field report "engineCapabilityCount") 0))
+    (error "Devnet Engine-only capabilities are missing: ~S" report))
+  (dolist (field '("engineCapabilityHasNewPayloadV1"
+                   "engineCapabilityHasForkchoiceUpdatedV1"
+                   "engineCapabilityHasGetPayloadV1"
+                   "engineCapabilityHasNewPayloadV2"
+                   "engineCapabilityHasForkchoiceUpdatedV2"
+                   "engineCapabilityHasGetPayloadV2"))
+    (smoke-gate-devnet-require-field report field t))
+  (dolist (field '("engineCapabilityHasNewPayloadV3"
+                   "engineCapabilityHasGetBlobsV1"
+                   "engineCapabilityHasPayloadBodiesV2"))
+    (smoke-gate-devnet-require-field report field nil))
+  (smoke-gate-devnet-require-field report "engineClientVersionCode" "CL")
+  (smoke-gate-devnet-require-field
+   report "engineClientVersionName" "ethereum-lisp")
+  (smoke-gate-devnet-require-field report "engineClientVersionVersion" "0.1.0")
+  (smoke-gate-devnet-require-field report "engineClientVersionCommit" "0x00000000")
+  (smoke-gate-devnet-require-field
+   report "engineTransitionTerminalTotalDifficulty" "0x0")
+  (smoke-gate-devnet-require-field
+   report
+   "engineTransitionTerminalBlockHash"
+   "0x0000000000000000000000000000000000000000000000000000000000000000")
+  (smoke-gate-devnet-require-field
+   report "engineTransitionTerminalBlockNumber" "0x0")
+  (smoke-gate-devnet-require-field
+   report "engineTransitionMismatchErrorCode" -32602)
+  (unless (search "terminalTotalDifficulty mismatch"
+                  (or (smoke-gate-field
+                       report "engineTransitionMismatchErrorMessage")
+                      ""))
+    (error "Devnet Engine-only transition mismatch message missing: ~S"
+           report))
   (smoke-gate-devnet-require-field
    report "fixtureCase" "shanghai-one-transfer-with-withdrawal")
   (smoke-gate-devnet-require-field
@@ -921,11 +955,11 @@ references/ checkouts.~%"))
    report "publicEndpointConnectable" nil)
   (let ((contract (smoke-gate-field report "connectionContract")))
     (smoke-gate-devnet-require-field
-     contract "expectedEngineConnections" 4)
+     contract "expectedEngineConnections" 7)
     (smoke-gate-devnet-require-field
      contract "expectedPublicConnections" 0)
     (smoke-gate-devnet-require-field
-     contract "expectedTotalConnections" 4))
+     contract "expectedTotalConnections" 7))
   (append report (list (cons "caseCount" 1))))
 
 (defun smoke-gate-devnet-script-json (arguments)
@@ -1347,6 +1381,62 @@ references/ checkouts.~%"))
                                 "engineCorsHeader"))
       (format t "devnetEngineOnlyEngineVhosts=~S~%"
               (smoke-gate-field devnet-engine-only "engineVhosts"))
+      (format t "devnetEngineOnlyEngineCapabilityCount=~D~%"
+              (smoke-gate-field devnet-engine-only "engineCapabilityCount"))
+      (format t "devnetEngineOnlyEngineCapabilityHasNewPayloadV1=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasNewPayloadV1"))
+      (format t "devnetEngineOnlyEngineCapabilityHasForkchoiceUpdatedV1=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasForkchoiceUpdatedV1"))
+      (format t "devnetEngineOnlyEngineCapabilityHasGetPayloadV1=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasGetPayloadV1"))
+      (format t "devnetEngineOnlyEngineCapabilityHasNewPayloadV2=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasNewPayloadV2"))
+      (format t "devnetEngineOnlyEngineCapabilityHasForkchoiceUpdatedV2=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasForkchoiceUpdatedV2"))
+      (format t "devnetEngineOnlyEngineCapabilityHasGetPayloadV2=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasGetPayloadV2"))
+      (format t "devnetEngineOnlyEngineCapabilityHasNewPayloadV3=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasNewPayloadV3"))
+      (format t "devnetEngineOnlyEngineCapabilityHasGetBlobsV1=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasGetBlobsV1"))
+      (format t "devnetEngineOnlyEngineCapabilityHasPayloadBodiesV2=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineCapabilityHasPayloadBodiesV2"))
+      (format t "devnetEngineOnlyEngineClientVersionCode=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "engineClientVersionCode"))
+      (format t "devnetEngineOnlyEngineClientVersionName=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "engineClientVersionName"))
+      (format t "devnetEngineOnlyEngineClientVersionVersion=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "engineClientVersionVersion"))
+      (format t "devnetEngineOnlyEngineClientVersionCommit=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "engineClientVersionCommit"))
+      (format t "devnetEngineOnlyEngineTransitionTerminalTotalDifficulty=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineTransitionTerminalTotalDifficulty"))
+      (format t "devnetEngineOnlyEngineTransitionTerminalBlockHash=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineTransitionTerminalBlockHash"))
+      (format t "devnetEngineOnlyEngineTransitionTerminalBlockNumber=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineTransitionTerminalBlockNumber"))
+      (format t "devnetEngineOnlyEngineTransitionMismatchErrorCode=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineTransitionMismatchErrorCode"))
+      (format t "devnetEngineOnlyEngineTransitionMismatchErrorMessage=~A~%"
+              (smoke-gate-field
+               devnet-engine-only "engineTransitionMismatchErrorMessage"))
       (format t "devnetEngineOnlyNewPayloadStatus=~A~%"
               (smoke-gate-field devnet-engine-only
                                 "newPayloadStatus"))

@@ -7228,6 +7228,18 @@ splits can land after the Phase A smoke path closes.
     restored database head number/hash or retained head-state availability do
     not match the Engine forkchoice head, and preserves those restore fields
     in JSON/text Phase A output.
+- [x] `DEVNET-ENGINE-ONLY-HANDSHAKE-CONTRACT`: Prove Hive/geth `--http=false`
+  Engine-only runs expose the authenticated Engine capability and transition
+  configuration handshake without enabling public RPC.
+  - Result (2026-07-03): the focused
+    `scripts/devnet-smoke-gate.lisp -- --engine-only-serve` path now probes
+    `engine_exchangeCapabilities`, `engine_exchangeTransitionConfigurationV1`,
+    and a mismatched transition configuration over the authenticated
+    `/engine` endpoint, requires the V1/V2 Engine methods to be advertised
+    while KZG-gated methods stay absent, reports client-version and transition
+    fields, and updates the Engine-only connection contract to seven Engine /
+    zero public requests. The top-level Phase A `--devnet` wrapper validates
+    and prints the same fields through `devnetEngineOnly`.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

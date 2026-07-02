@@ -4156,15 +4156,18 @@
                             report
                             "engineRpcPrefixBlockedStatus")))
                (devnet-cli-assert-engine-only-http-shaping-report report)
+               (devnet-cli-assert-engine-capability-report report)
+               (devnet-cli-assert-engine-client-version report)
+               (devnet-cli-assert-engine-transition-configuration report)
                (devnet-cli-assert-engine-only-payload-report report)
                (is (search "http://127.0.0.1:"
                            (fixture-object-field report
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 4 (fixture-object-field report "engineConnections")))
+               (is (= 7 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 4 (fixture-object-field report "totalConnections")))
+               (is (= 7 (fixture-object-field report "totalConnections")))
                (is (string= (namestring database-path)
                             (fixture-object-field report "databaseFile")))
                (is (probe-file database-path))
@@ -4197,7 +4200,7 @@
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "4"
+               (is (string= "7"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -4205,7 +4208,7 @@
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "4"
+               (is (string= "7"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -5743,6 +5746,12 @@
                     "engineRpcPrefixBlockedStatus")))
         (devnet-cli-assert-engine-only-http-shaping-report
          devnet-engine-only)
+        (devnet-cli-assert-engine-capability-report
+         devnet-engine-only)
+        (devnet-cli-assert-engine-client-version
+         devnet-engine-only)
+        (devnet-cli-assert-engine-transition-configuration
+         devnet-engine-only)
         (devnet-cli-assert-engine-only-payload-report
          devnet-engine-only)
         (devnet-cli-assert-engine-only-database-report
@@ -5752,11 +5761,11 @@
                      devnet-engine-only "configuredPublicEndpoint")))
         (is (not (fixture-object-field
                   devnet-engine-only "publicEndpointConnectable")))
-        (is (= 4 (fixture-object-field
+        (is (= 7 (fixture-object-field
                   devnet-engine-only "engineConnections")))
         (is (= 0 (fixture-object-field
                   devnet-engine-only "publicConnections")))
-        (is (= 4 (fixture-object-field
+        (is (= 7 (fixture-object-field
                   devnet-engine-only "totalConnections")))
         (let ((side-reorg-cases
                 (fixture-object-field devnet-side-reorg "cases")))
@@ -6143,6 +6152,12 @@
                       "engineRpcPrefixBlockedStatus")))
           (devnet-cli-assert-engine-only-http-shaping-report
            devnet-engine-only)
+          (devnet-cli-assert-engine-capability-report
+           devnet-engine-only)
+          (devnet-cli-assert-engine-client-version
+           devnet-engine-only)
+          (devnet-cli-assert-engine-transition-configuration
+           devnet-engine-only)
           (devnet-cli-assert-engine-only-payload-report
            devnet-engine-only)
           (devnet-cli-assert-engine-only-database-report
@@ -6152,7 +6167,7 @@
                        devnet-engine-only "configuredPublicEndpoint")))
           (is (not (fixture-object-field
                     devnet-engine-only "publicEndpointConnectable")))
-          (is (= 4 (fixture-object-field
+          (is (= 7 (fixture-object-field
                     devnet-engine-only "engineConnections")))
           (is (= 0 (fixture-object-field
                     devnet-engine-only "publicConnections"))))))))
