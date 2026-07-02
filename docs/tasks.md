@@ -7139,6 +7139,12 @@ splits can land after the Phase A smoke path closes.
     calls public `eth_chainId` through the advertised `/rpc` endpoint, and
     checks stdout/readiness/telemetry agree on one Engine connection, one
     public connection, and two total connections.
+  - Result (2026-07-02): the same direct no-command split path now also has
+    executable Engine coverage with a fixture parent genesis: the subprocess
+    imports `engine_newPayloadV2`, applies `engine_forkchoiceUpdatedV2`, reads
+    `eth_blockNumber` and `eth_getBalance` through the public `/rpc` endpoint,
+    and requires shutdown telemetry to report the imported child head with two
+    Engine connections, two public connections, and four total connections.
 - [x] `DEVNET-ENGINE-ONLY-PUBLIC-PORT-CLOSED`: Prove `--http=false` leaves an
   explicitly configured public HTTP port unbound.
   - Result (2026-07-02): the focused Engine-only smoke gate and external
