@@ -1426,7 +1426,11 @@ first pass, but interfaces must not block that path.
   KZG-aware: the default process hides blob-era Engine methods such as
   `engine_newPayloadV3`, `engine_getBlobsV1`, and payload-bodies V2 until real
   point-proof and blob-proof verifier hooks are present, so Hive-style runners
-  do not negotiate Cancun payloads against a shape-only verifier. It also probes
+  do not negotiate Cancun payloads against a shape-only verifier. Explicit
+  runner invocations that pass `--kzg-verifier-command` now prove the opposite
+  process contract as well: readiness/stdout/telemetry report the configured
+  verifier command and the live Engine listener advertises the KZG-backed
+  blob-era methods through `engine_exchangeCapabilities`. It also probes
   `engine_exchangeTransitionConfigurationV1` through the same authenticated
   listener and reports the configured terminal total difficulty, block hash,
   and block number for consensus-client handshake checks, including geth/Hive

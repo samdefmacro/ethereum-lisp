@@ -1097,6 +1097,18 @@ ones.
     `engineCapabilityHasForkchoiceUpdatedV1`, and
     `engineCapabilityHasGetPayloadV1` in JSON/text reports alongside the
     existing V2 and KZG-negative capability fields.
+- [x] `DEVNET-RUNNER-KZG-CAPABILITY-OPT-IN`: Prove explicit runner KZG
+  verifier configuration affects real Engine process capability negotiation.
+  - Result (2026-07-03): runner-facing
+    `scripts/ethereum-lisp.lisp -- devnet --http=false
+    --kzg-verifier-command PATH` subprocess coverage now starts a one-request
+    Engine-only process, verifies readiness/stdout/telemetry report the
+    configured command and KZG proof availability, sends
+    `engine_exchangeCapabilities` through the live Engine listener, and
+    asserts KZG-backed blob-era Engine methods such as `engine_newPayloadV3`
+    and `engine_getBlobsV1` are advertised only after explicit verifier
+    opt-in. This locks the Hive capability contract without claiming the
+    command path is a production c-kzg backend.
 - [x] `DEVNET-RUNNER-CLIENT-VERSION-SMOKE`: Extend the standalone devnet smoke
   gate so authenticated Engine readiness probes include
   `engine_getClientVersionV1`.

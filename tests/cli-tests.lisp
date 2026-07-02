@@ -176,6 +176,31 @@
                     "engine_getPayloadBodiesByHashV2"))
     (is (not (member method capabilities :test #'string=)))))
 
+(defun devnet-cli-assert-kzg-backed-engine-capability-list (capabilities)
+  (dolist (method '("engine_newPayloadV1"
+                    "engine_forkchoiceUpdatedV1"
+                    "engine_getPayloadV1"
+                    "engine_newPayloadV2"
+                    "engine_forkchoiceUpdatedV2"
+                    "engine_getPayloadV2"
+                    "engine_getPayloadBodiesByHashV1"
+                    "engine_getPayloadBodiesByRangeV1"
+                    "engine_forkchoiceUpdatedV3"
+                    "engine_forkchoiceUpdatedV4"
+                    "engine_getPayloadBodiesByHashV2"
+                    "engine_getPayloadBodiesByRangeV2"
+                    "engine_getPayloadV3"
+                    "engine_getPayloadV4"
+                    "engine_getPayloadV5"
+                    "engine_getPayloadV6"
+                    "engine_getBlobsV1"
+                    "engine_getBlobsV2"
+                    "engine_getBlobsV3"
+                    "engine_newPayloadV3"
+                    "engine_newPayloadV4"
+                    "engine_newPayloadV5"))
+    (is (member method capabilities :test #'string=))))
+
 (defun devnet-cli-assert-engine-capability-report (report)
   (is (plusp (fixture-object-field report "engineCapabilityCount")))
   (is (eq t
@@ -2207,6 +2232,170 @@
            (is (not (kzg-proof-verification-available-p))))
       (setf *kzg-point-proof-verifier* old-point-verifier
             *kzg-blob-proof-verifier* old-blob-verifier))))
+
+(deftest ethereum-lisp-script-engine-only-kzg-verifier-advertises-blob-capabilities
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (let* ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+         (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+         (kzg-command "/tmp/ethereum-lisp-kzg")
+         (ready-path
+           (devnet-cli-temp-path "ethereum-lisp-script-kzg-ready" "json"))
+         (log-path
+           (devnet-cli-temp-path "ethereum-lisp-script-kzg" "log"))
+         (pid-path
+           (devnet-cli-temp-path "ethereum-lisp-script-kzg" "pid"))
+         (process nil))
+    (unwind-protect
+         (progn
+           (setf process
+                 (uiop:launch-program
+                  (list "sbcl"
+                        "--script"
+                        script
+                        "--"
+                        "devnet"
+                        "--genesis"
+                        genesis
+                        "--authrpc.addr"
+                        "127.0.0.1"
+                        "--authrpc.port"
+                        "0"
+                        "--http=false"
+                        "--kzg-verifier-command"
+                        kzg-command
+                        "--ready-file"
+                        (namestring ready-path)
+                        "--log-file"
+                        (namestring log-path)
+                        "--pid-file"
+                        (namestring pid-path)
+                        "--max-connections"
+                        "1"
+                        "--json")
+                  :directory #P"/private/tmp/"
+                  :output :stream
+                  :error-output :stream))
+           (unless (devnet-cli-wait-for-file ready-path 10)
+             (when (uiop:process-alive-p process)
+               (uiop:terminate-process process)
+               (devnet-cli-wait-process-exit process 5))
+             (let ((stdout
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-output process)))
+                   (stderr
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-error-output process))))
+               (when (search "Operation not permitted" stderr)
+                 (skip-test
+                  "Local socket bind is not permitted in this sandbox"))
+               (is (probe-file ready-path))
+               (is (string= "" stdout))
+               (is (string= "" stderr))))
+           (when (probe-file ready-path)
+             (let* ((ready-summary
+                      (parse-json (devnet-cli-file-string ready-path)))
+                    (pid (devnet-cli-pid-file-process-id pid-path))
+                    (engine-endpoint
+                      (fixture-object-field ready-summary "engineEndpoint"))
+                    (capabilities-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":715,\"method\":\"engine_exchangeCapabilities\",\"params\":[[\"engine_newPayloadV1\"]]}")
+                    capabilities-response)
+               (is (= pid (fixture-object-field ready-summary "processId")))
+               (is (stringp engine-endpoint))
+               (is (not (fixture-object-field ready-summary "rpcEndpoint")))
+               (is (not (fixture-object-field ready-summary
+                                               "publicRpcEnabled")))
+               (is (string= kzg-command
+                            (fixture-object-field ready-summary
+                                                  "kzgVerifierCommand")))
+               (is (fixture-object-field
+                    ready-summary "kzgProofVerificationAvailable"))
+               (handler-case
+                   (setf capabilities-response
+                         (devnet-cli-http-endpoint-request
+                          engine-endpoint
+                          (devnet-cli-json-rpc-http-request
+                           capabilities-body)))
+                 (sb-bsd-sockets:operation-not-permitted-error ()
+                   (skip-test
+                    "Local socket connect is not permitted in this sandbox")))
+               (is (= 200 (devnet-cli-http-status capabilities-response)))
+               (let* ((capabilities-rpc
+                        (parse-json
+                         (devnet-cli-http-body capabilities-response)))
+                      (capabilities-result
+                        (fixture-object-field capabilities-rpc "result")))
+                 (is (= 715 (fixture-object-field capabilities-rpc "id")))
+                 (devnet-cli-assert-kzg-backed-engine-capability-list
+                  capabilities-result))
+               (let ((status (devnet-cli-wait-process-exit process 10)))
+                 (when (eq status :timeout)
+                   (uiop:terminate-process process))
+                 (is (not (eq status :timeout)))
+                 (is (and (numberp status) (= 0 status)))
+                 (let ((stdout
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-output process)))
+                       (stderr
+                         (devnet-cli-read-stream-string
+                          (uiop:process-info-error-output process))))
+                   (is (string= "" stderr))
+                   (when (and (numberp status) (= 0 status))
+                     (let* ((stdout-summary (parse-json stdout))
+                            (log-records (devnet-cli-file-forms log-path))
+                            (ready-record
+                              (find "devnet.ready" log-records
+                                    :test #'string=
+                                    :key (lambda (record)
+                                           (getf record :name))))
+                            (shutdown-record
+                              (find "devnet.shutdown" log-records
+                                    :test #'string=
+                                    :key (lambda (record)
+                                           (getf record :name)))))
+                       (dolist (summary (list stdout-summary ready-summary))
+                         (is (string= kzg-command
+                                      (fixture-object-field
+                                       summary "kzgVerifierCommand")))
+                         (is (fixture-object-field
+                              summary
+                              "kzgProofVerificationAvailable")))
+                       (dolist (record (list ready-record shutdown-record))
+                         (is record)
+                         (let ((fields (getf record :fields)))
+                           (is (string= kzg-command
+                                        (cdr (assoc "kzgVerifierCommand"
+                                                    fields
+                                                    :test #'string=))))
+                           (is (string= "true"
+                                        (cdr (assoc
+                                              "kzgProofVerificationAvailable"
+                                              fields
+                                              :test #'string=))))))
+                       (let ((shutdown-fields
+                               (getf shutdown-record :fields)))
+                         (is (string= "1"
+                                      (cdr (assoc "engineConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))
+                         (is (string= "0"
+                                      (cdr (assoc "publicConnections"
+                                                  shutdown-fields
+                                                  :test #'string=))))
+                         (is (string= "1"
+                                      (cdr (assoc "totalConnections"
+                                                  shutdown-fields
+                                                  :test #'string=)))))))))))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path))))))
 
 (deftest devnet-cli-main-database-restores-and-exports-chain-store
   (let ((database-path
