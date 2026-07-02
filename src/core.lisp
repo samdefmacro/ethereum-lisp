@@ -6968,8 +6968,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (not (genesis-object-field-present-p request "id"))
        (stringp (genesis-object-field request "method"))))
 
+(defun engine-rpc-request-id-valid-p (request)
+  (or (not (genesis-object-field-present-p request "id"))
+      (let ((id (genesis-object-field request "id")))
+        (or (null id)
+            (stringp id)
+            (numberp id)))))
+
 (defun engine-rpc-request-envelope-valid-p (request)
   (and (engine-rpc-jsonrpc-version-valid-p request)
+       (engine-rpc-request-id-valid-p request)
        (genesis-object-field-present-p request "method")
        (stringp (genesis-object-field request "method"))
        (or (not (genesis-object-field-present-p request "params"))

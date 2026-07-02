@@ -10931,6 +10931,20 @@
                (parse-json empty-string-params-json))
              (empty-string-params-error
                (field empty-string-params-response "error"))
+             (boolean-id-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":true,\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config))
+             (boolean-id-response (parse-json boolean-id-json))
+             (boolean-id-error (field boolean-id-response "error"))
+             (object-id-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":{\"bad\":1},\"method\":\"engine_nope\",\"params\":[]}"
+                store
+                config))
+             (object-id-response (parse-json object-id-json))
+             (object-id-error (field object-id-response "error"))
              (malformed-no-id-json
                (engine-rpc-handle-request-json
                 "{\"method\":\"engine_nope\",\"params\":[]}"
@@ -10945,6 +10959,8 @@
         (is (= -32600 (field numeric-method-error "code")))
         (is (= -32600 (field scalar-params-error "code")))
         (is (= -32600 (field empty-string-params-error "code")))
+        (is (= -32600 (field boolean-id-error "code")))
+        (is (= -32600 (field object-id-error "code")))
         (is (= -32600 (field malformed-no-id-error "code"))))
       (let* ((batch-json
                (engine-rpc-handle-request-json

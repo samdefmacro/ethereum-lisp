@@ -426,6 +426,12 @@ ones.
     preserved empty-array markers. Focused parser and Engine JSON-RPC envelope
     regressions now require an empty JSON string in `params` to return
     `-32600 Invalid Request` instead of dispatching as `params:[]`.
+- [x] `JSON-RPC-ID-SHAPE`: Reject JSON-RPC request identifiers whose parsed
+  shape is not string, number, or null before Engine/public method dispatch.
+  - Result (2026-07-03): request envelope validation now checks `id` shape
+    when the field is present. Engine JSON-RPC regressions cover true-valued
+    boolean and object IDs returning `-32600 Invalid Request` instead of
+    dispatching as ordinary requests with invalid response identifiers.
 - [x] `DEVNET-RUNNER-ENDPOINT-CONTRACT`: Tighten the local devnet smoke-gate
   runner contract so readiness/log artifacts expose and validate concrete
   loopback Engine/public RPC endpoints rather than placeholder listener names.
