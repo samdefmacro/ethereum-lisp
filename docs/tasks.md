@@ -583,6 +583,16 @@ ones.
     report exposes the configured terminal total difficulty, terminal block
     hash, and terminal block number. CLI coverage runs the standalone gate
     with non-default override values.
+- [x] `DEVNET-SMOKE-GATE-HEAD-GAS-LIMIT-REPORT`: Lock the standalone devnet
+  smoke-gate runner contract for head gas limit reporting across readiness,
+  lifecycle telemetry, and restored database summaries.
+  - Result (2026-07-02): `scripts/devnet-smoke-gate.lisp` now reports
+    `safeBlockGasLimit`, `blockGasLimit`, and `databaseHeadGasLimit`, verifies
+    ready-file `headGasLimit` against the safe block, verifies
+    `devnet.ready` / `devnet.shutdown` telemetry against safe/latest head gas
+    limits, and checks restored database summaries agree with the imported
+    canonical head. CLI smoke coverage locks both single-case and
+    all-fixtures process-runner reports.
 - [x] `DEVNET-ENGINE-TRANSITION-CONFIG-MISMATCH`: Reject mismatched Engine
   transition-configuration handshakes and lock the standalone smoke report.
   - Result (2026-07-01): `engine_exchangeTransitionConfigurationV1` now rejects

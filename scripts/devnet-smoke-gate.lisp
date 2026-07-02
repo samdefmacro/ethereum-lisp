@@ -2118,7 +2118,8 @@ references/ checkouts.~%")
 
 (defun devnet-smoke-gate-verify-ready-file
     (path expected-head-number expected-head-hash
-     &key expected-engine-endpoint expected-rpc-endpoint)
+     &key expected-head-gas-limit expected-engine-endpoint
+       expected-rpc-endpoint)
   (let ((summary (parse-json (devnet-smoke-gate-file-string path))))
     (devnet-smoke-gate-require
      (string= (or expected-engine-endpoint +devnet-smoke-gate-engine-endpoint+)
@@ -2157,6 +2158,12 @@ references/ checkouts.~%")
      (string= expected-head-hash
               (fixture-object-field summary "headHash"))
      "Ready file head hash mismatch")
+    (when expected-head-gas-limit
+      (devnet-smoke-gate-require
+       (string= expected-head-gas-limit
+                (quantity-to-hex
+                 (fixture-object-field summary "headGasLimit")))
+       "Ready file head gas limit mismatch"))
     summary))
 
 (defun devnet-smoke-gate-verify-pid-file
@@ -2181,6 +2188,7 @@ references/ checkouts.~%")
 (defun devnet-smoke-gate-verify-log-file
     (path ready-head-number ready-head-hash shutdown-head-number
      shutdown-head-hash &key expected-process-id expected-connection-summary
+       ready-head-gas-limit shutdown-head-gas-limit
        expected-engine-endpoint expected-rpc-endpoint)
   (let* ((records (devnet-smoke-gate-file-forms path))
          (names (mapcar (lambda (record) (getf record :name)) records)))
@@ -2199,7 +2207,9 @@ references/ checkouts.~%")
                (expected-head-number
                  (if ready-p ready-head-number shutdown-head-number))
                (expected-head-hash
-                 (if ready-p ready-head-hash shutdown-head-hash)))
+                 (if ready-p ready-head-hash shutdown-head-hash))
+               (expected-head-gas-limit
+                 (if ready-p ready-head-gas-limit shutdown-head-gas-limit)))
           (devnet-smoke-gate-require
            (string= (or expected-engine-endpoint
                         +devnet-smoke-gate-engine-endpoint+)
@@ -2259,6 +2269,11 @@ references/ checkouts.~%")
            (string= expected-head-hash
                     (cdr (assoc "headHash" fields :test #'string=)))
            "Log file head hash mismatch")
+          (when expected-head-gas-limit
+            (devnet-smoke-gate-require
+             (string= expected-head-gas-limit
+                      (cdr (assoc "headGasLimit" fields :test #'string=)))
+             "Log file head gas limit mismatch"))
           (devnet-smoke-gate-require
            (string= "true"
                     (cdr (assoc "stateAvailable" fields :test #'string=)))
@@ -9080,7 +9095,15 @@ references/ checkouts.~%")
                   (cons "txpoolStatusQueued"
                         (fixture-object-field txpool-status "queued"))
                   (cons "blockNumber" actual-block-number)
+                  (cons "blockGasLimit"
+                        (quantity-to-hex
+                         (block-header-gas-limit
+                          (block-header child-block))))
                   (cons "safeBlockNumber" expected-safe-block-number)
+                  (cons "safeBlockGasLimit"
+                        (quantity-to-hex
+                         (block-header-gas-limit
+                          (block-header parent-block))))
                   (cons "safeBlockHash"
                         (hash32-to-hex expected-safe-block-hash))
                   (cons "finalizedBlockNumber"
@@ -9139,6 +9162,11 @@ references/ checkouts.~%")
                         (if database-summary
                             (quantity-to-hex
                              (getf database-summary :head-number))
+                            :false))
+                  (cons "databaseHeadGasLimit"
+                        (if database-summary
+                            (quantity-to-hex
+                             (getf database-summary :head-gas-limit))
                             :false))
                   (cons "databaseSafeNumber"
                         (if database-summary
@@ -10015,6 +10043,8 @@ references/ checkouts.~%")
                          ready-file
                          (devnet-smoke-gate-field report "safeBlockNumber")
                          (devnet-smoke-gate-field report "safeBlockHash")
+                         :expected-head-gas-limit
+                         (devnet-smoke-gate-field report "safeBlockGasLimit")
                          :expected-engine-endpoint
                          (devnet-smoke-gate-field report "engineEndpoint")
                          :expected-rpc-endpoint
@@ -10036,6 +10066,10 @@ references/ checkouts.~%")
                   (devnet-smoke-gate-field report "safeBlockHash")
                   (devnet-smoke-gate-field report "blockNumber")
                   (devnet-smoke-gate-field report "latestValidHash")
+                  :ready-head-gas-limit
+                  (devnet-smoke-gate-field report "safeBlockGasLimit")
+                  :shutdown-head-gas-limit
+                  (devnet-smoke-gate-field report "blockGasLimit")
                   :expected-process-id expected-process-id
                   :expected-connection-summary
                   (list :engine-connections
@@ -11176,8 +11210,12 @@ references/ checkouts.~%")
                 (devnet-smoke-gate-field report "txpoolStatusQueued"))
         (format t "blockNumber=~A~%"
                 (devnet-smoke-gate-field report "blockNumber"))
+        (format t "blockGasLimit=~A~%"
+                (devnet-smoke-gate-field report "blockGasLimit"))
         (format t "safeBlockNumber=~A~%"
                 (devnet-smoke-gate-field report "safeBlockNumber"))
+        (format t "safeBlockGasLimit=~A~%"
+                (devnet-smoke-gate-field report "safeBlockGasLimit"))
         (format t "safeBlockHash=~A~%"
                 (devnet-smoke-gate-field report "safeBlockHash"))
         (format t "finalizedBlockNumber=~A~%"
@@ -11231,6 +11269,8 @@ references/ checkouts.~%")
                  report "databasePrunedStateAvailable"))
         (format t "databaseHeadNumber=~A~%"
                 (devnet-smoke-gate-field report "databaseHeadNumber"))
+        (format t "databaseHeadGasLimit=~A~%"
+                (devnet-smoke-gate-field report "databaseHeadGasLimit"))
         (format t "databaseRpcBlockNumber=~A~%"
                 (devnet-smoke-gate-field report "databaseRpcBlockNumber"))
         (format t "databaseSafeNumber=~A~%"

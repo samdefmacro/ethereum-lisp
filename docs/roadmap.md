@@ -1225,6 +1225,10 @@ first pass, but interfaces must not block that path.
   `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as
   explicit compatibility no-ops, so those launch templates reach the current
   split Engine/public devnet surface instead of failing at argument parsing.
+  The standalone devnet smoke gate now verifies and reports `headGasLimit`
+  across ready files, lifecycle telemetry, and restored database summaries, so
+  process runners can detect gas-limit drift at the same boundary where they
+  consume readiness and shutdown artifacts.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

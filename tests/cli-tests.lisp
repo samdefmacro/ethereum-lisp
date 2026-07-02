@@ -4022,6 +4022,9 @@
                (is (string= (fixture-object-field report "blockNumber")
                             (fixture-object-field report
                                                   "databaseHeadNumber")))
+               (is (string= (fixture-object-field report "blockGasLimit")
+                            (fixture-object-field report
+                                                  "databaseHeadGasLimit")))
                (is (string= (fixture-object-field report "safeBlockNumber")
                             (fixture-object-field report
                                                   "databaseSafeNumber")))
@@ -4293,6 +4296,10 @@
                (is (string= (fixture-object-field report "safeBlockHash")
                             (fixture-object-field ready-summary
                                                   "headHash")))
+               (is (string= (fixture-object-field report "safeBlockGasLimit")
+                            (quantity-to-hex
+                             (fixture-object-field ready-summary
+                                                   "headGasLimit"))))
                (is (string= (namestring database-path)
                             (fixture-object-field ready-summary
                                                   "databasePath")))
@@ -4316,12 +4323,21 @@
                              report
                              (if ready-p
                                  "safeBlockHash"
-                                 "latestValidHash"))))
+                                 "latestValidHash")))
+                          (expected-head-gas-limit
+                            (fixture-object-field
+                             report
+                             (if ready-p
+                                 "safeBlockGasLimit"
+                                 "blockGasLimit"))))
                      (is (string= expected-head-number
                                   (cdr (assoc "headNumber" fields
                                               :test #'string=))))
                      (is (string= expected-head-hash
                                   (cdr (assoc "headHash" fields
+                                              :test #'string=))))
+                     (is (string= expected-head-gas-limit
+                                  (cdr (assoc "headGasLimit" fields
                                               :test #'string=))))
                      (is (string= (if ready-p "ready" "shutdown")
                                   (cdr (assoc "lifecyclePhase" fields
@@ -4528,9 +4544,14 @@
                  (is (string= (fixture-object-field case "blockNumber")
                               (fixture-object-field
                                case "databaseHeadNumber")))
+                 (is (string= (fixture-object-field case "blockGasLimit")
+                              (fixture-object-field
+                               case "databaseHeadGasLimit")))
                  (is (string= (fixture-object-field case "safeBlockNumber")
                               (fixture-object-field
                                case "databaseSafeNumber")))
+                 (is (stringp (fixture-object-field
+                                case "safeBlockGasLimit")))
                  (is (string= (fixture-object-field case "safeBlockHash")
                               (fixture-object-field
                                case "databaseSafeHash")))
