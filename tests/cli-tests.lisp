@@ -4086,7 +4086,9 @@
          (log-path
            (merge-pathnames "logs/engine-only.log" artifact-root))
          (pid-path
-           (merge-pathnames "pid/engine-only.pid" artifact-root)))
+           (merge-pathnames "pid/engine-only.pid" artifact-root))
+         (database-path
+           (merge-pathnames "db/engine-only.sexp" artifact-root)))
     (unwind-protect
          (multiple-value-bind (stdout stderr status)
              (uiop:run-program
@@ -4101,7 +4103,9 @@
                     "--log-file"
                     (namestring log-path)
                     "--pid-file"
-                    (namestring pid-path))
+                    (namestring pid-path)
+                    "--database"
+                    (namestring database-path))
               :output :string
               :error-output :string
               :ignore-error-status t)
@@ -4153,6 +4157,16 @@
                (is (= 4 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
                (is (= 4 (fixture-object-field report "totalConnections")))
+               (is (string= (namestring database-path)
+                            (fixture-object-field report "databaseFile")))
+               (is (probe-file database-path))
+               (is (= (fixture-quantity-field report "forkchoiceHeadNumber")
+                      (fixture-object-field report "databaseHeadNumber")))
+               (is (string= (fixture-object-field report
+                                                  "forkchoiceHeadHash")
+                            (fixture-object-field report
+                                                  "databaseHeadHash")))
+               (is (fixture-object-field report "databaseStateAvailable"))
                (is (string= "ethereum-lisp"
                             (fixture-object-field report
                                                   "engineClientVersionName")))
@@ -4218,7 +4232,9 @@
       (when (probe-file log-path)
         (delete-file log-path))
       (when (probe-file pid-path)
-        (delete-file pid-path)))))
+        (delete-file pid-path))
+      (when (probe-file database-path)
+        (delete-file database-path)))))
 
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
   #-sbcl

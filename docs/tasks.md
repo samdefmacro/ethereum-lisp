@@ -7216,6 +7216,12 @@ splits can land after the Phase A smoke path closes.
     no-serve `--http=false` process from the exported KV database and verifies
     the restored head number/hash and retained head state match the imported
     child while public RPC remains disabled.
+  - Result (2026-07-03): the standalone
+    `scripts/devnet-smoke-gate.lisp -- --engine-only-serve` path now also
+    accepts `--database`, exports the imported Engine-only child after
+    shutdown, restores it through the normal devnet database-open path, and
+    reports `databaseFile`, `databaseHeadNumber`, `databaseHeadHash`, and
+    `databaseStateAvailable` in JSON/text smoke output.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

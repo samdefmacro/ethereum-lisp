@@ -2291,7 +2291,7 @@ references/ checkouts.~%")
     records))
 
 (defun devnet-smoke-gate-verify-engine-only-serve
-    (&key ready-file log-file pid-file)
+    (&key ready-file log-file pid-file database-file)
   #+sbcl
   (let ((jwt-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-engine-only" "jwt"))
@@ -2308,6 +2308,7 @@ references/ checkouts.~%")
         (engine-endpoint nil)
         (configured-public-endpoint nil)
         (public-endpoint-connectable-p nil)
+        (database-summary nil)
         (report nil))
     (unwind-protect
          (progn
@@ -2354,6 +2355,7 @@ references/ checkouts.~%")
                         *devnet-smoke-gate-engine-cors-origins*
                         :engine-vhosts *devnet-smoke-gate-engine-vhosts*
                         :log-path log-file
+                        :database-path database-file
                         :pid-file-path pid-file
                         :telemetry-sink telemetry-sink))
                   (genesis-block
@@ -2478,6 +2480,35 @@ references/ checkouts.~%")
                   :rpc-endpoint nil
                   :connection-summary summary
                   :public-rpc-enabled-p nil))
+               (when database-file
+                 (ethereum-lisp.cli::devnet-node-export-database node)
+                 (let* ((restored-node
+                          (ethereum-lisp.cli:make-devnet-node
+                           :genesis-path (namestring genesis-path)
+                           :port 0
+                           :public-port 0
+                           :jwt-secret-path (namestring jwt-path)
+                           :database-path database-file))
+                        (restored-summary
+                          (ethereum-lisp.cli:devnet-node-summary
+                           restored-node
+                           :public-rpc-enabled-p nil)))
+                   (devnet-smoke-gate-require
+                    (string= database-file
+                             (getf restored-summary :database-path))
+                    "Engine-only database restore path mismatch")
+                   (devnet-smoke-gate-require
+                    (= (hex-to-quantity expected-child-number)
+                       (getf restored-summary :head-number))
+                    "Engine-only database restore head number mismatch")
+                   (devnet-smoke-gate-require
+                    (string= expected-child-hash
+                             (getf restored-summary :head-hash))
+                    "Engine-only database restore head hash mismatch")
+                   (devnet-smoke-gate-require
+                    (getf restored-summary :state-available-p)
+                    "Engine-only database restore head state unavailable")
+                   (setf database-summary restored-summary)))
                (devnet-smoke-gate-require
                 (= 4 (getf summary :engine-connections))
                 "Engine-only serve Engine connection count mismatch")
@@ -2703,6 +2734,22 @@ references/ checkouts.~%")
                        (cons "readyFile" (or ready-file :false))
                        (cons "logFile" (or log-file :false))
                        (cons "pidFile" (or pid-file :false))
+                       (cons "databaseFile" (or database-file :false))
+                       (cons "databaseHeadNumber"
+                             (if database-summary
+                                 (getf database-summary :head-number)
+                                 :false))
+                       (cons "databaseHeadHash"
+                             (if database-summary
+                                 (getf database-summary :head-hash)
+                                 :false))
+                       (cons "databaseStateAvailable"
+                             (if database-summary
+                                 (if (getf database-summary
+                                           :state-available-p)
+                                     t
+                                     :false)
+                                 :false))
                        (cons "engineConnections"
                              (getf summary :engine-connections))
                        (cons "publicConnections"
@@ -11462,6 +11509,14 @@ references/ checkouts.~%")
             (devnet-smoke-gate-field report "logFile"))
     (format t "pidFile=~A~%"
             (devnet-smoke-gate-field report "pidFile"))
+    (format t "databaseFile=~A~%"
+            (devnet-smoke-gate-field report "databaseFile"))
+    (format t "databaseHeadNumber=~A~%"
+            (devnet-smoke-gate-field report "databaseHeadNumber"))
+    (format t "databaseHeadHash=~A~%"
+            (devnet-smoke-gate-field report "databaseHeadHash"))
+    (format t "databaseStateAvailable=~A~%"
+            (devnet-smoke-gate-field report "databaseStateAvailable"))
     (format t "engineConnections=~D~%"
             (devnet-smoke-gate-field report "engineConnections"))
     (format t "publicConnections=~D~%"
@@ -12237,14 +12292,11 @@ references/ checkouts.~%")
                    (when (devnet-smoke-gate-fixture-case-specified-p args)
                      (error "~A cannot be combined with a fixture case"
                             +devnet-smoke-gate-engine-only-serve-flag+))
-                   (when database-file
-                     (error "~A cannot be combined with ~A"
-                            +devnet-smoke-gate-engine-only-serve-flag+
-                            +devnet-smoke-gate-database-option+))
                    (devnet-smoke-gate-verify-engine-only-serve
                     :ready-file ready-file
                     :log-file log-file
-                    :pid-file pid-file))
+                    :pid-file pid-file
+                    :database-file database-file))
                   (all-fixtures-p
                    (when (devnet-smoke-gate-fixture-case-specified-p args)
                      (error "~A cannot be combined with a fixture case"

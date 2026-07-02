@@ -1305,7 +1305,9 @@ first pass, but interfaces must not block that path.
   The runner-facing Engine-only process coverage now also launches with
   `--database`, exports the imported child on shutdown, and verifies a fresh
   no-serve `--http=false` restore reports the same child head and retained
-  head state while public RPC remains disabled.
+  head state while public RPC remains disabled. The focused standalone
+  Engine-only smoke gate accepts the same `--database` flag and reports the
+  restored head hash/number plus state availability in JSON/text output.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
