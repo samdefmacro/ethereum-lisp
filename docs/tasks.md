@@ -975,6 +975,11 @@ ones.
     path intact, and runner-visible JSON/ready summaries now expose
     `devMode=true` with `genesisPath=null` for the embedded fallback. CLI
     no-serve coverage verifies successful startup without socket binding.
+  - Result (2026-07-02): `--dev.gaslimit` now sets the gas limit of that
+    embedded dev genesis, while still leaving explicit `--genesis` and datadir
+    genesis files authoritative. Startup summaries and lifecycle telemetry
+    report `headGasLimit`, so process runners can verify the effective
+    genesis gas limit without issuing an extra public RPC request.
 - [x] `DEVNET-RUNNER-PUBLIC-API-REPORTING`: Report geth/Hive-style public RPC
   module allowlists in runner-visible devnet startup artifacts.
   - Result (2026-06-28): devnet nodes now preserve the parsed `--http.api`

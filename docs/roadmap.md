@@ -1215,9 +1215,11 @@ first pass, but interfaces must not block that path.
   `--state.scheme`, `--db.engine`,
   `--datadir.ancient`, `--dev`, `--dev.period`, `--dev.gaslimit`, and
   `--nousb`. Enabled `--dev` now supplies an embedded Shanghai dev genesis
-  when no explicit or datadir genesis is present, while `--dev.period` and
-  `--dev.gaslimit` remain compatibility no-ops until block production timing
-  is implemented. Geth/Hive node-key, discovery,
+  when no explicit or datadir genesis is present, and `--dev.gaslimit` shapes
+  that embedded genesis while file-backed genesis inputs remain authoritative;
+  `--dev.period` remains a compatibility no-op until block production timing
+  is implemented. Startup summaries and lifecycle telemetry report
+  `headGasLimit` for process-runner checks. Geth/Hive node-key, discovery,
   network-restriction, and IPC path
   options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,
   `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as

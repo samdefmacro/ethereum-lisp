@@ -37,8 +37,11 @@
 (defconstant +devnet-datadir-genesis-file+ "genesis.json")
 (defconstant +devnet-datadir-jwt-secret-file+ "jwtsecret")
 (defconstant +devnet-geth-datadir-directory+ "geth/")
+(defconstant +devnet-default-dev-gas-limit+ #x1c9c380)
 
-(defparameter +devnet-default-dev-genesis-json+
+(defun devnet-cli-dev-genesis-json (&key
+                                      (gas-limit
+                                       +devnet-default-dev-gas-limit+))
   (concatenate
    'string
    "{"
@@ -47,7 +50,7 @@
    "\"nonce\":\"0x0\","
    "\"timestamp\":\"0x0\","
    "\"extraData\":\"0x\","
-   "\"gasLimit\":\"0x1c9c380\","
+   "\"gasLimit\":\"" (quantity-to-hex gas-limit) "\","
    "\"difficulty\":\"0x0\","
    "\"mixHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\","
    "\"coinbase\":\"0x0000000000000000000000000000000000000000\","
@@ -447,6 +450,9 @@
           :safe-hash (devnet-block-hash-hex safe)
           :finalized-number (devnet-block-number finalized)
           :finalized-hash (devnet-block-hash-hex finalized)
+          :head-gas-limit
+          (and head
+               (block-header-gas-limit (block-header head)))
           :state-available-p
           (and head
                (chain-store-state-available-p store (block-hash head))))))
@@ -478,6 +484,7 @@
       ("chainId" . ,(getf summary :chain-id))
       ("headNumber" . ,(getf summary :head-number))
       ("headHash" . ,(getf summary :head-hash))
+      ("headGasLimit" . ,(or (getf summary :head-gas-limit) :false))
       ("safeNumber" . ,(or (getf summary :safe-number) :false))
       ("safeHash" . ,(or (getf summary :safe-hash) :false))
       ("finalizedNumber" . ,(or (getf summary :finalized-number) :false))
@@ -758,6 +765,12 @@
       (error "~A must be non-negative" option))
     quantity))
 
+(defun devnet-cli-parse-uint64-quantity (value option)
+  (let ((quantity (devnet-cli-parse-non-negative-quantity value option)))
+    (unless (< quantity (expt 2 64))
+      (error "~A must be less than 2^64" option))
+    quantity))
+
 (defun devnet-cli-parse-hash32 (value option)
   (handler-case
       (hash32-from-hex value)
@@ -839,6 +852,7 @@
         (terminal-block-hash nil)
         (terminal-block-number nil)
         (dev-mode-p nil)
+        (dev-gas-limit nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1007,6 +1021,12 @@
                     (devnet-cli-optional-boolean-value args option)
                   (setf dev-mode-p enabled-p
                         args rest)))
+               ((string= option "--dev.gaslimit")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf dev-gas-limit
+                        (devnet-cli-parse-uint64-quantity value option)
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1048,6 +1068,7 @@
           :terminal-block-hash terminal-block-hash
           :terminal-block-number terminal-block-number
           :dev-mode-p dev-mode-p
+          :dev-gas-limit dev-gas-limit
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1168,7 +1189,9 @@
 (defun devnet-cli-resolve-genesis-json (options genesis-path)
   (when (and (getf options :dev-mode-p)
              (null genesis-path))
-    +devnet-default-dev-genesis-json+))
+    (devnet-cli-dev-genesis-json
+     :gas-limit (or (getf options :dev-gas-limit)
+                    +devnet-default-dev-gas-limit+))))
 
 (defun devnet-cli-print-init-usage (stream)
   (format stream
@@ -1357,6 +1380,10 @@
       ("chainId" . ,(quantity-to-hex (getf summary :chain-id)))
       ("headNumber" . ,(quantity-to-hex (getf summary :head-number)))
       ("headHash" . ,(getf summary :head-hash))
+      ("headGasLimit" . ,(if (getf summary :head-gas-limit)
+                              (quantity-to-hex
+                               (getf summary :head-gas-limit))
+                              ""))
       ("safeNumber" . ,(if (getf summary :safe-number)
                             (quantity-to-hex (getf summary :safe-number))
                             ""))

@@ -2385,10 +2385,31 @@
     (let ((summary (parse-json (get-output-stream-string output))))
       (is (= 1337 (fixture-object-field summary "chainId")))
       (is (= 0 (fixture-object-field summary "headNumber")))
+      (is (= #x1c9c380
+             (fixture-object-field summary "headGasLimit")))
       (is (fixture-field-present-p summary "genesisPath"))
       (is (null (fixture-object-field summary "genesisPath")))
       (is (eq t (fixture-object-field summary "devMode")))
       (is (eq t (fixture-object-field summary "stateAvailable"))))))
+
+(deftest devnet-cli-main-dev-gaslimit-shapes-embedded-genesis
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  "--dev"
+                  "--dev.gaslimit"
+                  "31000000"
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (eq t (fixture-object-field summary "devMode")))
+      (is (= 31000000
+             (fixture-object-field summary "headGasLimit"))))))
 
 (deftest devnet-cli-main-treats-empty-database-as-new-chain
   (labels ((write-empty-kv-database (path)
@@ -2963,7 +2984,7 @@
                   "--dev=true"
                   "--dev.period=1"
                   "--dev.gaslimit"
-                  "30000000"
+                  "31000000"
                   "--json"
                   "--no-serve")
             :output-stream output
@@ -2973,7 +2994,9 @@
       (is (string= "127.0.0.1:8551"
                    (fixture-object-field summary "engineEndpoint")))
       (is (string= "127.0.0.1:8545"
-                   (fixture-object-field summary "rpcEndpoint")))))
+                   (fixture-object-field summary "rpcEndpoint")))
+      (is (= #x1c9c380
+             (fixture-object-field summary "headGasLimit")))))
   (let ((init-options
           (ethereum-lisp.cli::devnet-cli-init-options
            (list "init"
@@ -12738,6 +12761,10 @@
     (is (search "--dev.gaslimit requires a value"
                 (run-error (list "devnet"
                                  "--dev.gaslimit"
+                                 "--no-serve"))))
+    (is (search "--dev.gaslimit requires a non-negative integer or hex quantity"
+                (run-error (list "devnet"
+                                 "--dev.gaslimit=abc"
                                  "--no-serve"))))
     (is (search "--db.engine requires a value"
                 (run-error (list "devnet"
