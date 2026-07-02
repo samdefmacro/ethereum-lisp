@@ -1307,7 +1307,10 @@ first pass, but interfaces must not block that path.
   no-serve `--http=false` restore reports the same child head and retained
   head state while public RPC remains disabled. The focused standalone
   Engine-only smoke gate accepts the same `--database` flag and reports the
-  restored head hash/number plus state availability in JSON/text output.
+  restored head hash/number plus state availability in JSON/text output. The
+  top-level Phase A `--devnet` wrapper now passes a database file to its
+  `devnetEngineOnly` child, validates those restored head/state fields against
+  the Engine forkchoice head, and prints them in the aggregate Phase A report.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

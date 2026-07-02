@@ -590,6 +590,14 @@ references/ checkouts.~%"))
   (when (listp object)
     (smoke-gate-field object field)))
 
+(defun smoke-gate-hex-quantity (value)
+  (unless (and (stringp value)
+               (<= 2 (length value))
+               (char= #\0 (char value 0))
+               (char= #\x (char-downcase (char value 1))))
+    (error "Expected JSON-RPC hex quantity, got ~S" value))
+  (parse-integer value :start 2 :radix 16))
+
 (defun smoke-gate-devnet-case-require-nested-field
     (case-report object-field nested-field expected)
   (let* ((object (smoke-gate-field case-report object-field))
@@ -853,7 +861,7 @@ references/ checkouts.~%"))
              report expected-count))))))
 
 (defun smoke-gate-validate-devnet-engine-only-summary
-    (report ready-file log-file pid-file)
+    (report ready-file log-file pid-file database-file)
   (unless (string= "ok" (smoke-gate-field report "status"))
     (error "Devnet Engine-only smoke gate returned non-ok status: ~S"
            report))
@@ -862,6 +870,7 @@ references/ checkouts.~%"))
   (smoke-gate-devnet-require-field report "readyFile" ready-file)
   (smoke-gate-devnet-require-field report "logFile" log-file)
   (smoke-gate-devnet-require-field report "pidFile" pid-file)
+  (smoke-gate-devnet-require-field report "databaseFile" database-file)
   (smoke-gate-devnet-require-field report "engineConnections" 4)
   (smoke-gate-devnet-require-field report "publicConnections" 0)
   (smoke-gate-devnet-require-field report "totalConnections" 4)
@@ -892,6 +901,15 @@ references/ checkouts.~%"))
            report))
   (unless (stringp (smoke-gate-field report "forkchoiceHeadNumber"))
     (error "Devnet Engine-only forkchoice head number missing: ~S" report))
+  (unless (= (smoke-gate-hex-quantity
+              (smoke-gate-field report "forkchoiceHeadNumber"))
+             (smoke-gate-field report "databaseHeadNumber"))
+    (error "Devnet Engine-only database head number mismatch: ~S" report))
+  (unless (and (stringp (smoke-gate-field report "databaseHeadHash"))
+               (string= (smoke-gate-field report "forkchoiceHeadHash")
+                        (smoke-gate-field report "databaseHeadHash")))
+    (error "Devnet Engine-only database head hash mismatch: ~S" report))
+  (smoke-gate-devnet-require-field report "databaseStateAvailable" t)
   (smoke-gate-devnet-require-field report "publicRpcEnabled" nil)
   (smoke-gate-devnet-require-field report "rpcEndpoint" nil)
   (unless (and (stringp (smoke-gate-field report "configuredPublicEndpoint"))
@@ -992,6 +1010,10 @@ references/ checkouts.~%"))
           (namestring
            (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-engine-only"
                                  "pid")))
+        (database-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-engine-only-chain"
+                                 "sexp")))
         (report nil))
     (unwind-protect
          (progn
@@ -1004,15 +1026,19 @@ references/ checkouts.~%"))
                    "--log-file"
                    log-file
                    "--pid-file"
-                   pid-file)))
+                   pid-file
+                   "--database"
+                   database-file)))
            (smoke-gate-validate-devnet-engine-only-summary
             report
             ready-file
             log-file
-            pid-file))
+            pid-file
+            database-file))
       (smoke-gate-delete-file-if-present ready-file)
       (smoke-gate-delete-file-if-present log-file)
-      (smoke-gate-delete-file-if-present pid-file))))
+      (smoke-gate-delete-file-if-present pid-file)
+      (smoke-gate-delete-file-if-present database-file))))
 
 (defun smoke-gate-validate-devnet-side-reorg-case-summary
     (report fixture-case ready-file log-file pid-file database-file)
@@ -1330,6 +1356,15 @@ references/ checkouts.~%"))
       (format t "devnetEngineOnlyForkchoiceStatus=~A~%"
               (smoke-gate-field devnet-engine-only
                                 "forkchoiceStatus"))
+      (format t "devnetEngineOnlyDatabaseHeadNumber=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "databaseHeadNumber"))
+      (format t "devnetEngineOnlyDatabaseHeadHash=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "databaseHeadHash"))
+      (format t "devnetEngineOnlyDatabaseStateAvailable=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "databaseStateAvailable"))
       (format t "devnetEngineOnlyConfiguredPublicEndpoint=~A~%"
               (smoke-gate-field devnet-engine-only
                                 "configuredPublicEndpoint"))

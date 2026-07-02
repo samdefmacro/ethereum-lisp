@@ -7222,6 +7222,12 @@ splits can land after the Phase A smoke path closes.
     shutdown, restores it through the normal devnet database-open path, and
     reports `databaseFile`, `databaseHeadNumber`, `databaseHeadHash`, and
     `databaseStateAvailable` in JSON/text smoke output.
+  - Result (2026-07-03): the top-level
+    `scripts/phase-a-smoke-gate.lisp -- --devnet` wrapper now runs the
+    `devnetEngineOnly` child with a database file, rejects child reports whose
+    restored database head number/hash or retained head-state availability do
+    not match the Engine forkchoice head, and preserves those restore fields
+    in JSON/text Phase A output.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

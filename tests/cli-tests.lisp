@@ -353,6 +353,14 @@
                (fixture-object-field report "forkchoiceHeadHash")))
   (is (stringp (fixture-object-field report "forkchoiceHeadNumber"))))
 
+(defun devnet-cli-assert-engine-only-database-report (report)
+  (is (stringp (fixture-object-field report "databaseFile")))
+  (is (= (fixture-quantity-field report "forkchoiceHeadNumber")
+         (fixture-object-field report "databaseHeadNumber")))
+  (is (string= (fixture-object-field report "forkchoiceHeadHash")
+               (fixture-object-field report "databaseHeadHash")))
+  (is (fixture-object-field report "databaseStateAvailable")))
+
 (defun devnet-cli-temp-directory (name)
   (let ((path
           (merge-pathnames
@@ -5737,6 +5745,8 @@
          devnet-engine-only)
         (devnet-cli-assert-engine-only-payload-report
          devnet-engine-only)
+        (devnet-cli-assert-engine-only-database-report
+         devnet-engine-only)
         (is (search "http://127.0.0.1:"
                     (fixture-object-field
                      devnet-engine-only "configuredPublicEndpoint")))
@@ -6134,6 +6144,8 @@
           (devnet-cli-assert-engine-only-http-shaping-report
            devnet-engine-only)
           (devnet-cli-assert-engine-only-payload-report
+           devnet-engine-only)
+          (devnet-cli-assert-engine-only-database-report
            devnet-engine-only)
           (is (search "http://127.0.0.1:"
                       (fixture-object-field
