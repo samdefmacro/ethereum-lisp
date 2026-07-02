@@ -869,6 +869,16 @@ references/ checkouts.~%"))
   (smoke-gate-devnet-require-field report "engineRpcPrefixStatus" 200)
   (smoke-gate-devnet-require-field
    report "engineRpcPrefixBlockedStatus" 404)
+  (smoke-gate-devnet-require-field
+   report
+   "engineCorsOrigins"
+   '("https://engine-runner.example" "https://engine-observer.example"))
+  (smoke-gate-devnet-require-field
+   report "engineCorsHeader" "https://engine-runner.example")
+  (smoke-gate-devnet-require-field
+   report "engineCorsVaryHeader" "Origin")
+  (smoke-gate-devnet-require-field
+   report "engineVhosts" '("engine.runner" "localhost"))
   (smoke-gate-devnet-require-field report "publicRpcEnabled" nil)
   (smoke-gate-devnet-require-field report "rpcEndpoint" nil)
   (unless (and (stringp (smoke-gate-field report "configuredPublicEndpoint"))
@@ -1290,6 +1300,14 @@ references/ checkouts.~%"))
       (format t "devnetEngineOnlyEngineRpcPrefixBlockedStatus=~D~%"
               (smoke-gate-field devnet-engine-only
                                 "engineRpcPrefixBlockedStatus"))
+      (format t "devnetEngineOnlyEngineCorsOrigins=~S~%"
+              (smoke-gate-field devnet-engine-only
+                                "engineCorsOrigins"))
+      (format t "devnetEngineOnlyEngineCorsHeader=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "engineCorsHeader"))
+      (format t "devnetEngineOnlyEngineVhosts=~S~%"
+              (smoke-gate-field devnet-engine-only "engineVhosts"))
       (format t "devnetEngineOnlyConfiguredPublicEndpoint=~A~%"
               (smoke-gate-field devnet-engine-only
                                 "configuredPublicEndpoint"))

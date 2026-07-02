@@ -1268,6 +1268,13 @@ first pass, but interfaces must not block that path.
   the prefixed Engine client-version probe to succeed, and report two Engine /
   zero public shutdown connections through readiness, stdout, telemetry, and
   the top-level Phase A `devnetEngineOnly` wrapper report.
+  That Engine-only path now also preserves authenticated Engine CORS/vhost
+  shaping: the focused smoke gate and runner-facing script subprocess launch
+  with explicit `--authrpc.corsdomain`/`--authrpc.vhosts` equivalents, send
+  the `/engine` probe with an allowed Host/Origin, verify the CORS response
+  header, keep the public port closed, and carry the CORS/vhost fields through
+  readiness, stdout, telemetry, and the top-level Phase A
+  `devnetEngineOnly` wrapper report.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

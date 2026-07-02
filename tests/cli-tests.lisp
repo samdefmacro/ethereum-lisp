@@ -331,6 +331,17 @@
   (is (= 2 (fixture-object-field report "rpcPrefixPublicConnections")))
   (is (= 4 (fixture-object-field report "rpcPrefixTotalConnections"))))
 
+(defun devnet-cli-assert-engine-only-http-shaping-report (report)
+  (is (equal '("https://engine-runner.example"
+               "https://engine-observer.example")
+             (fixture-object-field report "engineCorsOrigins")))
+  (is (string= "https://engine-runner.example"
+               (fixture-object-field report "engineCorsHeader")))
+  (is (string= "Origin"
+               (fixture-object-field report "engineCorsVaryHeader")))
+  (is (equal '("engine.runner" "localhost")
+             (fixture-object-field report "engineVhosts"))))
+
 (defun devnet-cli-temp-directory (name)
   (let ((path
           (merge-pathnames
@@ -4056,6 +4067,7 @@
                (is (= 404 (fixture-object-field
                             report
                             "engineRpcPrefixBlockedStatus")))
+               (devnet-cli-assert-engine-only-http-shaping-report report)
                (is (search "http://127.0.0.1:"
                            (fixture-object-field report
                                                  "configuredPublicEndpoint")))
@@ -4074,6 +4086,13 @@
                (is (string= "/engine"
                             (fixture-object-field ready-summary
                                                   "engineRpcPrefix")))
+               (is (equal '("https://engine-runner.example"
+                            "https://engine-observer.example")
+                          (fixture-object-field ready-summary
+                                                "engineCorsOrigins")))
+               (is (equal '("engine.runner" "localhost")
+                          (fixture-object-field ready-summary
+                                                "engineVhosts")))
                (is (not (fixture-object-field ready-summary "rpcEndpoint")))
                (is (not (fixture-object-field ready-summary
                                               "publicRpcEnabled")))
@@ -4089,6 +4108,14 @@
                                         :test #'string=))))
                (is (string= "2"
                             (cdr (assoc "totalConnections"
+                                        shutdown-fields
+                                        :test #'string=))))
+               (is (string= "https://engine-runner.example,https://engine-observer.example"
+                            (cdr (assoc "engineCorsOrigins"
+                                        shutdown-fields
+                                        :test #'string=))))
+               (is (string= "engine.runner,localhost"
+                            (cdr (assoc "engineVhosts"
                                         shutdown-fields
                                         :test #'string=))))
                (is (string= ""
@@ -5603,6 +5630,8 @@
         (is (= 404 (fixture-object-field
                     devnet-engine-only
                     "engineRpcPrefixBlockedStatus")))
+        (devnet-cli-assert-engine-only-http-shaping-report
+         devnet-engine-only)
         (is (search "http://127.0.0.1:"
                     (fixture-object-field
                      devnet-engine-only "configuredPublicEndpoint")))
@@ -5997,6 +6026,8 @@
           (is (= 404 (fixture-object-field
                       devnet-engine-only
                       "engineRpcPrefixBlockedStatus")))
+          (devnet-cli-assert-engine-only-http-shaping-report
+           devnet-engine-only)
           (is (search "http://127.0.0.1:"
                       (fixture-object-field
                        devnet-engine-only "configuredPublicEndpoint")))
@@ -12627,6 +12658,10 @@
                         (namestring jwt-path)
                         "--authrpc.rpcprefix"
                         "/engine"
+                        "--authrpc.corsdomain"
+                        "https://engine.runner"
+                        "--authrpc.vhosts"
+                        "engine.runner,localhost"
                         "--ready-file"
                         (namestring ready-path)
                         "--log-file"
@@ -12692,6 +12727,7 @@
                             engine-endpoint
                             (devnet-cli-json-rpc-http-request
                              engine-body
+                             :host "engine.runner"
                              :token token)))
                      (setf engine-response
                            (devnet-cli-http-endpoint-request
@@ -12699,12 +12735,16 @@
                             (devnet-cli-json-rpc-http-request
                              engine-body
                              :token token
+                             :host "engine.runner"
+                             :origin "https://engine.runner"
                              :target "/engine"))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 404 (devnet-cli-http-status blocked-engine-response)))
                (is (= 200 (devnet-cli-http-status engine-response)))
+               (is (search "Access-Control-Allow-Origin: https://engine.runner"
+                           engine-response))
                (let* ((engine-rpc
                         (parse-json (devnet-cli-http-body engine-response)))
                       (engine-result
@@ -12749,7 +12789,13 @@
                                    summary "publicRpcEnabled")))
                          (is (string= "/engine"
                                       (fixture-object-field
-                                       summary "engineRpcPrefix"))))
+                                       summary "engineRpcPrefix")))
+                         (is (equal '("https://engine.runner")
+                                    (fixture-object-field
+                                     summary "engineCorsOrigins")))
+                         (is (equal '("engine.runner" "localhost")
+                                    (fixture-object-field
+                                     summary "engineVhosts"))))
                        (is ready-record)
                        (is shutdown-record)
                        (dolist (fields (list ready-fields shutdown-fields))
@@ -12759,6 +12805,14 @@
                                                   :test #'string=))))
                          (is (string= "/engine"
                                       (cdr (assoc "engineRpcPrefix"
+                                                  fields
+                                                  :test #'string=))))
+                         (is (string= "https://engine.runner"
+                                      (cdr (assoc "engineCorsOrigins"
+                                                  fields
+                                                  :test #'string=))))
+                         (is (string= "engine.runner,localhost"
+                                      (cdr (assoc "engineVhosts"
                                                   fields
                                                   :test #'string=))))
                          (is (string= ""

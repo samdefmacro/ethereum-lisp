@@ -7122,6 +7122,20 @@ splits can land after the Phase A smoke path closes.
     readiness/stdout/telemetry prefix contract with two Engine and zero public
     shutdown connections. The top-level Phase A `--devnet` wrapper validates
     and prints the same fields for `devnetEngineOnly`.
+- [x] `DEVNET-ENGINE-ONLY-ENGINE-SHAPING-CONTRACT`: Preserve authenticated
+  Engine CORS/vhost shaping when Hive/geth `--http=false` disables the public
+  listener.
+  - Result (2026-07-02): the focused Engine-only smoke gate now starts with
+    `engineCorsOrigins=(https://engine-runner.example,https://engine-observer.example)`
+    and `engineVhosts=(engine.runner,localhost)`, sends the prefixed Engine
+    request with an allowed Host/Origin, verifies the CORS response header,
+    keeps the root-path request at HTTP 404, and preserves those fields in
+    ready/log/report artifacts. The runner-facing `scripts/ethereum-lisp.lisp
+    -- devnet --http=false` subprocess coverage now launches with
+    `--authrpc.corsdomain` and `--authrpc.vhosts` values and checks the same
+    readiness/stdout/telemetry shaping contract while retaining two Engine and
+    zero public shutdown connections. The top-level Phase A `--devnet` wrapper
+    validates and prints the Engine-only CORS/vhost report fields.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

@@ -2319,6 +2319,9 @@ references/ checkouts.~%")
                         :public-port (devnet-cli-unused-loopback-port)
                         :jwt-secret-path (namestring jwt-path)
                         :engine-rpc-prefix +devnet-smoke-gate-engine-rpc-prefix+
+                        :engine-cors-origins
+                        *devnet-smoke-gate-engine-cors-origins*
+                        :engine-vhosts *devnet-smoke-gate-engine-vhosts*
                         :log-path log-file
                         :pid-file-path pid-file
                         :telemetry-sink telemetry-sink))
@@ -2386,6 +2389,7 @@ references/ checkouts.~%")
                                               engine-endpoint
                                               (devnet-cli-json-rpc-http-request
                                                engine-body
+                                               :host "engine.runner"
                                                :token token)))
                                        (setf client-response
                                              (devnet-cli-http-endpoint-request
@@ -2393,6 +2397,9 @@ references/ checkouts.~%")
                                               (devnet-cli-json-rpc-http-request
                                                engine-body
                                                :token token
+                                               :host "engine.runner"
+                                               :origin
+                                               "https://engine-runner.example"
                                                :target
                                                +devnet-smoke-gate-engine-rpc-prefix+))))
                                    (error (condition)
@@ -2436,6 +2443,18 @@ references/ checkouts.~%")
                (devnet-smoke-gate-require
                 (= 200 (devnet-cli-http-status client-response))
                 "Engine-only serve Engine response HTTP status mismatch")
+               (devnet-smoke-gate-require
+                (string= "https://engine-runner.example"
+                         (devnet-smoke-gate-http-header
+                          client-response
+                          "Access-Control-Allow-Origin"))
+                "Engine-only serve Engine CORS response header mismatch")
+               (devnet-smoke-gate-require
+                (string= "Origin"
+                         (devnet-smoke-gate-http-header
+                          client-response
+                          "Vary"))
+                "Engine-only serve Engine CORS Vary header mismatch")
                (let* ((engine-rpc
                         (parse-json
                          (devnet-cli-http-body client-response)))
@@ -2462,6 +2481,16 @@ references/ checkouts.~%")
                              (fixture-object-field ready-summary
                                                    "engineRpcPrefix"))
                     "Engine-only ready file Engine RPC prefix mismatch")
+                   (devnet-smoke-gate-require
+                    (equal *devnet-smoke-gate-engine-cors-origins*
+                           (fixture-object-field ready-summary
+                                                 "engineCorsOrigins"))
+                    "Engine-only ready file Engine CORS origins mismatch")
+                   (devnet-smoke-gate-require
+                    (equal *devnet-smoke-gate-engine-vhosts*
+                           (fixture-object-field ready-summary
+                                                 "engineVhosts"))
+                    "Engine-only ready file Engine vhosts mismatch")
                    (devnet-smoke-gate-require
                     (not (fixture-object-field ready-summary "rpcEndpoint"))
                     "Engine-only ready file must disable rpcEndpoint")
@@ -2510,6 +2539,16 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "Engine-only log Engine RPC prefix mismatch")
                        (devnet-smoke-gate-require
+                        (string= "https://engine-runner.example,https://engine-observer.example"
+                                 (cdr (assoc "engineCorsOrigins" fields
+                                             :test #'string=)))
+                        "Engine-only log Engine CORS origins mismatch")
+                       (devnet-smoke-gate-require
+                        (string= "engine.runner,localhost"
+                                 (cdr (assoc "engineVhosts" fields
+                                             :test #'string=)))
+                        "Engine-only log Engine vhosts mismatch")
+                       (devnet-smoke-gate-require
                         (string= ""
                                  (cdr (assoc "rpcEndpoint" fields
                                              :test #'string=)))
@@ -2542,6 +2581,18 @@ references/ checkouts.~%")
                              (devnet-cli-http-status client-response))
                        (cons "engineRpcPrefixBlockedStatus"
                              (devnet-cli-http-status blocked-client-response))
+                       (cons "engineCorsOrigins"
+                             *devnet-smoke-gate-engine-cors-origins*)
+                       (cons "engineCorsHeader"
+                             (devnet-smoke-gate-http-header
+                              client-response
+                              "Access-Control-Allow-Origin"))
+                       (cons "engineCorsVaryHeader"
+                             (devnet-smoke-gate-http-header
+                              client-response
+                              "Vary"))
+                       (cons "engineVhosts"
+                             *devnet-smoke-gate-engine-vhosts*)
                        (cons "rpcEndpoint" :false)
                        (cons "configuredPublicEndpoint"
                              configured-public-endpoint)
