@@ -1275,6 +1275,13 @@ first pass, but interfaces must not block that path.
   header, keep the public port closed, and carry the CORS/vhost fields through
   readiness, stdout, telemetry, and the top-level Phase A
   `devnetEngineOnly` wrapper report.
+  Engine-only runs now also prove executable Engine behavior, not only
+  readiness and HTTP shaping: the focused smoke gate and runner-facing script
+  subprocess import the default Shanghai `engine_newPayloadV2` fixture through
+  `/engine`, apply `engine_forkchoiceUpdatedV2`, verify `VALID` payload /
+  forkchoice statuses and `latestValidHash`, keep the public endpoint closed,
+  and require shutdown telemetry to report the imported child head with four
+  Engine and zero public connections.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

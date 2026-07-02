@@ -2295,9 +2295,15 @@ references/ checkouts.~%")
   #+sbcl
   (let ((jwt-path
           (devnet-cli-temp-path "ethereum-lisp-devnet-engine-only" "jwt"))
+        (genesis-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-devnet-engine-only-genesis"
+           "json"))
         (client-thread nil)
         (client-response nil)
         (blocked-client-response nil)
+        (new-payload-response nil)
+        (forkchoice-response nil)
         (client-error nil)
         (engine-endpoint nil)
         (configured-public-endpoint nil)
@@ -2305,16 +2311,41 @@ references/ checkouts.~%")
         (report nil))
     (unwind-protect
          (progn
-           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
            (devnet-smoke-gate-call-with-telemetry-sink
             log-file
             (lambda (telemetry-sink)
-              (let* ((node
+              (let* ((fixture
+                       (devnet-smoke-gate-engine-fixture
+                        +devnet-smoke-gate-default-fixture-case+))
+                     (case
+                       (devnet-smoke-gate-field fixture "case"))
+                     (parent-block
+                       (devnet-smoke-gate-field fixture "parentBlock"))
+                     (child-block
+                       (devnet-smoke-gate-field fixture "childBlock"))
+                     (payload
+                       (devnet-smoke-gate-field fixture "payload"))
+                     (expected-child-hash
+                       (hash32-to-hex (block-hash child-block)))
+                     (expected-child-number
+                       (quantity-to-hex
+                        (block-header-number
+                         (block-header child-block))))
+                     (fixture-inputs-written-p
+                       (progn
+                         (devnet-cli-write-temp-file
+                          genesis-path
+                          (json-encode
+                           (devnet-cli-engine-fixture-parent-genesis-with-txpool-account
+                            case)))
+                         (devnet-cli-write-temp-file
+                          jwt-path
+                          +devnet-cli-jwt-secret+)
+                         t))
+                     (node
                        (ethereum-lisp.cli:make-devnet-node
                         :genesis-path
-                        (namestring
-                         (devnet-smoke-gate-reference-path
-                          +devnet-cli-genesis-fixture+))
+                        (namestring genesis-path)
                         :port 0
                         :public-port (devnet-cli-unused-loopback-port)
                         :jwt-secret-path (namestring jwt-path)
@@ -2338,7 +2369,18 @@ references/ checkouts.~%")
                   (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
                   (token (engine-rpc-make-jwt-token jwt-secret 0))
                   (engine-body
-                    "{\"jsonrpc\":\"2.0\",\"id\":901,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"engine-only-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}"))
+                    "{\"jsonrpc\":\"2.0\",\"id\":901,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"engine-only-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
+                  (new-payload-body
+                    (json-encode
+                     (engine-fixture-payload-request 902 payload)))
+                  (forkchoice-body
+                    (json-encode
+                     (devnet-cli-engine-forkchoice-v2-request
+                      903
+                      (block-hash child-block)
+                      :safe (block-hash parent-block)
+                      :finalized (block-hash parent-block)))))
+             (declare (ignore fixture-inputs-written-p))
              (setf configured-public-endpoint
                    (format nil "http://127.0.0.1:~D"
                            (ethereum-lisp.core::engine-rpc-http-service-port
@@ -2349,7 +2391,7 @@ references/ checkouts.~%")
              (let ((summary
                       (ethereum-lisp.cli:start-devnet-node
                       node
-                      :max-connections 2
+                      :max-connections 4
                       :public-rpc-enabled-p nil
                       :on-listeners-ready
                       (lambda (engine-listener public-listener)
@@ -2401,7 +2443,25 @@ references/ checkouts.~%")
                                                :origin
                                                "https://engine-runner.example"
                                                :target
-                                               +devnet-smoke-gate-engine-rpc-prefix+))))
+                                               +devnet-smoke-gate-engine-rpc-prefix+)))
+                                      (setf new-payload-response
+                                            (devnet-cli-http-endpoint-request
+                                             engine-endpoint
+                                             (devnet-cli-json-rpc-http-request
+                                              new-payload-body
+                                              :token token
+                                              :host "engine.runner"
+                                              :target
+                                              +devnet-smoke-gate-engine-rpc-prefix+)))
+                                      (setf forkchoice-response
+                                            (devnet-cli-http-endpoint-request
+                                             engine-endpoint
+                                             (devnet-cli-json-rpc-http-request
+                                              forkchoice-body
+                                              :token token
+                                              :host "engine.runner"
+                                              :target
+                                              +devnet-smoke-gate-engine-rpc-prefix+))))
                                    (error (condition)
                                      (setf client-error condition))))
                                :name
@@ -2419,13 +2479,13 @@ references/ checkouts.~%")
                   :connection-summary summary
                   :public-rpc-enabled-p nil))
                (devnet-smoke-gate-require
-                (= 2 (getf summary :engine-connections))
+                (= 4 (getf summary :engine-connections))
                 "Engine-only serve Engine connection count mismatch")
                (devnet-smoke-gate-require
                 (= 0 (getf summary :public-connections))
                 "Engine-only serve public connection count mismatch")
                (devnet-smoke-gate-require
-                (= 2 (getf summary :total-connections))
+                (= 4 (getf summary :total-connections))
                 "Engine-only serve total connection count mismatch")
                (devnet-smoke-gate-require
                 (and engine-endpoint
@@ -2444,6 +2504,12 @@ references/ checkouts.~%")
                 (= 200 (devnet-cli-http-status client-response))
                 "Engine-only serve Engine response HTTP status mismatch")
                (devnet-smoke-gate-require
+                (= 200 (devnet-cli-http-status new-payload-response))
+                "Engine-only serve engine_newPayloadV2 HTTP status mismatch")
+               (devnet-smoke-gate-require
+                (= 200 (devnet-cli-http-status forkchoice-response))
+                "Engine-only serve engine_forkchoiceUpdatedV2 HTTP status mismatch")
+               (devnet-smoke-gate-require
                 (string= "https://engine-runner.example"
                          (devnet-smoke-gate-http-header
                           client-response
@@ -2458,6 +2524,18 @@ references/ checkouts.~%")
                (let* ((engine-rpc
                         (parse-json
                          (devnet-cli-http-body client-response)))
+                      (new-payload-rpc
+                        (parse-json
+                         (devnet-cli-http-body new-payload-response)))
+                      (new-payload-result
+                        (fixture-object-field new-payload-rpc "result"))
+                      (forkchoice-rpc
+                        (parse-json
+                         (devnet-cli-http-body forkchoice-response)))
+                      (forkchoice-status
+                        (fixture-object-field
+                         (fixture-object-field forkchoice-rpc "result")
+                         "payloadStatus"))
                       (client-version
                         (first (fixture-object-field engine-rpc "result"))))
                  (devnet-smoke-gate-require
@@ -2466,7 +2544,20 @@ references/ checkouts.~%")
                  (devnet-smoke-gate-require
                   (string= "ethereum-lisp"
                            (fixture-object-field client-version "name"))
-                  "Engine-only serve client version mismatch"))
+                  "Engine-only serve client version mismatch")
+                 (devnet-smoke-gate-require
+                  (string= +payload-status-valid+
+                           (fixture-object-field new-payload-result "status"))
+                  "Engine-only serve engine_newPayloadV2 status mismatch")
+                 (devnet-smoke-gate-require
+                  (string= expected-child-hash
+                           (fixture-object-field new-payload-result
+                                                 "latestValidHash"))
+                  "Engine-only serve latestValidHash mismatch")
+                 (devnet-smoke-gate-require
+                  (string= +payload-status-valid+
+                           (fixture-object-field forkchoice-status "status"))
+                  "Engine-only serve forkchoice status mismatch"))
                (when ready-file
                  (let ((ready-summary
                          (parse-json
@@ -2559,12 +2650,16 @@ references/ checkouts.~%")
                                              :test #'string=)))
                         "Engine-only log must disable publicRpcEnabled")
                        (devnet-smoke-gate-require
-                        (string= head-number
+                        (string= (if (string= event "devnet.shutdown")
+                                     expected-child-number
+                                     head-number)
                                  (cdr (assoc "headNumber" fields
                                              :test #'string=)))
                         "Engine-only log head number mismatch")
                        (devnet-smoke-gate-require
-                        (string= head-hash
+                        (string= (if (string= event "devnet.shutdown")
+                                     expected-child-hash
+                                     head-hash)
                                  (cdr (assoc "headHash" fields
                                              :test #'string=)))
                         "Engine-only log head hash mismatch")))))
@@ -2593,6 +2688,13 @@ references/ checkouts.~%")
                               "Vary"))
                        (cons "engineVhosts"
                              *devnet-smoke-gate-engine-vhosts*)
+                       (cons "fixtureCase"
+                             +devnet-smoke-gate-default-fixture-case+)
+                       (cons "newPayloadStatus" +payload-status-valid+)
+                       (cons "latestValidHash" expected-child-hash)
+                       (cons "forkchoiceStatus" +payload-status-valid+)
+                       (cons "forkchoiceHeadNumber" expected-child-number)
+                       (cons "forkchoiceHeadHash" expected-child-hash)
                        (cons "rpcEndpoint" :false)
                        (cons "configuredPublicEndpoint"
                              configured-public-endpoint)
@@ -2609,15 +2711,17 @@ references/ checkouts.~%")
                              (getf summary :total-connections))
                        (cons "connectionContract"
                              (list
-                              (cons "expectedEngineConnections" 2)
+                              (cons "expectedEngineConnections" 4)
                               (cons "expectedPublicConnections" 0)
-                              (cons "expectedTotalConnections" 2)))
+                              (cons "expectedTotalConnections" 4)))
                        (cons "engineClientVersionName" "ethereum-lisp")
                        (cons "headNumber" head-number)
                        (cons "headHash" head-hash)
                        (cons "headGasLimit" head-gas-limit)))))))))
       (when (probe-file jwt-path)
-        (delete-file jwt-path)))
+        (delete-file jwt-path))
+      (when (probe-file genesis-path)
+        (delete-file genesis-path)))
     report)
   #-sbcl
   (error "Devnet engine-only serve smoke requires SBCL sockets"))

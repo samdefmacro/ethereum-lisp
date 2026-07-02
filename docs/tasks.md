@@ -7136,6 +7136,20 @@ splits can land after the Phase A smoke path closes.
     readiness/stdout/telemetry shaping contract while retaining two Engine and
     zero public shutdown connections. The top-level Phase A `--devnet` wrapper
     validates and prints the Engine-only CORS/vhost report fields.
+- [x] `DEVNET-ENGINE-ONLY-PAYLOAD-WORKFLOW`: Prove Hive/geth `--http=false`
+  Engine-only process runs can execute the core Engine import/forkchoice
+  workflow without a public listener.
+  - Result (2026-07-02): the focused Engine-only smoke gate now imports the
+    default Shanghai `engineNewPayloadV2` fixture over the authenticated
+    `/engine` endpoint, applies `engine_forkchoiceUpdatedV2`, verifies
+    `VALID` payload/forkchoice statuses and `latestValidHash`, and requires
+    shutdown telemetry to report the imported child head while readiness still
+    reports the pre-import genesis head. The runner-facing
+    `scripts/ethereum-lisp.lisp -- devnet --http=false` subprocess coverage
+    now performs the same payload/forkchoice workflow against a fixture-derived
+    genesis and verifies four Engine / zero public shutdown connections. The
+    top-level Phase A `--devnet` wrapper validates the Engine-only payload
+    workflow fields through `devnetEngineOnly`.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

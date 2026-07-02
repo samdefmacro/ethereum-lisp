@@ -862,9 +862,9 @@ references/ checkouts.~%"))
   (smoke-gate-devnet-require-field report "readyFile" ready-file)
   (smoke-gate-devnet-require-field report "logFile" log-file)
   (smoke-gate-devnet-require-field report "pidFile" pid-file)
-  (smoke-gate-devnet-require-field report "engineConnections" 2)
+  (smoke-gate-devnet-require-field report "engineConnections" 4)
   (smoke-gate-devnet-require-field report "publicConnections" 0)
-  (smoke-gate-devnet-require-field report "totalConnections" 2)
+  (smoke-gate-devnet-require-field report "totalConnections" 4)
   (smoke-gate-devnet-require-field report "engineRpcPrefix" "/engine")
   (smoke-gate-devnet-require-field report "engineRpcPrefixStatus" 200)
   (smoke-gate-devnet-require-field
@@ -879,6 +879,19 @@ references/ checkouts.~%"))
    report "engineCorsVaryHeader" "Origin")
   (smoke-gate-devnet-require-field
    report "engineVhosts" '("engine.runner" "localhost"))
+  (smoke-gate-devnet-require-field
+   report "fixtureCase" "shanghai-one-transfer-with-withdrawal")
+  (smoke-gate-devnet-require-field
+   report "newPayloadStatus" "VALID")
+  (smoke-gate-devnet-require-field
+   report "forkchoiceStatus" "VALID")
+  (unless (and (stringp (smoke-gate-field report "latestValidHash"))
+               (string= (smoke-gate-field report "latestValidHash")
+                        (smoke-gate-field report "forkchoiceHeadHash")))
+    (error "Devnet Engine-only latestValidHash/forkchoice head mismatch: ~S"
+           report))
+  (unless (stringp (smoke-gate-field report "forkchoiceHeadNumber"))
+    (error "Devnet Engine-only forkchoice head number missing: ~S" report))
   (smoke-gate-devnet-require-field report "publicRpcEnabled" nil)
   (smoke-gate-devnet-require-field report "rpcEndpoint" nil)
   (unless (and (stringp (smoke-gate-field report "configuredPublicEndpoint"))
@@ -890,11 +903,11 @@ references/ checkouts.~%"))
    report "publicEndpointConnectable" nil)
   (let ((contract (smoke-gate-field report "connectionContract")))
     (smoke-gate-devnet-require-field
-     contract "expectedEngineConnections" 2)
+     contract "expectedEngineConnections" 4)
     (smoke-gate-devnet-require-field
      contract "expectedPublicConnections" 0)
     (smoke-gate-devnet-require-field
-     contract "expectedTotalConnections" 2))
+     contract "expectedTotalConnections" 4))
   (append report (list (cons "caseCount" 1))))
 
 (defun smoke-gate-devnet-script-json (arguments)
@@ -1308,6 +1321,15 @@ references/ checkouts.~%"))
                                 "engineCorsHeader"))
       (format t "devnetEngineOnlyEngineVhosts=~S~%"
               (smoke-gate-field devnet-engine-only "engineVhosts"))
+      (format t "devnetEngineOnlyNewPayloadStatus=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "newPayloadStatus"))
+      (format t "devnetEngineOnlyLatestValidHash=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "latestValidHash"))
+      (format t "devnetEngineOnlyForkchoiceStatus=~A~%"
+              (smoke-gate-field devnet-engine-only
+                                "forkchoiceStatus"))
       (format t "devnetEngineOnlyConfiguredPublicEndpoint=~A~%"
               (smoke-gate-field devnet-engine-only
                                 "configuredPublicEndpoint"))

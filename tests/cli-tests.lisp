@@ -342,6 +342,17 @@
   (is (equal '("engine.runner" "localhost")
              (fixture-object-field report "engineVhosts"))))
 
+(defun devnet-cli-assert-engine-only-payload-report (report)
+  (is (string= "shanghai-one-transfer-with-withdrawal"
+               (fixture-object-field report "fixtureCase")))
+  (is (string= +payload-status-valid+
+               (fixture-object-field report "newPayloadStatus")))
+  (is (string= +payload-status-valid+
+               (fixture-object-field report "forkchoiceStatus")))
+  (is (string= (fixture-object-field report "latestValidHash")
+               (fixture-object-field report "forkchoiceHeadHash")))
+  (is (stringp (fixture-object-field report "forkchoiceHeadNumber"))))
+
 (defun devnet-cli-temp-directory (name)
   (let ((path
           (merge-pathnames
@@ -4068,14 +4079,15 @@
                             report
                             "engineRpcPrefixBlockedStatus")))
                (devnet-cli-assert-engine-only-http-shaping-report report)
+               (devnet-cli-assert-engine-only-payload-report report)
                (is (search "http://127.0.0.1:"
                            (fixture-object-field report
                                                  "configuredPublicEndpoint")))
                (is (not (fixture-object-field report
                                                "publicEndpointConnectable")))
-               (is (= 2 (fixture-object-field report "engineConnections")))
+               (is (= 4 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
-               (is (= 2 (fixture-object-field report "totalConnections")))
+               (is (= 4 (fixture-object-field report "totalConnections")))
                (is (string= "ethereum-lisp"
                             (fixture-object-field report
                                                   "engineClientVersionName")))
@@ -4098,7 +4110,7 @@
                                               "publicRpcEnabled")))
                (is ready-record)
                (is shutdown-record)
-               (is (string= "2"
+               (is (string= "4"
                             (cdr (assoc "engineConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -4106,7 +4118,7 @@
                             (cdr (assoc "publicConnections"
                                         shutdown-fields
                                         :test #'string=))))
-               (is (string= "2"
+               (is (string= "4"
                             (cdr (assoc "totalConnections"
                                         shutdown-fields
                                         :test #'string=))))
@@ -4116,6 +4128,16 @@
                                         :test #'string=))))
                (is (string= "engine.runner,localhost"
                             (cdr (assoc "engineVhosts"
+                                        shutdown-fields
+                                        :test #'string=))))
+               (is (string= (fixture-object-field report
+                                                  "forkchoiceHeadNumber")
+                            (cdr (assoc "headNumber"
+                                        shutdown-fields
+                                        :test #'string=))))
+               (is (string= (fixture-object-field report
+                                                  "forkchoiceHeadHash")
+                            (cdr (assoc "headHash"
                                         shutdown-fields
                                         :test #'string=))))
                (is (string= ""
@@ -5632,16 +5654,18 @@
                     "engineRpcPrefixBlockedStatus")))
         (devnet-cli-assert-engine-only-http-shaping-report
          devnet-engine-only)
+        (devnet-cli-assert-engine-only-payload-report
+         devnet-engine-only)
         (is (search "http://127.0.0.1:"
                     (fixture-object-field
                      devnet-engine-only "configuredPublicEndpoint")))
         (is (not (fixture-object-field
                   devnet-engine-only "publicEndpointConnectable")))
-        (is (= 2 (fixture-object-field
+        (is (= 4 (fixture-object-field
                   devnet-engine-only "engineConnections")))
         (is (= 0 (fixture-object-field
                   devnet-engine-only "publicConnections")))
-        (is (= 2 (fixture-object-field
+        (is (= 4 (fixture-object-field
                   devnet-engine-only "totalConnections")))
         (let ((side-reorg-cases
                 (fixture-object-field devnet-side-reorg "cases")))
@@ -6028,12 +6052,14 @@
                       "engineRpcPrefixBlockedStatus")))
           (devnet-cli-assert-engine-only-http-shaping-report
            devnet-engine-only)
+          (devnet-cli-assert-engine-only-payload-report
+           devnet-engine-only)
           (is (search "http://127.0.0.1:"
                       (fixture-object-field
                        devnet-engine-only "configuredPublicEndpoint")))
           (is (not (fixture-object-field
                     devnet-engine-only "publicEndpointConnectable")))
-          (is (= 2 (fixture-object-field
+          (is (= 4 (fixture-object-field
                     devnet-engine-only "engineConnections")))
           (is (= 0 (fixture-object-field
                     devnet-engine-only "publicConnections"))))))))
@@ -12619,8 +12645,30 @@
   #-sbcl
   (skip-test "Ethereum Lisp process script requires SBCL")
   #+sbcl
-  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
-        (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+  (let* ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (case
+          (select-engine-newpayload-v2-fixture-case
+           +engine-newpayload-v2-fixture-path+
+           "shanghai-one-transfer-with-withdrawal"))
+        (parent-block (devnet-cli-engine-fixture-parent-block case))
+        (child-block (devnet-cli-engine-fixture-child-block case))
+        (payload
+          (execution-payload-envelope-execution-payload
+           (block-to-executable-data child-block)))
+        (payload-case (fixture-object-field case "payload"))
+        (block-hash-hex (hash32-to-hex (block-hash child-block)))
+        (new-payload-body
+          (json-encode (engine-fixture-payload-request 702 payload)))
+        (forkchoice-body
+          (json-encode
+           (devnet-cli-engine-forkchoice-v2-request
+            703
+            (block-hash child-block)
+            :safe (block-hash parent-block)
+            :finalized (block-hash parent-block))))
+        (genesis-path
+          (devnet-cli-temp-path
+           "ethereum-lisp-script-engine-only-genesis" "json"))
         (jwt-path
           (devnet-cli-temp-path "ethereum-lisp-script-engine-only" "jwt"))
         (public-port nil)
@@ -12634,6 +12682,10 @@
         (process nil))
     (unwind-protect
          (progn
+           (devnet-cli-write-temp-file
+            genesis-path
+            (json-encode
+             (devnet-cli-engine-fixture-parent-genesis-object case)))
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
            (setf public-port (devnet-cli-unused-loopback-port))
            (setf process
@@ -12644,7 +12696,7 @@
                         "--"
                         "devnet"
                         "--genesis"
-                        genesis
+                        (namestring genesis-path)
                         "--authrpc.addr"
                         "127.0.0.1"
                         "--authrpc.port"
@@ -12669,7 +12721,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "2"
+                        "4"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -12709,7 +12761,9 @@
                        "\"name\":\"engine-only-script\","
                        "\"version\":\"1\",\"commit\":\"0x00000000\"}]}"))
                     blocked-engine-response
-                    engine-response)
+                    engine-response
+                    new-payload-response
+                    forkchoice-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (stringp engine-endpoint))
                (is (not (fixture-object-field ready-summary "rpcEndpoint")))
@@ -12737,21 +12791,60 @@
                              :token token
                              :host "engine.runner"
                              :origin "https://engine.runner"
+                             :target "/engine")))
+                     (setf new-payload-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             new-payload-body
+                             :token token
+                             :host "engine.runner"
+                             :target "/engine")))
+                     (setf forkchoice-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             forkchoice-body
+                             :token token
+                             :host "engine.runner"
                              :target "/engine"))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 404 (devnet-cli-http-status blocked-engine-response)))
                (is (= 200 (devnet-cli-http-status engine-response)))
+               (is (= 200 (devnet-cli-http-status new-payload-response)))
+               (is (= 200 (devnet-cli-http-status forkchoice-response)))
                (is (search "Access-Control-Allow-Origin: https://engine.runner"
                            engine-response))
                (let* ((engine-rpc
                         (parse-json (devnet-cli-http-body engine-response)))
                       (engine-result
-                        (first (fixture-object-field engine-rpc "result"))))
+                        (first (fixture-object-field engine-rpc "result")))
+                      (new-payload-rpc
+                        (parse-json
+                         (devnet-cli-http-body new-payload-response)))
+                      (new-payload-result
+                        (fixture-object-field new-payload-rpc "result"))
+                      (forkchoice-rpc
+                        (parse-json
+                         (devnet-cli-http-body forkchoice-response)))
+                      (forkchoice-status
+                        (fixture-object-field
+                         (fixture-object-field forkchoice-rpc "result")
+                         "payloadStatus")))
                  (is (= 701 (fixture-object-field engine-rpc "id")))
                  (is (string= "ethereum-lisp"
-                              (fixture-object-field engine-result "name"))))
+                              (fixture-object-field engine-result "name")))
+                 (is (string= +payload-status-valid+
+                              (fixture-object-field new-payload-result
+                                                    "status")))
+                 (is (string= block-hash-hex
+                              (fixture-object-field new-payload-result
+                                                    "latestValidHash")))
+                 (is (string= +payload-status-valid+
+                              (fixture-object-field forkchoice-status
+                                                    "status"))))
                (let ((status (devnet-cli-wait-process-exit process 10)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -12823,7 +12916,16 @@
                                       (cdr (assoc "publicRpcEnabled"
                                                   fields
                                                   :test #'string=)))))
-                       (is (string= "2"
+                       (is (string= (fixture-object-field payload-case
+                                                          "number")
+                                    (cdr (assoc "headNumber"
+                                                shutdown-fields
+                                                :test #'string=))))
+                       (is (string= block-hash-hex
+                                    (cdr (assoc "headHash"
+                                                shutdown-fields
+                                                :test #'string=))))
+                       (is (string= "4"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
@@ -12831,13 +12933,13 @@
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "2"
+                       (is (string= "4"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=)))))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
-      (dolist (path (list jwt-path ready-path log-path pid-path))
+      (dolist (path (list genesis-path jwt-path ready-path log-path pid-path))
         (when (probe-file path)
           (delete-file path))))))
 
