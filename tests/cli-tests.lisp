@@ -3928,6 +3928,7 @@
     (is (search "Usage: sbcl --script scripts/devnet-smoke-gate.lisp"
                 stdout))
     (is (search "--all-fixtures" stdout))
+    (is (search "--engine-only-serve" stdout))
     (is (search "--ready-file PATH" stdout))
     (is (search "--log-file PATH" stdout))
     (is (search "--pid-file PATH" stdout))
@@ -3940,6 +3941,110 @@
     (is (search "ETHEREUM_LISP_GETH_ROOT" stdout))
     (is (search "ETHEREUM_LISP_NETHERMIND_ROOT" stdout))
     (is (search "ETHEREUM_LISP_RETH_ROOT" stdout))))
+
+(deftest devnet-smoke-gate-script-engine-only-serve-mode
+  #-sbcl
+  (skip-test "Devnet smoke gate script requires SBCL")
+  #+sbcl
+  (let* ((artifact-root
+           (devnet-cli-temp-directory
+            "ethereum-lisp-devnet-engine-only-smoke"))
+         (ready-path
+           (merge-pathnames "ready/engine-only.json" artifact-root))
+         (log-path
+           (merge-pathnames "logs/engine-only.log" artifact-root))
+         (pid-path
+           (merge-pathnames "pid/engine-only.pid" artifact-root)))
+    (unwind-protect
+         (multiple-value-bind (stdout stderr status)
+             (uiop:run-program
+              (list "sbcl"
+                    "--script"
+                    "scripts/devnet-smoke-gate.lisp"
+                    "--"
+                    "--engine-only-serve"
+                    "--json"
+                    "--ready-file"
+                    (namestring ready-path)
+                    "--log-file"
+                    (namestring log-path)
+                    "--pid-file"
+                    (namestring pid-path))
+              :output :string
+              :error-output :string
+              :ignore-error-status t)
+           (when (and (not (= 0 status))
+                      (search "Operation not permitted" stderr))
+             (skip-test "Local socket bind is not permitted in this sandbox"))
+           (is (= 0 status))
+           (is (string= "" stderr))
+           (when (= 0 status)
+             (let* ((report (parse-json stdout))
+                    (ready-summary
+                      (parse-json (devnet-cli-file-string ready-path)))
+                    (pid (devnet-cli-pid-file-process-id pid-path))
+                    (log-records (devnet-cli-file-forms log-path))
+                    (ready-record
+                      (find "devnet.ready" log-records
+                            :test #'string=
+                            :key (lambda (record)
+                                   (getf record :name))))
+                    (shutdown-record
+                      (find "devnet.shutdown" log-records
+                            :test #'string=
+                            :key (lambda (record)
+                                   (getf record :name))))
+                    (shutdown-fields
+                      (getf shutdown-record :fields))
+                    (engine-endpoint
+                      (fixture-object-field report "engineEndpoint")))
+               (is (string= "ok" (fixture-object-field report "status")))
+               (is (string= "devnet-engine-only-serve"
+                            (fixture-object-field report "mode")))
+               (is (search "http://127.0.0.1:" engine-endpoint))
+               (is (not (fixture-object-field report "publicRpcEnabled")))
+               (is (not (fixture-object-field report "rpcEndpoint")))
+               (is (= 1 (fixture-object-field report "engineConnections")))
+               (is (= 0 (fixture-object-field report "publicConnections")))
+               (is (= 1 (fixture-object-field report "totalConnections")))
+               (is (string= "ethereum-lisp"
+                            (fixture-object-field report
+                                                  "engineClientVersionName")))
+               (is (= pid (fixture-object-field ready-summary "processId")))
+               (is (string= engine-endpoint
+                            (fixture-object-field ready-summary
+                                                  "engineEndpoint")))
+               (is (not (fixture-object-field ready-summary "rpcEndpoint")))
+               (is (not (fixture-object-field ready-summary
+                                              "publicRpcEnabled")))
+               (is ready-record)
+               (is shutdown-record)
+               (is (string= "1"
+                            (cdr (assoc "engineConnections"
+                                        shutdown-fields
+                                        :test #'string=))))
+               (is (string= "0"
+                            (cdr (assoc "publicConnections"
+                                        shutdown-fields
+                                        :test #'string=))))
+               (is (string= "1"
+                            (cdr (assoc "totalConnections"
+                                        shutdown-fields
+                                        :test #'string=))))
+               (is (string= ""
+                            (cdr (assoc "rpcEndpoint"
+                                        shutdown-fields
+                                        :test #'string=))))
+               (is (string= "false"
+                            (cdr (assoc "publicRpcEnabled"
+                                        shutdown-fields
+                                        :test #'string=)))))))
+      (when (probe-file ready-path)
+        (delete-file ready-path))
+      (when (probe-file log-path)
+        (delete-file log-path))
+      (when (probe-file pid-path)
+        (delete-file pid-path)))))
 
 (deftest devnet-smoke-gate-script-writes-ready-and-log-files
   #-sbcl

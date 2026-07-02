@@ -7068,6 +7068,15 @@ splits can land after the Phase A smoke path closes.
     `rpcEndpoint` empty, and returns zero public connections in the shutdown
     summary while preserving default public RPC behavior when `--http` is
     absent or true.
+- [x] `DEVNET-SMOKE-GATE-ENGINE-ONLY-SERVE`: Lock the standalone devnet
+  process gate for Hive/geth `--http=false` Engine-only serve mode.
+  - Result (2026-07-02): `scripts/devnet-smoke-gate.lisp` now supports
+    `--engine-only-serve`, starts a real socket-backed devnet with public HTTP
+    disabled, authenticates an Engine `engine_getClientVersionV1` request,
+    verifies readiness JSON reports `publicRpcEnabled=false` and
+    `rpcEndpoint=false`, verifies lifecycle telemetry emits an empty
+    `rpcEndpoint`, and requires shutdown accounting to report one Engine
+    connection and zero public connections.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

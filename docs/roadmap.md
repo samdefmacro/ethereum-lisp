@@ -1242,6 +1242,10 @@ first pass, but interfaces must not block that path.
   JSON readiness/summary output, an empty telemetry `rpcEndpoint`, and zero
   public connections at shutdown. This lets Hive-style runners request an
   Engine-only process instead of relying on a public listener being ignored.
+  The standalone devnet smoke gate now has a focused `--engine-only-serve`
+  mode that binds the Engine listener, authenticates an Engine request, and
+  verifies ready/log/shutdown artifacts for that public-disabled process
+  contract.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

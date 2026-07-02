@@ -20,6 +20,7 @@
   (format t "Options:~%")
   (format t "  --fixture-case NAME  Engine newPayloadV2 fixture case to import.~%")
   (format t "  --all-fixtures       Import every pinned Phase A newPayloadV2 smoke case.~%")
+  (format t "  --engine-only-serve Run a focused serve-mode check with public HTTP disabled.~%")
   (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
   (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
   (format t "  --pid-file PATH      Write the devnet process id and verify it.~%")
@@ -73,6 +74,8 @@ references/ checkouts.~%")
 (defconstant +devnet-smoke-gate-terminal-block-number-option+
   "--override.terminalblocknumber")
 (defconstant +devnet-smoke-gate-all-fixtures-flag+ "--all-fixtures")
+(defconstant +devnet-smoke-gate-engine-only-serve-flag+
+  "--engine-only-serve")
 (defconstant +devnet-smoke-gate-default-fixture-case+
   "shanghai-one-transfer-with-withdrawal")
 (defconstant +devnet-smoke-gate-eest-repository+
@@ -153,6 +156,7 @@ references/ checkouts.~%")
   (member arg
           (list +devnet-smoke-gate-json-flag+
                 +devnet-smoke-gate-all-fixtures-flag+
+                +devnet-smoke-gate-engine-only-serve-flag+
                 +devnet-smoke-gate-terminal-total-difficulty-passed-flag+)
           :test #'string=))
 
@@ -191,6 +195,9 @@ references/ checkouts.~%")
 (defun devnet-smoke-gate-all-fixtures-p (args)
   (member +devnet-smoke-gate-all-fixtures-flag+ args :test #'string=))
 
+(defun devnet-smoke-gate-engine-only-serve-p (args)
+  (member +devnet-smoke-gate-engine-only-serve-flag+ args :test #'string=))
+
 (defun devnet-smoke-gate-option-like-p (value)
   (and (stringp value)
        (plusp (length value))
@@ -205,6 +212,7 @@ references/ checkouts.~%")
             ((or (string= arg +devnet-smoke-gate-json-flag+)
                  (string= arg +devnet-smoke-gate-help-flag+)
                  (string= arg +devnet-smoke-gate-all-fixtures-flag+)
+                 (string= arg +devnet-smoke-gate-engine-only-serve-flag+)
                  (string= arg
                           +devnet-smoke-gate-terminal-total-difficulty-passed-flag+)))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
@@ -238,6 +246,7 @@ references/ checkouts.~%")
             ((string= arg +devnet-smoke-gate-json-flag+))
             ((string= arg +devnet-smoke-gate-help-flag+))
             ((string= arg +devnet-smoke-gate-all-fixtures-flag+))
+            ((string= arg +devnet-smoke-gate-engine-only-serve-flag+))
             ((string= arg
                       +devnet-smoke-gate-terminal-total-difficulty-passed-flag+))
             ((or (string= arg +devnet-smoke-gate-ready-file-option+)
@@ -404,6 +413,7 @@ references/ checkouts.~%")
   (format t "Options:~%")
   (format t "  --fixture-case NAME  Engine newPayloadV2 fixture case to import.~%")
   (format t "  --all-fixtures       Import every pinned Phase A newPayloadV2 smoke case.~%")
+  (format t "  --engine-only-serve Run a focused serve-mode check with public HTTP disabled.~%")
   (format t "  --ready-file PATH    Write devnet readiness JSON and verify it.~%")
   (format t "  --log-file PATH      Write devnet telemetry events and verify them.~%")
   (format t "  --pid-file PATH      Write the devnet process id and verify it.~%")
@@ -2279,6 +2289,241 @@ references/ checkouts.~%")
                     (cdr (assoc "stateAvailable" fields :test #'string=)))
            "Log file state availability mismatch"))))
     records))
+
+(defun devnet-smoke-gate-verify-engine-only-serve
+    (&key ready-file log-file pid-file)
+  #+sbcl
+  (let ((jwt-path
+          (devnet-cli-temp-path "ethereum-lisp-devnet-engine-only" "jwt"))
+        (client-thread nil)
+        (client-response nil)
+        (client-error nil)
+        (engine-endpoint nil)
+        (report nil))
+    (unwind-protect
+         (progn
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (devnet-smoke-gate-call-with-telemetry-sink
+            log-file
+            (lambda (telemetry-sink)
+              (let* ((node
+                       (ethereum-lisp.cli:make-devnet-node
+                        :genesis-path
+                        (namestring
+                         (devnet-smoke-gate-reference-path
+                          +devnet-cli-genesis-fixture+))
+                        :port 0
+                        :public-port 0
+                        :jwt-secret-path (namestring jwt-path)
+                        :log-path log-file
+                        :pid-file-path pid-file
+                        :telemetry-sink telemetry-sink))
+                  (genesis-block
+                    (ethereum-lisp.cli::devnet-node-genesis-block node))
+                  (head-number
+                    (quantity-to-hex
+                     (block-header-number (block-header genesis-block))))
+                  (head-hash (hash32-to-hex (block-hash genesis-block)))
+                  (head-gas-limit
+                    (quantity-to-hex
+                     (block-header-gas-limit
+                      (block-header genesis-block))))
+                  (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
+                  (token (engine-rpc-make-jwt-token jwt-secret 0))
+                  (engine-body
+                    "{\"jsonrpc\":\"2.0\",\"id\":901,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"engine-only-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}"))
+             (when pid-file
+               (ethereum-lisp.cli::devnet-cli-write-pid-file pid-file))
+             (let ((summary
+                     (ethereum-lisp.cli:start-devnet-node
+                      node
+                      :max-connections 1
+                      :public-rpc-enabled-p nil
+                      :on-listeners-ready
+                      (lambda (engine-listener public-listener)
+                        (declare (ignore public-listener))
+                        (let ((raw-engine-endpoint
+                                (engine-rpc-http-listener-endpoint
+                                 engine-listener)))
+                          (setf engine-endpoint
+                                (if (uiop:string-prefix-p
+                                     "http://"
+                                     raw-engine-endpoint)
+                                    raw-engine-endpoint
+                                    (format nil "http://~A"
+                                            raw-engine-endpoint))))
+                        (when ready-file
+                          (ethereum-lisp.cli::devnet-cli-write-ready-file
+                           node
+                           ready-file
+                           :engine-endpoint engine-endpoint
+                           :rpc-endpoint nil
+                           :public-rpc-enabled-p nil))
+                        (when log-file
+                          (ethereum-lisp.cli::devnet-cli-log-event
+                           node
+                           "devnet.ready"
+                           :engine-endpoint engine-endpoint
+                           :rpc-endpoint nil
+                           :public-rpc-enabled-p nil))
+                        (setf client-thread
+                              (sb-thread:make-thread
+                               (lambda ()
+                                 (handler-case
+                                     (progn
+                                       (sleep 0.05)
+                                       (setf client-response
+                                             (devnet-cli-http-endpoint-request
+                                              engine-endpoint
+                                              (devnet-cli-json-rpc-http-request
+                                               engine-body
+                                               :token token))))
+                                   (error (condition)
+                                     (setf client-error condition))))
+                               :name
+                               "ethereum-lisp-devnet-engine-only-client"))))))
+               (when client-thread
+                 (sb-thread:join-thread client-thread))
+               (when client-error
+                 (error client-error))
+               (when log-file
+                 (ethereum-lisp.cli::devnet-cli-log-event
+                  node
+                  "devnet.shutdown"
+                  :engine-endpoint engine-endpoint
+                  :rpc-endpoint nil
+                  :connection-summary summary
+                  :public-rpc-enabled-p nil))
+               (devnet-smoke-gate-require
+                (= 1 (getf summary :engine-connections))
+                "Engine-only serve Engine connection count mismatch")
+               (devnet-smoke-gate-require
+                (= 0 (getf summary :public-connections))
+                "Engine-only serve public connection count mismatch")
+               (devnet-smoke-gate-require
+                (= 1 (getf summary :total-connections))
+                "Engine-only serve total connection count mismatch")
+               (devnet-smoke-gate-require
+                (and engine-endpoint
+                     (devnet-smoke-gate-http-endpoint-p engine-endpoint))
+                "Engine-only serve did not publish a loopback Engine endpoint")
+               (devnet-smoke-gate-require
+                (= 200 (devnet-cli-http-status client-response))
+                "Engine-only serve Engine response HTTP status mismatch")
+               (let* ((engine-rpc
+                        (parse-json
+                         (devnet-cli-http-body client-response)))
+                      (client-version
+                        (first (fixture-object-field engine-rpc "result"))))
+                 (devnet-smoke-gate-require
+                  (= 901 (fixture-object-field engine-rpc "id"))
+                  "Engine-only serve Engine response id mismatch")
+                 (devnet-smoke-gate-require
+                  (string= "ethereum-lisp"
+                           (fixture-object-field client-version "name"))
+                  "Engine-only serve client version mismatch"))
+               (when ready-file
+                 (let ((ready-summary
+                         (parse-json
+                          (devnet-smoke-gate-file-string ready-file))))
+                   (devnet-smoke-gate-require
+                    (string= engine-endpoint
+                             (fixture-object-field ready-summary
+                                                   "engineEndpoint"))
+                    "Engine-only ready file Engine endpoint mismatch")
+                   (devnet-smoke-gate-require
+                    (not (fixture-object-field ready-summary "rpcEndpoint"))
+                    "Engine-only ready file must disable rpcEndpoint")
+                   (devnet-smoke-gate-require
+                    (not (fixture-object-field ready-summary
+                                               "publicRpcEnabled"))
+                    "Engine-only ready file must disable publicRpcEnabled")
+                   (devnet-smoke-gate-require
+                    (string= head-number
+                             (quantity-to-hex
+                              (fixture-object-field ready-summary
+                                                    "headNumber")))
+                    "Engine-only ready file head number mismatch")
+                   (devnet-smoke-gate-require
+                    (string= head-hash
+                             (fixture-object-field ready-summary
+                                                   "headHash"))
+                    "Engine-only ready file head hash mismatch")
+                   (devnet-smoke-gate-require
+                    (string= head-gas-limit
+                             (quantity-to-hex
+                              (fixture-object-field ready-summary
+                                                    "headGasLimit")))
+                    "Engine-only ready file head gas limit mismatch")))
+               (when log-file
+                 (let ((records
+                         (devnet-smoke-gate-file-forms log-file)))
+                   (dolist (event '("devnet.ready" "devnet.shutdown"))
+                     (let* ((record
+                              (find event records
+                                    :test #'string=
+                                    :key (lambda (record)
+                                           (getf record :name))))
+                            (fields (and record (getf record :fields))))
+                       (devnet-smoke-gate-require
+                        record
+                        "Engine-only log file missing ~A" event)
+                       (devnet-smoke-gate-require
+                        (string= engine-endpoint
+                                 (cdr (assoc "engineEndpoint" fields
+                                             :test #'string=)))
+                        "Engine-only log Engine endpoint mismatch")
+                       (devnet-smoke-gate-require
+                        (string= ""
+                                 (cdr (assoc "rpcEndpoint" fields
+                                             :test #'string=)))
+                        "Engine-only log must emit an empty rpcEndpoint")
+                       (devnet-smoke-gate-require
+                        (string= "false"
+                                 (cdr (assoc "publicRpcEnabled" fields
+                                             :test #'string=)))
+                        "Engine-only log must disable publicRpcEnabled")
+                       (devnet-smoke-gate-require
+                        (string= head-number
+                                 (cdr (assoc "headNumber" fields
+                                             :test #'string=)))
+                        "Engine-only log head number mismatch")
+                       (devnet-smoke-gate-require
+                        (string= head-hash
+                                 (cdr (assoc "headHash" fields
+                                             :test #'string=)))
+                        "Engine-only log head hash mismatch")))))
+               (setf report
+                     (devnet-smoke-gate-add-run-metadata
+                      (list
+                       (cons "status" "ok")
+                       (cons "mode" "devnet-engine-only-serve")
+                       (cons "publicRpcEnabled" :false)
+                       (cons "engineEndpoint" engine-endpoint)
+                       (cons "rpcEndpoint" :false)
+                       (cons "readyFile" (or ready-file :false))
+                       (cons "logFile" (or log-file :false))
+                       (cons "pidFile" (or pid-file :false))
+                       (cons "engineConnections"
+                             (getf summary :engine-connections))
+                       (cons "publicConnections"
+                             (getf summary :public-connections))
+                       (cons "totalConnections"
+                             (getf summary :total-connections))
+                       (cons "connectionContract"
+                             (list
+                              (cons "expectedEngineConnections" 1)
+                              (cons "expectedPublicConnections" 0)
+                              (cons "expectedTotalConnections" 1)))
+                       (cons "engineClientVersionName" "ethereum-lisp")
+                       (cons "headNumber" head-number)
+                       (cons "headHash" head-hash)
+                       (cons "headGasLimit" head-gas-limit)))))))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path)))
+    report)
+  #-sbcl
+  (error "Devnet engine-only serve smoke requires SBCL sockets"))
 
 (defun devnet-smoke-gate-verify-restored-public-rpc
     (node expected-block-number balance-targets
@@ -10951,6 +11196,10 @@ references/ checkouts.~%")
   (string= "devnet-listener-boundary-suite"
            (or (devnet-smoke-gate-field report "mode") "")))
 
+(defun devnet-smoke-gate-engine-only-report-p (report)
+  (string= "devnet-engine-only-serve"
+           (or (devnet-smoke-gate-field report "mode") "")))
+
 (defun devnet-smoke-gate-print-text (report)
   (format t "~&status=~A~%" (devnet-smoke-gate-field report "status"))
   (format t "mode=~A~%" (devnet-smoke-gate-field report "mode"))
@@ -10999,6 +11248,30 @@ references/ checkouts.~%")
     (format t "databaseRpcPrunedStateErrorCaseCount=~D~%"
             (devnet-smoke-gate-field
              report "databaseRpcPrunedStateErrorCaseCount")))
+  (when (devnet-smoke-gate-engine-only-report-p report)
+    (format t "publicRpcEnabled=~A~%"
+            (devnet-smoke-gate-field report "publicRpcEnabled"))
+    (format t "engineEndpoint=~A~%"
+            (devnet-smoke-gate-field report "engineEndpoint"))
+    (format t "rpcEndpoint=~A~%"
+            (devnet-smoke-gate-field report "rpcEndpoint"))
+    (format t "readyFile=~A~%"
+            (devnet-smoke-gate-field report "readyFile"))
+    (format t "logFile=~A~%"
+            (devnet-smoke-gate-field report "logFile"))
+    (format t "pidFile=~A~%"
+            (devnet-smoke-gate-field report "pidFile"))
+    (format t "engineConnections=~D~%"
+            (devnet-smoke-gate-field report "engineConnections"))
+    (format t "publicConnections=~D~%"
+            (devnet-smoke-gate-field report "publicConnections"))
+    (format t "totalConnections=~D~%"
+            (devnet-smoke-gate-field report "totalConnections"))
+    (format t "engineClientVersionName=~A~%"
+            (devnet-smoke-gate-field report "engineClientVersionName"))
+    (format t "headNumber=~A~%"
+            (devnet-smoke-gate-field report "headNumber"))
+    (return-from devnet-smoke-gate-print-text nil))
   (unless (devnet-smoke-gate-suite-report-p report)
     (format t "fixtureCase=~A~%"
             (devnet-smoke-gate-field report "fixtureCase")))
@@ -11718,6 +11991,8 @@ references/ checkouts.~%")
          (help-p (devnet-smoke-gate-help-p args))
          (json-p (devnet-smoke-gate-json-p args))
          (all-fixtures-p (devnet-smoke-gate-all-fixtures-p args))
+         (engine-only-serve-p
+           (devnet-smoke-gate-engine-only-serve-p args))
          (ready-file
            (devnet-smoke-gate-path-option
             args +devnet-smoke-gate-ready-file-option+))
@@ -11752,37 +12027,54 @@ references/ checkouts.~%")
     (if help-p
         (devnet-smoke-gate-print-help)
         (let ((report
-                (if all-fixtures-p
-                    (progn
-                      (when (devnet-smoke-gate-fixture-case-specified-p args)
-                        (error "~A cannot be combined with a fixture case"
-                               +devnet-smoke-gate-all-fixtures-flag+))
-                      (devnet-smoke-gate-run-all
-                       +engine-newpayload-v2-smoke-case-names+
-                       :ready-file ready-file
-                       :log-file log-file
-                       :pid-file pid-file
-                       :database-file database-file
-                       :state-prune-before state-prune-before
-                       :terminal-total-difficulty
-                       terminal-total-difficulty
-                       :terminal-total-difficulty-passed-p
-                       terminal-total-difficulty-passed-p
-                       :terminal-block-hash terminal-block-hash
-                       :terminal-block-number terminal-block-number))
-                    (devnet-smoke-gate-run
-                     case-name
-                     :ready-file ready-file
-                     :log-file log-file
-                     :pid-file pid-file
-                     :database-file database-file
-                     :state-prune-before state-prune-before
-                     :terminal-total-difficulty
-                     terminal-total-difficulty
-                     :terminal-total-difficulty-passed-p
-                     terminal-total-difficulty-passed-p
-                     :terminal-block-hash terminal-block-hash
-                     :terminal-block-number terminal-block-number))))
+                (cond
+                  (engine-only-serve-p
+                   (when all-fixtures-p
+                     (error "~A cannot be combined with ~A"
+                            +devnet-smoke-gate-engine-only-serve-flag+
+                            +devnet-smoke-gate-all-fixtures-flag+))
+                   (when (devnet-smoke-gate-fixture-case-specified-p args)
+                     (error "~A cannot be combined with a fixture case"
+                            +devnet-smoke-gate-engine-only-serve-flag+))
+                   (when database-file
+                     (error "~A cannot be combined with ~A"
+                            +devnet-smoke-gate-engine-only-serve-flag+
+                            +devnet-smoke-gate-database-option+))
+                   (devnet-smoke-gate-verify-engine-only-serve
+                    :ready-file ready-file
+                    :log-file log-file
+                    :pid-file pid-file))
+                  (all-fixtures-p
+                   (when (devnet-smoke-gate-fixture-case-specified-p args)
+                     (error "~A cannot be combined with a fixture case"
+                            +devnet-smoke-gate-all-fixtures-flag+))
+                   (devnet-smoke-gate-run-all
+                    +engine-newpayload-v2-smoke-case-names+
+                    :ready-file ready-file
+                    :log-file log-file
+                    :pid-file pid-file
+                    :database-file database-file
+                    :state-prune-before state-prune-before
+                    :terminal-total-difficulty
+                    terminal-total-difficulty
+                    :terminal-total-difficulty-passed-p
+                    terminal-total-difficulty-passed-p
+                    :terminal-block-hash terminal-block-hash
+                    :terminal-block-number terminal-block-number))
+                  (t
+                   (devnet-smoke-gate-run
+                    case-name
+                    :ready-file ready-file
+                    :log-file log-file
+                    :pid-file pid-file
+                    :database-file database-file
+                    :state-prune-before state-prune-before
+                    :terminal-total-difficulty
+                    terminal-total-difficulty
+                    :terminal-total-difficulty-passed-p
+                    terminal-total-difficulty-passed-p
+                    :terminal-block-hash terminal-block-hash
+                    :terminal-block-number terminal-block-number)))))
           (if json-p
               (format t "~&~A~%" (json-encode report))
               (devnet-smoke-gate-print-text report))))))
