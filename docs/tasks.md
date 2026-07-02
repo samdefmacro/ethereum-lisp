@@ -7085,6 +7085,15 @@ splits can land after the Phase A smoke path closes.
     contract and one-Engine/zero-public shutdown accounting, exposes the
     report as `devnetEngineOnly`, and includes the single process case in
     aggregate Phase A devnet counts.
+- [x] `DEVNET-RUNNER-SCRIPT-ENGINE-ONLY`: Lock the runner-facing script
+  process contract for Hive/geth `--http=false` Engine-only serve mode.
+  - Result (2026-07-02): `sbcl --script scripts/ethereum-lisp.lisp -- devnet
+    ... --http=false` now has subprocess coverage that launches with random
+    Engine and ignored public ports, waits for ready/log/pid artifacts,
+    authenticates `engine_getClientVersionV1` through the advertised Engine
+    endpoint, verifies stdout/ready telemetry report `rpcEndpoint=false` and
+    `publicRpcEnabled=false`, and requires shutdown telemetry to record one
+    Engine connection, zero public connections, and one total connection.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

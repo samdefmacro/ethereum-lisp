@@ -1251,6 +1251,11 @@ first pass, but interfaces must not block that path.
   one-Engine/zero-public shutdown accounting, and includes it in aggregate
   process-case counts so the regular bounded devnet gate covers both split
   Engine/public and public-disabled runner launches.
+  The external `scripts/ethereum-lisp.lisp -- devnet --http=false` process
+  path is now covered directly as well: the runner-facing script binds only
+  the authenticated Engine listener, keeps public readiness fields disabled,
+  accepts an authenticated Engine client-version probe, and reports one
+  Engine / zero public shutdown connection counts.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
