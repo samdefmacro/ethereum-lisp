@@ -7077,6 +7077,14 @@ splits can land after the Phase A smoke path closes.
     `rpcEndpoint=false`, verifies lifecycle telemetry emits an empty
     `rpcEndpoint`, and requires shutdown accounting to report one Engine
     connection and zero public connections.
+- [x] `PHASE-A-DEVNET-ENGINE-ONLY-WRAPPER`: Include the public-disabled
+  Engine-only smoke in the top-level `--devnet` process gate.
+  - Result (2026-07-02): `scripts/phase-a-smoke-gate.lisp -- --devnet` now
+    runs the standalone `--engine-only-serve` child with ready/log/pid
+    artifacts, validates its `publicRpcEnabled=false` / `rpcEndpoint=false`
+    contract and one-Engine/zero-public shutdown accounting, exposes the
+    report as `devnetEngineOnly`, and includes the single process case in
+    aggregate Phase A devnet counts.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

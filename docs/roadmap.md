@@ -1246,6 +1246,11 @@ first pass, but interfaces must not block that path.
   mode that binds the Engine listener, authenticates an Engine request, and
   verifies ready/log/shutdown artifacts for that public-disabled process
   contract.
+  The top-level Phase A `--devnet` wrapper now runs that Engine-only child
+  as `devnetEngineOnly`, validates its ready/log/pid artifacts and
+  one-Engine/zero-public shutdown accounting, and includes it in aggregate
+  process-case counts so the regular bounded devnet gate covers both split
+  Engine/public and public-disabled runner launches.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

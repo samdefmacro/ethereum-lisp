@@ -848,6 +848,30 @@ references/ checkouts.~%"))
             (smoke-gate-validate-devnet-side-reorg-cases
              report expected-count))))))
 
+(defun smoke-gate-validate-devnet-engine-only-summary
+    (report ready-file log-file pid-file)
+  (unless (string= "ok" (smoke-gate-field report "status"))
+    (error "Devnet Engine-only smoke gate returned non-ok status: ~S"
+           report))
+  (smoke-gate-devnet-require-field
+   report "mode" "devnet-engine-only-serve")
+  (smoke-gate-devnet-require-field report "readyFile" ready-file)
+  (smoke-gate-devnet-require-field report "logFile" log-file)
+  (smoke-gate-devnet-require-field report "pidFile" pid-file)
+  (smoke-gate-devnet-require-field report "engineConnections" 1)
+  (smoke-gate-devnet-require-field report "publicConnections" 0)
+  (smoke-gate-devnet-require-field report "totalConnections" 1)
+  (smoke-gate-devnet-require-field report "publicRpcEnabled" nil)
+  (smoke-gate-devnet-require-field report "rpcEndpoint" nil)
+  (let ((contract (smoke-gate-field report "connectionContract")))
+    (smoke-gate-devnet-require-field
+     contract "expectedEngineConnections" 1)
+    (smoke-gate-devnet-require-field
+     contract "expectedPublicConnections" 0)
+    (smoke-gate-devnet-require-field
+     contract "expectedTotalConnections" 1))
+  (append report (list (cons "caseCount" 1))))
+
 (defun smoke-gate-devnet-script-json (arguments)
   (multiple-value-bind (stdout stderr status)
       (uiop:run-program
@@ -916,6 +940,41 @@ references/ checkouts.~%"))
       (smoke-gate-delete-file-if-present log-file)
       (smoke-gate-delete-file-if-present pid-file)
       (smoke-gate-delete-file-if-present database-file))))
+
+(defun smoke-gate-devnet-engine-only-summary ()
+  (let ((ready-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-engine-only-ready"
+                                 "json")))
+        (log-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-engine-only"
+                                 "log")))
+        (pid-file
+          (namestring
+           (smoke-gate-temp-path "ethereum-lisp-phase-a-devnet-engine-only"
+                                 "pid")))
+        (report nil))
+    (unwind-protect
+         (progn
+           (setf report
+                 (smoke-gate-devnet-script-json
+                  (list
+                   "--engine-only-serve"
+                   "--ready-file"
+                   ready-file
+                   "--log-file"
+                   log-file
+                   "--pid-file"
+                   pid-file)))
+           (smoke-gate-validate-devnet-engine-only-summary
+            report
+            ready-file
+            log-file
+            pid-file))
+      (smoke-gate-delete-file-if-present ready-file)
+      (smoke-gate-delete-file-if-present log-file)
+      (smoke-gate-delete-file-if-present pid-file))))
 
 (defun smoke-gate-validate-devnet-side-reorg-case-summary
     (report fixture-case ready-file log-file pid-file database-file)
@@ -1041,7 +1100,8 @@ references/ checkouts.~%"))
   (or (smoke-gate-field object field) 0))
 
 (defun smoke-gate-report-counts
-    (state transaction blockchain devnet devnet-side-reorg)
+    (state transaction blockchain devnet devnet-side-reorg
+     devnet-engine-only)
   (let* ((fixture-case-count
            (+ (smoke-gate-numeric-field state "count")
               (smoke-gate-numeric-field transaction "count")
@@ -1056,6 +1116,10 @@ references/ checkouts.~%"))
            (if devnet-side-reorg
                (smoke-gate-numeric-field
                 devnet-side-reorg "sideReorgCaseCount")
+               0))
+         (devnet-engine-only-case-count
+           (if devnet-engine-only
+               (smoke-gate-numeric-field devnet-engine-only "caseCount")
                0)))
     (list
      (cons "fixtureCaseCount" fixture-case-count)
@@ -1063,11 +1127,13 @@ references/ checkouts.~%"))
      (cons "totalCaseCount"
            (+ fixture-case-count
               devnet-case-count
-              devnet-side-reorg-case-count))
+              devnet-side-reorg-case-count
+              devnet-engine-only-case-count))
      (cons "totalExecutedCount"
            (+ fixture-executed-count
               devnet-case-count
-              devnet-side-reorg-case-count)))))
+              devnet-side-reorg-case-count
+              devnet-engine-only-case-count)))))
 
 (defun smoke-gate-report (suite-root pinned-p &key devnet-p)
   (let ((state (smoke-gate-state-summary suite-root (not pinned-p)
@@ -1078,7 +1144,9 @@ references/ checkouts.~%"))
         (blockchain (smoke-gate-blockchain-summary suite-root pinned-p))
         (devnet (and devnet-p (smoke-gate-devnet-summary)))
         (devnet-side-reorg
-          (and devnet-p (smoke-gate-devnet-side-reorg-summary))))
+          (and devnet-p (smoke-gate-devnet-side-reorg-summary)))
+        (devnet-engine-only
+          (and devnet-p (smoke-gate-devnet-engine-only-summary))))
     (append
      (list
       (cons "suiteRoot" suite-root)
@@ -1091,11 +1159,14 @@ references/ checkouts.~%"))
       (cons "transaction" transaction)
       (cons "blockchain" blockchain))
      (smoke-gate-report-counts
-      state transaction blockchain devnet devnet-side-reorg)
+      state transaction blockchain devnet devnet-side-reorg
+      devnet-engine-only)
      (when devnet
        (list (cons "devnet" devnet)))
      (when devnet-side-reorg
-       (list (cons "devnetSideReorg" devnet-side-reorg))))))
+       (list (cons "devnetSideReorg" devnet-side-reorg)))
+     (when devnet-engine-only
+       (list (cons "devnetEngineOnly" devnet-engine-only))))))
 
 (defun smoke-gate-print-text (report)
   (let ((state (smoke-gate-field report "state"))
@@ -1105,7 +1176,8 @@ references/ checkouts.~%"))
           (smoke-gate-field report "executionSpecTests"))
         (reference-clients (smoke-gate-field report "referenceClients"))
         (devnet (smoke-gate-field report "devnet"))
-        (devnet-side-reorg (smoke-gate-field report "devnetSideReorg")))
+        (devnet-side-reorg (smoke-gate-field report "devnetSideReorg"))
+        (devnet-engine-only (smoke-gate-field report "devnetEngineOnly")))
     (format t "~&status=~A~%" (smoke-gate-field report "status"))
     (format t "suiteRoot=~A~%" (smoke-gate-field report "suiteRoot"))
     (format t "mode=~A~%" (smoke-gate-field report "mode"))
@@ -1187,7 +1259,20 @@ references/ checkouts.~%"))
       (format t "devnetSideReorgPidCaseCount=~D~%"
               (smoke-gate-field devnet-side-reorg "pidCaseCount"))
       (format t "devnetSideReorgDatabaseCaseCount=~D~%"
-              (smoke-gate-field devnet-side-reorg "databaseCaseCount")))))
+              (smoke-gate-field devnet-side-reorg "databaseCaseCount")))
+    (when devnet-engine-only
+      (format t "devnetEngineOnlyStatus=~A~%"
+              (smoke-gate-field devnet-engine-only "status"))
+      (format t "devnetEngineOnlyCaseCount=~D~%"
+              (smoke-gate-field devnet-engine-only "caseCount"))
+      (format t "devnetEngineOnlyPublicRpcEnabled=~A~%"
+              (smoke-gate-field devnet-engine-only "publicRpcEnabled"))
+      (format t "devnetEngineOnlyEngineConnections=~D~%"
+              (smoke-gate-field devnet-engine-only "engineConnections"))
+      (format t "devnetEngineOnlyPublicConnections=~D~%"
+              (smoke-gate-field devnet-engine-only "publicConnections"))
+      (format t "devnetEngineOnlyTotalConnections=~D~%"
+              (smoke-gate-field devnet-engine-only "totalConnections")))))
 
 (defun smoke-gate-main ()
   (let* ((args (smoke-gate-arguments))

@@ -3503,6 +3503,8 @@
          (devnet (fixture-object-field report "devnet"))
          (devnet-side-reorg
            (fixture-object-field report "devnetSideReorg"))
+         (devnet-engine-only
+           (fixture-object-field report "devnetEngineOnly"))
          (fixture-case-count
            (+ (phase-a-smoke-gate-section-count state "count")
               (phase-a-smoke-gate-section-count transaction "count")
@@ -3519,6 +3521,11 @@
            (if devnet-side-reorg
                (phase-a-smoke-gate-section-count
                 devnet-side-reorg "sideReorgCaseCount")
+               0))
+         (devnet-engine-only-case-count
+           (if devnet-engine-only
+               (phase-a-smoke-gate-section-count
+                devnet-engine-only "caseCount")
                0)))
     (is (= fixture-case-count
            (fixture-object-field report "fixtureCaseCount")))
@@ -3526,11 +3533,13 @@
            (fixture-object-field report "fixtureExecutedCount")))
     (is (= (+ fixture-case-count
               devnet-case-count
-              devnet-side-reorg-case-count)
+              devnet-side-reorg-case-count
+              devnet-engine-only-case-count)
            (fixture-object-field report "totalCaseCount")))
     (is (= (+ fixture-executed-count
               devnet-case-count
-              devnet-side-reorg-case-count)
+              devnet-side-reorg-case-count
+              devnet-engine-only-case-count)
            (fixture-object-field report "totalExecutedCount")))))
 
 (defun phase-a-smoke-gate-assert-in-repo-fixture-counts (report)
@@ -5484,6 +5493,8 @@
                (devnet (fixture-object-field report "devnet"))
                (devnet-side-reorg
                  (fixture-object-field report "devnetSideReorg"))
+               (devnet-engine-only
+                 (fixture-object-field report "devnetEngineOnly"))
                (cases (fixture-object-field devnet "cases")))
         (is (string= "ok" (fixture-object-field report "status")))
         (is (string= "in-repo" (fixture-object-field report "mode")))
@@ -5521,6 +5532,24 @@
         (devnet-cli-assert-pruned-state-suite
          devnet cases prune-boundary)
         (is (= 0 (fixture-object-field devnet "sideReorgCaseCount")))
+        (is (string= "ok"
+                     (fixture-object-field
+                      devnet-engine-only "status")))
+        (is (string= "devnet-engine-only-serve"
+                     (fixture-object-field
+                      devnet-engine-only "mode")))
+        (is (= 1 (fixture-object-field
+                  devnet-engine-only "caseCount")))
+        (is (not (fixture-object-field
+                  devnet-engine-only "publicRpcEnabled")))
+        (is (not (fixture-object-field
+                  devnet-engine-only "rpcEndpoint")))
+        (is (= 1 (fixture-object-field
+                  devnet-engine-only "engineConnections")))
+        (is (= 0 (fixture-object-field
+                  devnet-engine-only "publicConnections")))
+        (is (= 1 (fixture-object-field
+                  devnet-engine-only "totalConnections")))
         (let ((side-reorg-cases
                 (fixture-object-field devnet-side-reorg "cases")))
           (is (string= "ok"
@@ -5857,7 +5886,9 @@
         (let* ((report (parse-json stdout))
                (devnet (fixture-object-field report "devnet"))
                (devnet-side-reorg
-                 (fixture-object-field report "devnetSideReorg")))
+                 (fixture-object-field report "devnetSideReorg"))
+               (devnet-engine-only
+                 (fixture-object-field report "devnetEngineOnly")))
           (is (string= "ok" (fixture-object-field report "status")))
           (phase-a-smoke-gate-assert-counts report)
           (is (string= "ok" (fixture-object-field devnet "status")))
@@ -5885,7 +5916,19 @@
                   devnet-side-reorg "pidCaseCount")))
           (is (= (length +devnet-side-reorg-smoke-case-names+)
                  (fixture-object-field
-                  devnet-side-reorg "databaseCaseCount"))))))))
+                  devnet-side-reorg "databaseCaseCount")))
+          (is (string= "ok"
+                       (fixture-object-field
+                        devnet-engine-only "status")))
+          (is (string= "devnet-engine-only-serve"
+                       (fixture-object-field
+                        devnet-engine-only "mode")))
+          (is (= 1 (fixture-object-field
+                    devnet-engine-only "caseCount")))
+          (is (= 1 (fixture-object-field
+                    devnet-engine-only "engineConnections")))
+          (is (= 0 (fixture-object-field
+                    devnet-engine-only "publicConnections"))))))))
 
 (deftest phase-a-smoke-gate-text-output-includes-aggregate-counts
   #-sbcl
