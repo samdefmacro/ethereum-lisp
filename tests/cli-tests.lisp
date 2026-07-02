@@ -2394,10 +2394,17 @@
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
          (datadir-jwt-path
            (merge-pathnames "jwtsecret" datadir))
+         (explicit-jwt-path
+           (devnet-cli-temp-path "ethereum-lisp-devnet-init-explicit-jwt"
+                                 "hex"))
          (init-output (make-string-output-stream))
          (init-errors (make-string-output-stream))
          (devnet-output (make-string-output-stream))
-         (devnet-errors (make-string-output-stream)))
+         (devnet-errors (make-string-output-stream))
+         (explicit-init-output (make-string-output-stream))
+         (explicit-init-errors (make-string-output-stream))
+         (explicit-devnet-output (make-string-output-stream))
+         (explicit-devnet-errors (make-string-output-stream)))
     (unwind-protect
          (progn
            (is (= 0
@@ -2452,11 +2459,47 @@
                           (fixture-object-field summary "databasePath")))
              (is (string= (namestring datadir-jwt-path)
                           (fixture-object-field summary "jwtSecretPath")))
+             (is (fixture-object-field summary "authRequired")))
+           (devnet-cli-write-temp-file explicit-jwt-path +devnet-cli-jwt-secret+)
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "init"
+                         "--datadir" (namestring datadir)
+                         "--authrpc.jwtsecret" (namestring explicit-jwt-path)
+                         "--json"
+                         +devnet-cli-genesis-fixture+)
+                   :output-stream explicit-init-output
+                   :error-stream explicit-init-errors)))
+           (is (string= "" (get-output-stream-string explicit-init-errors)))
+           (let ((summary (parse-json
+                           (get-output-stream-string explicit-init-output))))
+             (is (string= (namestring datadir-jwt-path)
+                          (fixture-object-field summary "jwtSecretPath")))
+             (is (fixture-object-field summary "authRequired"))
+             (is (string= +devnet-cli-jwt-secret+
+                          (string-trim
+                           '(#\Space #\Tab #\Newline #\Return)
+                           (devnet-cli-file-string datadir-jwt-path)))))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--datadir" (namestring datadir)
+                         "--json"
+                         "--no-serve")
+                   :output-stream explicit-devnet-output
+                   :error-stream explicit-devnet-errors)))
+           (is (string= "" (get-output-stream-string explicit-devnet-errors)))
+           (let ((summary (parse-json
+                           (get-output-stream-string explicit-devnet-output))))
+             (is (string= (namestring datadir-jwt-path)
+                          (fixture-object-field summary "jwtSecretPath")))
              (is (fixture-object-field summary "authRequired"))))
       (when (probe-file datadir-genesis-path)
         (delete-file datadir-genesis-path))
       (when (probe-file datadir-jwt-path)
         (delete-file datadir-jwt-path))
+      (when (probe-file explicit-jwt-path)
+        (delete-file explicit-jwt-path))
       (when (probe-file datadir-database-path)
         (delete-file datadir-database-path)))))
 
@@ -6913,6 +6956,11 @@
            (merge-pathnames "genesis.json" datadir))
          (datadir-database-path
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
+         (datadir-jwt-path
+           (merge-pathnames "jwtsecret" datadir))
+         (explicit-jwt-path
+           (devnet-cli-temp-path "ethereum-lisp-script-init-datadir-jwt"
+                                 "hex"))
          (ready-path
            (merge-pathnames "runner/ready.json" datadir))
          (log-path
@@ -6928,6 +6976,8 @@
                 :ignore-error-status t)))
       (unwind-protect
            (progn
+             (devnet-cli-write-temp-file explicit-jwt-path
+                                         +devnet-cli-jwt-secret+)
              (multiple-value-bind (stdout stderr status)
                  (run-script "--datadir" (namestring datadir)
                              "--cache" "128"
@@ -6939,7 +6989,8 @@
                              "--networkid" "7331"
                              "--authrpc.addr=127.0.0.1"
                              "--authrpc.port" "0"
-                             "--authrpc.jwtsecret" "jwt.hex"
+                             "--authrpc.jwtsecret"
+                             (namestring explicit-jwt-path)
                              "--authrpc.rpcprefix=/engine"
                              "--authrpc.vhosts" "engine.runner,localhost"
                              "--authrpc.corsdomain" "https://engine.example"
@@ -6984,6 +7035,10 @@
                  (is (string= (namestring datadir-database-path)
                               (fixture-object-field summary
                                                     "databasePath")))
+                 (is (string= (namestring datadir-jwt-path)
+                              (fixture-object-field summary
+                                                    "jwtSecretPath")))
+                 (is (eq t (fixture-object-field summary "authRequired")))
                  (is (probe-file ready-path))
                  (is (probe-file log-path))
                  (is (probe-file pid-path))
@@ -6999,6 +7054,11 @@
                  (is (string= (namestring datadir-database-path)
                               (fixture-object-field ready-summary
                                                     "databasePath")))
+                 (is (string= (namestring datadir-jwt-path)
+                              (fixture-object-field ready-summary
+                                                    "jwtSecretPath")))
+                 (is (eq t (fixture-object-field ready-summary
+                                                  "authRequired")))
                  (is (string= (namestring log-path)
                               (fixture-object-field summary "logPath")))
                  (is (string= (namestring log-path)
@@ -7046,6 +7106,11 @@
                                           :test #'string=))))))
              (is (probe-file datadir-genesis-path))
              (is (probe-file datadir-database-path))
+             (is (probe-file datadir-jwt-path))
+             (is (string= +devnet-cli-jwt-secret+
+                          (string-trim
+                           '(#\Space #\Tab #\Newline #\Return)
+                           (devnet-cli-file-string datadir-jwt-path))))
              (multiple-value-bind (stdout stderr status)
                  (run-script "--identity" "init"
                              "--datadir" (namestring datadir)
@@ -7065,6 +7130,10 @@
           (delete-file datadir-genesis-path))
         (when (probe-file datadir-database-path)
           (delete-file datadir-database-path))
+        (when (probe-file datadir-jwt-path)
+          (delete-file datadir-jwt-path))
+        (when (probe-file explicit-jwt-path)
+          (delete-file explicit-jwt-path))
         (when (probe-file ready-path)
           (delete-file ready-path))
         (when (probe-file log-path)
@@ -7117,6 +7186,10 @@
            (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
          (datadir-jwt-path
            (merge-pathnames "jwtsecret" datadir))
+         (explicit-jwt-path
+           (devnet-cli-temp-path
+            "ethereum-lisp-script-serve-datadir-explicit-jwt"
+            "hex"))
          (ready-path
            (devnet-cli-temp-path "ethereum-lisp-script-serve-datadir-ready"
                                  "json"))
@@ -7127,6 +7200,8 @@
          (process nil))
     (unwind-protect
          (progn
+           (devnet-cli-write-temp-file explicit-jwt-path
+                                       +devnet-cli-jwt-secret+)
            (multiple-value-bind (init-stdout init-stderr init-status)
                (uiop:run-program
                 (list "sbcl"
@@ -7135,6 +7210,8 @@
                       "--"
                       "--datadir"
                       (namestring datadir)
+                      "--authrpc.jwtsecret"
+                      (namestring explicit-jwt-path)
                       "init"
                       "--json"
                       genesis)
@@ -7157,6 +7234,10 @@
            (is (probe-file datadir-genesis-path))
            (is (probe-file datadir-database-path))
            (is (probe-file datadir-jwt-path))
+           (is (string= +devnet-cli-jwt-secret+
+                        (string-trim
+                         '(#\Space #\Tab #\Newline #\Return)
+                         (devnet-cli-file-string datadir-jwt-path))))
            (setf process
                  (uiop:launch-program
                   (list "sbcl"
@@ -7343,6 +7424,7 @@
       (dolist (path (list datadir-genesis-path
                           datadir-database-path
                           datadir-jwt-path
+                          explicit-jwt-path
                           ready-path
                           log-path
                           pid-path))

@@ -240,20 +240,31 @@
           (dotimes (index length bytes)
             (setf (aref bytes index) (random 256 state))))))))
 
-(defun devnet-cli-ensure-datadir-jwt-secret (datadir)
+(defun devnet-cli-ensure-datadir-jwt-secret (datadir &key source-path)
   (when datadir
-    (or (devnet-cli-existing-datadir-jwt-secret-path datadir)
-        (let ((path (devnet-cli-datadir-jwt-secret-path datadir)))
+    (if source-path
+        (let ((path (devnet-cli-datadir-jwt-secret-path datadir))
+              (secret (devnet-cli-read-jwt-secret source-path)))
           (with-open-file (stream (devnet-cli-ensure-path-parent-directory path)
                                   :direction :output
-                                  :if-exists nil
+                                  :if-exists :supersede
                                   :if-does-not-exist :create)
-            (when stream
-              (write-string
-               (bytes-to-hex (devnet-cli-random-bytes 32) :prefix nil)
-               stream)
-              (terpri stream)))
-          path))))
+            (write-string (bytes-to-hex secret :prefix nil) stream)
+            (terpri stream))
+          path)
+        (or (devnet-cli-existing-datadir-jwt-secret-path datadir)
+            (let ((path (devnet-cli-datadir-jwt-secret-path datadir)))
+              (with-open-file
+                  (stream (devnet-cli-ensure-path-parent-directory path)
+                          :direction :output
+                          :if-exists nil
+                          :if-does-not-exist :create)
+                (when stream
+                  (write-string
+                   (bytes-to-hex (devnet-cli-random-bytes 32) :prefix nil)
+                   stream)
+                  (terpri stream)))
+              path)))))
 
 (defun devnet-cli-validate-imported-genesis (store genesis-block database-path)
   (let ((restored-genesis (chain-store-block-by-number store 0)))
@@ -1196,6 +1207,7 @@
   (let ((genesis-path nil)
         (database-path nil)
         (datadir-path nil)
+        (jwt-secret-path nil)
         (ready-file nil)
         (log-file nil)
         (pid-file nil)
@@ -1214,6 +1226,10 @@
                   (devnet-cli-next-value args option)))
                ((string= option "--datadir")
                 (multiple-value-setq (datadir-path args)
+                  (devnet-cli-next-value args option)))
+               ((or (string= option "--jwt-secret")
+                    (string= option "--authrpc.jwtsecret"))
+                (multiple-value-setq (jwt-secret-path args)
                   (devnet-cli-next-value args option)))
                ((string= option "--ready-file")
                 (multiple-value-setq (ready-file args)
@@ -1258,6 +1274,7 @@
                              (and datadir-path
                                   (devnet-cli-datadir-database-path
                                    datadir-path)))
+          :jwt-secret-path jwt-secret-path
           :ready-file ready-file
           :log-file log-file
           :pid-file pid-file
@@ -1290,6 +1307,7 @@
   (let ((genesis-path (getf options :genesis-path))
         (datadir-path (getf options :datadir-path))
         (database-path (getf options :database-path))
+        (explicit-jwt-secret-path (getf options :jwt-secret-path))
         (jwt-secret-path nil))
     (unless genesis-path
       (error "init requires a genesis file"))
@@ -1300,7 +1318,9 @@
        genesis-path
        (devnet-cli-datadir-genesis-path datadir-path))
       (setf jwt-secret-path
-            (devnet-cli-ensure-datadir-jwt-secret datadir-path)))
+            (devnet-cli-ensure-datadir-jwt-secret
+             datadir-path
+             :source-path explicit-jwt-secret-path)))
     (call-with-devnet-cli-telemetry-sink
      options
      output-stream

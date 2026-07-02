@@ -1241,7 +1241,10 @@ first pass, but interfaces must not block that path.
   that path with `authRequired=true`, and leaves existing datadir JWT material
   intact. A subsequent `devnet --datadir DATADIR` launch therefore discovers an
   initialized Engine JWT secret and starts the authenticated listener without
-  an out-of-band runner setup step.
+  an out-of-band runner setup step. If init receives an explicit
+  `--jwt-secret` or `--authrpc.jwtsecret`, that runner-provided secret is
+  validated and copied into `DATADIR/jwtsecret`, so init and run templates use
+  the same authenticated Engine secret.
   `--http=false` now disables the public JSON-RPC listener while keeping the
   authenticated Engine listener active; startup summaries, readiness JSON, and
   lifecycle telemetry report `publicRpcEnabled=false`, `rpcEndpoint=false` in

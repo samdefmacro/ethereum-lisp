@@ -846,6 +846,11 @@ ones.
     The follow-on `devnet --datadir PATH` launch discovers that initialized
     secret, so a Hive-style init-then-run flow starts with authenticated Engine
     RPC without requiring a separate JWT setup step.
+  - Result (2026-07-02): when init receives an explicit `--jwt-secret` or
+    `--authrpc.jwtsecret`, it now validates and canonicalizes that secret into
+    `PATH/jwtsecret`, reports the datadir path in `jwtSecretPath`, and lets the
+    later `devnet --datadir PATH` launch authenticate with the runner-provided
+    Engine JWT instead of a separately generated one.
 - [x] `DEVNET-RUNNER-PRECOMMAND-DISPATCH`: Make geth/Hive-shaped command
   detection robust when runner flags appear before the command token.
   - Result (2026-06-30): command dispatch now skips known option values and
