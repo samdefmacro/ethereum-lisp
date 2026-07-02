@@ -2299,6 +2299,8 @@ references/ checkouts.~%")
         (client-response nil)
         (client-error nil)
         (engine-endpoint nil)
+        (configured-public-endpoint nil)
+        (public-endpoint-connectable-p nil)
         (report nil))
     (unwind-protect
          (progn
@@ -2313,7 +2315,7 @@ references/ checkouts.~%")
                          (devnet-smoke-gate-reference-path
                           +devnet-cli-genesis-fixture+))
                         :port 0
-                        :public-port 0
+                        :public-port (devnet-cli-unused-loopback-port)
                         :jwt-secret-path (namestring jwt-path)
                         :log-path log-file
                         :pid-file-path pid-file
@@ -2332,6 +2334,11 @@ references/ checkouts.~%")
                   (token (engine-rpc-make-jwt-token jwt-secret 0))
                   (engine-body
                     "{\"jsonrpc\":\"2.0\",\"id\":901,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"engine-only-smoke\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}"))
+             (setf configured-public-endpoint
+                   (format nil "http://127.0.0.1:~D"
+                           (ethereum-lisp.core::engine-rpc-http-service-port
+                            (ethereum-lisp.cli:devnet-node-public-service
+                             node))))
              (when pid-file
                (ethereum-lisp.cli::devnet-cli-write-pid-file pid-file))
              (let ((summary
@@ -2407,6 +2414,12 @@ references/ checkouts.~%")
                 (and engine-endpoint
                      (devnet-smoke-gate-http-endpoint-p engine-endpoint))
                 "Engine-only serve did not publish a loopback Engine endpoint")
+               (setf public-endpoint-connectable-p
+                     (devnet-cli-http-endpoint-connectable-p
+                      configured-public-endpoint))
+               (devnet-smoke-gate-require
+                (not public-endpoint-connectable-p)
+                "Engine-only serve public endpoint unexpectedly accepted a connection")
                (devnet-smoke-gate-require
                 (= 200 (devnet-cli-http-status client-response))
                 "Engine-only serve Engine response HTTP status mismatch")
@@ -2501,6 +2514,10 @@ references/ checkouts.~%")
                        (cons "publicRpcEnabled" :false)
                        (cons "engineEndpoint" engine-endpoint)
                        (cons "rpcEndpoint" :false)
+                       (cons "configuredPublicEndpoint"
+                             configured-public-endpoint)
+                       (cons "publicEndpointConnectable"
+                             (if public-endpoint-connectable-p t :false))
                        (cons "readyFile" (or ready-file :false))
                        (cons "logFile" (or log-file :false))
                        (cons "pidFile" (or pid-file :false))

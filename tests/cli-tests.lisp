@@ -3632,6 +3632,42 @@
      :buffering :none)))
 
 #+sbcl
+(defun devnet-cli-unused-loopback-port ()
+  (let ((socket
+          (make-instance 'sb-bsd-sockets:inet-socket
+                         :type :stream
+                         :protocol :tcp)))
+    (unwind-protect
+         (progn
+           (setf (sb-bsd-sockets:sockopt-reuse-address socket) t)
+           (sb-bsd-sockets:socket-bind
+            socket
+            (sb-bsd-sockets:make-inet-address "127.0.0.1")
+            0)
+           (multiple-value-bind (address port)
+               (sb-bsd-sockets:socket-name socket)
+             (declare (ignore address))
+             port))
+      (ignore-errors
+        (sb-bsd-sockets:socket-close socket)))))
+
+#+sbcl
+(defun devnet-cli-http-endpoint-connectable-p (endpoint)
+  (multiple-value-bind (host port)
+      (devnet-cli-http-endpoint-host-port endpoint)
+    (let ((stream nil))
+      (handler-case
+          (progn
+            (setf stream (devnet-cli-connect-stream host port))
+            t)
+        (sb-bsd-sockets:operation-not-permitted-error ()
+          (error "Local socket connect is not permitted in this sandbox"))
+        (error ()
+          nil))
+      (when stream
+        (close stream)))))
+
+#+sbcl
 (defun devnet-cli-http-endpoint-request (endpoint request)
   (multiple-value-bind (host port)
       (devnet-cli-http-endpoint-host-port endpoint)
@@ -4013,6 +4049,11 @@
                (is (search "http://127.0.0.1:" engine-endpoint))
                (is (not (fixture-object-field report "publicRpcEnabled")))
                (is (not (fixture-object-field report "rpcEndpoint")))
+               (is (search "http://127.0.0.1:"
+                           (fixture-object-field report
+                                                 "configuredPublicEndpoint")))
+               (is (not (fixture-object-field report
+                                               "publicEndpointConnectable")))
                (is (= 1 (fixture-object-field report "engineConnections")))
                (is (= 0 (fixture-object-field report "publicConnections")))
                (is (= 1 (fixture-object-field report "totalConnections")))
@@ -12515,6 +12556,7 @@
         (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
         (jwt-path
           (devnet-cli-temp-path "ethereum-lisp-script-engine-only" "jwt"))
+        (public-port nil)
         (ready-path
           (devnet-cli-temp-path
            "ethereum-lisp-script-engine-only-ready" "json"))
@@ -12526,6 +12568,7 @@
     (unwind-protect
          (progn
            (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (setf public-port (devnet-cli-unused-loopback-port))
            (setf process
                  (uiop:launch-program
                   (list "sbcl"
@@ -12543,7 +12586,7 @@
                         "--http.addr"
                         "127.0.0.1"
                         "--http.port"
-                        "0"
+                        (write-to-string public-port)
                         "--authrpc.jwtsecret"
                         (namestring jwt-path)
                         "--ready-file"
@@ -12582,6 +12625,8 @@
                       (fixture-object-field ready-summary "engineEndpoint"))
                     (jwt-secret (hex-to-bytes +devnet-cli-jwt-secret+))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (configured-public-endpoint
+                      (format nil "http://127.0.0.1:~D" public-port))
                     (engine-body
                       (concatenate
                        'string
@@ -12596,6 +12641,8 @@
                (is (not (fixture-object-field ready-summary "rpcEndpoint")))
                (is (not (fixture-object-field ready-summary
                                                "publicRpcEnabled")))
+               (is (not (devnet-cli-http-endpoint-connectable-p
+                         configured-public-endpoint)))
                (handler-case
                    (setf engine-response
                          (devnet-cli-http-endpoint-request

@@ -7094,6 +7094,14 @@ splits can land after the Phase A smoke path closes.
     endpoint, verifies stdout/ready telemetry report `rpcEndpoint=false` and
     `publicRpcEnabled=false`, and requires shutdown telemetry to record one
     Engine connection, zero public connections, and one total connection.
+- [x] `DEVNET-ENGINE-ONLY-PUBLIC-PORT-CLOSED`: Prove `--http=false` leaves an
+  explicitly configured public HTTP port unbound.
+  - Result (2026-07-02): the focused Engine-only smoke gate and external
+    script subprocess now configure a concrete loopback public HTTP port while
+    disabling public RPC, then assert that the configured public endpoint does
+    not accept a TCP connection. The smoke report exposes
+    `configuredPublicEndpoint` and `publicEndpointConnectable=false` alongside
+    the existing one-Engine/zero-public shutdown accounting.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

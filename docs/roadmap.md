@@ -1256,6 +1256,9 @@ first pass, but interfaces must not block that path.
   the authenticated Engine listener, keeps public readiness fields disabled,
   accepts an authenticated Engine client-version probe, and reports one
   Engine / zero public shutdown connection counts.
+  The same Engine-only smoke path now configures a concrete public HTTP port
+  and proves that endpoint stays unbound, so `--http=false` is validated as a
+  real listener-disable contract rather than only a readiness/reporting flag.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where
