@@ -853,6 +853,7 @@
         (terminal-block-number nil)
         (dev-mode-p nil)
         (dev-gas-limit nil)
+        (miner-gas-limit nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1027,6 +1028,12 @@
                   (setf dev-gas-limit
                         (devnet-cli-parse-uint64-quantity value option)
                         args rest)))
+               ((string= option "--miner.gaslimit")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf miner-gas-limit
+                        (devnet-cli-parse-uint64-quantity value option)
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1069,6 +1076,7 @@
           :terminal-block-number terminal-block-number
           :dev-mode-p dev-mode-p
           :dev-gas-limit dev-gas-limit
+          :miner-gas-limit miner-gas-limit
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1191,6 +1199,7 @@
              (null genesis-path))
     (devnet-cli-dev-genesis-json
      :gas-limit (or (getf options :dev-gas-limit)
+                    (getf options :miner-gas-limit)
                     +devnet-default-dev-gas-limit+))))
 
 (defun devnet-cli-print-init-usage (stream)

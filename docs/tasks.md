@@ -990,6 +990,11 @@ ones.
     genesis files authoritative. Startup summaries and lifecycle telemetry
     report `headGasLimit`, so process runners can verify the effective
     genesis gas limit without issuing an extra public RPC request.
+  - Result (2026-07-02): geth/Hive-style `--miner.gaslimit` now acts as a
+    lower-precedence gas-limit source for the embedded `--dev` genesis, while
+    explicit `--dev.gaslimit` still wins and file-backed genesis inputs remain
+    authoritative. Malformed `--miner.gaslimit` values now fail during option
+    parsing instead of being silently consumed as no-op text.
 - [x] `DEVNET-RUNNER-PUBLIC-API-REPORTING`: Report geth/Hive-style public RPC
   module allowlists in runner-visible devnet startup artifacts.
   - Result (2026-06-28): devnet nodes now preserve the parsed `--http.api`

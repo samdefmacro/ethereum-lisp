@@ -2411,6 +2411,43 @@
       (is (= 31000000
              (fixture-object-field summary "headGasLimit"))))))
 
+(deftest devnet-cli-main-miner-gaslimit-shapes-embedded-dev-genesis
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  "--dev"
+                  "--miner.gaslimit"
+                  "32000000"
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (eq t (fixture-object-field summary "devMode")))
+      (is (= 32000000
+             (fixture-object-field summary "headGasLimit")))))
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  "--dev"
+                  "--miner.gaslimit"
+                  "32000000"
+                  "--dev.gaslimit"
+                  "33000000"
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors)))
+    (let ((summary (parse-json (get-output-stream-string output))))
+      (is (= 33000000
+             (fixture-object-field summary "headGasLimit"))))))
+
 (deftest devnet-cli-main-treats-empty-database-as-new-chain
   (labels ((write-empty-kv-database (path)
              (with-open-file (stream path
@@ -12786,6 +12823,10 @@
     (is (search "--dev.gaslimit requires a non-negative integer or hex quantity"
                 (run-error (list "devnet"
                                  "--dev.gaslimit=abc"
+                                 "--no-serve"))))
+    (is (search "--miner.gaslimit requires a non-negative integer or hex quantity"
+                (run-error (list "devnet"
+                                 "--miner.gaslimit=abc"
                                  "--no-serve"))))
     (is (search "--db.engine requires a value"
                 (run-error (list "devnet"

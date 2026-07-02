@@ -1217,6 +1217,9 @@ first pass, but interfaces must not block that path.
   `--nousb`. Enabled `--dev` now supplies an embedded Shanghai dev genesis
   when no explicit or datadir genesis is present, and `--dev.gaslimit` shapes
   that embedded genesis while file-backed genesis inputs remain authoritative;
+  geth/Hive-style `--miner.gaslimit` now supplies the same embedded dev-genesis
+  gas limit when `--dev.gaslimit` is absent, while remaining lower precedence
+  than the dev-specific flag and not enabling mining or block production.
   `--dev.period` remains a compatibility no-op until block production timing
   is implemented. Startup summaries and lifecycle telemetry report
   `headGasLimit` for process-runner checks. Geth/Hive node-key, discovery,
