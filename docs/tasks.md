@@ -1967,6 +1967,18 @@ ones.
     cases. The refreshed consolidated drift map reports zero state and
     blockchain candidates remaining; only the 53 Prague/EIP-7702 transaction
     selectors remain out of scope.
+- [x] `PHASE-A-V5.4.0-REMAINDER-DRIFT-CLOSURE`: Refresh the official v5.4.0
+  drift classification after state and blockchain pinned closure.
+  - Result (2026-07-03): the consolidated drift map against
+    `.cache/eest-v5.4.0/root/fixtures` with `--limit 1000 --failures-only`
+    reports 53 total remaining candidates, all in the transaction suite and
+    all classified as `out-of-scope-fork-feature` Prague/EIP-7702 cases. State
+    and blockchain suites each report zero candidates, and the map reports
+    zero known implementation drift, implementation-bug candidates, or fixture
+    harness errors with `phaseAMaterializableClear=true`. This leaves no
+    remaining materializable Phase A official v5.4.0 selector gaps; future
+    official-fixture work should wait for a new fork/feature scope decision or
+    a concrete correctness bug.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
