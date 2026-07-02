@@ -1235,9 +1235,11 @@ first pass, but interfaces must not block that path.
   Engine plus public RPC probes, the split fixture-genesis path through
   `engine_newPayloadV2`, `engine_forkchoiceUpdatedV2`, and public retained
   state reads, a direct no-command database export/`--no-serve` restore of the
-  imported split head, and the Engine-only `--dev --http=false` path through
-  ready/log/pid artifacts, authenticated Engine RPC, closed public HTTP port
-  behavior, and shutdown telemetry. Geth/Hive node-key,
+  imported split head, the initialized-datadir split `--datadir PATH --http`
+  path, the Engine-only `--dev --http=false` path, and the initialized-datadir
+  Engine-only `--datadir PATH --http=false` path through ready/log/pid
+  artifacts, authenticated Engine RPC, closed public HTTP port behavior,
+  stored JWT/database discovery, and shutdown telemetry. Geth/Hive node-key,
   discovery, network-restriction, and IPC path
   options (`--nodekey`, `--nodekeyhex`, `--discovery.port`,
   `--discovery.dns`, `--netrestrict`, and `--ipcpath`) are also accepted as

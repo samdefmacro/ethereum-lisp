@@ -7298,6 +7298,18 @@ splits can land after the Phase A smoke path closes.
     `/rpc` prefixes through readiness/stdout artifacts, authenticates an
     Engine client-version probe, serves public `eth_chainId`, and shuts down
     with one Engine plus one public request recorded in telemetry.
+- [x] `DEVNET-RUNNER-NO-COMMAND-DATADIR-ENGINE-ONLY`: Prove initialized
+  datadirs can boot through the direct geth/Hive-shaped no-command
+  `--http=false` process boundary.
+  - Result (2026-07-03): subprocess coverage now initializes a temporary
+    datadir with an explicit JWT, then starts
+    `scripts/ethereum-lisp.lisp -- --datadir PATH --http=false ...` without an
+    explicit `devnet` token. The process discovers the stored genesis,
+    database, and datadir JWT secret, reports `publicRpcEnabled=false` /
+    `rpcEndpoint=false` through ready/stdout artifacts, keeps the configured
+    public endpoint closed, enforces the `/engine` Engine prefix, authenticates
+    an Engine client-version probe, and shuts down with two Engine plus zero
+    public requests recorded in telemetry.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.
