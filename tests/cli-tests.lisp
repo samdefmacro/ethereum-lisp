@@ -13317,6 +13317,9 @@
   (skip-test "Ethereum Lisp process script requires SBCL")
   #+sbcl
   (let ((genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+        (init-datadir
+          (devnet-cli-temp-directory
+           "ethereum-lisp-script-init-jwt-error-datadir"))
         (bad-jwt-path
           (devnet-cli-temp-path "ethereum-lisp-script-bad-jwt" "hex"))
         (missing-jwt-path
@@ -13361,11 +13364,36 @@
             (list "init" "--json")
             "init requires a genesis file"
             :event-name "init.error"
+            :usage-substring "Usage: ethereum-lisp init")
+           (devnet-cli-assert-script-error-telemetry
+            (list "init"
+                  "--datadir"
+                  (namestring init-datadir)
+                  "--authrpc.jwtsecret"
+                  (namestring bad-jwt-path)
+                  "--json"
+                  genesis)
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
+            :event-name "init.error"
+            :usage-substring "Usage: ethereum-lisp init")
+           (devnet-cli-assert-script-error-telemetry
+            (list "init"
+                  "--datadir"
+                  (namestring init-datadir)
+                  "--authrpc.jwtsecret"
+                  (namestring missing-jwt-path)
+                  "--json"
+                  genesis)
+            "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret"
+            :event-name "init.error"
             :usage-substring "Usage: ethereum-lisp init"))
       (when (probe-file bad-jwt-path)
         (delete-file bad-jwt-path))
       (when (probe-file missing-jwt-path)
-        (delete-file missing-jwt-path)))))
+        (delete-file missing-jwt-path))
+      (when (probe-file init-datadir)
+        (ignore-errors
+          (uiop:delete-directory-tree init-datadir :validate t))))))
 
 (deftest devnet-cli-rejects-missing-genesis
   (let ((output (make-string-output-stream))

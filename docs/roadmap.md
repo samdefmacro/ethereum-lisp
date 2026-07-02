@@ -1320,8 +1320,12 @@ first pass, but interfaces must not block that path.
   Runner-facing initialization failures now emit `init.error` rather than
   `devnet.error` while preserving the same structured error fields, letting
   launchers distinguish datadir initialization failures from devnet startup
-  failures through the telemetry stream. Devnet runner invocation now also
-  discovers an existing `DATADIR/jwtsecret` or fallback
+  failures through the telemetry stream. Explicit init JWT validation failures
+  are covered by the same process contract: malformed or missing
+  `--authrpc.jwtsecret` files during `init --datadir` produce status 1, empty
+  stdout, init usage on stderr, and a single `init.error` record before
+  readiness. Devnet runner invocation now also discovers an existing
+  `DATADIR/jwtsecret` or fallback
   `DATADIR/geth/jwtsecret` as the Engine JWT secret when no explicit
   `--jwt-secret` / `--authrpc.jwtsecret` path is provided, preserving
   explicit-path precedence and leaving no-secret local devnets unauthenticated;

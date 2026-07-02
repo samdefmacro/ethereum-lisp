@@ -486,6 +486,12 @@ ones.
     log-path fields. Script subprocess coverage verifies missing-genesis init
     failures emit init usage on stderr plus a single command-specific telemetry
     record.
+  - Result (2026-07-02): runner-facing `init --datadir PATH
+    --authrpc.jwtsecret FILE GENESIS` subprocess coverage now verifies
+    malformed and missing explicit JWT files fail before readiness with status
+    1, empty stdout, usage on stderr, and exactly one `init.error` record.
+    This keeps explicit init JWT validation machine-classifiable through the
+    same telemetry contract as devnet startup failures.
   - Result (2026-07-01): the top-level CLI error handler now treats
     `devnet.error` / `init.error` telemetry as best-effort. If the configured
     `--log-file` path itself cannot be opened while reporting a startup error,
