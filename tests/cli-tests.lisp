@@ -11837,6 +11837,7 @@
           (devnet-cli-temp-path "ethereum-lisp-script-http-shape" "log"))
         (pid-path
           (devnet-cli-temp-path "ethereum-lisp-script-http-shape" "pid"))
+        (coinbase "0x00000000000000000000000000000000000000cb")
         (process nil))
     (unwind-protect
          (progn
@@ -11880,6 +11881,8 @@
                         "eth,net"
                         "--networkid"
                         "4242"
+                        "--miner.etherbase"
+                        coinbase
                         "--ready-file"
                         (namestring ready-path)
                         "--log-file"
@@ -11887,7 +11890,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "10"
+                        "11"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -11924,6 +11927,8 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":602,\"method\":\"eth_chainId\",\"params\":[]}")
                     (public-net-body
                       "{\"jsonrpc\":\"2.0\",\"id\":603,\"method\":\"net_version\",\"params\":[]}")
+                    (public-coinbase-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":607,\"method\":\"eth_coinbase\",\"params\":[]}")
                     (public-web3-body
                       "{\"jsonrpc\":\"2.0\",\"id\":604,\"method\":\"web3_clientVersion\",\"params\":[]}")
                     (public-rpc-modules-body
@@ -11938,6 +11943,7 @@
                     engine-unsupported-content-type-response
                     public-prefixed-response
                     public-net-response
+                    public-coinbase-response
                     public-rpc-modules-response
                     public-blocked-host-response
                     public-root-response
@@ -11958,6 +11964,8 @@
                (is (equal '("eth" "net")
                           (fixture-object-field
                            ready-summary "publicApiModules")))
+               (is (string= coinbase
+                            (fixture-object-field ready-summary "coinbase")))
                (is (equal '("https://engine.runner")
                           (fixture-object-field
                            ready-summary "engineCorsOrigins")))
@@ -12044,6 +12052,13 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-net-body
+                             :target "/rpc"
+                             :host "public.runner")))
+                     (setf public-coinbase-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-coinbase-body
                              :target "/rpc"
                              :host "public.runner")))
                      (setf public-rpc-modules-response
@@ -12142,6 +12157,7 @@
                (is (search "Access-Control-Allow-Origin: https://runner.example"
                            public-prefixed-response))
                (is (= 200 (devnet-cli-http-status public-net-response)))
+               (is (= 200 (devnet-cli-http-status public-coinbase-response)))
                (is (= 200
                       (devnet-cli-http-status
                        public-rpc-modules-response)))
@@ -12173,6 +12189,9 @@
                       (public-net-json
                         (parse-json
                          (devnet-cli-http-body public-net-response)))
+                      (public-coinbase-json
+                        (parse-json
+                         (devnet-cli-http-body public-coinbase-response)))
                       (public-rpc-modules-json
                         (parse-json
                          (devnet-cli-http-body
@@ -12198,6 +12217,11 @@
                  (is (string= "4242"
                               (fixture-object-field
                                public-net-json "result")))
+                 (is (= 607
+                        (fixture-object-field public-coinbase-json "id")))
+                 (is (string= coinbase
+                              (fixture-object-field
+                               public-coinbase-json "result")))
                  (is (= 605
                         (fixture-object-field public-rpc-modules-json "id")))
                  (is (string= "1.0"
@@ -12253,6 +12277,9 @@
                          (is (equal '("eth" "net")
                                     (fixture-object-field
                                      summary "publicApiModules")))
+                         (is (string= coinbase
+                                      (fixture-object-field
+                                       summary "coinbase")))
                          (is (equal '("https://engine.runner")
                                     (fixture-object-field
                                      summary "engineCorsOrigins")))
@@ -12270,6 +12297,9 @@
                                                     :test #'string=))))
                            (is (string= "eth,net"
                                         (cdr (assoc "publicApiModules" fields
+                                                    :test #'string=))))
+                           (is (string= coinbase
+                                        (cdr (assoc "coinbase" fields
                                                     :test #'string=))))
                            (is (string= "https://engine.runner"
                                         (cdr (assoc "engineCorsOrigins" fields
@@ -12289,11 +12319,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "10"
+                         (is (string= "11"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "16"
+                         (is (string= "17"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

@@ -1002,6 +1002,12 @@ ones.
     coinbase. The setting remains a reporting/header input only and does not
     enable mining or block production; malformed addresses fail during option
     parsing.
+  - Result (2026-07-02): the external `sbcl --script
+    scripts/ethereum-lisp.lisp -- devnet ...` HTTP-shaping process test now
+    launches with geth/Hive-style `--miner.etherbase` and verifies the
+    configured coinbase through readiness JSON, stdout JSON, lifecycle
+    telemetry, and public `eth_coinbase` on the advertised public RPC
+    endpoint.
 - [x] `DEVNET-RUNNER-PUBLIC-API-REPORTING`: Report geth/Hive-style public RPC
   module allowlists in runner-visible devnet startup artifacts.
   - Result (2026-06-28): devnet nodes now preserve the parsed `--http.api`

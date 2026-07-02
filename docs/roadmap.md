@@ -1350,8 +1350,9 @@ first pass, but interfaces must not block that path.
   for geth/Hive-style HTTP shaping flags: `--authrpc.*` / `--http.*` aliases,
   non-root Engine/public RPC prefixes, Engine/public vhost allowlists, public
   CORS origins, `--http.api eth,net` filtering, network-id-backed
-  `net_version`, and the resulting ready/stdout/lifecycle metadata plus
-  shutdown connection accounting. That HTTP-shaping subprocess now also asks
+  `net_version`, miner-etherbase-backed public `eth_coinbase`, and the
+  resulting ready/stdout/lifecycle metadata plus shutdown connection
+  accounting. That HTTP-shaping subprocess now also asks
   `rpc_modules` through the configured public prefix and verifies narrowed
   module introspection advertises only `eth`, `net`, and `rpc` while keeping
   omitted modules hidden, and it probes a disabled `txpool_status` request to
