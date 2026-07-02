@@ -12677,9 +12677,12 @@
            "ethereum-lisp-script-engine-only-ready" "json"))
         (log-path
           (devnet-cli-temp-path "ethereum-lisp-script-engine-only" "log"))
-        (pid-path
-          (devnet-cli-temp-path "ethereum-lisp-script-engine-only" "pid"))
-        (process nil))
+	        (pid-path
+	          (devnet-cli-temp-path "ethereum-lisp-script-engine-only" "pid"))
+	        (database-path
+	          (devnet-cli-temp-path
+	           "ethereum-lisp-script-engine-only-chain" "sexp"))
+	        (process nil))
     (unwind-protect
          (progn
            (devnet-cli-write-temp-file
@@ -12718,10 +12721,12 @@
                         (namestring ready-path)
                         "--log-file"
                         (namestring log-path)
-                        "--pid-file"
-                        (namestring pid-path)
-                        "--max-connections"
-                        "4"
+	                        "--pid-file"
+	                        (namestring pid-path)
+	                        "--database"
+	                        (namestring database-path)
+	                        "--max-connections"
+	                        "4"
                         "--json")
                   :directory #P"/private/tmp/"
                   :output :stream
@@ -12933,15 +12938,60 @@
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "4"
-                                    (cdr (assoc "totalConnections"
-                                                shutdown-fields
-                                                :test #'string=)))))))))))
+	                       (is (string= "4"
+	                                    (cdr (assoc "totalConnections"
+	                                                shutdown-fields
+	                                                :test #'string=))))
+	                       (multiple-value-bind
+	                             (restore-stdout restore-stderr
+	                              restore-status)
+	                           (uiop:run-program
+	                            (list "sbcl"
+	                                  "--script"
+	                                  script
+	                                  "--"
+	                                  "devnet"
+	                                  "--genesis"
+	                                  (namestring genesis-path)
+	                                  "--database"
+	                                  (namestring database-path)
+	                                  "--http=false"
+	                                  "--no-serve"
+	                                  "--json")
+	                            :directory #P"/private/tmp/"
+	                            :output :string
+	                            :error-output :string
+	                            :ignore-error-status t)
+	                         (is (= 0 restore-status))
+	                         (is (string= "" restore-stderr))
+	                         (when (= 0 restore-status)
+	                           (let ((restore-summary
+	                                   (parse-json restore-stdout)))
+	                             (is (string= (namestring database-path)
+	                                          (fixture-object-field
+	                                           restore-summary
+	                                           "databasePath")))
+	                             (is (= (fixture-quantity-field
+	                                     payload-case "number")
+	                                    (fixture-object-field
+	                                     restore-summary "headNumber")))
+	                             (is (string= block-hash-hex
+	                                          (fixture-object-field
+	                                           restore-summary "headHash")))
+	                             (is (fixture-object-field
+	                                  restore-summary "stateAvailable"))
+	                             (is (not (fixture-object-field
+	                                       restore-summary
+	                                       "publicRpcEnabled")))
+	                             (is (not (fixture-object-field
+	                                       restore-summary
+	                                       "rpcEndpoint")))))))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
-      (dolist (path (list genesis-path jwt-path ready-path log-path pid-path))
-        (when (probe-file path)
-          (delete-file path))))))
+	      (dolist (path (list genesis-path jwt-path ready-path log-path
+	                          pid-path database-path))
+	        (when (probe-file path)
+	          (delete-file path))))))
 
 (defun devnet-cli-assert-script-signal-shutdown (signal-name temp-name)
   (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))

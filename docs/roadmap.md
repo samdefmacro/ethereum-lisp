@@ -1282,6 +1282,10 @@ first pass, but interfaces must not block that path.
   forkchoice statuses and `latestValidHash`, keep the public endpoint closed,
   and require shutdown telemetry to report the imported child head with four
   Engine and zero public connections.
+  The runner-facing Engine-only process coverage now also launches with
+  `--database`, exports the imported child on shutdown, and verifies a fresh
+  no-serve `--http=false` restore reports the same child head and retained
+  head state while public RPC remains disabled.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

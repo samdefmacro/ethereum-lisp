@@ -7150,6 +7150,15 @@ splits can land after the Phase A smoke path closes.
     genesis and verifies four Engine / zero public shutdown connections. The
     top-level Phase A `--devnet` wrapper validates the Engine-only payload
     workflow fields through `devnetEngineOnly`.
+- [x] `DEVNET-ENGINE-ONLY-DATABASE-RESTORE`: Prove Engine-only imported
+  payloads survive process shutdown database export and no-serve restore.
+  - Result (2026-07-02): the runner-facing
+    `scripts/ethereum-lisp.lisp -- devnet --http=false` subprocess coverage
+    now launches with `--database`, imports the default Shanghai payload over
+    authenticated `/engine`, exits after forkchoice, then starts a fresh
+    no-serve `--http=false` process from the exported KV database and verifies
+    the restored head number/hash and retained head state match the imported
+    child while public RPC remains disabled.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.
