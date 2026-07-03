@@ -3068,9 +3068,9 @@ references/ checkouts.~%")
                         "--authrpc.port"
                         "0"
                         "--http=false"
-                        "--kzg-verifier-command"
+                        "--kzg.verifier-command"
                         (namestring kzg-command)
-                        "--kzg-verifier-timeout"
+                        "--kzg.verifier-timeout"
                         "2"
                         "--ready-file"
                         (namestring ready-path)
@@ -3249,7 +3249,11 @@ references/ checkouts.~%")
                           (cons "engineEndpoint" engine-endpoint)
                           (cons "kzgVerifierCommand"
                                 (namestring kzg-command))
+                          (cons "kzgVerifierCommandOption"
+                                "--kzg.verifier-command")
                           (cons "kzgVerifierTimeoutSeconds" 2)
+                          (cons "kzgVerifierTimeoutOption"
+                                "--kzg.verifier-timeout")
                           (cons "kzgProofVerificationAvailable" t)
                           (cons "engineCapabilityCount"
                                 (length capabilities-result))

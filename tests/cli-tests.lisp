@@ -242,7 +242,11 @@
               (fixture-object-field report "engineEndpoint")))
   (is (search "ethereum-lisp-smoke-kzg-command"
               (fixture-object-field report "kzgVerifierCommand")))
+  (is (string= "--kzg.verifier-command"
+               (fixture-object-field report "kzgVerifierCommandOption")))
   (is (= 2 (fixture-object-field report "kzgVerifierTimeoutSeconds")))
+  (is (string= "--kzg.verifier-timeout"
+               (fixture-object-field report "kzgVerifierTimeoutOption")))
   (is (eq t
           (fixture-object-field report "kzgProofVerificationAvailable")))
   (is (plusp (fixture-object-field report "engineCapabilityCount")))

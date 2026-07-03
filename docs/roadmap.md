@@ -743,7 +743,9 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   runner-facing script-process opt-in also covers the geth/Hive-style
   `--kzg.verifier-command` and `--kzg.verifier-timeout` aliases through a live
   Engine-only capability negotiation, and `devnet --help` advertises both KZG
-  spellings.
+  spellings. The standalone devnet smoke gate's `kzgOptIn` child now uses and
+  reports the dotted geth/Hive option names as well, so the reusable process
+  gate exercises the same alias surface.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* wire a trusted KZG backend before treating Cancun blob payloads as

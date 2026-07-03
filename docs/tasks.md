@@ -1160,6 +1160,12 @@ ones.
     blob-capable Engine method set through `engine_exchangeCapabilities`.
     `ethereum-lisp devnet --help` now advertises both KZG option spellings so
     runner templates can discover the accepted alias surface.
+  - Result (2026-07-03): the standalone `scripts/devnet-smoke-gate.lisp
+    -- --engine-only-serve` `kzgOptIn` child now launches the subprocess with
+    `--kzg.verifier-command` / `--kzg.verifier-timeout`, reports those option
+    names in `kzgVerifierCommandOption` / `kzgVerifierTimeoutOption`, and
+    keeps the live Engine capability probe on the same Hive-shaped KZG opt-in
+    path as the runner-facing script process.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess
