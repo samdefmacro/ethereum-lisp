@@ -1306,6 +1306,13 @@ ones.
     while still validating the index parameter. Explicit block numbers,
     `latest`, and hash-addressed uncle queries keep the existing canonical
     block behavior.
+- [x] `PUBLIC-RPC-PENDING-BLOCK-RECEIPTS`: Keep block-receipt reads from
+  aliasing the pending block to the latest committed block.
+  - Result (2026-07-03): `eth_getBlockReceipts("pending")` and
+    `eth_getBlockReceipts({"blockNumber":"pending"})` now return `null`
+    because pending transactions have no receipts yet. Explicit block numbers,
+    `latest`, and hash-addressed block receipt reads keep the existing
+    canonical behavior.
 - [x] `DEVNET-RUNNER-PENDING-BLOCK-TAG-TXPOOL`: Lock pending block-tag txpool
   visibility at the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate's restored-database

@@ -418,6 +418,32 @@
         store
         (eth-rpc-block-number-param params store method))))))
 
+(defun eth-rpc-pending-block-id-param-p (params method)
+  (unless (= 1 (length params))
+    (block-validation-fail "~A params must contain exactly one block id"
+                           method))
+  (let ((value (first params)))
+    (cond
+      ((eth-rpc-pending-block-tag-p value) t)
+      ((json-object-p value)
+       (let ((hash-present-p (genesis-object-field-present-p value "blockHash"))
+             (number-present-p
+               (genesis-object-field-present-p value "blockNumber")))
+         (when (or (and hash-present-p number-present-p)
+                   (and (not hash-present-p) (not number-present-p)))
+           (block-validation-fail
+            "~A block id object must contain exactly one of blockHash or blockNumber"
+            method))
+         (when (and number-present-p
+                    (genesis-object-field-present-p value "requireCanonical"))
+           (block-validation-fail
+            "~A requireCanonical requires blockHash"
+            method))
+         (and number-present-p
+              (eth-rpc-pending-block-tag-p
+               (genesis-object-field value "blockNumber")))))
+      (t nil))))
+
 (defun eth-rpc-block-object-require-canonical-p (object method)
   (if (genesis-object-field-present-p object "requireCanonical")
       (let ((value (genesis-object-field object "requireCanonical")))
@@ -2281,10 +2307,12 @@
        :expected-chain-id (chain-config-chain-id config)))))
 
 (defun engine-rpc-handle-eth-get-block-receipts (params store config)
-  (let ((block (eth-rpc-block-param params store "eth_getBlockReceipts")))
-    (eth-rpc-block-receipts-object
-     block
-     :expected-chain-id (chain-config-chain-id config))))
+  (if (eth-rpc-pending-block-id-param-p params "eth_getBlockReceipts")
+      nil
+      (let ((block (eth-rpc-block-param params store "eth_getBlockReceipts")))
+        (eth-rpc-block-receipts-object
+         block
+         :expected-chain-id (chain-config-chain-id config)))))
 
 (defun eth-rpc-address= (left right)
   (and left

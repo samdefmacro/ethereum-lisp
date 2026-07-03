@@ -23247,6 +23247,18 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"eth_getBlockReceipts\",\"params\":[\"0x63\"]}"
                  store
                  config)))
+             (pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":67,\"method\":\"eth_getBlockReceipts\",\"params\":[\"pending\"]}"
+                 store
+                 config)))
+             (pending-object-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":68,\"method\":\"eth_getBlockReceipts\",\"params\":[{\"blockNumber\":\"pending\"}]}"
+                 store
+                 config)))
              (invalid-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -23277,6 +23289,8 @@
                      (field (second hash-receipts)
                             "transactionHash")))
         (is (null (field missing-response "result")))
+        (is (null (field pending-response "result")))
+        (is (null (field pending-object-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
 (deftest eth-rpc-get-logs

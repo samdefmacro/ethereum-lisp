@@ -1678,7 +1678,10 @@ first pass, but interfaces must not block that path.
   reads also use the synthetic pending block boundary:
   `eth_getUncleCountByBlockNumber("pending")` returns zero and
   `eth_getUncleByBlockNumberAndIndex("pending", INDEX)` returns null instead
-  of leaking ommers from the latest committed block.
+  of leaking ommers from the latest committed block. Pending block-receipt
+  reads follow the same boundary: `eth_getBlockReceipts("pending")` and the
+  block-number object form return null because pending transactions do not
+  have receipts.
   The standalone devnet smoke path now also checks
   `eth_getTransactionCount(..., "pending")` through live and restored public
   listeners after txpool admission so process runners cover pending sender
