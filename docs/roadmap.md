@@ -1373,6 +1373,11 @@ first pass, but interfaces must not block that path.
   imported child through public `/rpc` block and retained-state reads, export
   the updated datadir database on shutdown, and restore the same head/state
   through a fresh direct no-command `--no-serve` launch.
+  The initialized-datadir Engine-only no-command path now covers the same
+  executable import/persist/restore contract with `--http=false`: public RPC
+  remains disabled and unreachable while authenticated Engine payload import,
+  forkchoice, shutdown head telemetry, and fresh `--no-serve --http=false`
+  restore all preserve the imported child head.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

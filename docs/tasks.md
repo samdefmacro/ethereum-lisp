@@ -7396,6 +7396,17 @@ splits can land after the Phase A smoke path closes.
     the imported child head in shutdown telemetry, and starts a fresh
     no-command `--no-serve` process from the same datadir database to verify
     the imported head/state restore contract.
+- [x] `DEVNET-RUNNER-NO-COMMAND-DATADIR-ENGINE-ONLY-IMPORT`: Prove
+  initialized datadir no-command Engine-only launches can import an Engine
+  payload and persist it without public RPC.
+  - Result (2026-07-03): added subprocess coverage that initializes a datadir
+    from a fixture parent genesis, starts `scripts/ethereum-lisp.lisp --`
+    with geth/Hive-shaped `--datadir PATH --http=false` launch flags, verifies
+    the configured public endpoint stays closed, imports `engine_newPayloadV2`,
+    applies `engine_forkchoiceUpdatedV2`, checks the imported child head and
+    Engine-only connection counts in shutdown telemetry, and starts a fresh
+    no-command `--no-serve --http=false` process from the same datadir
+    database to verify restored head/state with public RPC still disabled.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.
