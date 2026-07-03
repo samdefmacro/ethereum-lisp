@@ -1367,6 +1367,12 @@ first pass, but interfaces must not block that path.
   expanded shutdown connection counts while the split path keeps public
   `eth_chainId`, `net_version`, `web3_clientVersion`, and `rpc_modules`
   reachable through `/rpc`.
+  The initialized-datadir no-command split path now also covers executable
+  behavior: a datadir initialized from a fixture parent genesis can import
+  `engine_newPayloadV2`, apply `engine_forkchoiceUpdatedV2`, expose the
+  imported child through public `/rpc` block and retained-state reads, export
+  the updated datadir database on shutdown, and restore the same head/state
+  through a fresh direct no-command `--no-serve` launch.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

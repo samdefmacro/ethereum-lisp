@@ -7386,6 +7386,16 @@ splits can land after the Phase A smoke path closes.
     `eth_chainId`, `net_version`, `web3_clientVersion`, and `rpc_modules`
     available through `/rpc`, and both paths verify the expanded shutdown
     connection counts.
+- [x] `DEVNET-RUNNER-NO-COMMAND-DATADIR-IMPORT`: Prove initialized datadir
+  no-command split launches can import an Engine payload and persist it.
+  - Result (2026-07-03): added subprocess coverage that initializes a datadir
+    from a fixture parent genesis, starts `scripts/ethereum-lisp.lisp --`
+    with only geth/Hive-shaped `--datadir PATH --http` launch flags, imports
+    `engine_newPayloadV2`, applies `engine_forkchoiceUpdatedV2`, verifies
+    public `eth_blockNumber` and retained balance reads through `/rpc`, checks
+    the imported child head in shutdown telemetry, and starts a fresh
+    no-command `--no-serve` process from the same datadir database to verify
+    the imported head/state restore contract.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.
