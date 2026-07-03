@@ -2095,7 +2095,20 @@
          (engine-payload-store-pooled-transaction store hash)
          (chain-config-chain-id config)))))
 
-(defun engine-rpc-handle-eth-send-raw-transaction (params store config)
+(defun eth-rpc-unprotected-transaction-p (transaction)
+  (and (typep transaction 'legacy-transaction)
+       (not (legacy-transaction-protected-p transaction))))
+
+(defun eth-rpc-validate-unprotected-transaction-policy
+    (transaction allow-unprotected-transactions-p)
+  (when (and (eth-rpc-unprotected-transaction-p transaction)
+             (not allow-unprotected-transactions-p))
+    (block-validation-fail
+     "eth_sendRawTransaction unprotected legacy transaction rejected"))
+  t)
+
+(defun engine-rpc-handle-eth-send-raw-transaction
+    (params store config &key allow-unprotected-transactions-p)
   (unless (= 1 (length params))
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
@@ -2115,6 +2128,9 @@
                  "eth_sendRawTransaction transaction sender recovery failed"))))
       (unless (or (chain-store-transaction-location store hash)
                   (engine-payload-store-pooled-transaction store hash))
+        (eth-rpc-validate-unprotected-transaction-policy
+         transaction
+         allow-unprotected-transactions-p)
         (eth-rpc-validate-txpool-admission transaction sender store config)
         (cond
           ((typep transaction 'blob-transaction)
@@ -2690,7 +2706,8 @@
 (defun engine-rpc-handle-public-method
     (id method params store config
      &key network-id coinbase
-          (allowed-method-p #'engine-rpc-any-method-p))
+          (allowed-method-p #'engine-rpc-any-method-p)
+          allow-unprotected-transactions-p)
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -2901,7 +2918,12 @@
      (engine-rpc-response
       id
       :result
-      (engine-rpc-handle-eth-send-raw-transaction params store config)))
+      (engine-rpc-handle-eth-send-raw-transaction
+       params
+       store
+       config
+       :allow-unprotected-transactions-p
+       allow-unprotected-transactions-p)))
     ((string= method "eth_pendingTransactions")
      (engine-rpc-response
       id

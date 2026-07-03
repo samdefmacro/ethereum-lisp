@@ -7007,7 +7007,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (request store config &key import-function
                             network-id
                             coinbase
-                            (allowed-method-p #'engine-rpc-any-method-p))
+                            (allowed-method-p #'engine-rpc-any-method-p)
+                            allow-unprotected-transactions-p)
   (let ((id (and (listp request)
                  (genesis-object-field request "id")))
         (notification-p (engine-rpc-notification-request-p request)))
@@ -7043,7 +7044,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           id method params store config
                           :network-id network-id
                           :coinbase coinbase
-                          :allowed-method-p allowed-method-p)
+                          :allowed-method-p allowed-method-p
+                          :allow-unprotected-transactions-p
+                          allow-unprotected-transactions-p)
                          (engine-rpc-response
                           id
                           :error
@@ -7072,14 +7075,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (request store config &key import-function
                             network-id
                             coinbase
-                            (allowed-method-p #'engine-rpc-any-method-p))
+                            (allowed-method-p #'engine-rpc-any-method-p)
+                            allow-unprotected-transactions-p)
   (cond
     ((json-object-p request)
      (engine-rpc-handle-request request store config
                                 :import-function import-function
                                 :network-id network-id
                                 :coinbase coinbase
-                                :allowed-method-p allowed-method-p))
+                                :allowed-method-p allowed-method-p
+                                :allow-unprotected-transactions-p
+                                allow-unprotected-transactions-p))
     ((and (listp request) request)
      (loop for item in request
            for response = (if (json-object-p item)
@@ -7088,7 +7094,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                :import-function import-function
                                :network-id network-id
                                :coinbase coinbase
-                               :allowed-method-p allowed-method-p)
+                               :allowed-method-p allowed-method-p
+                               :allow-unprotected-transactions-p
+                               allow-unprotected-transactions-p)
                               (engine-rpc-invalid-request-response))
            when response
              collect response))
@@ -7098,7 +7106,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (request-json store config &key import-function
                                   network-id
                                   coinbase
-                                  (allowed-method-p #'engine-rpc-any-method-p))
+                                  (allowed-method-p #'engine-rpc-any-method-p)
+                                  allow-unprotected-transactions-p)
   (let ((request
           (handler-case
               (parse-json request-json :preserve-empty-arrays t)
@@ -7112,20 +7121,24 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :import-function import-function
      :network-id network-id
      :coinbase coinbase
-     :allowed-method-p allowed-method-p)))
+     :allowed-method-p allowed-method-p
+     :allow-unprotected-transactions-p allow-unprotected-transactions-p)))
 
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function
                                   network-id
                                   coinbase
-                                  (allowed-method-p #'engine-rpc-any-method-p))
+                                  (allowed-method-p #'engine-rpc-any-method-p)
+                                  allow-unprotected-transactions-p)
   (let ((response
           (engine-rpc-handle-request-string
            request-json store config
            :import-function import-function
            :network-id network-id
            :coinbase coinbase
-           :allowed-method-p allowed-method-p)))
+           :allowed-method-p allowed-method-p
+           :allow-unprotected-transactions-p
+           allow-unprotected-transactions-p)))
     (if response
         (json-encode response)
         "")))
@@ -7150,7 +7163,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                 (&key host port store config jwt-secret now-provider
                       import-function telemetry-sink allowed-method-p
                       network-id coinbase rpc-prefix cors-origins
-                      allowed-hosts)))
+                      allowed-hosts allow-unprotected-transactions-p)))
   host
   port
   store
@@ -7164,7 +7177,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   coinbase
   rpc-prefix
   cors-origins
-  allowed-hosts)
+  allowed-hosts
+  allow-unprotected-transactions-p)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7203,6 +7217,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        (rpc-prefix "/")
        cors-origins
        allowed-hosts
+       allow-unprotected-transactions-p
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7258,7 +7273,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :coinbase coinbase
    :rpc-prefix rpc-prefix
    :cors-origins cors-origins
-   :allowed-hosts allowed-hosts))
+   :allowed-hosts allowed-hosts
+   :allow-unprotected-transactions-p allow-unprotected-transactions-p))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -7923,7 +7939,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                (rpc-prefix "/")
                                (allowed-method-p #'engine-rpc-any-method-p)
                                cors-origins
-                               allowed-hosts)
+                               allowed-hosts
+                               allow-unprotected-transactions-p)
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -7998,7 +8015,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      :import-function import-function
                      :network-id network-id
                      :coinbase coinbase
-                     :allowed-method-p allowed-method-p)
+                     :allowed-method-p allowed-method-p
+                     :allow-unprotected-transactions-p
+                     allow-unprotected-transactions-p)
                     :extra-headers cors-headers))))))))
     (error (condition)
       (engine-rpc-http-error-response
@@ -8014,6 +8033,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (allowed-method-p #'engine-rpc-any-method-p)
           cors-origins
           allowed-hosts
+          allow-unprotected-transactions-p
           telemetry-sink telemetry-fields)
   (let* ((request nil)
          (response
@@ -8032,7 +8052,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :rpc-prefix rpc-prefix
                  :allowed-method-p allowed-method-p
                  :cors-origins cors-origins
-                 :allowed-hosts allowed-hosts))
+                 :allowed-hosts allowed-hosts
+                 :allow-unprotected-transactions-p
+                 allow-unprotected-transactions-p))
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -8082,6 +8104,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-rpc-http-service-allowed-method-p service)
           :cors-origins (engine-rpc-http-service-cors-origins service)
           :allowed-hosts (engine-rpc-http-service-allowed-hosts service)
+          :allow-unprotected-transactions-p
+          (engine-rpc-http-service-allow-unprotected-transactions-p service)
           :telemetry-sink sink
           :telemetry-fields fields)
       (ethereum-lisp.telemetry:telemetry-metric

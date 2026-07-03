@@ -3784,6 +3784,8 @@ HTTPPort = 1945
                    (fixture-object-field summary "engineEndpoint")))
       (is (string= "127.0.0.1:8545"
                    (fixture-object-field summary "rpcEndpoint")))
+      (is (eq t (fixture-object-field summary
+                                       "allowUnprotectedTransactions")))
       (is (eq nil (fixture-object-field summary "authRequired"))))))
 
 (deftest devnet-cli-main-accepts-geth-style-dev-mode-flags

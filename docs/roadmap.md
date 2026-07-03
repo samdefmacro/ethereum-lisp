@@ -1235,7 +1235,7 @@ first pass, but interfaces must not block that path.
   management, metrics, profiling, bootnode discovery, archive-mode behavior,
   or a GraphQL listener. Additional geth/Hive txpool, RPC, and database
   template flags are also accepted as compatibility no-ops, including
-  txpool price/slot/queue/lifetime knobs, `--rpc.allow-unprotected-txs`,
+  txpool price/slot/queue/lifetime knobs,
   RPC resource-limit flags (`--rpc.gascap`, `--rpc.evmtimeout`,
   `--rpc.txfeecap`, `--rpc.batch-request-limit`, and
   `--rpc.batch-response-max-size`), HTTP server resource flags
@@ -1252,7 +1252,10 @@ first pass, but interfaces must not block that path.
   that embedded genesis while file-backed genesis inputs remain authoritative;
   geth/Hive-style `--miner.gaslimit` now supplies the same embedded dev-genesis
   gas limit when `--dev.gaslimit` is absent, while remaining lower precedence
-  than the dev-specific flag and not enabling mining or block production. The
+  than the dev-specific flag and not enabling mining or block production.
+  `--rpc.allow-unprotected-txs` now controls public RPC admission of
+  unprotected legacy `eth_sendRawTransaction` submissions, defaulting to
+  rejection unless explicitly enabled. The
   geth TOML `[Eth.Miner] GasCeil` field is imported through the same
   runner-visible path for config-file-based launches.
   `--miner.etherbase` / `--etherbase` also shape the embedded dev genesis

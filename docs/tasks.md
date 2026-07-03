@@ -1021,14 +1021,16 @@ ones.
     `--txpool.journal`, `--txpool.rejournal`, txpool price/slot/queue/lifetime
     knobs, blobpool capacity/price-bump knobs, `--state.scheme`,
     `--db.engine`, `--datadir.ancient`, `--dev`, and `--nousb` as runner
-    options. At this stage `--dev` was still a compatibility no-op; later
-    `DEVNET-RUNNER-DEV-GENESIS-FALLBACK` makes enabled `--dev` select an
-    embedded local genesis when no file-backed genesis exists. The remaining
-    flags do not alter the current in-memory txpool, database, or USB behavior;
-    they prevent geth-shaped process templates from failing before the
-    supported split Engine/public devnet process starts. CLI coverage verifies
-    a geth-shaped no-serve invocation and malformed boolean/missing-value
-    failures.
+    options. At this stage `--dev` and `--rpc.allow-unprotected-txs` were
+    still compatibility no-ops; later `DEVNET-RUNNER-DEV-GENESIS-FALLBACK`
+    makes enabled `--dev` select an embedded local genesis when no file-backed
+    genesis exists, and the 2026-07-03 txpool admission slice makes
+    `--rpc.allow-unprotected-txs` control public RPC admission of unprotected
+    legacy transactions. The remaining flags do not alter the current
+    in-memory txpool, database, or USB behavior; they prevent geth-shaped
+    process templates from failing before the supported split Engine/public
+    devnet process starts. CLI coverage verifies a geth-shaped no-serve
+    invocation and malformed boolean/missing-value failures.
 - [x] `DEVNET-RUNNER-DEV-MODE-NOOP-FLAGS`: Accept geth dev-mode subflags that
   commonly accompany `--dev` in local runner templates.
   - Result (2026-07-01): the shared devnet/init option table now consumes

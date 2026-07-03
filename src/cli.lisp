@@ -8,6 +8,7 @@
                       public-api-modules engine-cors-origins
                       public-cors-origins
                       engine-vhosts public-vhosts dev-mode-p coinbase
+                      allow-unprotected-transactions-p
                       kzg-verifier-command
                       kzg-verifier-timeout-seconds)))
   genesis-path
@@ -29,6 +30,7 @@
   public-vhosts
   dev-mode-p
   coinbase
+  allow-unprotected-transactions-p
   kzg-verifier-command
   kzg-verifier-timeout-seconds)
 
@@ -308,6 +310,7 @@
        terminal-block-hash
        terminal-block-number
        (coinbase (zero-address))
+       allow-unprotected-transactions-p
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -371,6 +374,8 @@
             :allowed-method-p public-allowed-method-p
             :cors-origins public-cors-origins
             :allowed-hosts public-vhosts
+            :allow-unprotected-transactions-p
+            allow-unprotected-transactions-p
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -414,6 +419,7 @@
                          (copy-list public-vhosts))
      :dev-mode-p dev-mode-p
      :coinbase coinbase
+     :allow-unprotected-transactions-p allow-unprotected-transactions-p
      :kzg-verifier-command kzg-verifier-command
      :kzg-verifier-timeout-seconds
      (and kzg-verifier-command
@@ -504,6 +510,8 @@
           :public-vhosts (devnet-node-public-vhosts node)
           :dev-mode-p (devnet-node-dev-mode-p node)
           :coinbase (address-to-hex (devnet-node-coinbase node))
+          :allow-unprotected-transactions-p
+          (devnet-node-allow-unprotected-transactions-p node)
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
           :kzg-verifier-timeout-seconds
           (devnet-node-kzg-verifier-timeout-seconds node)
@@ -546,6 +554,8 @@
       ("pidFilePath" . ,(getf summary :pid-file-path))
       ("devMode" . ,(if (getf summary :dev-mode-p) t :false))
       ("coinbase" . ,(getf summary :coinbase))
+      ("allowUnprotectedTransactions" .
+       ,(if (getf summary :allow-unprotected-transactions-p) t :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -1203,6 +1213,7 @@
         (dev-gas-limit nil)
         (miner-gas-limit nil)
         (coinbase (zero-address))
+        (allow-unprotected-transactions-p nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1403,6 +1414,11 @@
                     (devnet-cli-next-value args option)
                   (setf coinbase (devnet-cli-parse-address value option)
                         args rest)))
+               ((string= option "--rpc.allow-unprotected-txs")
+                (multiple-value-bind (enabled-p rest)
+                    (devnet-cli-optional-boolean-value args option)
+                  (setf allow-unprotected-transactions-p enabled-p
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1448,6 +1464,7 @@
           :dev-gas-limit dev-gas-limit
           :miner-gas-limit miner-gas-limit
           :coinbase coinbase
+          :allow-unprotected-transactions-p allow-unprotected-transactions-p
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1786,6 +1803,10 @@
       ("headNumber" . ,(quantity-to-hex (getf summary :head-number)))
       ("headHash" . ,(getf summary :head-hash))
       ("coinbase" . ,(getf summary :coinbase))
+      ("allowUnprotectedTransactions" .
+       ,(if (getf summary :allow-unprotected-transactions-p)
+            "true"
+            "false"))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -2023,6 +2044,9 @@
                                 :terminal-block-number
                                 (getf options :terminal-block-number)
                                 :coinbase (getf options :coinbase)
+                                :allow-unprotected-transactions-p
+                                (getf options
+                                      :allow-unprotected-transactions-p)
                                 :kzg-verifier-command
                                 (getf options :kzg-verifier-command)
                                 :kzg-verifier-timeout-seconds

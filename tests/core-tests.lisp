@@ -14858,11 +14858,12 @@
                 (engine-rpc-handle-request-json
                  (concatenate
                   'string
-                  "{\"jsonrpc\":\"2.0\",\"id\":87,"
+                 "{\"jsonrpc\":\"2.0\",\"id\":87,"
                   "\"method\":\"eth_sendRawTransaction\","
                   "\"params\":[\"" raw-pending-transaction "\"]}")
                  store
-                 config)))
+                 config
+                 :allow-unprotected-transactions-p t)))
              (pending-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -19897,6 +19898,74 @@
         (is (= 0 (length (field pending-response "result"))))
         (is (string= (quantity-to-hex 0) (field status "pending")))
         (is (search "\"result\":[]" filter-response))))))
+
+(deftest eth-rpc-send-raw-transaction-gates-unprotected-legacy-admission
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json store config &key allow-unprotected-transactions-p)
+             (parse-json
+              (engine-rpc-handle-request-json
+               json
+               store
+               config
+               :allow-unprotected-transactions-p
+               allow-unprotected-transactions-p)))
+           (funded-store (sender)
+             (let* ((store (make-engine-payload-memory-store))
+                    (head-block
+                      (make-block
+                       :header (make-block-header :number 0
+                                                  :timestamp 0
+                                                  :gas-limit 30000000
+                                                  :base-fee-per-gas 0))))
+               (chain-store-put-block store head-block :state-available-p t)
+               (chain-store-put-account-nonce
+                store (block-hash head-block) sender 3)
+               (chain-store-put-account-balance
+                store (block-hash head-block) sender 1000000)
+               store)))
+    (let* ((raw-transaction
+             "0xf86103018261a894b94f5374fce5edbc8e2a8697c15331677e6ebf0b0a8255441ba079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798a063ba75f072fb465223d8c651fbbf7ce6dd582ca9c793bcb595dd245b8a28cd17")
+           (transaction (transaction-from-encoding
+                         (hex-to-bytes raw-transaction)))
+           (sender (transaction-sender transaction))
+           (transaction-hash (hash32-to-hex
+                              (transaction-hash transaction)))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (blocked-store (funded-store sender))
+           (allowed-store (funded-store sender))
+           (send-json
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":126,"
+              "\"method\":\"eth_sendRawTransaction\","
+              "\"params\":[\"" raw-transaction "\"]}"))
+           (blocked-response (request send-json blocked-store config))
+           (allowed-response
+             (request send-json
+                      allowed-store
+                      config
+                      :allow-unprotected-transactions-p t))
+           (blocked-status
+             (request
+              "{\"jsonrpc\":\"2.0\",\"id\":127,\"method\":\"txpool_status\",\"params\":[]}"
+              blocked-store
+              config))
+           (allowed-status
+             (request
+              "{\"jsonrpc\":\"2.0\",\"id\":128,\"method\":\"txpool_status\",\"params\":[]}"
+              allowed-store
+              config))
+           (blocked-error (field blocked-response "error")))
+      (is (not (legacy-transaction-protected-p transaction)))
+      (is (= -32602 (field blocked-error "code")))
+      (is (string= "eth_sendRawTransaction unprotected legacy transaction rejected"
+                   (field blocked-error "message")))
+      (is (string= (quantity-to-hex 0)
+                   (field (field blocked-status "result") "pending")))
+      (is (string= transaction-hash (field allowed-response "result")))
+      (is (string= (quantity-to-hex 1)
+                   (field (field allowed-status "result") "pending"))))))
 
 (deftest eth-rpc-send-raw-transaction-applies-basic-admission-preflight
   (labels ((field (object name)
