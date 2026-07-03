@@ -196,6 +196,7 @@
    #:+kzg-proof-size+
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
+   #:*kzg-verifier-command-timeout-seconds*
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
    #:kzg-proof-verification-available-p
@@ -1177,6 +1178,7 @@
    #:+kzg-proof-size+
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
+   #:*kzg-verifier-command-timeout-seconds*
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
    #:kzg-proof-verification-available-p
@@ -2083,6 +2085,7 @@
    #:+kzg-proof-size+
    #:*kzg-point-proof-verifier*
    #:*kzg-blob-proof-verifier*
+   #:*kzg-verifier-command-timeout-seconds*
    #:kzg-point-proof-verification-available-p
    #:kzg-blob-proof-verification-available-p
    #:kzg-proof-verification-available-p

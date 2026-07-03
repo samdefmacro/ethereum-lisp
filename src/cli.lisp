@@ -8,7 +8,8 @@
                       public-api-modules engine-cors-origins
                       public-cors-origins
                       engine-vhosts public-vhosts dev-mode-p coinbase
-                      kzg-verifier-command)))
+                      kzg-verifier-command
+                      kzg-verifier-timeout-seconds)))
   genesis-path
   store
   config
@@ -28,7 +29,8 @@
   public-vhosts
   dev-mode-p
   coinbase
-  kzg-verifier-command)
+  kzg-verifier-command
+  kzg-verifier-timeout-seconds)
 
 (defstruct devnet-shutdown-controller
   requested-p
@@ -307,6 +309,7 @@
        terminal-block-number
        (coinbase (zero-address))
        kzg-verifier-command
+       kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (or (and genesis-path (stringp genesis-path))
@@ -411,7 +414,11 @@
                          (copy-list public-vhosts))
      :dev-mode-p dev-mode-p
      :coinbase coinbase
-     :kzg-verifier-command kzg-verifier-command)))
+     :kzg-verifier-command kzg-verifier-command
+     :kzg-verifier-timeout-seconds
+     (and kzg-verifier-command
+          (or kzg-verifier-timeout-seconds
+              *kzg-verifier-command-timeout-seconds*)))))
 
 (defun devnet-cli-apply-merge-overrides
     (config &key terminal-total-difficulty
@@ -498,6 +505,8 @@
           :dev-mode-p (devnet-node-dev-mode-p node)
           :coinbase (address-to-hex (devnet-node-coinbase node))
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
+          :kzg-verifier-timeout-seconds
+          (devnet-node-kzg-verifier-timeout-seconds node)
           :kzg-proof-verification-available-p
           (kzg-proof-verification-available-p)
           :chain-id (chain-config-chain-id (devnet-node-config node))
@@ -545,6 +554,8 @@
       ("publicVhosts" . ,(getf summary :public-vhosts))
       ("kzgVerifierCommand" . ,(or (getf summary :kzg-verifier-command)
                                    :false))
+      ("kzgVerifierTimeoutSeconds" .
+       ,(or (getf summary :kzg-verifier-timeout-seconds) :false))
       ("kzgProofVerificationAvailable" .
        ,(if (getf summary :kzg-proof-verification-available-p) t :false))
       ("chainId" . ,(getf summary :chain-id))
@@ -757,6 +768,7 @@
     "--txpool.blobpool.datacap" "--txpool.blobpool.pricebump"
     "--dev.period" "--dev.gaslimit"
     "--kzg-verifier-command" "--kzg.verifier-command"
+    "--kzg-verifier-timeout" "--kzg.verifier-timeout"
     "--ready-file" "--log-file" "--pid-file"))
 
 (defparameter *devnet-cli-optional-boolean-options*
@@ -831,6 +843,12 @@
   (let ((integer (devnet-cli-parse-integer value option)))
     (when (minusp integer)
       (error "~A must be non-negative" option))
+    integer))
+
+(defun devnet-cli-parse-positive-integer (value option)
+  (let ((integer (devnet-cli-parse-integer value option)))
+    (unless (plusp integer)
+      (error "~A must be positive" option))
     integer))
 
 (defun devnet-cli-hex-quantity-token-p (value)
@@ -955,6 +973,7 @@
         (log-file nil)
         (pid-file nil)
         (kzg-verifier-command nil)
+        (kzg-verifier-timeout-seconds nil)
         (help-p nil))
     (loop while args
           for option = (pop args)
@@ -1106,6 +1125,13 @@
                     (string= option "--kzg.verifier-command"))
                 (multiple-value-setq (kzg-verifier-command args)
                   (devnet-cli-next-value args option)))
+               ((or (string= option "--kzg-verifier-timeout")
+                    (string= option "--kzg.verifier-timeout"))
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf kzg-verifier-timeout-seconds
+                        (devnet-cli-parse-positive-integer value option)
+                        args rest)))
                ((string= option "--no-serve")
                 (multiple-value-bind (enabled-p rest)
                     (devnet-cli-optional-boolean-value args option)
@@ -1194,6 +1220,7 @@
           :log-file log-file
           :pid-file pid-file
           :kzg-verifier-command kzg-verifier-command
+          :kzg-verifier-timeout-seconds kzg-verifier-timeout-seconds
           :help-p help-p)))
 
 (defun devnet-cli-remove-command-token (args command)
@@ -1371,7 +1398,7 @@
 
 (defun devnet-cli-print-usage (stream)
   (format stream
-          "Usage: ethereum-lisp devnet [--genesis PATH] [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port P2P-PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--http.maxclients N] [--http.readtimeout DURATION] [--http.writetimeout DURATION] [--http.idletimeout DURATION] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--ws.rpcprefix PATH] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--ipcapi LIST] [--verbosity LEVEL] [--log.file PATH] [--log.format FORMAT] [--log.maxsize MB] [--log.maxbackups N] [--log.maxage DAYS] [--log.compress] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--rpc.gascap GAS] [--rpc.evmtimeout DURATION] [--rpc.txfeecap ETH] [--rpc.batch-request-limit N] [--rpc.batch-response-max-size BYTES] [--override.terminaltotaldifficulty TTD] [--override.terminaltotaldifficultypassed] [--override.terminalblockhash HASH] [--override.terminalblocknumber NUMBER] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--dev.period SECONDS] [--dev.gaslimit GAS] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--kzg-verifier-command PATH] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
+          "Usage: ethereum-lisp devnet [--genesis PATH] [--engine-host HOST|--authrpc.addr HOST] [--engine-port PORT|--authrpc.port PORT] [--host HOST] [--port P2P-PORT] [--public-host HOST|--http.addr HOST] [--public-port PORT|--http.port PORT] [--jwt-secret PATH|--authrpc.jwtsecret PATH] [--authrpc.rpcprefix PATH] [--authrpc.vhosts HOSTS] [--authrpc.corsdomain DOMAINS] [--http] [--http.api LIST] [--http.rpcprefix PATH] [--http.vhosts HOSTS] [--http.corsdomain DOMAINS] [--http.maxclients N] [--http.readtimeout DURATION] [--http.writetimeout DURATION] [--http.idletimeout DURATION] [--ws] [--ws.addr HOST] [--ws.port PORT] [--ws.api LIST] [--ws.origins ORIGINS] [--ws.rpcprefix PATH] [--graphql] [--graphql.addr HOST] [--graphql.port PORT] [--graphql.vhosts HOSTS] [--graphql.corsdomain DOMAINS] [--networkid ID|--network-id ID] [--syncmode MODE] [--nodiscover] [--ipcdisable] [--ipcpath PATH] [--ipcapi LIST] [--verbosity LEVEL] [--log.file PATH] [--log.format FORMAT] [--log.maxsize MB] [--log.maxbackups N] [--log.maxage DAYS] [--log.compress] [--maxpeers N] [--nat MODE] [--netrestrict CIDRS] [--identity NAME] [--nodekey PATH] [--nodekeyhex HEX] [--discovery.port PORT] [--discovery.dns URL] [--gcmode MODE] [--state.scheme SCHEME] [--db.engine ENGINE] [--datadir.ancient PATH] [--cache MB] [--cache.database MB] [--cache.gc MB] [--cache.trie MB] [--txlookuplimit N] [--history.transactions N] [--bootnodes URLS] [--rpc.gascap GAS] [--rpc.evmtimeout DURATION] [--rpc.txfeecap ETH] [--rpc.batch-request-limit N] [--rpc.batch-response-max-size BYTES] [--override.terminaltotaldifficulty TTD] [--override.terminaltotaldifficultypassed] [--override.terminalblockhash HASH] [--override.terminalblocknumber NUMBER] [--mine] [--miner.etherbase ADDRESS] [--etherbase ADDRESS] [--miner.gaslimit N] [--miner.gasprice WEI] [--unlock ACCOUNTS] [--password PATH] [--allow-insecure-unlock] [--rpc.allow-unprotected-txs] [--txpool.locals ACCOUNTS] [--txpool.nolocals] [--txpool.journal PATH] [--txpool.rejournal DURATION] [--txpool.pricelimit N] [--txpool.pricebump N] [--txpool.accountslots N] [--txpool.globalslots N] [--txpool.accountqueue N] [--txpool.globalqueue N] [--txpool.lifetime DURATION] [--txpool.blobpool.datacap BYTES] [--txpool.blobpool.pricebump N] [--dev] [--dev.period SECONDS] [--dev.gaslimit GAS] [--nousb] [--metrics] [--metrics.addr HOST] [--metrics.port PORT] [--pprof] [--pprof.addr HOST] [--pprof.port PORT] [--snapshot] [--database PATH] [--datadir PATH] [--prune-state-before NUMBER] [--max-connections N] [--kzg-verifier-command PATH] [--kzg-verifier-timeout SECONDS] [--json] [--ready-file PATH] [--log-file PATH] [--pid-file PATH] [--no-serve]~%"))
 
 (defun devnet-cli-print-top-level-help (stream)
   (format stream "Usage: ethereum-lisp COMMAND [options]~%")
@@ -1567,19 +1594,26 @@
             ""))
       ("kzgVerifierCommand" .
        ,(or (getf summary :kzg-verifier-command) ""))
+      ("kzgVerifierTimeoutSeconds" .
+       ,(if (getf summary :kzg-verifier-timeout-seconds)
+            (write-to-string (getf summary :kzg-verifier-timeout-seconds))
+            ""))
       ("kzgProofVerificationAvailable" .
        ,(if (getf summary :kzg-proof-verification-available-p)
             "true"
             "false"))
       ("pidFilePath" . ,(or (getf summary :pid-file-path) "")))))
 
-(defun call-with-devnet-cli-kzg-verifier (command thunk)
+(defun call-with-devnet-cli-kzg-verifier
+    (command timeout-seconds thunk)
   (unless (functionp thunk)
     (error "Devnet KZG verifier thunk must be a function"))
   (let ((old-point-verifier *kzg-point-proof-verifier*)
         (old-blob-verifier *kzg-blob-proof-verifier*))
     (unwind-protect
-         (progn
+         (let ((*kzg-verifier-command-timeout-seconds*
+                 (or timeout-seconds
+                     *kzg-verifier-command-timeout-seconds*)))
            (when command
              (configure-kzg-proof-command-verifiers command))
            (funcall thunk))
@@ -1708,6 +1742,7 @@
                   (lambda (telemetry-sink)
                     (call-with-devnet-cli-kzg-verifier
                      (getf options :kzg-verifier-command)
+                     (getf options :kzg-verifier-timeout-seconds)
                      (lambda ()
                        (let ((node
                                (make-devnet-node
@@ -1753,6 +1788,9 @@
                                 :coinbase (getf options :coinbase)
                                 :kzg-verifier-command
                                 (getf options :kzg-verifier-command)
+                                :kzg-verifier-timeout-seconds
+                                (getf options
+                                      :kzg-verifier-timeout-seconds)
                                 :public-allowed-method-p
                                 (devnet-cli-public-api-method-filter
                                  (getf options :http-api-modules))

@@ -730,10 +730,12 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   consensus call sites. The devnet CLI can now install that command-backed
   verifier for a single runner invocation with `--kzg-verifier-command` /
   `--kzg.verifier-command`, reports the configured verifier and availability
-  in runner summaries/telemetry, and restores prior hooks after exit so KZG
-  capability advertisement stays opt-in. Command-backed verifier calls are
-  also timeout-bounded with subprocess cleanup, so a hung external backend
-  fails proof verification instead of stalling the client process indefinitely.
+  in runner summaries/telemetry, accepts a positive
+  `--kzg-verifier-timeout` / `--kzg.verifier-timeout` override for the
+  subprocess bound, and restores prior hooks after exit so KZG capability
+  advertisement stays opt-in. Command-backed verifier calls are also
+  timeout-bounded with subprocess cleanup, so a hung external backend fails
+  proof verification instead of stalling the client process indefinitely.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* wire a trusted KZG backend before treating Cancun blob payloads as
@@ -1459,8 +1461,9 @@ first pass, but interfaces must not block that path.
   runner invocations that pass `--kzg-verifier-command` now prove the opposite
   process contract as well: the configured command must be discoverable and
   executable before proof hooks are installed, readiness/stdout/telemetry
-  report the accepted verifier command, and the live Engine listener advertises
-  the KZG-backed blob-era methods through `engine_exchangeCapabilities`.
+  report the accepted verifier command plus effective timeout, and the live
+  Engine listener advertises the KZG-backed blob-era methods through
+  `engine_exchangeCapabilities`.
   Missing or non-executable verifier command paths fail startup instead of
   advertising Cancun-capable Engine methods backed by a verifier that cannot
   launch; the runner-facing script process now locks that failure mode through

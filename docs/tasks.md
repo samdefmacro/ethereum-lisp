@@ -6049,6 +6049,13 @@ splits can land after the Phase A smoke path closes.
     a sleeping fake verifier with the timeout rebound to zero to lock the
     failure path without slowing the suite. The production
     c-kzg/trusted-setup/vector-source blocker remains open.
+  - Progress (2026-07-03): exposed the command verifier timeout to Hive-style
+    devnet runners with `--kzg-verifier-timeout SECONDS` /
+    `--kzg.verifier-timeout SECONDS`. Runner summaries, readiness JSON, and
+    lifecycle telemetry now report the effective timeout when a verifier
+    command is configured, and CLI validation rejects malformed or non-positive
+    timeout values. The production c-kzg/trusted-setup/vector-source blocker
+    remains open.
 
 - [x] Add EOF planning notes and fork gates.
   - Milestone: 4

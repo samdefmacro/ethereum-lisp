@@ -2241,6 +2241,7 @@
                          "--genesis" +devnet-cli-genesis-fixture+
                          "--port" "0"
                          "--kzg-verifier-command" (namestring kzg-command)
+                         "--kzg-verifier-timeout" "2"
                          "--json"
                          "--no-serve")
                    :output-stream output
@@ -2250,6 +2251,8 @@
              (is (string= (namestring kzg-command)
                           (fixture-object-field
                            summary "kzgVerifierCommand")))
+             (is (= 2 (fixture-object-field
+                       summary "kzgVerifierTimeoutSeconds")))
              (is (fixture-object-field
                   summary "kzgProofVerificationAvailable")))
            (is (= 1
@@ -17115,6 +17118,16 @@
                 (run-error (list "devnet"
                                  "--max-connections"
                                  "-1"
+                                 "--no-serve"))))
+    (is (search "--kzg.verifier-timeout requires an integer value"
+                (run-error (list "devnet"
+                                 "--kzg.verifier-timeout"
+                                 "abc"
+                                 "--no-serve"))))
+    (is (search "--kzg-verifier-timeout must be positive"
+                (run-error (list "devnet"
+                                 "--kzg-verifier-timeout"
+                                 "0"
                                  "--no-serve"))))
     (is (search "--prune-state-before requires an integer value"
                 (run-error (list "devnet"
