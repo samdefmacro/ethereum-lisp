@@ -2206,32 +2206,59 @@
 (deftest devnet-cli-main-kzg-verifier-command-scopes-hooks
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream))
+        (missing-output (make-string-output-stream))
+        (missing-errors (make-string-output-stream))
+        (kzg-command
+          (devnet-cli-temp-path "ethereum-lisp-kzg-scoped" "sh"))
+        (missing-kzg-command
+          (devnet-cli-temp-path "ethereum-lisp-kzg-missing" "sh"))
         (old-point-verifier *kzg-point-proof-verifier*)
         (old-blob-verifier *kzg-blob-proof-verifier*))
     (unwind-protect
          (progn
            (setf *kzg-point-proof-verifier* nil
                  *kzg-blob-proof-verifier* nil)
+           (devnet-cli-write-temp-file
+            kzg-command
+            "#!/bin/sh\necho true\n")
            (is (= 0
                   (ethereum-lisp.cli:main
                    (list "devnet"
                          "--genesis" +devnet-cli-genesis-fixture+
                          "--port" "0"
-                         "--kzg-verifier-command" "/tmp/ethereum-lisp-kzg"
+                         "--kzg-verifier-command" (namestring kzg-command)
                          "--json"
                          "--no-serve")
                    :output-stream output
                    :error-stream errors)))
            (is (string= "" (get-output-stream-string errors)))
            (let ((summary (parse-json (get-output-stream-string output))))
-             (is (string= "/tmp/ethereum-lisp-kzg"
+             (is (string= (namestring kzg-command)
                           (fixture-object-field
                            summary "kzgVerifierCommand")))
              (is (fixture-object-field
                   summary "kzgProofVerificationAvailable")))
+           (is (= 1
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--port" "0"
+                         "--kzg-verifier-command"
+                         (namestring missing-kzg-command)
+                         "--json"
+                         "--no-serve")
+                   :output-stream missing-output
+                   :error-stream missing-errors)))
+           (is (string= "" (get-output-stream-string missing-output)))
+           (is (search "KZG verifier command is not available"
+                       (get-output-stream-string missing-errors)))
            (is (not (kzg-proof-verification-available-p))))
       (setf *kzg-point-proof-verifier* old-point-verifier
-            *kzg-blob-proof-verifier* old-blob-verifier))))
+            *kzg-blob-proof-verifier* old-blob-verifier)
+      (when (probe-file kzg-command)
+        (delete-file kzg-command))
+      (when (probe-file missing-kzg-command)
+        (delete-file missing-kzg-command)))))
 
 (deftest ethereum-lisp-script-engine-only-kzg-verifier-advertises-blob-capabilities
   #-sbcl
@@ -2239,7 +2266,8 @@
   #+sbcl
   (let* ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
          (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
-         (kzg-command "/tmp/ethereum-lisp-kzg")
+         (kzg-command
+           (devnet-cli-temp-path "ethereum-lisp-script-kzg-command" "sh"))
          (ready-path
            (devnet-cli-temp-path "ethereum-lisp-script-kzg-ready" "json"))
          (log-path
@@ -2249,6 +2277,9 @@
          (process nil))
     (unwind-protect
          (progn
+           (devnet-cli-write-temp-file
+            kzg-command
+            "#!/bin/sh\necho true\n")
            (setf process
                  (uiop:launch-program
                   (list "sbcl"
@@ -2264,7 +2295,7 @@
                         "0"
                         "--http=false"
                         "--kzg-verifier-command"
-                        kzg-command
+                        (namestring kzg-command)
                         "--ready-file"
                         (namestring ready-path)
                         "--log-file"
@@ -2307,7 +2338,7 @@
                (is (not (fixture-object-field ready-summary "rpcEndpoint")))
                (is (not (fixture-object-field ready-summary
                                                "publicRpcEnabled")))
-               (is (string= kzg-command
+               (is (string= (namestring kzg-command)
                             (fixture-object-field ready-summary
                                                   "kzgVerifierCommand")))
                (is (fixture-object-field
@@ -2356,7 +2387,7 @@
                                     :key (lambda (record)
                                            (getf record :name)))))
                        (dolist (summary (list stdout-summary ready-summary))
-                         (is (string= kzg-command
+                         (is (string= (namestring kzg-command)
                                       (fixture-object-field
                                        summary "kzgVerifierCommand")))
                          (is (fixture-object-field
@@ -2365,7 +2396,7 @@
                        (dolist (record (list ready-record shutdown-record))
                          (is record)
                          (let ((fields (getf record :fields)))
-                           (is (string= kzg-command
+                           (is (string= (namestring kzg-command)
                                         (cdr (assoc "kzgVerifierCommand"
                                                     fields
                                                     :test #'string=))))
@@ -2390,6 +2421,8 @@
                                                   :test #'string=)))))))))))
       (when (and process (uiop:process-alive-p process))
         (uiop:terminate-process process))
+      (when (probe-file kzg-command)
+        (delete-file kzg-command))
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)

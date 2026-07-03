@@ -1446,9 +1446,12 @@ first pass, but interfaces must not block that path.
   point-proof and blob-proof verifier hooks are present, so Hive-style runners
   do not negotiate Cancun payloads against a shape-only verifier. Explicit
   runner invocations that pass `--kzg-verifier-command` now prove the opposite
-  process contract as well: readiness/stdout/telemetry report the configured
-  verifier command and the live Engine listener advertises the KZG-backed
-  blob-era methods through `engine_exchangeCapabilities`. That live capability
+  process contract as well: the configured command must be discoverable before
+  proof hooks are installed, readiness/stdout/telemetry report the accepted
+  verifier command, and the live Engine listener advertises the KZG-backed
+  blob-era methods through `engine_exchangeCapabilities`. Missing verifier
+  command paths fail startup instead of advertising Cancun-capable Engine
+  methods backed by a verifier that cannot launch. That live capability
   handshake now accepts an empty remote capability list (`params:[[]]`) at the
   preserved JSON-array process boundary while continuing to reject malformed
   non-string capability entries. It also probes

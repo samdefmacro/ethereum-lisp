@@ -9086,6 +9086,30 @@ vectors. It should return true only when the proof is valid.")
       (t
        (error "KZG verifier command must be a non-empty string or list of non-empty strings")))))
 
+(defun kzg-verifier-command-program-available-p (program)
+  (labels ((blank-string-p (value)
+             (or (null value)
+                 (zerop (length
+                         (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                      value)))))
+           (candidate (directory)
+             (format nil "~A/~A"
+                     (if (blank-string-p directory) "." directory)
+                     program)))
+    (if (find #\/ program)
+        (probe-file program)
+        (loop for directory in (uiop:split-string
+                                (or (uiop:getenv "PATH") "")
+                                :separator ":")
+              thereis (probe-file (candidate directory))))))
+
+(defun validate-kzg-verifier-command (command)
+  (let* ((normalized (normalize-kzg-verifier-command command))
+         (program (first normalized)))
+    (unless (kzg-verifier-command-program-available-p program)
+      (error "KZG verifier command is not available: ~A" program))
+    normalized))
+
 (defun kzg-verifier-command-accepted-output-p (output)
   (let ((token (string-downcase
                 (string-trim '(#\Space #\Tab #\Newline #\Return)
@@ -9121,7 +9145,7 @@ arguments. The command is invoked as:
 
 It must exit 0 and print one of true, ok, valid, or 1 to stdout when the proof
 is valid."
-  (let ((command (normalize-kzg-verifier-command command)))
+  (let ((command (validate-kzg-verifier-command command)))
     (lambda (commitment z y proof)
       (run-kzg-verifier-command command
                                 "point"
@@ -9137,7 +9161,7 @@ arguments. The command is invoked as:
 
 It must exit 0 and print one of true, ok, valid, or 1 to stdout when the proof
 is valid."
-  (let ((command (normalize-kzg-verifier-command command)))
+  (let ((command (validate-kzg-verifier-command command)))
     (lambda (blob commitment proof)
       (run-kzg-verifier-command command
                                 "blob"

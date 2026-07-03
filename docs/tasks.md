@@ -1122,6 +1122,14 @@ ones.
     and `engine_getBlobsV1` are advertised only after explicit verifier
     opt-in. This locks the Hive capability contract without claiming the
     command path is a production c-kzg backend.
+  - Result (2026-07-03): KZG verifier opt-in now requires the configured
+    command to be discoverable before the CLI installs proof hooks or
+    advertises blob-era Engine capabilities. Direct CLI coverage rejects a
+    missing `--kzg-verifier-command PATH` with status 1 while preserving the
+    scoped-hook cleanup contract, and the runner-facing Engine-only
+    subprocess coverage uses a real temporary verifier stub instead of a
+    nonexistent path before checking readiness, telemetry, and live
+    `engine_exchangeCapabilities`.
 - [x] `DEVNET-RUNNER-EMPTY-CAPABILITY-HANDSHAKE`: Accept empty remote Engine
   capability lists at the JSON-RPC and process boundary.
   - Result (2026-07-03): `engine_exchangeCapabilities` now validates remote
