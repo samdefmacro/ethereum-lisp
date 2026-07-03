@@ -19967,6 +19967,99 @@
       (is (string= (quantity-to-hex 1)
                    (field (field allowed-status "result") "pending"))))))
 
+(deftest eth-rpc-send-raw-transaction-enforces-txpool-price-limit
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (json store config &key txpool-price-limit)
+             (parse-json
+              (engine-rpc-handle-request-json
+               json
+               store
+               config
+               :txpool-price-limit txpool-price-limit)))
+           (send-json (transaction id)
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":" (write-to-string id)
+              ",\"method\":\"eth_sendRawTransaction\","
+              "\"params\":[\""
+              (bytes-to-hex (transaction-encoding transaction))
+              "\"]}"))
+           (funded-store (sender)
+             (let* ((store (make-engine-payload-memory-store))
+                    (head-block
+                      (make-block
+                       :header (make-block-header :number 0
+                                                  :timestamp 0
+                                                  :gas-limit 30000000
+                                                  :base-fee-per-gas 0))))
+               (chain-store-put-block store head-block :state-available-p t)
+               (chain-store-put-account-nonce
+                store (block-hash head-block) sender 0)
+               (chain-store-put-account-balance
+                store (block-hash head-block) sender 1000000)
+               store)))
+    (let* ((recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (private-key 1)
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (low-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 1
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              private-key
+              1))
+           (accepted-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0
+               :gas-price 2
+               :gas-limit 21000
+               :to recipient
+               :value 0)
+              private-key
+              1))
+           (sender (transaction-sender low-transaction
+                                       :expected-chain-id 1))
+           (rejected-store (funded-store sender))
+           (accepted-store (funded-store sender))
+           (rejected-response
+             (request
+              (send-json low-transaction 129)
+              rejected-store
+              config
+              :txpool-price-limit 2))
+           (accepted-response
+             (request
+              (send-json accepted-transaction 130)
+              accepted-store
+              config
+              :txpool-price-limit 2))
+           (rejected-status
+             (request
+              "{\"jsonrpc\":\"2.0\",\"id\":131,\"method\":\"txpool_status\",\"params\":[]}"
+              rejected-store
+              config))
+           (accepted-status
+             (request
+              "{\"jsonrpc\":\"2.0\",\"id\":132,\"method\":\"txpool_status\",\"params\":[]}"
+              accepted-store
+              config))
+           (rejected-error (field rejected-response "error")))
+      (is (= -32602 (field rejected-error "code")))
+      (is (string= "eth_sendRawTransaction gas price below txpool price limit"
+                   (field rejected-error "message")))
+      (is (string= (quantity-to-hex 0)
+                   (field (field rejected-status "result") "pending")))
+      (is (string= (hash32-to-hex (transaction-hash accepted-transaction))
+                   (field accepted-response "result")))
+      (is (string= (quantity-to-hex 1)
+                   (field (field accepted-status "result") "pending"))))))
+
 (deftest eth-rpc-send-raw-transaction-applies-basic-admission-preflight
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

@@ -1235,7 +1235,7 @@ first pass, but interfaces must not block that path.
   management, metrics, profiling, bootnode discovery, archive-mode behavior,
   or a GraphQL listener. Additional geth/Hive txpool, RPC, and database
   template flags are also accepted as compatibility no-ops, including
-  txpool price/slot/queue/lifetime knobs,
+  remaining txpool slot/queue/lifetime and price-bump knobs,
   RPC resource-limit flags (`--rpc.gascap`, `--rpc.evmtimeout`,
   `--rpc.txfeecap`, `--rpc.batch-request-limit`, and
   `--rpc.batch-response-max-size`), HTTP server resource flags
@@ -1255,9 +1255,13 @@ first pass, but interfaces must not block that path.
   than the dev-specific flag and not enabling mining or block production.
   `--rpc.allow-unprotected-txs` now controls public RPC admission of
   unprotected legacy `eth_sendRawTransaction` submissions, defaulting to
-  rejection unless explicitly enabled. The
-  geth TOML `[Eth.Miner] GasCeil` field is imported through the same
-  runner-visible path for config-file-based launches.
+  rejection unless explicitly enabled. `--txpool.pricelimit` now rejects
+  public `eth_sendRawTransaction` submissions whose transaction max fee per
+  gas is below the configured wei limit before they enter the local txpool,
+  and devnet summaries/report telemetry expose that effective limit. The
+  geth TOML `[Eth.TxPool] PriceLimit` and `[Eth.Miner] GasCeil` fields are
+  imported through the same runner-visible path for config-file-based
+  launches.
   `--miner.etherbase` / `--etherbase` also shape the embedded dev genesis
   header coinbase when no file-backed genesis is supplied.
   `--dev.period` remains a compatibility no-op until block production timing
@@ -1787,7 +1791,8 @@ first pass, but interfaces must not block that path.
   by number-only cursoring. Log polling filters record the same canonical
   reorg events, returning displaced old-canonical logs with `removed=true` and
   replacement-head logs with the normal `removed=false` shape.
-- *Partial:* txpool policy beyond the current in-memory pending pool,
+- *Partial:* txpool policy beyond the current in-memory pending pool
+  (`--txpool.pricebump`, local-account exemptions, slot/queue/lifetime knobs),
   cross-client Engine fixture breadth beyond the local pinned Shanghai
   `engine_newPayloadV2` smoke set, and concrete long-running devnet/Hive
   lifecycle ergonomics beyond the current readiness, log-file, shutdown,

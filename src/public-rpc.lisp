@@ -2107,8 +2107,19 @@
      "eth_sendRawTransaction unprotected legacy transaction rejected"))
   t)
 
+(defun eth-rpc-validate-txpool-price-limit
+    (transaction txpool-price-limit)
+  (when (and txpool-price-limit
+             (plusp txpool-price-limit)
+             (< (transaction-max-fee-per-gas transaction)
+                txpool-price-limit))
+    (block-validation-fail
+     "eth_sendRawTransaction gas price below txpool price limit"))
+  t)
+
 (defun engine-rpc-handle-eth-send-raw-transaction
-    (params store config &key allow-unprotected-transactions-p)
+    (params store config &key allow-unprotected-transactions-p
+                              txpool-price-limit)
   (unless (= 1 (length params))
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
@@ -2131,6 +2142,9 @@
         (eth-rpc-validate-unprotected-transaction-policy
          transaction
          allow-unprotected-transactions-p)
+        (eth-rpc-validate-txpool-price-limit
+         transaction
+         txpool-price-limit)
         (eth-rpc-validate-txpool-admission transaction sender store config)
         (cond
           ((typep transaction 'blob-transaction)
@@ -2707,7 +2721,8 @@
     (id method params store config
      &key network-id coinbase
           (allowed-method-p #'engine-rpc-any-method-p)
-          allow-unprotected-transactions-p)
+          allow-unprotected-transactions-p
+          txpool-price-limit)
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -2923,7 +2938,9 @@
        store
        config
        :allow-unprotected-transactions-p
-       allow-unprotected-transactions-p)))
+       allow-unprotected-transactions-p
+       :txpool-price-limit
+       txpool-price-limit)))
     ((string= method "eth_pendingTransactions")
      (engine-rpc-response
       id

@@ -1027,10 +1027,20 @@ ones.
     genesis exists, and the 2026-07-03 txpool admission slice makes
     `--rpc.allow-unprotected-txs` control public RPC admission of unprotected
     legacy transactions. The remaining flags do not alter the current
-    in-memory txpool, database, or USB behavior; they prevent geth-shaped
-    process templates from failing before the supported split Engine/public
-    devnet process starts. CLI coverage verifies a geth-shaped no-serve
+    in-memory txpool, database, or USB behavior; follow-up
+    `DEVNET-RUNNER-TXPOOL-PRICE-LIMIT` gives `--txpool.pricelimit` real public
+    RPC admission behavior. CLI coverage verifies a geth-shaped no-serve
     invocation and malformed boolean/missing-value failures.
+- [x] `DEVNET-RUNNER-TXPOOL-PRICE-LIMIT`: Make the geth/Hive txpool price
+  limit flag affect public raw-transaction admission.
+  - Result (2026-07-04): `--txpool.pricelimit` now parses as a non-negative
+    wei value, is reported in devnet JSON summaries and process telemetry,
+    and rejects public `eth_sendRawTransaction` submissions whose transaction
+    max fee per gas is below the configured limit before they enter any local
+    txpool subpool. Geth TOML `[Eth.TxPool] PriceLimit` imports through the
+    same path, and explicit CLI flags override config-file values. Direct
+    JSON-RPC tests cover rejected and accepted submissions; CLI tests cover
+    flag parsing, config import, override precedence, and malformed values.
 - [x] `DEVNET-RUNNER-DEV-MODE-NOOP-FLAGS`: Accept geth dev-mode subflags that
   commonly accompany `--dev` in local runner templates.
   - Result (2026-07-01): the shared devnet/init option table now consumes

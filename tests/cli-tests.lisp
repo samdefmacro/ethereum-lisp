@@ -3465,6 +3465,7 @@
             config-path
             (format nil
                     "[Eth]~%NetworkId = 4242~%~
+                     [Eth.TxPool]~%PriceLimit = 7~%~
                      [Node]~%DataDir = ~S~%~
                      HTTPHost = \"192.0.2.41\"~%HTTPPort = 1945~%~
                      HTTPModules = [\"eth\", \"net\"]~%~
@@ -3492,6 +3493,7 @@
              (is (string= "192.0.2.41:1945"
                           (fixture-object-field summary "rpcEndpoint")))
              (is (= 4242 (fixture-object-field summary "networkId")))
+             (is (= 7 (fixture-object-field summary "txpoolPriceLimit")))
              (is (string= "/rpc"
                           (fixture-object-field summary "publicRpcPrefix")))
              (is (string= (namestring jwt-path)
@@ -3533,6 +3535,7 @@
             config-path
             (format nil
                     "[Eth]~%NetworkId = 4242~%~
+                     [Eth.TxPool]~%PriceLimit = 7~%~
                      [Node]~%HTTPHost = \"192.0.2.50\"~%HTTPPort = 1950~%~
                      AuthAddr = \"192.0.2.51\"~%AuthPort = 1951~%~
                      JWTSecret = ~S~%"
@@ -3547,6 +3550,7 @@
                          "--http.addr" "192.0.2.61"
                          "--http.port" "1961"
                          "--networkid" "7331"
+                         "--txpool.pricelimit" "11"
                          "--authrpc.jwtsecret" (namestring override-jwt-path)
                          "--json"
                          "--no-serve")
@@ -3559,6 +3563,7 @@
              (is (string= "192.0.2.61:1961"
                           (fixture-object-field summary "rpcEndpoint")))
              (is (= 7331 (fixture-object-field summary "networkId")))
+             (is (= 11 (fixture-object-field summary "txpoolPriceLimit")))
              (is (string= (namestring override-jwt-path)
                           (fixture-object-field summary "jwtSecretPath")))))
       (when (probe-file jwt-path)
@@ -3786,6 +3791,7 @@ HTTPPort = 1945
                    (fixture-object-field summary "rpcEndpoint")))
       (is (eq t (fixture-object-field summary
                                        "allowUnprotectedTransactions")))
+      (is (= 1 (fixture-object-field summary "txpoolPriceLimit")))
       (is (eq nil (fixture-object-field summary "authRequired"))))))
 
 (deftest devnet-cli-main-accepts-geth-style-dev-mode-flags
@@ -17621,6 +17627,10 @@ HTTPPort = 1945
     (is (search "--txpool.pricebump requires a value"
                 (run-error (list "devnet"
                                  "--txpool.pricebump"
+                                 "--no-serve"))))
+    (is (search "--txpool.pricelimit requires a non-negative integer or hex quantity"
+                (run-error (list "devnet"
+                                 "--txpool.pricelimit=abc"
                                  "--no-serve"))))
     (is (search "--dev.period requires a value"
                 (run-error (list "devnet"
