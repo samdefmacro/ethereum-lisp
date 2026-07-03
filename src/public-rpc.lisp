@@ -2119,7 +2119,8 @@
 
 (defun engine-rpc-handle-eth-send-raw-transaction
     (params store config &key allow-unprotected-transactions-p
-                              txpool-price-limit)
+                              txpool-price-limit
+                              txpool-price-bump-percent)
   (unless (= 1 (length params))
     (block-validation-fail
      "eth_sendRawTransaction params must contain exactly one transaction"))
@@ -2148,17 +2149,29 @@
         (eth-rpc-validate-txpool-admission transaction sender store config)
         (cond
           ((typep transaction 'blob-transaction)
-           (engine-payload-store-put-blob-transaction store transaction))
+           (engine-payload-store-put-blob-transaction
+            store
+            transaction
+            :price-bump-percent txpool-price-bump-percent))
           ((eth-rpc-txpool-basefee-ineligible-p store transaction)
-           (engine-payload-store-put-basefee-transaction store transaction))
+           (engine-payload-store-put-basefee-transaction
+            store
+            transaction
+            :price-bump-percent txpool-price-bump-percent))
           ((eth-rpc-txpool-queued-nonce-gap-p
             store
             sender
             transaction
             :expected-chain-id (chain-config-chain-id config))
-           (engine-payload-store-put-queued-transaction store transaction))
+           (engine-payload-store-put-queued-transaction
+            store
+            transaction
+            :price-bump-percent txpool-price-bump-percent))
           (t
-           (engine-payload-store-put-pending-transaction store transaction)
+           (engine-payload-store-put-pending-transaction
+            store
+            transaction
+            :price-bump-percent txpool-price-bump-percent)
            (engine-payload-store-promote-queued-transactions
             store sender
             :expected-chain-id (chain-config-chain-id config))
@@ -2722,7 +2735,8 @@
      &key network-id coinbase
           (allowed-method-p #'engine-rpc-any-method-p)
           allow-unprotected-transactions-p
-          txpool-price-limit)
+          txpool-price-limit
+          txpool-price-bump-percent)
   (cond
     ((string= method "web3_clientVersion")
      (engine-rpc-response
@@ -2940,7 +2954,9 @@
        :allow-unprotected-transactions-p
        allow-unprotected-transactions-p
        :txpool-price-limit
-       txpool-price-limit)))
+       txpool-price-limit
+       :txpool-price-bump-percent
+       txpool-price-bump-percent)))
     ((string= method "eth_pendingTransactions")
      (engine-rpc-response
       id

@@ -1029,8 +1029,10 @@ ones.
     legacy transactions. The remaining flags do not alter the current
     in-memory txpool, database, or USB behavior; follow-up
     `DEVNET-RUNNER-TXPOOL-PRICE-LIMIT` gives `--txpool.pricelimit` real public
-    RPC admission behavior. CLI coverage verifies a geth-shaped no-serve
-    invocation and malformed boolean/missing-value failures.
+    RPC admission behavior, and `DEVNET-RUNNER-TXPOOL-PRICE-BUMP` gives
+    `--txpool.pricebump` real replacement-policy behavior. CLI coverage
+    verifies a geth-shaped no-serve invocation and malformed
+    boolean/missing-value failures.
 - [x] `DEVNET-RUNNER-TXPOOL-PRICE-LIMIT`: Make the geth/Hive txpool price
   limit flag affect public raw-transaction admission.
   - Result (2026-07-04): `--txpool.pricelimit` now parses as a non-negative
@@ -1041,6 +1043,19 @@ ones.
     same path, and explicit CLI flags override config-file values. Direct
     JSON-RPC tests cover rejected and accepted submissions; CLI tests cover
     flag parsing, config import, override precedence, and malformed values.
+- [x] `DEVNET-RUNNER-TXPOOL-PRICE-BUMP`: Make the geth/Hive txpool price-bump
+  flag affect public raw-transaction replacement admission.
+  - Result (2026-07-04): `--txpool.pricebump` now parses as a non-negative
+    percentage, is reported in devnet JSON summaries and process telemetry, and
+    customizes same-sender/same-nonce replacement checks across pending,
+    queued, basefee, and blob txpool subpools. Public `eth_sendRawTransaction`
+    submissions pass the configured bump into local txpool insertion, so a
+    configured 25 percent bump rejects 24 percent fee-cap/priority-fee
+    replacements and accepts 25 percent replacements. Geth TOML
+    `[Eth.TxPool] PriceBump` imports through the same path, and explicit CLI
+    flags override config-file values. Direct JSON-RPC tests cover rejected and
+    accepted replacements; CLI tests cover flag parsing, config import,
+    override precedence, and malformed values.
 - [x] `DEVNET-RUNNER-DEV-MODE-NOOP-FLAGS`: Accept geth dev-mode subflags that
   commonly accompany `--dev` in local runner templates.
   - Result (2026-07-01): the shared devnet/init option table now consumes

@@ -9,7 +9,7 @@
                       public-cors-origins
                       engine-vhosts public-vhosts dev-mode-p coinbase
                       allow-unprotected-transactions-p
-                      txpool-price-limit
+                      txpool-price-limit txpool-price-bump-percent
                       kzg-verifier-command
                       kzg-verifier-timeout-seconds)))
   genesis-path
@@ -33,6 +33,7 @@
   coinbase
   allow-unprotected-transactions-p
   txpool-price-limit
+  txpool-price-bump-percent
   kzg-verifier-command
   kzg-verifier-timeout-seconds)
 
@@ -314,6 +315,7 @@
        (coinbase (zero-address))
        allow-unprotected-transactions-p
        txpool-price-limit
+       txpool-price-bump-percent
        kzg-verifier-command
        kzg-verifier-timeout-seconds
        (public-allowed-method-p #'engine-rpc-public-method-p)
@@ -380,6 +382,7 @@
             :allow-unprotected-transactions-p
             allow-unprotected-transactions-p
             :txpool-price-limit txpool-price-limit
+            :txpool-price-bump-percent txpool-price-bump-percent
             :telemetry-sink telemetry-sink)))
     (chain-store-put-block store genesis-block :state-available-p t)
     (commit-state-db-to-chain-store store (block-hash genesis-block) state)
@@ -425,6 +428,7 @@
      :coinbase coinbase
      :allow-unprotected-transactions-p allow-unprotected-transactions-p
      :txpool-price-limit txpool-price-limit
+     :txpool-price-bump-percent txpool-price-bump-percent
      :kzg-verifier-command kzg-verifier-command
      :kzg-verifier-timeout-seconds
      (and kzg-verifier-command
@@ -518,6 +522,8 @@
           :allow-unprotected-transactions-p
           (devnet-node-allow-unprotected-transactions-p node)
           :txpool-price-limit (devnet-node-txpool-price-limit node)
+          :txpool-price-bump-percent
+          (devnet-node-txpool-price-bump-percent node)
           :kzg-verifier-command (devnet-node-kzg-verifier-command node)
           :kzg-verifier-timeout-seconds
           (devnet-node-kzg-verifier-timeout-seconds node)
@@ -563,6 +569,8 @@
       ("allowUnprotectedTransactions" .
        ,(if (getf summary :allow-unprotected-transactions-p) t :false))
       ("txpoolPriceLimit" . ,(or (getf summary :txpool-price-limit) :false))
+      ("txpoolPriceBump" .
+       ,(or (getf summary :txpool-price-bump-percent) :false))
       ("networkId" . ,(getf summary :network-id))
       ("publicApiModules" . ,(getf summary :public-api-modules))
       ("engineCorsOrigins" . ,(getf summary :engine-cors-origins))
@@ -780,7 +788,7 @@
     "--miner.gasprice" "--unlock" "--password" "--metrics.addr"
     "--metrics.port" "--pprof.addr" "--pprof.port" "--txpool.locals"
     "--txpool.journal" "--txpool.rejournal"
-    "--txpool.pricebump" "--txpool.accountslots" "--txpool.globalslots"
+    "--txpool.accountslots" "--txpool.globalslots"
     "--txpool.accountqueue" "--txpool.globalqueue" "--txpool.lifetime"
     "--txpool.blobpool.datacap" "--txpool.blobpool.pricebump"
     "--dev.period" "--dev.gaslimit"
@@ -1012,6 +1020,9 @@
         ((and (string= section "Eth.TxPool") (string= key "PriceLimit")
               (non-empty-scalar))
          (list "--txpool.pricelimit" scalar))
+        ((and (string= section "Eth.TxPool") (string= key "PriceBump")
+              (non-empty-scalar))
+         (list "--txpool.pricebump" scalar))
         ((and (string= section "Eth.Miner") (string= key "GasCeil")
               (non-empty-scalar))
          (list "--miner.gaslimit" scalar))
@@ -1225,6 +1236,7 @@
         (coinbase (zero-address))
         (allow-unprotected-transactions-p nil)
         (txpool-price-limit nil)
+        (txpool-price-bump-percent nil)
         (serve-p t)
         (summary-format :sexp)
         (ready-file nil)
@@ -1436,6 +1448,12 @@
                   (setf txpool-price-limit
                         (devnet-cli-parse-non-negative-quantity value option)
                         args rest)))
+               ((string= option "--txpool.pricebump")
+                (multiple-value-bind (value rest)
+                    (devnet-cli-next-value args option)
+                  (setf txpool-price-bump-percent
+                        (devnet-cli-parse-non-negative-integer value option)
+                        args rest)))
                ((member option *devnet-cli-value-options* :test #'string=)
                 (multiple-value-bind (value rest)
                     (devnet-cli-next-value args option)
@@ -1483,6 +1501,7 @@
           :coinbase coinbase
           :allow-unprotected-transactions-p allow-unprotected-transactions-p
           :txpool-price-limit txpool-price-limit
+          :txpool-price-bump-percent txpool-price-bump-percent
           :state-prune-before state-prune-before
           :max-connections max-connections
           :serve-p serve-p
@@ -1829,6 +1848,10 @@
        ,(if (getf summary :txpool-price-limit)
             (quantity-to-hex (getf summary :txpool-price-limit))
             ""))
+      ("txpoolPriceBump" .
+       ,(if (getf summary :txpool-price-bump-percent)
+            (write-to-string (getf summary :txpool-price-bump-percent))
+            ""))
       ("headGasLimit" . ,(if (getf summary :head-gas-limit)
                               (quantity-to-hex
                                (getf summary :head-gas-limit))
@@ -2071,6 +2094,8 @@
                                       :allow-unprotected-transactions-p)
                                 :txpool-price-limit
                                 (getf options :txpool-price-limit)
+                                :txpool-price-bump-percent
+                                (getf options :txpool-price-bump-percent)
                                 :kzg-verifier-command
                                 (getf options :kzg-verifier-command)
                                 :kzg-verifier-timeout-seconds

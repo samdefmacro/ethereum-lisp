@@ -5137,13 +5137,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
     (nreverse conflicts)))
 
 (defun engine-pending-txpool-validate-replacement-conflicts
-    (conflicts transaction)
+    (conflicts transaction &key
+                           (price-bump-percent
+                            +txpool-replacement-price-bump-percent+))
   (dolist (conflict-entry conflicts)
     (destructuring-bind (label conflict remove-function) conflict-entry
       (declare (ignore remove-function))
       (unless (engine-pending-txpool-replacement-transaction-p
                conflict
-               transaction)
+               transaction
+               :price-bump-percent price-bump-percent)
         (block-validation-fail
          "~A transaction replacement underpriced"
          label)))))
@@ -5156,28 +5159,35 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
       (funcall remove-function txpool (transaction-hash conflict)))))
 
 (defun engine-pending-txpool-replacement-price-bumped-p
-    (old-transaction new-transaction price-function)
-  (let ((old-price (funcall price-function old-transaction))
+    (old-transaction new-transaction price-function
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
+  (let ((price-bump-percent
+          (or price-bump-percent +txpool-replacement-price-bump-percent+))
+        (old-price (funcall price-function old-transaction))
         (new-price (funcall price-function new-transaction)))
     (and (> new-price old-price)
          (>= (* new-price 100)
              (* old-price
-                (+ 100 +txpool-replacement-price-bump-percent+))))))
+                (+ 100 price-bump-percent))))))
 
 (defun engine-pending-txpool-replacement-transaction-p
-    (old-transaction new-transaction)
+    (old-transaction new-transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (and
    (engine-pending-txpool-replacement-price-bumped-p
     old-transaction
     new-transaction
-    #'transaction-max-fee-per-gas)
+    #'transaction-max-fee-per-gas
+    :price-bump-percent price-bump-percent)
    (engine-pending-txpool-replacement-price-bumped-p
     old-transaction
     new-transaction
-    #'transaction-max-priority-fee-per-gas)))
+    #'transaction-max-priority-fee-per-gas
+    :price-bump-percent price-bump-percent)))
 
 (defun engine-pending-txpool-put-pending-transaction
-    (txpool transaction)
+    (txpool transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (transactions (engine-pending-txpool-transactions txpool))
@@ -5189,14 +5199,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (progn
           (engine-pending-txpool-validate-replacement-conflicts
            cross-subpool-conflicts
-           transaction)
+           transaction
+           :price-bump-percent price-bump-percent)
           (let ((conflict
                   (engine-pending-txpool-pending-conflict
                    txpool
                    transaction)))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
-                       conflict transaction)
+                       conflict transaction
+                       :price-bump-percent price-bump-percent)
                 (block-validation-fail
                  "Pending transaction replacement underpriced"))
               (engine-pending-txpool-unindex-pending-transaction
@@ -5215,7 +5227,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (values transaction t)))))
 
 (defun engine-pending-txpool-put-queued-transaction
-    (txpool transaction)
+    (txpool transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (transactions (engine-pending-txpool-queued-transactions txpool))
@@ -5227,14 +5240,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (progn
           (engine-pending-txpool-validate-replacement-conflicts
            cross-subpool-conflicts
-           transaction)
+           transaction
+           :price-bump-percent price-bump-percent)
           (let ((conflict
                   (engine-pending-txpool-queued-conflict
                    txpool
                    transaction)))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
-                       conflict transaction)
+                       conflict transaction
+                       :price-bump-percent price-bump-percent)
                 (block-validation-fail
                  "Queued transaction replacement underpriced"))
               (engine-pending-txpool-unindex-queued-transaction
@@ -5253,7 +5268,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (values transaction t)))))
 
 (defun engine-pending-txpool-put-flat-transaction
-    (txpool transactions sender-index transaction target replacement-label)
+    (txpool transactions sender-index transaction target replacement-label
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (cross-subpool-conflicts
@@ -5264,14 +5280,16 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
         (progn
           (engine-pending-txpool-validate-replacement-conflicts
            cross-subpool-conflicts
-           transaction)
+           transaction
+           :price-bump-percent price-bump-percent)
           (let ((conflict
                   (engine-pending-txpool-indexed-conflict
                    sender-index
                    transaction)))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
-                       conflict transaction)
+                       conflict transaction
+                       :price-bump-percent price-bump-percent)
                 (block-validation-fail
                  "~A transaction replacement underpriced"
                  replacement-label))
@@ -5291,24 +5309,28 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (values transaction t)))))
 
 (defun engine-pending-txpool-put-basefee-transaction
-    (txpool transaction)
+    (txpool transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (engine-pending-txpool-put-flat-transaction
    txpool
    (engine-pending-txpool-basefee-transactions txpool)
    (engine-pending-txpool-basefee-transactions-by-sender txpool)
    transaction
    :basefee
-   "Basefee"))
+   "Basefee"
+   :price-bump-percent price-bump-percent))
 
 (defun engine-pending-txpool-put-blob-transaction
-    (txpool transaction)
+    (txpool transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (engine-pending-txpool-put-flat-transaction
    txpool
    (engine-pending-txpool-blob-transactions txpool)
    (engine-pending-txpool-blob-transactions-by-sender txpool)
    transaction
    :blob
-   "Blob"))
+   "Blob"
+   :price-bump-percent price-bump-percent))
 
 (defun engine-pending-txpool-pending-transaction (txpool hash)
   (gethash (engine-pending-txpool-hash-key hash)
@@ -5413,17 +5435,21 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    transaction))
 
 (defun engine-payload-store-replacement-price-bumped-p
-    (old-transaction new-transaction price-function)
+    (old-transaction new-transaction price-function
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (engine-pending-txpool-replacement-price-bumped-p
    old-transaction
    new-transaction
-   price-function))
+   price-function
+   :price-bump-percent price-bump-percent))
 
 (defun engine-payload-store-replacement-transaction-p
-    (old-transaction new-transaction)
+    (old-transaction new-transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (engine-pending-txpool-replacement-transaction-p
    old-transaction
-   new-transaction))
+   new-transaction
+   :price-bump-percent price-bump-percent))
 
 (defun engine-payload-store-index-pending-transaction (store transaction)
   (engine-pending-txpool-index-pending-transaction
@@ -5496,7 +5522,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
               filter
               (transaction-hash transaction))))
 
-(defun engine-payload-store-put-pending-transaction (store transaction)
+(defun engine-payload-store-put-pending-transaction
+    (store transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction
@@ -5512,14 +5540,17 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (multiple-value-bind (transaction inserted-p)
       (engine-pending-txpool-put-pending-transaction
        (engine-payload-store-txpool store)
-       transaction)
+       transaction
+       :price-bump-percent price-bump-percent)
     (when inserted-p
       (engine-payload-store-notify-pending-transaction-filters
        store
        transaction))
     transaction))
 
-(defun engine-payload-store-put-queued-transaction (store transaction)
+(defun engine-payload-store-put-queued-transaction
+    (store transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction
@@ -5535,11 +5566,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (multiple-value-bind (transaction inserted-p)
       (engine-pending-txpool-put-queued-transaction
        (engine-payload-store-txpool store)
-       transaction)
+       transaction
+       :price-bump-percent price-bump-percent)
     (declare (ignore inserted-p))
     transaction))
 
-(defun engine-payload-store-put-basefee-transaction (store transaction)
+(defun engine-payload-store-put-basefee-transaction
+    (store transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction
@@ -5555,11 +5589,14 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (multiple-value-bind (transaction inserted-p)
       (engine-pending-txpool-put-basefee-transaction
        (engine-payload-store-txpool store)
-       transaction)
+       transaction
+       :price-bump-percent price-bump-percent)
     (declare (ignore inserted-p))
     transaction))
 
-(defun engine-payload-store-put-blob-transaction (store transaction)
+(defun engine-payload-store-put-blob-transaction
+    (store transaction
+     &key (price-bump-percent +txpool-replacement-price-bump-percent+))
   (unless (typep store 'engine-payload-memory-store)
     (block-validation-fail "Engine payload store must be a memory store"))
   (unless (typep transaction 'blob-transaction)
@@ -5567,7 +5604,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   (multiple-value-bind (transaction inserted-p)
       (engine-pending-txpool-put-blob-transaction
        (engine-payload-store-txpool store)
-       transaction)
+       transaction
+       :price-bump-percent price-bump-percent)
     (declare (ignore inserted-p))
     transaction))
 
@@ -7009,7 +7047,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             coinbase
                             (allowed-method-p #'engine-rpc-any-method-p)
                             allow-unprotected-transactions-p
-                            txpool-price-limit)
+                            txpool-price-limit
+                            txpool-price-bump-percent)
   (let ((id (and (listp request)
                  (genesis-object-field request "id")))
         (notification-p (engine-rpc-notification-request-p request)))
@@ -7048,7 +7087,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                           :allowed-method-p allowed-method-p
                           :allow-unprotected-transactions-p
                           allow-unprotected-transactions-p
-                          :txpool-price-limit txpool-price-limit)
+                          :txpool-price-limit txpool-price-limit
+                          :txpool-price-bump-percent
+                          txpool-price-bump-percent)
                          (engine-rpc-response
                           id
                           :error
@@ -7079,7 +7120,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                             coinbase
                             (allowed-method-p #'engine-rpc-any-method-p)
                             allow-unprotected-transactions-p
-                            txpool-price-limit)
+                            txpool-price-limit
+                            txpool-price-bump-percent)
   (cond
     ((json-object-p request)
      (engine-rpc-handle-request request store config
@@ -7089,7 +7131,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                 :allowed-method-p allowed-method-p
                                 :allow-unprotected-transactions-p
                                 allow-unprotected-transactions-p
-                                :txpool-price-limit txpool-price-limit))
+                                :txpool-price-limit txpool-price-limit
+                                :txpool-price-bump-percent
+                                txpool-price-bump-percent))
     ((and (listp request) request)
      (loop for item in request
            for response = (if (json-object-p item)
@@ -7101,7 +7145,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                :allowed-method-p allowed-method-p
                                :allow-unprotected-transactions-p
                                allow-unprotected-transactions-p
-                               :txpool-price-limit txpool-price-limit)
+                               :txpool-price-limit txpool-price-limit
+                               :txpool-price-bump-percent
+                               txpool-price-bump-percent)
                               (engine-rpc-invalid-request-response))
            when response
              collect response))
@@ -7113,7 +7159,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   coinbase
                                   (allowed-method-p #'engine-rpc-any-method-p)
                                   allow-unprotected-transactions-p
-                                  txpool-price-limit)
+                                  txpool-price-limit
+                                  txpool-price-bump-percent)
   (let ((request
           (handler-case
               (parse-json request-json :preserve-empty-arrays t)
@@ -7129,7 +7176,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
      :coinbase coinbase
      :allowed-method-p allowed-method-p
      :allow-unprotected-transactions-p allow-unprotected-transactions-p
-     :txpool-price-limit txpool-price-limit)))
+     :txpool-price-limit txpool-price-limit
+     :txpool-price-bump-percent txpool-price-bump-percent)))
 
 (defun engine-rpc-handle-request-json
     (request-json store config &key import-function
@@ -7137,7 +7185,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                   coinbase
                                   (allowed-method-p #'engine-rpc-any-method-p)
                                   allow-unprotected-transactions-p
-                                  txpool-price-limit)
+                                  txpool-price-limit
+                                  txpool-price-bump-percent)
   (let ((response
           (engine-rpc-handle-request-string
            request-json store config
@@ -7147,7 +7196,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
            :allowed-method-p allowed-method-p
            :allow-unprotected-transactions-p
            allow-unprotected-transactions-p
-           :txpool-price-limit txpool-price-limit)))
+           :txpool-price-limit txpool-price-limit
+           :txpool-price-bump-percent txpool-price-bump-percent)))
     (if response
         (json-encode response)
         "")))
@@ -7173,7 +7223,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                       import-function telemetry-sink allowed-method-p
                       network-id coinbase rpc-prefix cors-origins
                       allowed-hosts allow-unprotected-transactions-p
-                      txpool-price-limit)))
+                      txpool-price-limit txpool-price-bump-percent)))
   host
   port
   store
@@ -7189,7 +7239,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
   cors-origins
   allowed-hosts
   allow-unprotected-transactions-p
-  txpool-price-limit)
+  txpool-price-limit
+  txpool-price-bump-percent)
 
 (defstruct (engine-rpc-http-connection
             (:constructor %make-engine-rpc-http-connection
@@ -7230,6 +7281,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
        allowed-hosts
        allow-unprotected-transactions-p
        txpool-price-limit
+       txpool-price-bump-percent
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -7276,6 +7328,11 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                        (not (minusp txpool-price-limit)))))
     (block-validation-fail
      "Engine RPC HTTP txpool price limit must be a non-negative integer"))
+  (when (and txpool-price-bump-percent
+             (not (and (integerp txpool-price-bump-percent)
+                       (not (minusp txpool-price-bump-percent)))))
+    (block-validation-fail
+     "Engine RPC HTTP txpool price bump must be a non-negative integer"))
   (%make-engine-rpc-http-service
    :host host
    :port port
@@ -7292,7 +7349,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
    :cors-origins cors-origins
    :allowed-hosts allowed-hosts
    :allow-unprotected-transactions-p allow-unprotected-transactions-p
-   :txpool-price-limit txpool-price-limit))
+   :txpool-price-limit txpool-price-limit
+   :txpool-price-bump-percent txpool-price-bump-percent))
 
 (defun engine-rpc-http-service-endpoint (service)
   (unless (typep service 'engine-rpc-http-service)
@@ -7959,7 +8017,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                                cors-origins
                                allowed-hosts
                                allow-unprotected-transactions-p
-                               txpool-price-limit)
+                               txpool-price-limit
+                               txpool-price-bump-percent)
   (handler-case
       (multiple-value-bind (boundary boundary-length)
           (engine-rpc-http-header-boundary request)
@@ -8037,7 +8096,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                      :allowed-method-p allowed-method-p
                      :allow-unprotected-transactions-p
                      allow-unprotected-transactions-p
-                     :txpool-price-limit txpool-price-limit)
+                     :txpool-price-limit txpool-price-limit
+                     :txpool-price-bump-percent txpool-price-bump-percent)
                     :extra-headers cors-headers))))))))
     (error (condition)
       (engine-rpc-http-error-response
@@ -8055,6 +8115,7 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           allowed-hosts
           allow-unprotected-transactions-p
           txpool-price-limit
+          txpool-price-bump-percent
           telemetry-sink telemetry-fields)
   (let* ((request nil)
          (response
@@ -8076,7 +8137,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
                  :allowed-hosts allowed-hosts
                  :allow-unprotected-transactions-p
                  allow-unprotected-transactions-p
-                 :txpool-price-limit txpool-price-limit))
+                 :txpool-price-limit txpool-price-limit
+                 :txpool-price-bump-percent txpool-price-bump-percent))
             (error (condition)
               (engine-rpc-http-error-response
                400 "Bad Request"
@@ -8130,6 +8192,8 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
           (engine-rpc-http-service-allow-unprotected-transactions-p service)
           :txpool-price-limit
           (engine-rpc-http-service-txpool-price-limit service)
+          :txpool-price-bump-percent
+          (engine-rpc-http-service-txpool-price-bump-percent service)
           :telemetry-sink sink
           :telemetry-fields fields)
       (ethereum-lisp.telemetry:telemetry-metric

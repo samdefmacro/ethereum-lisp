@@ -3465,7 +3465,7 @@
             config-path
             (format nil
                     "[Eth]~%NetworkId = 4242~%~
-                     [Eth.TxPool]~%PriceLimit = 7~%~
+                     [Eth.TxPool]~%PriceLimit = 7~%PriceBump = 25~%~
                      [Node]~%DataDir = ~S~%~
                      HTTPHost = \"192.0.2.41\"~%HTTPPort = 1945~%~
                      HTTPModules = [\"eth\", \"net\"]~%~
@@ -3494,6 +3494,7 @@
                           (fixture-object-field summary "rpcEndpoint")))
              (is (= 4242 (fixture-object-field summary "networkId")))
              (is (= 7 (fixture-object-field summary "txpoolPriceLimit")))
+             (is (= 25 (fixture-object-field summary "txpoolPriceBump")))
              (is (string= "/rpc"
                           (fixture-object-field summary "publicRpcPrefix")))
              (is (string= (namestring jwt-path)
@@ -3535,7 +3536,7 @@
             config-path
             (format nil
                     "[Eth]~%NetworkId = 4242~%~
-                     [Eth.TxPool]~%PriceLimit = 7~%~
+                     [Eth.TxPool]~%PriceLimit = 7~%PriceBump = 25~%~
                      [Node]~%HTTPHost = \"192.0.2.50\"~%HTTPPort = 1950~%~
                      AuthAddr = \"192.0.2.51\"~%AuthPort = 1951~%~
                      JWTSecret = ~S~%"
@@ -3551,6 +3552,7 @@
                          "--http.port" "1961"
                          "--networkid" "7331"
                          "--txpool.pricelimit" "11"
+                         "--txpool.pricebump" "40"
                          "--authrpc.jwtsecret" (namestring override-jwt-path)
                          "--json"
                          "--no-serve")
@@ -3564,6 +3566,7 @@
                           (fixture-object-field summary "rpcEndpoint")))
              (is (= 7331 (fixture-object-field summary "networkId")))
              (is (= 11 (fixture-object-field summary "txpoolPriceLimit")))
+             (is (= 40 (fixture-object-field summary "txpoolPriceBump")))
              (is (string= (namestring override-jwt-path)
                           (fixture-object-field summary "jwtSecretPath")))))
       (when (probe-file jwt-path)
@@ -3792,6 +3795,7 @@ HTTPPort = 1945
       (is (eq t (fixture-object-field summary
                                        "allowUnprotectedTransactions")))
       (is (= 1 (fixture-object-field summary "txpoolPriceLimit")))
+      (is (= 10 (fixture-object-field summary "txpoolPriceBump")))
       (is (eq nil (fixture-object-field summary "authRequired"))))))
 
 (deftest devnet-cli-main-accepts-geth-style-dev-mode-flags
@@ -17631,6 +17635,10 @@ HTTPPort = 1945
     (is (search "--txpool.pricelimit requires a non-negative integer or hex quantity"
                 (run-error (list "devnet"
                                  "--txpool.pricelimit=abc"
+                                 "--no-serve"))))
+    (is (search "--txpool.pricebump requires an integer value"
+                (run-error (list "devnet"
+                                 "--txpool.pricebump=abc"
                                  "--no-serve"))))
     (is (search "--dev.period requires a value"
                 (run-error (list "devnet"
