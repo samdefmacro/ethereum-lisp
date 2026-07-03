@@ -934,6 +934,17 @@ ones.
     detection. This removes the remaining duplicated devnet no-op lists while
     preserving `--json`, `--no-serve`, ready/log/pid artifact paths, endpoint
     shaping, network id, database/datadir, and pruning semantics.
+- [x] `DEVNET-RUNNER-CHAIN-PRESET-FLAGS`: Accept geth/Hive chain preset
+  switches without overriding explicit local devnet inputs.
+  - Result (2026-07-03): the shared devnet/init/pre-command option table now
+    consumes `--mainnet`, `--sepolia`, `--holesky`, `--hoodi`, and deprecated
+    `--goerli` as optional boolean compatibility flags. They do not select a
+    production network or override `--dev`, `--genesis`, initialized datadir
+    genesis, or `--networkid`; they prevent runner templates carrying chain
+    preset toggles from failing before the current local Engine/public RPC
+    process reaches readiness. Direct CLI and external script-process coverage
+    verify accepted assignments, help discovery, pre-command dispatch, and
+    malformed boolean rejection.
 - [x] `DEVNET-RUNNER-SCRIPT-DATADIR-SERVE`: Lock the initialized-datadir
   lifecycle at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`

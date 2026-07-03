@@ -1210,6 +1210,14 @@ first pass, but interfaces must not block that path.
   `--allow-insecure-unlock`; `networkId` is reported in summaries and
   lifecycle telemetry while the no-P2P/no-IPC/node-identity/account-unlock
   flags remain compatibility no-ops against the current split-service process.
+  The same shared parser now accepts chain preset switches (`--mainnet`,
+  `--sepolia`, `--holesky`, `--hoodi`, and deprecated `--goerli`) as
+  optional-boolean compatibility flags for devnet, init, and pre-command
+  dispatch. These flags intentionally do not select production network
+  configuration or override explicit local inputs such as `--dev`,
+  `--genesis`, initialized datadir genesis, or `--networkid`; they keep
+  geth/Hive runner templates that carry preset toggles from failing before the
+  local Engine/public RPC process reaches readiness.
   It also accepts common geth/Hive archive, mining, account, and diagnostics
   flags (`--gcmode`, cache sizing flags, tx history knobs, `--bootnodes`,
   mining/gas-price flags, `--unlock`, `--password`, `--metrics`,

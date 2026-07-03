@@ -3341,6 +3341,11 @@
                          "--graphql.vhosts=*"
                          "--graphql.corsdomain=*"
                          "--networkid=7331"
+                         "--mainnet=false"
+                         "--sepolia=false"
+                         "--holesky=false"
+                         "--hoodi=false"
+                         "--goerli=false"
                          "--syncmode=full"
                          "--nodiscover=false"
                          "--ipcdisable=true"
@@ -7292,6 +7297,10 @@
     (is (search "--http.api LIST" stdout))
     (is (search "--datadir PATH" stdout))
     (is (search "--networkid ID" stdout))
+    (is (search "--mainnet" stdout))
+    (is (search "--sepolia" stdout))
+    (is (search "--holesky" stdout))
+    (is (search "--hoodi" stdout))
     (is (search "--syncmode MODE" stdout))
     (is (search "--ws.api LIST" stdout))
     (is (search "--ws.origins ORIGINS" stdout))
@@ -7420,6 +7429,8 @@
                              "--db.engine=pebble"
                              "--snapshot=false"
                              "--networkid" "7331"
+                             "--sepolia=false"
+                             "--holesky=false"
                              "--authrpc.addr=127.0.0.1"
                              "--authrpc.port" "0"
                              "--authrpc.jwtsecret"
@@ -7548,6 +7559,7 @@
                  (run-script "--identity" "init"
                              "--config" (namestring config-path)
                              "--datadir" (namestring datadir)
+                             "--hoodi=false"
                              "devnet"
                              "--json"
                              "--no-serve")
@@ -17366,6 +17378,10 @@
     (is (search "--miner.etherbase requires a 20-byte hex address"
                 (run-error (list "devnet"
                                  "--miner.etherbase=0x1234"
+                                 "--no-serve"))))
+    (is (search "--sepolia boolean value must be true or false"
+                (run-error (list "devnet"
+                                 "--sepolia=maybe"
                                  "--no-serve"))))
     (is (search "--etherbase requires a 20-byte hex address"
                 (run-error (list "devnet"
