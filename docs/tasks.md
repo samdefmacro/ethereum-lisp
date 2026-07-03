@@ -1153,6 +1153,13 @@ ones.
     `scripts/ethereum-lisp.lisp -- devnet --http=false` process and verifies
     readiness JSON, stdout JSON, and ready/shutdown telemetry report the
     effective timeout alongside the configured verifier command.
+  - Result (2026-07-03): the same live Engine-only subprocess opt-in now uses
+    the geth/Hive-style `--kzg.verifier-command PATH` and
+    `--kzg.verifier-timeout SECONDS` aliases, proves those aliases install
+    the command-backed verifier hooks, and verifies the advertised
+    blob-capable Engine method set through `engine_exchangeCapabilities`.
+    `ethereum-lisp devnet --help` now advertises both KZG option spellings so
+    runner templates can discover the accepted alias surface.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess

@@ -739,7 +739,11 @@ Validation targets: geth `crypto`, Nethermind `Nethermind.Crypto` and
   standalone `scripts/devnet-smoke-gate.lisp -- --engine-only-serve` path now
   includes a `kzgOptIn` child report that exercises the subprocess runner,
   readiness/stdout/telemetry reporting, and blob-era Engine capability
-  advertisement for that explicit command-backed opt-in path.
+  advertisement for that explicit command-backed opt-in path. The
+  runner-facing script-process opt-in also covers the geth/Hive-style
+  `--kzg.verifier-command` and `--kzg.verifier-timeout` aliases through a live
+  Engine-only capability negotiation, and `devnet --help` advertises both KZG
+  spellings.
 - *Missing for Phase A:* none for Shanghai. Real KZG verification only blocks
   Phase A if Cancun blob execution is admitted into the gate.
 - *Next:* wire a trusted KZG backend before treating Cancun blob payloads as

@@ -2353,9 +2353,9 @@
                         "--authrpc.port"
                         "0"
                         "--http=false"
-                        "--kzg-verifier-command"
+                        "--kzg.verifier-command"
                         (namestring kzg-command)
-                        "--kzg-verifier-timeout"
+                        "--kzg.verifier-timeout"
                         "2"
                         "--ready-file"
                         (namestring ready-path)
@@ -7318,6 +7318,8 @@
     (is (search "--http.readtimeout DURATION" stdout))
     (is (search "--http.writetimeout DURATION" stdout))
     (is (search "--http.idletimeout DURATION" stdout))
+    (is (search "--kzg.verifier-command PATH" stdout))
+    (is (search "--kzg.verifier-timeout SECONDS" stdout))
     (is (search "--authrpc.vhosts HOSTS" stdout))))
 
 (deftest ethereum-lisp-script-dispatches-top-level-help-and-version
