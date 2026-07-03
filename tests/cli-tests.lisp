@@ -2331,6 +2331,8 @@
                         "--http=false"
                         "--kzg-verifier-command"
                         (namestring kzg-command)
+                        "--kzg-verifier-timeout"
+                        "2"
                         "--ready-file"
                         (namestring ready-path)
                         "--log-file"
@@ -2376,6 +2378,8 @@
                (is (string= (namestring kzg-command)
                             (fixture-object-field ready-summary
                                                   "kzgVerifierCommand")))
+               (is (= 2 (fixture-object-field
+                         ready-summary "kzgVerifierTimeoutSeconds")))
                (is (fixture-object-field
                     ready-summary "kzgProofVerificationAvailable"))
                (handler-case
@@ -2425,6 +2429,9 @@
                          (is (string= (namestring kzg-command)
                                       (fixture-object-field
                                        summary "kzgVerifierCommand")))
+                         (is (= 2 (fixture-object-field
+                                   summary
+                                   "kzgVerifierTimeoutSeconds")))
                          (is (fixture-object-field
                               summary
                               "kzgProofVerificationAvailable")))
@@ -2435,6 +2442,11 @@
                                         (cdr (assoc "kzgVerifierCommand"
                                                     fields
                                                     :test #'string=))))
+                           (is (string= "2"
+                                        (cdr (assoc
+                                              "kzgVerifierTimeoutSeconds"
+                                              fields
+                                              :test #'string=))))
                            (is (string= "true"
                                         (cdr (assoc
                                               "kzgProofVerificationAvailable"

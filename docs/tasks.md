@@ -1148,6 +1148,11 @@ ones.
     values with status 1, while positive process coverage marks its temporary
     verifier stub executable before checking readiness, telemetry, and live
     `engine_exchangeCapabilities`.
+  - Result (2026-07-03): runner-facing positive KZG opt-in coverage now also
+    passes `--kzg-verifier-timeout SECONDS` through the external
+    `scripts/ethereum-lisp.lisp -- devnet --http=false` process and verifies
+    readiness JSON, stdout JSON, and ready/shutdown telemetry report the
+    effective timeout alongside the configured verifier command.
 - [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
   configuration as a runner-facing startup failure.
   - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess
