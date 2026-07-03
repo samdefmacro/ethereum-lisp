@@ -23425,6 +23425,11 @@
                  "\"address\":\"" (address-to-hex recipient) "\"}]}")
                 store
                 config))
+             (pending-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":169,\"method\":\"eth_getLogs\",\"params\":[{\"fromBlock\":\"pending\",\"toBlock\":\"pending\"}]}"
+                store
+                config))
              (invalid-range-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -23464,6 +23469,7 @@
         (is (string= (quantity-to-hex 41)
                      (field (first block-hash-logs) "blockNumber")))
         (is (search "\"result\":[]" empty-json))
+        (is (search "\"result\":[]" pending-json))
         (is (= -32602 (field invalid-range-error "code")))
         (is (= -32602 (field invalid-address-error "code"))))
       (let* ((new-filter-response
@@ -23479,6 +23485,28 @@
                  store
                  config)))
              (filter-id (field new-filter-response "result"))
+             (pending-filter-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":172,"
+                  "\"method\":\"eth_newFilter\","
+                  "\"params\":[{\"fromBlock\":\"pending\","
+                  "\"address\":\"" (address-to-hex address-a) "\","
+                  "\"topics\":[\"" (hash32-to-hex topic-a) "\"]}]}")
+                 store
+                 config)))
+             (pending-filter-id (field pending-filter-response "result"))
+             (pending-filter-logs-json
+               (engine-rpc-handle-request-json
+                (concatenate
+                 'string
+                 "{\"jsonrpc\":\"2.0\",\"id\":173,"
+                 "\"method\":\"eth_getFilterLogs\","
+                 "\"params\":[\"" pending-filter-id "\"]}")
+                store
+                config))
              (filter-logs-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -23515,6 +23543,17 @@
                    store
                    config))))
              (second-changes (field second-changes-response "result"))
+             (pending-changes-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":174,"
+                  "\"method\":\"eth_getFilterChanges\","
+                  "\"params\":[\"" pending-filter-id "\"]}")
+                 store
+                 config)))
+             (pending-changes (field pending-changes-response "result"))
              (empty-changes-json
                (engine-rpc-handle-request-json
                 (concatenate
@@ -23557,6 +23596,8 @@
              (uninstall-missing-response
                (parse-json uninstall-missing-json)))
         (is (string= (quantity-to-hex 1) filter-id))
+        (is (string= (quantity-to-hex 2) pending-filter-id))
+        (is (search "\"result\":[]" pending-filter-logs-json))
         (is (= 2 (length filter-logs)))
         (is (string= (quantity-to-hex 40)
                      (field (first filter-logs) "blockNumber")))
@@ -23570,6 +23611,9 @@
         (is (= 1 (length second-changes)))
         (is (string= (quantity-to-hex 42)
                      (field (first second-changes) "blockNumber")))
+        (is (= 1 (length pending-changes)))
+        (is (string= (quantity-to-hex 42)
+                     (field (first pending-changes) "blockNumber")))
         (is (search "\"result\":[]" empty-changes-json))
         (is (eq t (field uninstall-response "result")))
         (is (= -32602 (field missing-filter-error "code")))

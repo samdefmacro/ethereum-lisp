@@ -1681,7 +1681,10 @@ first pass, but interfaces must not block that path.
   of leaking ommers from the latest committed block. Pending block-receipt
   reads follow the same boundary: `eth_getBlockReceipts("pending")` and the
   block-number object form return null because pending transactions do not
-  have receipts.
+  have receipts. Pending-start log snapshots also stop aliasing latest:
+  `eth_getLogs` and `eth_getFilterLogs` with `fromBlock:"pending"` return an
+  empty snapshot while the installed filter cursor still observes future
+  canonical blocks through `eth_getFilterChanges`.
   The standalone devnet smoke path now also checks
   `eth_getTransactionCount(..., "pending")` through live and restored public
   listeners after txpool admission so process runners cover pending sender

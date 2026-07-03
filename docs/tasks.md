@@ -1313,6 +1313,12 @@ ones.
     because pending transactions have no receipts yet. Explicit block numbers,
     `latest`, and hash-addressed block receipt reads keep the existing
     canonical behavior.
+- [x] `PUBLIC-RPC-PENDING-LOG-RANGE`: Keep log snapshots that start at the
+  pending block from aliasing latest committed logs.
+  - Result (2026-07-03): `eth_getLogs` and `eth_getFilterLogs` with
+    `fromBlock:"pending"` now return an empty log snapshot instead of latest
+    block logs, while the polling cursor still follows future blocks through
+    `eth_getFilterChanges`.
 - [x] `DEVNET-RUNNER-PENDING-BLOCK-TAG-TXPOOL`: Lock pending block-tag txpool
   visibility at the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate's restored-database

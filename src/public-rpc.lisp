@@ -2396,39 +2396,52 @@
        (block-validation-fail
         "~A topics filter must be an array" method)))))
 
+(defun eth-rpc-log-filter-from-pending-p (filter)
+  (and (not (genesis-object-field-present-p filter "blockHash"))
+       (eth-rpc-pending-block-tag-p
+        (genesis-object-field filter "fromBlock"))))
+
 (defun eth-rpc-log-filter-blocks (filter store method)
-  (if (genesis-object-field-present-p filter "blockHash")
-      (progn
-        (when (or (genesis-object-field-present-p filter "fromBlock")
-                  (genesis-object-field-present-p filter "toBlock"))
-          (block-validation-fail
-           "~A blockHash cannot be combined with fromBlock or toBlock"
-           method))
-        (let ((block-hash (eth-rpc-hash-param
-                           (list (genesis-object-field filter "blockHash"))
-                           method
-                           "block hash")))
-          (let ((block (chain-store-known-block store block-hash)))
-            (if block
-                (list block)
-                '()))))
-      (let* ((from-number (eth-rpc-block-number-param
-                           (list (or (genesis-object-field filter "fromBlock")
-                                     "latest"))
-                           store
-                           method))
-             (to-number (eth-rpc-block-number-param
-                         (list (or (genesis-object-field filter "toBlock")
-                                   "latest"))
-                         store
-                         method)))
-        (when (> from-number to-number)
-          (block-validation-fail
-           "~A fromBlock must be less than or equal to toBlock" method))
-        (loop for number from from-number to to-number
-              for block = (chain-store-block-by-number store number)
-              when block
-                collect block))))
+  (cond
+    ((genesis-object-field-present-p filter "blockHash")
+     (when (or (genesis-object-field-present-p filter "fromBlock")
+               (genesis-object-field-present-p filter "toBlock"))
+       (block-validation-fail
+        "~A blockHash cannot be combined with fromBlock or toBlock"
+        method))
+     (let ((block-hash (eth-rpc-hash-param
+                        (list (genesis-object-field filter "blockHash"))
+                        method
+                        "block hash")))
+       (let ((block (chain-store-known-block store block-hash)))
+         (if block
+             (list block)
+             '()))))
+    ((eth-rpc-log-filter-from-pending-p filter)
+     (when (genesis-object-field-present-p filter "toBlock")
+       (eth-rpc-block-number-param
+        (list (genesis-object-field filter "toBlock"))
+        store
+        method))
+     '())
+    (t
+     (let* ((from-number (eth-rpc-block-number-param
+                          (list (or (genesis-object-field filter "fromBlock")
+                                    "latest"))
+                          store
+                          method))
+            (to-number (eth-rpc-block-number-param
+                        (list (or (genesis-object-field filter "toBlock")
+                                  "latest"))
+                        store
+                        method)))
+       (when (> from-number to-number)
+         (block-validation-fail
+          "~A fromBlock must be less than or equal to toBlock" method))
+       (loop for number from from-number to to-number
+             for block = (chain-store-block-by-number store number)
+             when block
+               collect block)))))
 
 (defun eth-rpc-block-logs-object
     (block addresses topic-filters &key removed-p)
