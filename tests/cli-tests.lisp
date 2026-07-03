@@ -7918,7 +7918,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "4")
+                        "6")
                   :directory #P"/private/tmp/"
                   :output :stream
                   :error-output :stream))
@@ -7956,20 +7956,33 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":717,\"method\":\"web3_clientVersion\",\"params\":[]}")
                     (public-rpc-modules-body
                       "{\"jsonrpc\":\"2.0\",\"id\":718,\"method\":\"rpc_modules\",\"params\":[]}")
+                    (public-syncing-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":719,\"method\":\"eth_syncing\",\"params\":[]}")
+                    (public-engine-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":720,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     (jwt-secret
                       (hex-to-bytes
                        (string-trim '(#\Space #\Tab #\Newline #\Return)
                                     (devnet-cli-file-string
                                      datadir-jwt-path))))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (wrong-token
+                      (engine-rpc-make-jwt-token
+                       (hex-to-bytes
+                        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                       0))
                     engine-response
+                    unauthenticated-engine-response
+                    invalid-auth-engine-response
                     capabilities-response
                     transition-configuration-response
                     transition-configuration-mismatch-response
                     public-response
                     public-net-version-response
                     public-client-version-response
-                    public-rpc-modules-response)
+                    public-rpc-modules-response
+                    public-syncing-response
+                    public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (string= (namestring (truename datadir-genesis-path))
                             (fixture-object-field ready-summary
@@ -7997,6 +8010,19 @@
                              engine-body
                              :target "/engine"
                              :token token)))
+                     (setf unauthenticated-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :target "/engine")))
+                     (setf invalid-auth-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :target "/engine"
+                             :token wrong-token)))
                      (setf capabilities-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -8041,11 +8067,28 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-rpc-modules-body
+                             :target "/rpc")))
+                     (setf public-syncing-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-syncing-body
+                             :target "/rpc")))
+                     (setf public-engine-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-engine-body
                              :target "/rpc"))))
                  (sb-bsd-sockets:operation-not-permitted-error ()
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 200 (devnet-cli-http-status engine-response)))
+               (is (= 401
+                      (devnet-cli-http-status
+                       unauthenticated-engine-response)))
+               (is (= 401
+                      (devnet-cli-http-status invalid-auth-engine-response)))
                (dolist (response
                         (list capabilities-response
                               transition-configuration-response
@@ -8053,7 +8096,9 @@
                               public-response
                               public-net-version-response
                               public-client-version-response
-                              public-rpc-modules-response))
+                              public-rpc-modules-response
+                              public-syncing-response
+                              public-engine-response))
                  (is (= 200 (devnet-cli-http-status response))))
                (let* ((engine-json
                         (parse-json (devnet-cli-http-body engine-response)))
@@ -8095,7 +8140,15 @@
                           public-client-version-response)))
                       (public-rpc-modules-rpc
                         (parse-json
-                         (devnet-cli-http-body public-rpc-modules-response))))
+                         (devnet-cli-http-body public-rpc-modules-response)))
+                      (public-syncing-rpc
+                        (parse-json
+                         (devnet-cli-http-body public-syncing-response)))
+                      (public-engine-rpc
+                        (parse-json
+                         (devnet-cli-http-body public-engine-response)))
+                      (public-engine-error
+                        (fixture-object-field public-engine-rpc "error")))
                  (is (= 713 (fixture-object-field capabilities-rpc "id")))
                  (devnet-cli-assert-engine-capability-list
                   capabilities-result)
@@ -8141,7 +8194,15 @@
                  (is (fixture-object-field
                       (fixture-object-field
                        public-rpc-modules-rpc "result")
-                      "eth")))
+                      "eth"))
+                 (is (= 719
+                        (fixture-object-field public-syncing-rpc "id")))
+                 (is (not (fixture-object-field public-syncing-rpc
+                                                "result")))
+                 (is (= 720
+                        (fixture-object-field public-engine-rpc "id")))
+                 (is (= -32601
+                        (fixture-object-field public-engine-error "code"))))
                (let ((status (devnet-cli-wait-process-exit process 30)))
                  (when (eq status :timeout)
                    (uiop:terminate-process process))
@@ -8179,15 +8240,15 @@
                        (is (eq t (fixture-object-field stdout-summary
                                                        "authRequired")))
                        (is shutdown-record)
-                       (is (string= "4"
+                       (is (string= "6"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "4"
+                       (is (string= "6"
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "8"
+                       (is (string= "12"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=)))))))))))
@@ -8717,7 +8778,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "5")
+                        "7")
                   :directory #P"/private/tmp/"
                   :output :stream
                   :error-output :stream))
@@ -8751,9 +8812,16 @@
                                     (devnet-cli-file-string
                                      datadir-jwt-path))))
                     (token (engine-rpc-make-jwt-token jwt-secret 0))
+                    (wrong-token
+                      (engine-rpc-make-jwt-token
+                       (hex-to-bytes
+                        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                       0))
                     (engine-body
                       "{\"jsonrpc\":\"2.0\",\"id\":713,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"no-command-datadir-engine-only\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     blocked-engine-response
+                    unauthenticated-engine-response
+                    invalid-auth-engine-response
                     engine-response
                     capabilities-response
                     transition-configuration-response
@@ -8787,6 +8855,19 @@
                             (devnet-cli-json-rpc-http-request
                              engine-body
                              :token token)))
+                     (setf unauthenticated-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :target "/engine")))
+                     (setf invalid-auth-engine-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-body
+                             :target "/engine"
+                             :token wrong-token)))
                      (setf engine-response
                            (devnet-cli-http-endpoint-request
                             engine-endpoint
@@ -8819,6 +8900,11 @@
                    (skip-test
                     "Local socket connect is not permitted in this sandbox")))
                (is (= 404 (devnet-cli-http-status blocked-engine-response)))
+               (is (= 401
+                      (devnet-cli-http-status
+                       unauthenticated-engine-response)))
+               (is (= 401
+                      (devnet-cli-http-status invalid-auth-engine-response)))
                (is (= 200 (devnet-cli-http-status engine-response)))
                (is (= 200 (devnet-cli-http-status capabilities-response)))
                (is (= 200 (devnet-cli-http-status
@@ -8940,7 +9026,7 @@
                                     (cdr (assoc "publicRpcEnabled"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "5"
+                       (is (string= "7"
                                     (cdr (assoc "engineConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
@@ -8948,7 +9034,7 @@
                                     (cdr (assoc "publicConnections"
                                                 shutdown-fields
                                                 :test #'string=))))
-                       (is (string= "5"
+                       (is (string= "7"
                                     (cdr (assoc "totalConnections"
                                                 shutdown-fields
                                                 :test #'string=)))))))))))

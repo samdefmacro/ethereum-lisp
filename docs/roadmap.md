@@ -1366,7 +1366,11 @@ first pass, but interfaces must not block that path.
   reject a terminal-total-difficulty mismatch through `/engine`, and verify the
   expanded shutdown connection counts while the split path keeps public
   `eth_chainId`, `net_version`, `web3_clientVersion`, and `rpc_modules`
-  reachable through `/rpc`.
+  reachable through `/rpc`. Those initialized-datadir no-command paths now
+  also prove the discovered datadir JWT secret is enforced, requiring
+  unauthenticated and wrong-token Engine requests to return HTTP 401 before
+  accepting the authenticated handshake, while the split public listener still
+  rejects Engine namespace methods.
   The initialized-datadir no-command split path now also covers executable
   behavior: a datadir initialized from a fixture parent genesis can import
   `engine_newPayloadV2`, apply `engine_forkchoiceUpdatedV2`, expose the

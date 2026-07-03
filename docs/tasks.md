@@ -7462,6 +7462,16 @@ splits can land after the Phase A smoke path closes.
     `eth_chainId`, `net_version`, `web3_clientVersion`, and `rpc_modules`
     available through `/rpc`, and both paths verify the expanded shutdown
     connection counts.
+- [x] `DEVNET-RUNNER-NO-COMMAND-DATADIR-AUTH-REJECTS`: Lock JWT rejection on
+  initialized datadir no-command Engine listeners.
+  - Result (2026-07-03): the direct no-command split and Engine-only datadir
+    subprocess tests now send unauthenticated and wrong-token
+    `engine_getClientVersionV1` requests to the ready-file `/engine` endpoint
+    after discovering the datadir `jwtsecret`. Both launch shapes require HTTP
+    401 for those rejected Engine requests while preserving the authenticated
+    Engine handshake, split public RPC availability, split public rejection of
+    Engine namespace methods, Engine-only closed public port, and shutdown
+    connection accounting.
 - [x] `DEVNET-RUNNER-NO-COMMAND-DATADIR-IMPORT`: Prove initialized datadir
   no-command split launches can import an Engine payload and persist it.
   - Result (2026-07-03): added subprocess coverage that initializes a datadir
