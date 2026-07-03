@@ -16606,7 +16606,8 @@
         (when (probe-file path)
           (delete-file path))))))
 
-(defun devnet-cli-assert-script-signal-shutdown (signal-name temp-name)
+(defun devnet-cli-assert-script-signal-shutdown
+    (signal-name temp-name &key engine-only-p)
   (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
         (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
         (ready-path
@@ -16626,24 +16627,27 @@
          (progn
            (setf process
                  (uiop:launch-program
-                  (list "sbcl"
-                        "--script"
-                        script
-                        "--"
-                        "devnet"
-                        "--genesis"
-                        genesis
-                        "--engine-port"
-                        "0"
-                        "--public-port"
-                        "0"
-                        "--ready-file"
-                        (namestring ready-path)
-                        "--log-file"
-                        (namestring log-path)
-                        "--pid-file"
-                        (namestring pid-path)
-                        "--json")
+                  (append
+                   (list "sbcl"
+                         "--script"
+                         script
+                         "--"
+                         "devnet"
+                         "--genesis"
+                         genesis
+                         "--engine-port"
+                         "0"
+                         "--public-port"
+                         "0")
+                   (when engine-only-p
+                     (list "--http=false"))
+                   (list "--ready-file"
+                         (namestring ready-path)
+                         "--log-file"
+                         (namestring log-path)
+                         "--pid-file"
+                         (namestring pid-path)
+                         "--json"))
                   :directory #P"/private/tmp/"
                   :output :stream
                   :error-output :stream))
@@ -16713,11 +16717,31 @@
                        (is (string= engine-endpoint
                                     (fixture-object-field ready-summary
                                                           "engineEndpoint")))
-                       (is (string= rpc-endpoint
-                                    (fixture-object-field ready-summary
-                                                          "rpcEndpoint")))
+                       (if engine-only-p
+                           (progn
+                             (is (not rpc-endpoint))
+                             (is (not (fixture-object-field
+                                       ready-summary
+                                       "rpcEndpoint")))
+                             (is (not (fixture-object-field
+                                       stdout-summary
+                                       "publicRpcEnabled")))
+                             (is (not (fixture-object-field
+                                       ready-summary
+                                       "publicRpcEnabled"))))
+                           (progn
+                             (is (string= rpc-endpoint
+                                          (fixture-object-field ready-summary
+                                                                "rpcEndpoint")))
+                             (is (fixture-object-field
+                                  stdout-summary
+                                  "publicRpcEnabled"))
+                             (is (fixture-object-field
+                                  ready-summary
+                                  "publicRpcEnabled"))))
                        (is (not (string= "127.0.0.1:0" engine-endpoint)))
-                       (is (not (string= "127.0.0.1:0" rpc-endpoint)))
+                       (unless engine-only-p
+                         (is (not (string= "127.0.0.1:0" rpc-endpoint))))
                        (is (member "devnet.ready" log-names :test #'string=))
                        (is (member "devnet.shutdown" log-names :test #'string=))
                        (dolist (log-record log-records)
@@ -16729,10 +16753,27 @@
                                           (cdr (assoc "engineEndpoint"
                                                       fields
                                                       :test #'string=))))
-                             (is (string= rpc-endpoint
-                                          (cdr (assoc "rpcEndpoint"
+                             (if engine-only-p
+                                 (progn
+                                   (is (string= ""
+                                                (cdr (assoc "rpcEndpoint"
+                                                            fields
+                                                            :test #'string=))))
+                                   (is (string= "false"
+                                                (cdr (assoc
+                                                      "publicRpcEnabled"
                                                       fields
-                                                      :test #'string=))))
+                                                      :test #'string=)))))
+                                 (progn
+                                   (is (string= rpc-endpoint
+                                                (cdr (assoc "rpcEndpoint"
+                                                            fields
+                                                            :test #'string=))))
+                                   (is (string= "true"
+                                                (cdr (assoc
+                                                      "publicRpcEnabled"
+                                                      fields
+                                                      :test #'string=))))))
                              (is (string= (if (string= "devnet.ready"
                                                         (getf log-record :name))
                                                "ready"
@@ -16768,6 +16809,15 @@
   (skip-test "Ethereum Lisp process script requires SBCL")
   #+sbcl
   (devnet-cli-assert-script-signal-shutdown "INT" "sigint"))
+
+(deftest ethereum-lisp-script-engine-only-serve-mode-handles-sigterm-shutdown
+  #-sbcl
+  (skip-test "Ethereum Lisp process script requires SBCL")
+  #+sbcl
+  (devnet-cli-assert-script-signal-shutdown
+   "TERM"
+   "engine-only-sigterm"
+   :engine-only-p t))
 
 (defun devnet-cli-assert-script-error-telemetry
     (args error-substring &key

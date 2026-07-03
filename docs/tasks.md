@@ -7546,6 +7546,15 @@ splits can land after the Phase A smoke path closes.
     telemetry, and fresh `--no-serve` restore. The split import path also
     keeps public `eth_syncing` reachable and proves the public `/rpc` listener
     rejects Engine namespace methods.
+- [x] `DEVNET-RUNNER-ENGINE-ONLY-SIGNAL-SHUTDOWN`: Lock signal-triggered
+  graceful shutdown for public-disabled runner processes.
+  - Result (2026-07-03): the runner-facing signal shutdown harness now also
+    launches `scripts/ethereum-lisp.lisp -- devnet --http=false`, waits for
+    ready/log/pid artifacts, sends SIGTERM to the child process, and verifies
+    the process exits cleanly while stdout/readiness JSON and
+    `devnet.ready` / `devnet.shutdown` telemetry keep
+    `publicRpcEnabled=false`, disabled/empty `rpcEndpoint`, matching process
+    ids, and zero served connections.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

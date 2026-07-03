@@ -1627,7 +1627,10 @@ first pass, but interfaces must not block that path.
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout
   JSON, ready-file JSON, and `devnet.ready` / `devnet.shutdown` telemetry with
-  matching endpoints and lifecycle phases. The
+  matching endpoints and lifecycle phases. The public-disabled Engine-only
+  runner path now also has SIGTERM coverage that preserves
+  `publicRpcEnabled=false` / disabled `rpcEndpoint` in stdout, ready-file
+  JSON, and lifecycle telemetry while exiting cleanly. The
   top-level Phase A
   `--devnet` gate also validates the child report's ready/log/pid/database
   artifact paths and per-case counts before accepting the devnet suite.
