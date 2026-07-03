@@ -1252,7 +1252,9 @@ first pass, but interfaces must not block that path.
   that embedded genesis while file-backed genesis inputs remain authoritative;
   geth/Hive-style `--miner.gaslimit` now supplies the same embedded dev-genesis
   gas limit when `--dev.gaslimit` is absent, while remaining lower precedence
-  than the dev-specific flag and not enabling mining or block production.
+  than the dev-specific flag and not enabling mining or block production. The
+  geth TOML `[Eth.Miner] GasCeil` field is imported through the same
+  runner-visible path for config-file-based launches.
   `--miner.etherbase` / `--etherbase` also shape the embedded dev genesis
   header coinbase when no file-backed genesis is supplied.
   `--dev.period` remains a compatibility no-op until block production timing

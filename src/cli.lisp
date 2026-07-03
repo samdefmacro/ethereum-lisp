@@ -992,6 +992,9 @@
         ((and (string= section "Eth") (string= key "NetworkId")
               (non-empty-scalar))
          (list "--networkid" scalar))
+        ((and (string= section "Eth.Miner") (string= key "GasCeil")
+              (non-empty-scalar))
+         (list "--miner.gaslimit" scalar))
         (t nil)))))
 
 (defun devnet-cli-read-config-args (path)

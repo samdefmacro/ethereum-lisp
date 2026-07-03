@@ -1057,6 +1057,11 @@ ones.
     explicit `--dev.gaslimit` still wins and file-backed genesis inputs remain
     authoritative. Malformed `--miner.gaslimit` values now fail during option
     parsing instead of being silently consumed as no-op text.
+  - Result (2026-07-03): geth TOML `[Eth.Miner] GasCeil` is imported through
+    the same `--miner.gaslimit` path, so process runners that launch from a
+    geth-style config file get the expected embedded `--dev` genesis gas limit
+    without duplicating the setting on argv. Explicit `--dev.gaslimit` remains
+    higher precedence.
   - Result (2026-07-02): geth/Hive-style `--miner.etherbase` / `--etherbase`
     now configure the devnet coinbase address reported in JSON summaries,
     lifecycle telemetry, and public `eth_coinbase`. For embedded `--dev`

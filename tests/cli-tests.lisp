@@ -3568,6 +3568,70 @@
       (when (probe-file config-path)
         (delete-file config-path)))))
 
+(deftest devnet-cli-main-applies-geth-miner-config-file-values
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-geth-miner-config"))
+         (config-path (merge-pathnames "geth.toml" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist root)
+           (devnet-cli-write-temp-file
+            config-path
+            "[Eth.Miner]
+GasCeil = 34000000
+")
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--config" (namestring config-path)
+                         "--dev"
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let ((summary (parse-json (get-output-stream-string output))))
+             (is (eq t (fixture-object-field summary "devMode")))
+             (is (= 34000000
+                    (fixture-object-field summary "headGasLimit")))))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
+
+(deftest devnet-cli-main-explicit-dev-gaslimit-overrides-geth-miner-config-file
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-geth-miner-config-override"))
+         (config-path (merge-pathnames "geth.toml" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist root)
+           (devnet-cli-write-temp-file
+            config-path
+            "[Eth.Miner]
+GasCeil = 34000000
+")
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--config" (namestring config-path)
+                         "--dev"
+                         "--dev.gaslimit"
+                         "35000000"
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let ((summary (parse-json (get-output-stream-string output))))
+             (is (eq t (fixture-object-field summary "devMode")))
+             (is (= 35000000
+                    (fixture-object-field summary "headGasLimit")))))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
+
 (deftest devnet-cli-main-empty-geth-http-host-disables-public-rpc
   (let* ((root (devnet-cli-temp-directory
                 "ethereum-lisp-devnet-geth-config-http-disabled"))
