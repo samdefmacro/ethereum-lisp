@@ -91,6 +91,12 @@
                           :if-does-not-exist :create)
     (write-string contents stream)))
 
+(defun devnet-cli-make-executable (path)
+  (uiop:run-program (list "chmod" "755" (namestring path))
+                    :output nil
+                    :error-output nil)
+  path)
+
 (defun devnet-cli-file-string (path)
   (with-open-file (stream path :direction :input)
     (let ((string (make-string (file-length stream))))
@@ -2208,10 +2214,14 @@
         (errors (make-string-output-stream))
         (missing-output (make-string-output-stream))
         (missing-errors (make-string-output-stream))
+        (non-executable-output (make-string-output-stream))
+        (non-executable-errors (make-string-output-stream))
         (kzg-command
           (devnet-cli-temp-path "ethereum-lisp-kzg-scoped" "sh"))
         (missing-kzg-command
           (devnet-cli-temp-path "ethereum-lisp-kzg-missing" "sh"))
+        (non-executable-kzg-command
+          (devnet-cli-temp-path "ethereum-lisp-kzg-non-executable" "sh"))
         (old-point-verifier *kzg-point-proof-verifier*)
         (old-blob-verifier *kzg-blob-proof-verifier*))
     (unwind-protect
@@ -2220,6 +2230,10 @@
                  *kzg-blob-proof-verifier* nil)
            (devnet-cli-write-temp-file
             kzg-command
+            "#!/bin/sh\necho true\n")
+           (devnet-cli-make-executable kzg-command)
+           (devnet-cli-write-temp-file
+            non-executable-kzg-command
             "#!/bin/sh\necho true\n")
            (is (= 0
                   (ethereum-lisp.cli:main
@@ -2250,15 +2264,32 @@
                    :output-stream missing-output
                    :error-stream missing-errors)))
            (is (string= "" (get-output-stream-string missing-output)))
-           (is (search "KZG verifier command is not available"
+           (is (search "KZG verifier command is not executable"
                        (get-output-stream-string missing-errors)))
+           (is (= 1
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--port" "0"
+                         "--kzg-verifier-command"
+                         (namestring non-executable-kzg-command)
+                         "--json"
+                         "--no-serve")
+                   :output-stream non-executable-output
+                   :error-stream non-executable-errors)))
+           (is (string= ""
+                        (get-output-stream-string non-executable-output)))
+           (is (search "KZG verifier command is not executable"
+                       (get-output-stream-string non-executable-errors)))
            (is (not (kzg-proof-verification-available-p))))
       (setf *kzg-point-proof-verifier* old-point-verifier
             *kzg-blob-proof-verifier* old-blob-verifier)
       (when (probe-file kzg-command)
         (delete-file kzg-command))
       (when (probe-file missing-kzg-command)
-        (delete-file missing-kzg-command)))))
+        (delete-file missing-kzg-command))
+      (when (probe-file non-executable-kzg-command)
+        (delete-file non-executable-kzg-command)))))
 
 (deftest ethereum-lisp-script-engine-only-kzg-verifier-advertises-blob-capabilities
   #-sbcl
@@ -2280,6 +2311,7 @@
            (devnet-cli-write-temp-file
             kzg-command
             "#!/bin/sh\necho true\n")
+           (devnet-cli-make-executable kzg-command)
            (setf process
                  (uiop:launch-program
                   (list "sbcl"

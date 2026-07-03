@@ -9086,7 +9086,26 @@ vectors. It should return true only when the proof is valid.")
       (t
        (error "KZG verifier command must be a non-empty string or list of non-empty strings")))))
 
-(defun kzg-verifier-command-program-available-p (program)
+(defun kzg-verifier-command-executable-file-p (path)
+  (let ((file (uiop:file-exists-p path)))
+    (when file
+      #+sbcl
+      (handler-case
+          (progn
+            (require :sb-posix)
+            (let* ((package (find-package "SB-POSIX"))
+                   (access (and package (find-symbol "ACCESS" package)))
+                   (x-ok (and package (find-symbol "X-OK" package))))
+              (and access
+                   x-ok
+                   (zerop (funcall access
+                                   (namestring file)
+                                   (symbol-value x-ok))))))
+        (error () nil))
+      #-sbcl
+      t)))
+
+(defun kzg-verifier-command-program-executable-p (program)
   (labels ((blank-string-p (value)
              (or (null value)
                  (zerop (length
@@ -9097,17 +9116,18 @@ vectors. It should return true only when the proof is valid.")
                      (if (blank-string-p directory) "." directory)
                      program)))
     (if (find #\/ program)
-        (probe-file program)
+        (kzg-verifier-command-executable-file-p program)
         (loop for directory in (uiop:split-string
                                 (or (uiop:getenv "PATH") "")
                                 :separator ":")
-              thereis (probe-file (candidate directory))))))
+              thereis (kzg-verifier-command-executable-file-p
+                       (candidate directory))))))
 
 (defun validate-kzg-verifier-command (command)
   (let* ((normalized (normalize-kzg-verifier-command command))
          (program (first normalized)))
-    (unless (kzg-verifier-command-program-available-p program)
-      (error "KZG verifier command is not available: ~A" program))
+    (unless (kzg-verifier-command-program-executable-p program)
+      (error "KZG verifier command is not executable: ~A" program))
     normalized))
 
 (defun kzg-verifier-command-accepted-output-p (output)

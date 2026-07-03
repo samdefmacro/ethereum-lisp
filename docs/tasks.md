@@ -1130,6 +1130,13 @@ ones.
     subprocess coverage uses a real temporary verifier stub instead of a
     nonexistent path before checking readiness, telemetry, and live
     `engine_exchangeCapabilities`.
+  - Result (2026-07-03): KZG verifier command opt-in now also requires the
+    resolved command path to be an executable file before installing proof
+    hooks or advertising KZG-backed Engine methods. Direct CLI coverage
+    rejects both missing and non-executable `--kzg-verifier-command PATH`
+    values with status 1, while positive process coverage marks its temporary
+    verifier stub executable before checking readiness, telemetry, and live
+    `engine_exchangeCapabilities`.
 - [x] `DEVNET-RUNNER-EMPTY-CAPABILITY-HANDSHAKE`: Accept empty remote Engine
   capability lists at the JSON-RPC and process boundary.
   - Result (2026-07-03): `engine_exchangeCapabilities` now validates remote
