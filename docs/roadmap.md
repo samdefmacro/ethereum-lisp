@@ -1452,7 +1452,10 @@ first pass, but interfaces must not block that path.
   the KZG-backed blob-era methods through `engine_exchangeCapabilities`.
   Missing or non-executable verifier command paths fail startup instead of
   advertising Cancun-capable Engine methods backed by a verifier that cannot
-  launch. That live capability
+  launch; the runner-facing script process now locks that failure mode through
+  the geth-style `--kzg.verifier-command` alias by emitting status 1, empty
+  stdout, devnet usage, and a single `devnet.error` telemetry record before
+  readiness. That live capability
   handshake now accepts an empty remote capability list (`params:[[]]`) at the
   preserved JSON-array process boundary while continuing to reject malformed
   non-string capability entries. It also probes

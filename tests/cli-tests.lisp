@@ -16503,10 +16503,15 @@
         (bad-jwt-path
           (devnet-cli-temp-path "ethereum-lisp-script-bad-jwt" "hex"))
         (missing-jwt-path
-          (devnet-cli-temp-path "ethereum-lisp-script-missing-jwt" "hex")))
+          (devnet-cli-temp-path "ethereum-lisp-script-missing-jwt" "hex"))
+        (non-executable-kzg-command
+          (devnet-cli-temp-path "ethereum-lisp-script-kzg-error" "sh")))
     (unwind-protect
          (progn
            (devnet-cli-write-temp-file bad-jwt-path "not-hex")
+           (devnet-cli-write-temp-file
+            non-executable-kzg-command
+            "#!/bin/sh\necho true\n")
            (devnet-cli-assert-script-error-telemetry
             (list "devnet" "--json" "--no-serve")
             "--genesis is required")
@@ -16541,6 +16546,14 @@
                   "--no-serve")
             "--jwt-secret/--authrpc.jwtsecret must name a readable file containing a 32-byte hex secret")
            (devnet-cli-assert-script-error-telemetry
+            (list "devnet"
+                  "--genesis"
+                  genesis
+                  "--kzg.verifier-command"
+                  (namestring non-executable-kzg-command)
+                  "--no-serve")
+            "KZG verifier command is not executable")
+           (devnet-cli-assert-script-error-telemetry
             (list "init" "--json")
             "init requires a genesis file"
             :event-name "init.error"
@@ -16571,6 +16584,8 @@
         (delete-file bad-jwt-path))
       (when (probe-file missing-jwt-path)
         (delete-file missing-jwt-path))
+      (when (probe-file non-executable-kzg-command)
+        (delete-file non-executable-kzg-command))
       (when (probe-file init-datadir)
         (ignore-errors
           (uiop:delete-directory-tree init-datadir :validate t))))))

@@ -1137,6 +1137,13 @@ ones.
     values with status 1, while positive process coverage marks its temporary
     verifier stub executable before checking readiness, telemetry, and live
     `engine_exchangeCapabilities`.
+- [x] `DEVNET-RUNNER-KZG-ERROR-TELEMETRY`: Lock invalid KZG verifier
+  configuration as a runner-facing startup failure.
+  - Result (2026-07-03): `scripts/ethereum-lisp.lisp -- devnet` subprocess
+    coverage now passes a non-executable verifier through the geth-style
+    `--kzg.verifier-command PATH` alias and requires status 1, empty stdout,
+    devnet usage on stderr, and exactly one `devnet.error` telemetry record
+    before readiness or Engine capability advertisement.
 - [x] `DEVNET-RUNNER-EMPTY-CAPABILITY-HANDSHAKE`: Accept empty remote Engine
   capability lists at the JSON-RPC and process boundary.
   - Result (2026-07-03): `engine_exchangeCapabilities` now validates remote
