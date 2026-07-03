@@ -3568,6 +3568,74 @@
       (when (probe-file config-path)
         (delete-file config-path)))))
 
+(deftest devnet-cli-main-empty-geth-http-host-disables-public-rpc
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-geth-config-http-disabled"))
+         (config-path (merge-pathnames "geth.toml" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist root)
+           (devnet-cli-write-temp-file
+            config-path
+            "[Node]
+HTTPHost = \"\"
+HTTPPort = 1945
+AuthAddr = \"192.0.2.42\"
+AuthPort = 1951
+")
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--config" (namestring config-path)
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let ((summary (parse-json (get-output-stream-string output))))
+             (is (eq nil (fixture-object-field summary "publicRpcEnabled")))
+             (is (eq nil (fixture-object-field summary "rpcEndpoint")))
+             (is (string= "192.0.2.42:1951"
+                          (fixture-object-field summary "engineEndpoint")))))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
+
+(deftest devnet-cli-main-explicit-http-reenables-empty-geth-http-host
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-geth-config-http-reenabled"))
+         (config-path (merge-pathnames "geth.toml" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist root)
+           (devnet-cli-write-temp-file
+            config-path
+            "[Node]
+HTTPHost = \"\"
+HTTPPort = 1945
+")
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--config" (namestring config-path)
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--http"
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let ((summary (parse-json (get-output-stream-string output))))
+             (is (eq t (fixture-object-field summary "publicRpcEnabled")))
+             (is (string= "127.0.0.1:1945"
+                          (fixture-object-field summary "rpcEndpoint")))))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
+
 (deftest devnet-cli-main-geth-p2p-port-does-not-override-engine-port
   (labels ((run-summary (args)
              (let ((output (make-string-output-stream))

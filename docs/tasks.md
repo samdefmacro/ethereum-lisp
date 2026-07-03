@@ -7616,6 +7616,12 @@ splits can land after the Phase A smoke path closes.
     network-id fields plus override precedence; runner-facing script coverage
     initializes and restores a datadir using `--config PATH` as the source for
     datadir/JWT settings.
+  - Result (2026-07-03): geth TOML `Node.HTTPHost = ""` now maps to disabled
+    public RPC (`--http=false`) instead of falling back to the Lisp devnet's
+    default public listener. Direct CLI coverage verifies that config-only
+    launches report `publicRpcEnabled=false` / `rpcEndpoint=false`, and that a
+    later explicit `--http` argv flag re-enables the public listener while
+    preserving the config-provided HTTP port.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.

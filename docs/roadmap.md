@@ -1281,7 +1281,10 @@ first pass, but interfaces must not block that path.
   hosts/ports, JWT secret path, HTTP module/CORS/vhost/prefix settings, Engine
   vhosts, and network id. Config-derived values are applied before explicit
   command-line flags, so runner templates can share a config file while still
-  overriding individual launch parameters on argv.
+  overriding individual launch parameters on argv. An empty geth TOML
+  `Node.HTTPHost` now also disables the public RPC listener, matching geth's
+  config-file contract while still allowing a later explicit `--http` argv
+  flag to re-enable it for a specific runner launch.
   The standalone devnet smoke gate now verifies and reports `headGasLimit`
   across ready files, lifecycle telemetry, and restored database summaries, so
   process runners can detect gas-limit drift at the same boundary where they
