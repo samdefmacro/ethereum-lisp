@@ -1502,7 +1502,11 @@ first pass, but interfaces must not block that path.
   connections. The same script subprocess now verifies authenticated Engine and
   public JSON-RPC notifications produce empty HTTP bodies, while public mixed
   batches omit notification results and all-notification batches produce no
-  body at the external process boundary. The same script subprocess
+  body at the external process boundary. The root RPC prefix is now exact at
+  the HTTP process boundary: `/` and query-bearing root requests stay valid,
+  while `/unexpected` returns HTTP 404 for both authenticated Engine and public
+  listeners instead of being treated as another root endpoint. The same script
+  subprocess
   coverage now verifies missing/wrong JWT Engine requests and duplicate
   `Authorization` headers fail with HTTP 401, and that Engine/public namespace
   separation is enforced in both directions at the external process boundary.

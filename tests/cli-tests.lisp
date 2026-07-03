@@ -9559,7 +9559,7 @@
                         "--pid-file"
                         (namestring pid-path)
                         "--max-connections"
-                        "23"
+                        "24"
                         "--override.terminaltotaldifficulty"
                         "12345"
                         "--override.terminaltotaldifficultypassed"
@@ -9617,6 +9617,8 @@
                       "{\"jsonrpc\":\"2.0\",\"id\":507,\"method\":\"eth_chainId\",\"params\":[]}")
                     (engine-capabilities-body
                       "{\"jsonrpc\":\"2.0\",\"id\":508,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
+                    (engine-wrong-path-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":531,\"method\":\"engine_getClientVersionV1\",\"params\":[{\"code\":\"runner\",\"name\":\"wrong-path\",\"version\":\"1\",\"commit\":\"0x00000000\"}]}")
                     (public-body
                       "{\"jsonrpc\":\"2.0\",\"id\":502,\"method\":\"eth_chainId\",\"params\":[]}")
                     (public-client-version-body
@@ -9661,6 +9663,8 @@
                       "[{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"id\":529,\"method\":\"net_version\",\"params\":[]}]")
                     (public-notifications-batch-body
                       "[{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[]},{\"jsonrpc\":\"2.0\",\"method\":\"net_version\",\"params\":[]}]")
+                    (public-wrong-path-body
+                      "{\"jsonrpc\":\"2.0\",\"id\":532,\"method\":\"eth_chainId\",\"params\":[]}")
                     (public-engine-body
                       "{\"jsonrpc\":\"2.0\",\"id\":509,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
                     engine-response
@@ -9672,6 +9676,7 @@
                     unauthenticated-engine-response
                     invalid-auth-engine-response
                     duplicate-auth-engine-response
+                    engine-wrong-path-response
                     public-response
                     public-client-version-response
                     public-net-version-response
@@ -9694,6 +9699,7 @@
                     public-notification-response
                     public-mixed-batch-response
                     public-notifications-batch-response
+                    public-wrong-path-response
                     public-engine-response)
                (is (= pid (fixture-object-field ready-summary "processId")))
                (is (search "127.0.0.1:" engine-endpoint))
@@ -9756,6 +9762,13 @@
                              engine-capabilities-body
                              token
                              wrong-token)))
+                     (setf engine-wrong-path-response
+                           (devnet-cli-http-endpoint-request
+                            engine-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             engine-wrong-path-body
+                             :target "/unexpected"
+                             :token token)))
                      (setf public-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -9865,6 +9878,12 @@
                             rpc-endpoint
                             (devnet-cli-json-rpc-http-request
                              public-notifications-batch-body)))
+                     (setf public-wrong-path-response
+                           (devnet-cli-http-endpoint-request
+                            rpc-endpoint
+                            (devnet-cli-json-rpc-http-request
+                             public-wrong-path-body
+                             :target "/unexpected")))
                      (setf public-engine-response
                            (devnet-cli-http-endpoint-request
                             rpc-endpoint
@@ -9887,6 +9906,10 @@
                       (devnet-cli-http-status invalid-auth-engine-response)))
                (is (= 401
                       (devnet-cli-http-status duplicate-auth-engine-response)))
+               (is (= 404 (devnet-cli-http-status engine-wrong-path-response)))
+               (is (search "not found"
+                           (devnet-cli-http-body
+                            engine-wrong-path-response)))
                (is (= 200 (devnet-cli-http-status public-response)))
                (is (= 200
                       (devnet-cli-http-status
@@ -9928,6 +9951,10 @@
                (is (= 200
                       (devnet-cli-http-status
                        public-notifications-batch-response)))
+               (is (= 404 (devnet-cli-http-status public-wrong-path-response)))
+               (is (search "not found"
+                           (devnet-cli-http-body
+                            public-wrong-path-response)))
                (is (= 200 (devnet-cli-http-status public-engine-response)))
                (let* ((engine-json
                         (parse-json (devnet-cli-http-body engine-response)))
@@ -10268,15 +10295,15 @@
                                                     :test #'string=))))))
                        (let ((shutdown-fields
                                (getf shutdown-record :fields)))
-                         (is (string= "9"
+                         (is (string= "10"
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "23"
+                         (is (string= "24"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "32"
+                         (is (string= "34"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=))))))))))))

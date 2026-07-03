@@ -24266,6 +24266,25 @@
            (rpc-response (parse-json (http-body http-response))))
       (is (= 200 (http-status http-response)))
       (is (= 117 (field rpc-response "id"))))
+    (let* ((body
+             (concatenate
+              'string
+              "{\"jsonrpc\":\"2.0\",\"id\":30,"
+              "\"method\":\"engine_getClientVersionV1\","
+              "\"params\":[{\"code\":\"TT\",\"name\":\"test\","
+              "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
+           (request
+             (format nil
+                     "POST /unexpected HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (http-response
+             (engine-rpc-handle-http-request-string
+              request
+              (make-engine-payload-memory-store)
+              (make-chain-config))))
+      (is (= 404 (http-status http-response)))
+      (is (search "not found" (http-body http-response))))
     (let* ((response
              (engine-rpc-handle-http-request-string
               "POST /public HTTP/1.1

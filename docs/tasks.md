@@ -561,6 +561,14 @@ ones.
     Engine and public JSON-RPC calls through the ready-file endpoints while
     asserting readiness JSON, stdout JSON, and lifecycle telemetry advertise
     loopback endpoints rather than wildcard bind addresses.
+- [x] `DEVNET-RUNNER-ROOT-RPC-PATH`: Keep default root RPC endpoints strict
+  at the HTTP process boundary.
+  - Result (2026-07-03): the root RPC prefix now accepts only `/` (plus query
+    strings) instead of treating every path as valid, while non-root prefixes
+    continue to accept their exact prefix and subpaths. Core HTTP coverage and
+    runner-facing `scripts/ethereum-lisp.lisp` serve-mode subprocess coverage
+    verify authenticated Engine and public requests to `/unexpected` return
+    HTTP 404 while normal root endpoint probes still succeed.
 - [x] `DEVNET-RUNNER-RPC-LIMIT-FLAGS`: Accept common geth/Hive RPC
   resource-limit launch flags without changing the current Lisp RPC behavior.
   - Result (2026-07-01): the shared devnet/init option table now consumes

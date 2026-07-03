@@ -7593,9 +7593,9 @@ Returns NIL when V/R/S are invalid or the expected chain id does not match."
 
 (defun engine-rpc-http-target-allowed-p (target rpc-prefix)
   (let ((path (engine-rpc-http-target-path target)))
-    (or (string= rpc-prefix "/")
-        (string= path rpc-prefix)
+    (or (string= path rpc-prefix)
         (and (< (length rpc-prefix) (length path))
+             (not (string= rpc-prefix "/"))
              (engine-rpc-string-prefix-p rpc-prefix path)
              (char= #\/ (char path (length rpc-prefix)))))))
 
