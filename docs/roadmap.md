@@ -1602,6 +1602,9 @@ first pass, but interfaces must not block that path.
   `eth_getTransactionCount(..., "pending")` through that public listener after
   txpool admission, locking the pending sender nonce contract at the
   runner-facing script process boundary. The
+  standalone devnet smoke gate also enforces the default root RPC path
+  contract by reporting authenticated Engine and public `/unexpected` probes
+  as HTTP 404 and including those probes in its connection contract. The
   script process is also covered receiving
   `SIGTERM` or `SIGINT` through its pid-file process id, verifying external
   runner shutdown produces exit status 0, the expected signal notice, stdout

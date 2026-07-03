@@ -119,13 +119,13 @@
   (let ((contract (fixture-object-field report "connectionContract")))
     (is contract)
     (is (= case-count (fixture-object-field contract "caseCount")))
-    (is (= (* 4 case-count)
+    (is (= (* 5 case-count)
            (fixture-object-field contract "engineBoundaryConnections")))
     (is (= (* 12 case-count)
            (fixture-object-field contract "engineWorkflowConnections")))
     (is (= (* 23 case-count)
            (fixture-object-field contract "publicCanonicalReadConnections")))
-    (is (= (* 2 case-count)
+    (is (= (* 3 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
     (is (= (* 15 case-count)
            (fixture-object-field contract "publicTxpoolConnections")))
@@ -4641,6 +4641,10 @@
                       (fixture-object-field
                        report
                        "engineDuplicateAuthStatus")))
+               (is (= 404
+                      (fixture-object-field
+                       report
+                       "engineRootWrongPathStatus")))
                (devnet-cli-assert-engine-capability-report report)
                (devnet-cli-assert-engine-client-version report)
                (devnet-cli-assert-engine-transition-configuration
@@ -4662,6 +4666,10 @@
                       (fixture-object-field
                        report
                        "publicMalformedJsonErrorCode")))
+               (is (= 404
+                      (fixture-object-field
+                       report
+                       "publicRootWrongPathStatus")))
                (is (equal '("eth" "net")
                           (fixture-object-field report
                                                 "publicApiAllowlist")))
@@ -5201,11 +5209,11 @@
                       (length database-files)))
                (devnet-cli-assert-pruned-state-suite
                 report cases prune-boundary)
-               (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 17 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 40 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 41 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 56 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 58 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -5222,8 +5230,8 @@
                    (is (string= +payload-status-valid+
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
-                   (is (= 16 (fixture-object-field case "engineConnections")))
-                  (is (= 40 (fixture-object-field case "publicConnections")))
+                   (is (= 17 (fixture-object-field case "engineConnections")))
+                  (is (= 41 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -5236,6 +5244,10 @@
                           (fixture-object-field
                            case
                            "engineDuplicateAuthStatus")))
+                   (is (= 404
+                          (fixture-object-field
+                           case
+                           "engineRootWrongPathStatus")))
                    (devnet-cli-assert-engine-capability-report case)
                    (devnet-cli-assert-engine-client-version case)
                    (devnet-cli-assert-engine-transition-configuration case)
@@ -5254,6 +5266,10 @@
                           (fixture-object-field
                            case
                            "publicMalformedJsonErrorCode")))
+                   (is (= 404
+                          (fixture-object-field
+                           case
+                           "publicRootWrongPathStatus")))
                    (devnet-cli-assert-public-cors-smoke-report case)
                    (devnet-cli-assert-engine-cors-smoke-report case)
                    (devnet-cli-assert-http-shaping-smoke-report case)
@@ -6118,11 +6134,11 @@
                         (fixture-object-field
                          two-transfer-case
                          "databaseRpcSideReinsertedTransactionHashes")))))))
-        (is (= (* 16 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 17 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 40 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 41 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 56 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 58 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (devnet-cli-assert-public-readiness case)

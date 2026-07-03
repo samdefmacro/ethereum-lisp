@@ -94,13 +94,13 @@ references/ checkouts.~%")
   "0x0000000000000000000000000000000000003001")
 (defconstant +devnet-smoke-gate-engine-endpoint+ "http://127.0.0.1:8551")
 (defconstant +devnet-smoke-gate-public-endpoint+ "http://127.0.0.1:8545")
-(defconstant +devnet-smoke-gate-engine-boundary-connections+ 4)
+(defconstant +devnet-smoke-gate-engine-boundary-connections+ 5)
 (defconstant +devnet-smoke-gate-engine-workflow-connections+ 12)
 (defconstant +devnet-smoke-gate-engine-connections+
   (+ +devnet-smoke-gate-engine-boundary-connections+
      +devnet-smoke-gate-engine-workflow-connections+))
 (defconstant +devnet-smoke-gate-public-canonical-read-connections+ 23)
-(defconstant +devnet-smoke-gate-public-boundary-connections+ 2)
+(defconstant +devnet-smoke-gate-public-boundary-connections+ 3)
 (defconstant +devnet-smoke-gate-public-txpool-connections+ 15)
 (defconstant +devnet-smoke-gate-public-connections+
   (+ +devnet-smoke-gate-public-canonical-read-connections+
@@ -7524,6 +7524,8 @@ references/ checkouts.~%")
                   (unauthenticated-engine-output (make-string-output-stream))
                   (invalid-auth-engine-output (make-string-output-stream))
                   (duplicate-auth-engine-output (make-string-output-stream))
+                  (engine-root-wrong-path-output
+                    (make-string-output-stream))
                   (client-version-output (make-string-output-stream))
                   (capabilities-output (make-string-output-stream))
                   (transition-configuration-output
@@ -7571,6 +7573,8 @@ references/ checkouts.~%")
                   (public-engine-namespace-output
                     (make-string-output-stream))
                   (public-malformed-json-output
+                    (make-string-output-stream))
+                  (public-root-wrong-path-output
                     (make-string-output-stream))
                   (new-pending-filter-output
                     (make-string-output-stream))
@@ -8120,8 +8124,10 @@ references/ checkouts.~%")
                   (unauthenticated-engine-served-p nil)
                   (invalid-auth-engine-served-p nil)
                   (duplicate-auth-engine-served-p nil)
+                  (engine-root-wrong-path-served-p nil)
                   (engine-done-p nil)
-                  (public-served-count 0))
+                  (public-served-count 0)
+                  (public-root-wrong-path-served-p nil))
              (devnet-cli-set-node-store-config node store config)
              (engine-payload-store-put-block
               store parent-block :state-available-p t)
@@ -8190,6 +8196,25 @@ references/ checkouts.~%")
                              :close-function
                              (lambda ()
                                (incf engine-served-count))))
+                           ((not engine-root-wrong-path-served-p)
+                            (setf engine-root-wrong-path-served-p t)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream
+                              (devnet-cli-json-rpc-http-request
+                               (json-encode
+                                (list
+                                 (cons "jsonrpc" "2.0")
+                                 (cons "id" 72)
+                                 (cons "method"
+                                       "engine_getClientVersionV1")
+                                 (cons "params" (list '()))))
+                               :token token
+                               :target "/unexpected"))
+                             :output-stream engine-root-wrong-path-output
+                             :close-function
+                             (lambda ()
+                               (incf engine-served-count))))
                            (engine-requests
                             (destructuring-bind (body . output)
                                 (pop engine-requests)
@@ -8212,16 +8237,33 @@ references/ checkouts.~%")
                        (lambda ()
                          (loop until engine-done-p
                                do (sleep 0.001))
-                         (when public-requests
-                           (destructuring-bind (body . output)
-                               (pop public-requests)
-                             (make-engine-rpc-http-connection
-                              :input-stream
-                              (make-string-input-stream
-                               (devnet-cli-json-rpc-http-request body))
-                              :output-stream output
-                              :close-function
-                              (lambda () (incf public-served-count))))))
+                         (cond
+                           ((not public-root-wrong-path-served-p)
+                            (setf public-root-wrong-path-served-p t)
+                            (make-engine-rpc-http-connection
+                             :input-stream
+                             (make-string-input-stream
+                              (devnet-cli-json-rpc-http-request
+                               (json-encode
+                                (list
+                                 (cons "jsonrpc" "2.0")
+                                 (cons "id" 73)
+                                 (cons "method" "eth_chainId")
+                                 (cons "params" '())))
+                               :target "/unexpected"))
+                             :output-stream public-root-wrong-path-output
+                             :close-function
+                             (lambda () (incf public-served-count))))
+                           (public-requests
+                            (destructuring-bind (body . output)
+                                (pop public-requests)
+                              (make-engine-rpc-http-connection
+                               :input-stream
+                               (make-string-input-stream
+                                (devnet-cli-json-rpc-http-request body))
+                               :output-stream output
+                               :close-function
+                               (lambda () (incf public-served-count)))))))
                       :close-function (lambda () nil))
                       :max-connections
                       +devnet-smoke-gate-public-connections+
@@ -8288,6 +8330,9 @@ references/ checkouts.~%")
                       (duplicate-auth-engine-response
                         (get-output-stream-string
                          duplicate-auth-engine-output))
+                      (engine-root-wrong-path-response
+                        (get-output-stream-string
+                         engine-root-wrong-path-output))
                       (forkchoice-response
                         (get-output-stream-string forkchoice-output))
                       (payload-bodies-by-hash-response
@@ -8361,6 +8406,9 @@ references/ checkouts.~%")
                       (public-malformed-json-response
                         (get-output-stream-string
                          public-malformed-json-output))
+                      (public-root-wrong-path-response
+                        (get-output-stream-string
+                         public-root-wrong-path-output))
                       (new-pending-filter-response
                         (get-output-stream-string new-pending-filter-output))
                       (pending-filter-changes-response
@@ -8711,11 +8759,15 @@ references/ checkouts.~%")
                  (devnet-smoke-gate-require
                   (= 401 (devnet-cli-http-status
                           invalid-auth-engine-response))
-                  "Invalid-token Engine request HTTP status mismatch")
+                 "Invalid-token Engine request HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 401 (devnet-cli-http-status
                           duplicate-auth-engine-response))
                   "Duplicate-authorization Engine request HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 404 (devnet-cli-http-status
+                          engine-root-wrong-path-response))
+                  "Engine default root wrong-path HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status capabilities-response))
                   "engine_exchangeCapabilities HTTP status mismatch")
@@ -8839,17 +8891,21 @@ references/ checkouts.~%")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status
                           public-engine-namespace-response))
-                  "Public Engine namespace probe HTTP status mismatch")
+                 "Public Engine namespace probe HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status
                           public-malformed-json-response))
                   "Public malformed JSON probe HTTP status mismatch")
                  (devnet-smoke-gate-require
+                  (= 404 (devnet-cli-http-status
+                          public-root-wrong-path-response))
+                  "Public default root wrong-path HTTP status mismatch")
+                 (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status
                           new-pending-filter-response))
                   "eth_newPendingTransactionFilter HTTP status mismatch")
                  (devnet-smoke-gate-require
-                 (= 200 (devnet-cli-http-status
+                  (= 200 (devnet-cli-http-status
                           pending-filter-changes-response))
                   "eth_getFilterChanges HTTP status mismatch")
                  (devnet-smoke-gate-require
@@ -9583,6 +9639,9 @@ references/ checkouts.~%")
                   (cons "engineDuplicateAuthStatus"
                         (devnet-cli-http-status
                          duplicate-auth-engine-response))
+                  (cons "engineRootWrongPathStatus"
+                        (devnet-cli-http-status
+                         engine-root-wrong-path-response))
                   (cons "engineCapabilityCount"
                         (length capabilities-result))
                   (cons "engineCapabilityHasNewPayloadV1"
@@ -9688,6 +9747,9 @@ references/ checkouts.~%")
                           public-malformed-json-rpc
                           "error")
                          "code"))
+                  (cons "publicRootWrongPathStatus"
+                        (devnet-cli-http-status
+                         public-root-wrong-path-response))
                   (cons "publicClientVersion"
                         (fixture-object-field public-client-version-rpc
                                               "result"))
@@ -11862,6 +11924,9 @@ references/ checkouts.~%")
         (format t "engineDuplicateAuthStatus=~D~%"
                 (devnet-smoke-gate-field report
                                          "engineDuplicateAuthStatus"))
+        (format t "engineRootWrongPathStatus=~D~%"
+                (devnet-smoke-gate-field report
+                                         "engineRootWrongPathStatus"))
         (format t "engineCapabilityCount=~D~%"
                 (devnet-smoke-gate-field report "engineCapabilityCount"))
         (format t "engineCapabilityHasNewPayloadV1=~A~%"
@@ -11899,6 +11964,9 @@ references/ checkouts.~%")
         (format t "enginePublicNamespaceErrorCode=~A~%"
                 (devnet-smoke-gate-field
                  report "enginePublicNamespaceErrorCode"))
+        (format t "publicRootWrongPathStatus=~D~%"
+                (devnet-smoke-gate-field report
+                                         "publicRootWrongPathStatus"))
         (format t "publicClientVersion=~A~%"
                 (devnet-smoke-gate-field report "publicClientVersion"))
         (format t "publicNetVersion=~A~%"

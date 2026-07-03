@@ -568,7 +568,10 @@ ones.
     continue to accept their exact prefix and subpaths. Core HTTP coverage and
     runner-facing `scripts/ethereum-lisp.lisp` serve-mode subprocess coverage
     verify authenticated Engine and public requests to `/unexpected` return
-    HTTP 404 while normal root endpoint probes still succeed.
+    HTTP 404 while normal root endpoint probes still succeed. The standalone
+    devnet smoke gate now enforces and reports the same default-root
+    `/unexpected` 404 contract for both Engine and public listeners, and its
+    connection contract accounts for those boundary probes.
 - [x] `DEVNET-RUNNER-RPC-LIMIT-FLAGS`: Accept common geth/Hive RPC
   resource-limit launch flags without changing the current Lisp RPC behavior.
   - Result (2026-07-01): the shared devnet/init option table now consumes
