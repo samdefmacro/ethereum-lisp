@@ -1709,6 +1709,15 @@ ones.
     the public pending sender nonce advances to the admitted pending
     transaction nonce plus one and updates shutdown telemetry for the extra
     public request.
+- [x] `DEVNET-RUNNER-PENDING-SNAPSHOT-NO-LEAK`: Lock pending receipt, uncle,
+  and log snapshot boundaries at the process-runner public RPC surface.
+  - Result (2026-07-03): the standalone devnet smoke gate and the
+    runner-facing txpool subprocess now call `eth_getBlockReceipts("pending")`,
+    `eth_getUncleCountByBlockNumber("pending")`, and `eth_getLogs` with
+    `fromBlock:"pending"` after pending/basefee/queued txpool admission. The
+    checks require null pending receipts, zero pending uncles, and an empty
+    pending log snapshot while preserving the existing pending txpool block,
+    fee, nonce, and filter visibility contract.
 - [x] `DEVNET-RUNNER-SCRIPT-BLOCK-FILTER`: Lock public block filter change
   delivery at the external script process boundary.
   - Result (2026-06-30): runner-facing `scripts/ethereum-lisp.lisp`

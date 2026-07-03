@@ -127,7 +127,7 @@
            (fixture-object-field contract "publicCanonicalReadConnections")))
     (is (= (* 3 case-count)
            (fixture-object-field contract "publicBoundaryConnections")))
-    (is (= (* 15 case-count)
+    (is (= (* 18 case-count)
            (fixture-object-field contract "publicTxpoolConnections")))
     (is (= (fixture-object-field report "engineConnections")
            (fixture-object-field contract "expectedEngineConnections")))
@@ -5211,9 +5211,9 @@
                 report cases prune-boundary)
                (is (= (* 17 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "engineConnections")))
-               (is (= (* 41 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 44 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "publicConnections")))
-               (is (= (* 58 (length +engine-newpayload-v2-smoke-case-names+))
+               (is (= (* 61 (length +engine-newpayload-v2-smoke-case-names+))
                       (fixture-object-field report "totalConnections")))
                (devnet-cli-assert-connection-contract
                 report
@@ -5231,7 +5231,7 @@
                                 (fixture-object-field
                                  case "forkchoiceStatus")))
                    (is (= 17 (fixture-object-field case "engineConnections")))
-                  (is (= 41 (fixture-object-field case "publicConnections")))
+                  (is (= 44 (fixture-object-field case "publicConnections")))
                    (is (= 401
                           (fixture-object-field
                            case
@@ -6136,9 +6136,9 @@
                          "databaseRpcSideReinsertedTransactionHashes")))))))
         (is (= (* 17 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "engineConnections")))
-        (is (= (* 41 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 44 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "publicConnections")))
-        (is (= (* 58 (length +engine-newpayload-v2-smoke-case-names+))
+        (is (= (* 61 (length +engine-newpayload-v2-smoke-case-names+))
                (fixture-object-field devnet "totalConnections")))
         (dolist (case cases)
           (devnet-cli-assert-public-readiness case)
@@ -10505,6 +10505,28 @@
                            (cons "id" 723)
                            (cons "method" "eth_getTransactionCount")
                            (cons "params" (list sender-hex "pending")))))
+                  (pending-block-receipts-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 724)
+                           (cons "method" "eth_getBlockReceipts")
+                           (cons "params" (list "pending")))))
+                  (pending-uncle-count-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 725)
+                           (cons "method" "eth_getUncleCountByBlockNumber")
+                           (cons "params" (list "pending")))))
+                  (pending-logs-body
+                    (json-encode
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 726)
+                           (cons "method" "eth_getLogs")
+                           (cons "params"
+                                 (list
+                                  (list
+                                   (cons "fromBlock" "pending")
+                                   (cons "toBlock" "pending")))))))
                   (txpool-status-body
                     (json-encode
                      (list (cons "jsonrpc" "2.0")
@@ -10549,7 +10571,7 @@
                           "--pid-file"
                           (namestring pid-path)
                           "--max-connections"
-                          "23"
+                          "26"
                           "--json")
                     :directory #P"/private/tmp/"
                     :output :stream
@@ -10595,6 +10617,9 @@
                       pending-header-response
                       pending-fee-history-response
                       pending-sender-nonce-response
+                      pending-block-receipts-response
+                      pending-uncle-count-response
+                      pending-logs-response
                       txpool-status-response
                       txpool-content-response
                       txpool-content-from-response
@@ -10736,6 +10761,21 @@
                               rpc-endpoint
                               (devnet-cli-json-rpc-http-request
                                pending-sender-nonce-body)))
+                       (setf pending-block-receipts-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-block-receipts-body)))
+                       (setf pending-uncle-count-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-uncle-count-body)))
+                       (setf pending-logs-response
+                             (devnet-cli-http-endpoint-request
+                              rpc-endpoint
+                              (devnet-cli-json-rpc-http-request
+                               pending-logs-body)))
                        (setf txpool-status-response
                              (devnet-cli-http-endpoint-request
                               rpc-endpoint
@@ -10779,6 +10819,9 @@
                                 pending-header-response
                                 pending-fee-history-response
                                 pending-sender-nonce-response
+                                pending-block-receipts-response
+                                pending-uncle-count-response
+                                pending-logs-response
                                 txpool-status-response
                                 txpool-content-response
                                 txpool-content-from-response
@@ -10853,6 +10896,18 @@
                           (parse-json
                            (devnet-cli-http-body
                             pending-sender-nonce-response)))
+                        (pending-block-receipts-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-block-receipts-response)))
+                        (pending-uncle-count-rpc
+                          (parse-json
+                           (devnet-cli-http-body
+                            pending-uncle-count-response)))
+                        (pending-logs-rpc
+                          (parse-json
+                           (devnet-cli-http-body pending-logs-response)
+                           :preserve-empty-arrays t))
                         (txpool-status-rpc
                           (parse-json
                            (devnet-cli-http-body txpool-status-response)))
@@ -10898,6 +10953,8 @@
                         (pending-sender-nonce
                           (fixture-object-field pending-sender-nonce-rpc
                                                 "result"))
+                        (pending-logs
+                          (fixture-object-field pending-logs-rpc "result"))
                         (pending-fee-history-base-fees
                           (fixture-object-field pending-fee-history
                                                 "baseFeePerGas"))
@@ -10983,6 +11040,12 @@
                           (fixture-object-field pending-fee-history-rpc "id")))
                    (is (= 723
                           (fixture-object-field pending-sender-nonce-rpc "id")))
+                   (is (= 724
+                          (fixture-object-field
+                           pending-block-receipts-rpc "id")))
+                   (is (= 725
+                          (fixture-object-field pending-uncle-count-rpc "id")))
+                   (is (= 726 (fixture-object-field pending-logs-rpc "id")))
                    (is (= 716 (fixture-object-field txpool-content-rpc "id")))
                    (is (string= pending-hash
                                 (fixture-object-field
@@ -11066,6 +11129,12 @@
                                                       "baseFeePerGas")))
                    (is (string= expected-pending-sender-nonce
                                 pending-sender-nonce))
+                   (is (null (fixture-object-field
+                              pending-block-receipts-rpc "result")))
+                   (is (string= "0x0"
+                                (fixture-object-field
+                                 pending-uncle-count-rpc "result")))
+                   (is (devnet-cli-empty-json-array-p pending-logs))
                    (is (string= "0x1"
                                 (fixture-object-field txpool-status
                                                       "pending")))
@@ -11132,11 +11201,11 @@
                                       (cdr (assoc "engineConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "23"
+                         (is (string= "26"
                                       (cdr (assoc "publicConnections"
                                                   shutdown-fields
                                                   :test #'string=))))
-                         (is (string= "23"
+                         (is (string= "26"
                                       (cdr (assoc "totalConnections"
                                                   shutdown-fields
                                                   :test #'string=)))))))))))))

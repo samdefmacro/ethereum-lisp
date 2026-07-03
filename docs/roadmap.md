@@ -1688,7 +1688,12 @@ first pass, but interfaces must not block that path.
   The standalone devnet smoke path now also checks
   `eth_getTransactionCount(..., "pending")` through live and restored public
   listeners after txpool admission so process runners cover pending sender
-  nonce visibility across restart.
+  nonce visibility across restart. The same process-runner pending surface now
+  also proves pending snapshots do not leak latest canonical data:
+  `eth_getBlockReceipts("pending")` returns null,
+  `eth_getUncleCountByBlockNumber("pending")` returns zero, and
+  `eth_getLogs` starting at `"pending"` returns an empty log set after local
+  txpool admission.
   The authenticated Engine workflow in the standalone devnet smoke gate now
   also verifies `engine_getPayloadBodiesByHashV1` and
   `engine_getPayloadBodiesByRangeV1` over the listener boundary, reporting body

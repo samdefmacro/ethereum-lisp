@@ -101,7 +101,7 @@ references/ checkouts.~%")
      +devnet-smoke-gate-engine-workflow-connections+))
 (defconstant +devnet-smoke-gate-public-canonical-read-connections+ 23)
 (defconstant +devnet-smoke-gate-public-boundary-connections+ 3)
-(defconstant +devnet-smoke-gate-public-txpool-connections+ 15)
+(defconstant +devnet-smoke-gate-public-txpool-connections+ 18)
 (defconstant +devnet-smoke-gate-public-connections+
   (+ +devnet-smoke-gate-public-canonical-read-connections+
      +devnet-smoke-gate-public-boundary-connections+
@@ -7593,6 +7593,11 @@ references/ checkouts.~%")
                   (raw-basefee-output (make-string-output-stream))
                   (raw-queued-output (make-string-output-stream))
                   (pending-nonce-output (make-string-output-stream))
+                  (pending-block-receipts-output
+                    (make-string-output-stream))
+                  (pending-uncle-count-output
+                    (make-string-output-stream))
+                  (pending-logs-output (make-string-output-stream))
                   (txpool-status-output (make-string-output-stream))
                   (txpool-content-from-output (make-string-output-stream))
                   (txpool-inspect-output (make-string-output-stream))
@@ -8101,6 +8106,32 @@ references/ checkouts.~%")
                        (cons
                         (json-encode
                          (list (cons "jsonrpc" "2.0")
+                               (cons "id" 74)
+                               (cons "method" "eth_getBlockReceipts")
+                               (cons "params" (list "pending"))))
+                        pending-block-receipts-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 75)
+                               (cons "method"
+                                     "eth_getUncleCountByBlockNumber")
+                               (cons "params" (list "pending"))))
+                        pending-uncle-count-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
+                               (cons "id" 76)
+                               (cons "method" "eth_getLogs")
+                               (cons "params"
+                                     (list
+                                      (list
+                                       (cons "fromBlock" "pending")
+                                       (cons "toBlock" "pending"))))))
+                        pending-logs-output)
+                       (cons
+                        (json-encode
+                         (list (cons "jsonrpc" "2.0")
                                (cons "id" 42)
                                (cons "method" "txpool_status")
                                (cons "params" '())))
@@ -8437,6 +8468,13 @@ references/ checkouts.~%")
                         (get-output-stream-string raw-queued-output))
                       (pending-nonce-response
                         (get-output-stream-string pending-nonce-output))
+                      (pending-block-receipts-response
+                        (get-output-stream-string
+                         pending-block-receipts-output))
+                      (pending-uncle-count-response
+                        (get-output-stream-string pending-uncle-count-output))
+                      (pending-logs-response
+                        (get-output-stream-string pending-logs-output))
                       (txpool-status-response
                         (get-output-stream-string txpool-status-output))
                       (txpool-content-from-response
@@ -8577,6 +8615,16 @@ references/ checkouts.~%")
                         (devnet-smoke-gate-rpc-body raw-queued-response))
                       (pending-nonce-rpc
                         (devnet-smoke-gate-rpc-body pending-nonce-response))
+                      (pending-block-receipts-rpc
+                        (devnet-smoke-gate-rpc-body
+                         pending-block-receipts-response))
+                      (pending-uncle-count-rpc
+                        (devnet-smoke-gate-rpc-body
+                         pending-uncle-count-response))
+                      (pending-logs-rpc
+                        (devnet-smoke-gate-rpc-body
+                         pending-logs-response
+                         :preserve-empty-arrays t))
                       (txpool-status-rpc
                         (devnet-smoke-gate-rpc-body txpool-status-response))
                       (txpool-content-from-rpc
@@ -8960,6 +9008,17 @@ references/ checkouts.~%")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status pending-nonce-response))
                   "eth_getTransactionCount pending HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          pending-block-receipts-response))
+                  "eth_getBlockReceipts pending HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status
+                          pending-uncle-count-response))
+                  "eth_getUncleCountByBlockNumber pending HTTP status mismatch")
+                 (devnet-smoke-gate-require
+                  (= 200 (devnet-cli-http-status pending-logs-response))
+                  "eth_getLogs pending HTTP status mismatch")
                  (devnet-smoke-gate-require
                   (= 200 (devnet-cli-http-status txpool-status-response))
                   "txpool_status HTTP status mismatch")
@@ -9376,6 +9435,19 @@ references/ checkouts.~%")
                   (string= expected-pending-sender-nonce
                            (fixture-object-field pending-nonce-rpc "result"))
                   "eth_getTransactionCount pending nonce mismatch")
+                 (devnet-smoke-gate-require
+                  (null (fixture-object-field
+                         pending-block-receipts-rpc "result"))
+                  "eth_getBlockReceipts pending should be null")
+                 (devnet-smoke-gate-require
+                  (string= "0x0"
+                           (fixture-object-field
+                            pending-uncle-count-rpc "result"))
+                  "eth_getUncleCountByBlockNumber pending mismatch")
+                 (devnet-smoke-gate-require
+                  (devnet-smoke-gate-empty-json-array-p
+                   (fixture-object-field pending-logs-rpc "result"))
+                  "eth_getLogs pending should be empty")
                  (devnet-smoke-gate-require
                   (string= "0x1"
                            (fixture-object-field txpool-status "pending"))
@@ -9819,6 +9891,16 @@ references/ checkouts.~%")
                         (fixture-object-field
                          public-batch-client-version-rpc
                          "result"))
+                  (cons "pendingBlockReceipts"
+                        (or (fixture-object-field
+                             pending-block-receipts-rpc "result")
+                            :false))
+                  (cons "pendingUncleCount"
+                        (fixture-object-field pending-uncle-count-rpc
+                                              "result"))
+                  (cons "pendingLogCount"
+                        (length (fixture-object-field pending-logs-rpc
+                                                      "result")))
                   (cons "newPayloadStatus"
                         (fixture-object-field new-payload-result "status"))
                   (cons "latestValidHash" expected-hash)
