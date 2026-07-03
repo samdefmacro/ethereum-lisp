@@ -3295,6 +3295,7 @@
 
 (deftest devnet-cli-main-accepts-geth-style-runner-aliases
   (let ((jwt-path (devnet-cli-temp-path "ethereum-lisp-devnet-jwt" "hex"))
+        (config-path (devnet-cli-temp-path "ethereum-lisp-devnet-geth" "toml"))
         (ready-path (devnet-cli-temp-path "ethereum-lisp-devnet-ready" "json"))
         (log-path (devnet-cli-temp-path "ethereum-lisp-devnet" "log"))
         (output (make-string-output-stream))
@@ -3306,12 +3307,15 @@
                                    :if-exists :supersede
                                    :if-does-not-exist :create)
              (write-string
-              "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-              stream))
+             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+             stream))
+           (devnet-cli-write-temp-file
+            config-path
+            "# geth runner config intentionally empty for alias coverage\n")
            (is (= 0
                   (ethereum-lisp.cli:main
                    (list "devnet"
-                         "--config=/tmp/ethereum-lisp-geth.toml"
+                         (format nil "--config=~A" (namestring config-path))
                          (format nil "--genesis=~A"
                                  +devnet-cli-genesis-fixture+)
                          "--authrpc.addr=192.0.2.30"
@@ -3439,7 +3443,130 @@
       (when (probe-file ready-path)
         (delete-file ready-path))
       (when (probe-file log-path)
-        (delete-file log-path)))))
+        (delete-file log-path))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
+
+(deftest devnet-cli-main-applies-geth-config-file-values
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-geth-config"))
+         (datadir (merge-pathnames "datadir/" root))
+         (database-path
+           (merge-pathnames "ethereum-lisp-chain.sexp" datadir))
+         (jwt-path (merge-pathnames "jwt.hex" root))
+         (config-path (merge-pathnames "geth.toml" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist datadir)
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (devnet-cli-write-temp-file
+            config-path
+            (format nil
+                    "[Eth]~%NetworkId = 4242~%~
+                     [Node]~%DataDir = ~S~%~
+                     HTTPHost = \"192.0.2.41\"~%HTTPPort = 1945~%~
+                     HTTPModules = [\"eth\", \"net\"]~%~
+                     HTTPCors = [\"https://public.example\", \"*\"]~%~
+                     HTTPVirtualHosts = [\"public.example\", \"localhost\"]~%~
+                     HTTPPathPrefix = \"/rpc\"~%~
+                     AuthAddr = \"192.0.2.42\"~%AuthPort = 1951~%~
+                     AuthVirtualHosts = [\"engine.example\", \"localhost\"]~%~
+                     JWTSecret = ~S~%"
+                    (namestring datadir)
+                    (namestring jwt-path)))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--config" (namestring config-path)
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let ((summary (parse-json (get-output-stream-string output))))
+             (is (string= "192.0.2.42:1951"
+                          (fixture-object-field summary "engineEndpoint")))
+             (is (string= "192.0.2.41:1945"
+                          (fixture-object-field summary "rpcEndpoint")))
+             (is (= 4242 (fixture-object-field summary "networkId")))
+             (is (string= "/rpc"
+                          (fixture-object-field summary "publicRpcPrefix")))
+             (is (string= (namestring jwt-path)
+                          (fixture-object-field summary "jwtSecretPath")))
+             (is (eq t (fixture-object-field summary "authRequired")))
+             (is (string= (namestring database-path)
+                          (fixture-object-field summary "databasePath")))
+             (is (equal '("eth" "net")
+                        (fixture-object-field summary "publicApiModules")))
+             (is (equal '("https://public.example" "*")
+                        (fixture-object-field summary "publicCorsOrigins")))
+             (is (equal '("public.example" "localhost")
+                        (fixture-object-field summary "publicVhosts")))
+             (is (equal '("engine.example" "localhost")
+                        (fixture-object-field summary "engineVhosts")))))
+      (when (probe-file database-path)
+        (delete-file database-path))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
+
+(deftest devnet-cli-main-explicit-options-override-geth-config-file
+  (let* ((root (devnet-cli-temp-directory
+                "ethereum-lisp-devnet-geth-config-override"))
+         (jwt-path (merge-pathnames "config-jwt.hex" root))
+         (override-jwt-path (merge-pathnames "override-jwt.hex" root))
+         (config-path (merge-pathnames "geth.toml" root))
+         (output (make-string-output-stream))
+         (errors (make-string-output-stream)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist root)
+           (devnet-cli-write-temp-file jwt-path +devnet-cli-jwt-secret+)
+           (devnet-cli-write-temp-file
+            override-jwt-path
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+           (devnet-cli-write-temp-file
+            config-path
+            (format nil
+                    "[Eth]~%NetworkId = 4242~%~
+                     [Node]~%HTTPHost = \"192.0.2.50\"~%HTTPPort = 1950~%~
+                     AuthAddr = \"192.0.2.51\"~%AuthPort = 1951~%~
+                     JWTSecret = ~S~%"
+                    (namestring jwt-path)))
+           (is (= 0
+                  (ethereum-lisp.cli:main
+                   (list "devnet"
+                         "--config" (namestring config-path)
+                         "--genesis" +devnet-cli-genesis-fixture+
+                         "--authrpc.addr" "192.0.2.60"
+                         "--authrpc.port" "1960"
+                         "--http.addr" "192.0.2.61"
+                         "--http.port" "1961"
+                         "--networkid" "7331"
+                         "--authrpc.jwtsecret" (namestring override-jwt-path)
+                         "--json"
+                         "--no-serve")
+                   :output-stream output
+                   :error-stream errors)))
+           (is (string= "" (get-output-stream-string errors)))
+           (let ((summary (parse-json (get-output-stream-string output))))
+             (is (string= "192.0.2.60:1960"
+                          (fixture-object-field summary "engineEndpoint")))
+             (is (string= "192.0.2.61:1961"
+                          (fixture-object-field summary "rpcEndpoint")))
+             (is (= 7331 (fixture-object-field summary "networkId")))
+             (is (string= (namestring override-jwt-path)
+                          (fixture-object-field summary "jwtSecretPath")))))
+      (when (probe-file jwt-path)
+        (delete-file jwt-path))
+      (when (probe-file override-jwt-path)
+        (delete-file override-jwt-path))
+      (when (probe-file config-path)
+        (delete-file config-path)))))
 
 (deftest devnet-cli-main-geth-p2p-port-does-not-override-engine-port
   (labels ((run-summary (args)
@@ -7418,10 +7545,15 @@
              (devnet-cli-write-temp-file explicit-jwt-path
                                          +devnet-cli-jwt-secret+)
              (devnet-cli-write-temp-file config-path
-                                         "# runner config placeholder\n")
+                                         (format nil
+                                                 "[Eth]~%NetworkId = 7331~%~
+                                                  [Node]~%DataDir = ~S~%~
+                                                  JWTSecret = ~S~%"
+                                                 (namestring datadir)
+                                                 (namestring
+                                                  explicit-jwt-path)))
              (multiple-value-bind (stdout stderr status)
-                 (run-script "--datadir" (namestring datadir)
-                             "--config" (namestring config-path)
+                 (run-script "--config" (namestring config-path)
                              "--cache" "128"
                              "--cache.database=64"
                              "--gcmode" "archive"
@@ -7433,8 +7565,6 @@
                              "--holesky=false"
                              "--authrpc.addr=127.0.0.1"
                              "--authrpc.port" "0"
-                             "--authrpc.jwtsecret"
-                             (namestring explicit-jwt-path)
                              "--authrpc.rpcprefix=/engine"
                              "--authrpc.vhosts" "engine.runner,localhost"
                              "--authrpc.corsdomain" "https://engine.example"
@@ -7545,7 +7675,7 @@
                                           shutdown-fields
                                           :test #'string=))))
                  (is (string= (write-to-string pid)
-                              (cdr (assoc "processId"
+                             (cdr (assoc "processId"
                                           shutdown-fields
                                           :test #'string=))))))
              (is (probe-file datadir-genesis-path))
@@ -7558,7 +7688,6 @@
              (multiple-value-bind (stdout stderr status)
                  (run-script "--identity" "init"
                              "--config" (namestring config-path)
-                             "--datadir" (namestring datadir)
                              "--hoodi=false"
                              "devnet"
                              "--json"

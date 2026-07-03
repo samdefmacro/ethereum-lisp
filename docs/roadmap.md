@@ -1275,9 +1275,13 @@ first pass, but interfaces must not block that path.
   explicit compatibility no-ops, so those launch templates reach the current
   split Engine/public devnet surface instead of failing at argument parsing.
   Geth/Hive `--config PATH` is consumed as a shared compatibility value option
-  across init, explicit devnet, and direct no-command launch paths; the path is
-  not parsed as TOML yet, but it no longer blocks runner templates from
-  reaching the current Engine/public process surface.
+  across init, explicit devnet, and direct no-command launch paths. Readable
+  geth TOML config files now import the process-affecting `[Node]` / `[Eth]`
+  subset used by local runners: datadir, authenticated Engine and public HTTP
+  hosts/ports, JWT secret path, HTTP module/CORS/vhost/prefix settings, Engine
+  vhosts, and network id. Config-derived values are applied before explicit
+  command-line flags, so runner templates can share a config file while still
+  overriding individual launch parameters on argv.
   The standalone devnet smoke gate now verifies and reports `headGasLimit`
   across ready files, lifecycle telemetry, and restored database summaries, so
   process runners can detect gas-limit drift at the same boundary where they

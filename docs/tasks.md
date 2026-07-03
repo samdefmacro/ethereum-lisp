@@ -7606,6 +7606,16 @@ splits can land after the Phase A smoke path closes.
     split Engine/public process through ready/log/pid artifacts and live
     Engine/public RPC probes. The flag is intentionally consumed but not
     parsed as TOML until configuration import semantics are defined.
+  - Result (2026-07-03): readable geth TOML config files now import the
+    process-affecting `[Node]` / `[Eth]` subset needed by local Hive-style
+    runners: datadir, Engine/public hosts and ports, JWT secret path, public
+    HTTP modules/CORS/vhosts/RPC prefix, Engine vhosts, and network id. The
+    config-derived values are prepended before the real command line so
+    explicit CLI flags keep precedence. Direct CLI coverage verifies imported
+    endpoint, datadir/database, JWT, module, CORS, vhost, prefix, and
+    network-id fields plus override precedence; runner-facing script coverage
+    initializes and restores a datadir using `--config PATH` as the source for
+    datadir/JWT settings.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.
