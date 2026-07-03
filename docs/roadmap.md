@@ -1360,6 +1360,13 @@ first pass, but interfaces must not block that path.
   explicit `devnet` token, reports split `/engine` and `/rpc` prefixes through
   readiness/stdout artifacts, serves authenticated Engine and public JSON-RPC
   probes, and records the expected split shutdown counts.
+  The same initialized-datadir no-command paths now carry the Engine handshake
+  contract: split and Engine-only launches authenticate
+  `engine_exchangeCapabilities`, report the default transition configuration,
+  reject a terminal-total-difficulty mismatch through `/engine`, and verify the
+  expanded shutdown connection counts while the split path keeps public
+  `eth_chainId`, `net_version`, `web3_clientVersion`, and `rpc_modules`
+  reachable through `/rpc`.
   Public `net_version` now
   follows the configured devnet `networkId` while `eth_chainId` remains tied
   to the genesis chain config, matching geth-shaped runner expectations where

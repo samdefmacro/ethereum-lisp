@@ -7375,6 +7375,17 @@ splits can land after the Phase A smoke path closes.
     public endpoint closed, enforces the `/engine` Engine prefix, authenticates
     an Engine client-version probe, and shuts down with two Engine plus zero
     public requests recorded in telemetry.
+- [x] `DEVNET-RUNNER-NO-COMMAND-DATADIR-HANDSHAKE`: Carry the Engine
+  capability and transition-configuration handshake through initialized
+  datadir no-command launches.
+  - Result (2026-07-03): the direct no-command split and Engine-only datadir
+    subprocess tests now authenticate `engine_exchangeCapabilities`,
+    `engine_exchangeTransitionConfigurationV1`, and a terminal-total-difficulty
+    mismatch through the ready-file `/engine` endpoint after discovering the
+    stored genesis/database/JWT secret. The split path also keeps public
+    `eth_chainId`, `net_version`, `web3_clientVersion`, and `rpc_modules`
+    available through `/rpc`, and both paths verify the expanded shutdown
+    connection counts.
 
 - [x] `PINNED-V5.4.0-BN254-GAS-STATE`: Pin official BN254 precompile gas-cost
   state selectors.
