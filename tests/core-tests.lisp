@@ -18435,6 +18435,12 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":40,\"method\":\"eth_getUncleCountByBlockNumber\",\"params\":[\"latest\"]}"
                  store
                  config)))
+             (pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"eth_getUncleCountByBlockNumber\",\"params\":[\"pending\"]}"
+                 store
+                 config)))
              (hash-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -18462,6 +18468,8 @@
                      (field number-response "result")))
         (is (string= (quantity-to-hex 2)
                      (field latest-response "result")))
+        (is (string= (quantity-to-hex 0)
+                     (field pending-response "result")))
         (is (string= (quantity-to-hex 2)
                      (field hash-response "result")))
         (is (null (field missing-response "result")))
@@ -18524,6 +18532,12 @@
                  "{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"eth_getUncleByBlockNumberAndIndex\",\"params\":[\"0xb\",\"0x2\"]}"
                  store
                  config)))
+             (pending-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":73,\"method\":\"eth_getUncleByBlockNumberAndIndex\",\"params\":[\"pending\",\"0x0\"]}"
+                 store
+                 config)))
              (invalid-hash-response
                (parse-json
                 (engine-rpc-handle-request-json
@@ -18555,6 +18569,7 @@
                      (field hash-result "hash")))
         (is (null (field missing-response "result")))
         (is (null (field out-of-range-response "result")))
+        (is (null (field pending-response "result")))
         (is (= -32602 (field invalid-hash-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
 

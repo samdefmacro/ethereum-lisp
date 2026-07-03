@@ -1674,7 +1674,11 @@ first pass, but interfaces must not block that path.
   base fee while reporting a pending child number. The standalone devnet smoke
   gate now verifies that same pending base-fee contract through the restored
   public listener and reports the pending block, pending header, and fee-history
-  next-base-fee values for process runners.
+  next-base-fee values for process runners. Pending uncle/ommer number-tag
+  reads also use the synthetic pending block boundary:
+  `eth_getUncleCountByBlockNumber("pending")` returns zero and
+  `eth_getUncleByBlockNumberAndIndex("pending", INDEX)` returns null instead
+  of leaking ommers from the latest committed block.
   The standalone devnet smoke path now also checks
   `eth_getTransactionCount(..., "pending")` through live and restored public
   listeners after txpool admission so process runners cover pending sender

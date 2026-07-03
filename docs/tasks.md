@@ -1297,6 +1297,15 @@ ones.
     indexed pending transaction with null block location fields. Out-of-range
     pending indexes still return null, and non-pending block tags keep the
     existing canonical block lookup path.
+- [x] `PUBLIC-RPC-PENDING-UNCLE-TAG`: Make public RPC pending uncle/ommer
+  number-tag queries reflect the synthetic pending block instead of the latest
+  committed block.
+  - Result (2026-07-03): `eth_getUncleCountByBlockNumber("pending")` now
+    returns `0x0`, and
+    `eth_getUncleByBlockNumberAndIndex("pending", INDEX)` returns `null`
+    while still validating the index parameter. Explicit block numbers,
+    `latest`, and hash-addressed uncle queries keep the existing canonical
+    block behavior.
 - [x] `DEVNET-RUNNER-PENDING-BLOCK-TAG-TXPOOL`: Lock pending block-tag txpool
   visibility at the devnet process-boundary smoke surface.
   - Result (2026-06-29): the standalone devnet smoke gate's restored-database

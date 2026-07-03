@@ -1355,10 +1355,15 @@
     (eth-rpc-ommer-object (nth index (block-ommers block)))))
 
 (defun engine-rpc-handle-eth-get-uncle-count-by-number (params store)
-  (let* ((number (eth-rpc-block-number-param
-                  params store "eth_getUncleCountByBlockNumber"))
-         (block (chain-store-block-by-number store number)))
-    (eth-rpc-block-ommer-count block)))
+  (unless (= 1 (length params))
+    (block-validation-fail
+     "eth_getUncleCountByBlockNumber params must contain exactly one block number"))
+  (if (eth-rpc-pending-block-tag-p (first params))
+      (quantity-to-hex 0)
+      (let* ((number (eth-rpc-block-number-param
+                      params store "eth_getUncleCountByBlockNumber"))
+             (block (chain-store-block-by-number store number)))
+        (eth-rpc-block-ommer-count block))))
 
 (defun engine-rpc-handle-eth-get-uncle-count-by-hash (params store)
   (let* ((hash (eth-rpc-hash-param
@@ -1371,14 +1376,19 @@
   (unless (= 2 (length params))
     (block-validation-fail
      "eth_getUncleByBlockNumberAndIndex params must contain block id and uncle index"))
-  (let* ((number (eth-rpc-block-number-param
-                  (list (first params)) store
-                  "eth_getUncleByBlockNumberAndIndex"))
-         (index (engine-rpc-quantity-param
-                 params 1 "uncle index"
-                 "eth_getUncleByBlockNumberAndIndex"))
-         (block (chain-store-block-by-number store number)))
-    (eth-rpc-ommer-by-index block index)))
+  (if (eth-rpc-pending-block-tag-p (first params))
+      (progn
+        (engine-rpc-quantity-param
+         params 1 "uncle index" "eth_getUncleByBlockNumberAndIndex")
+        nil)
+      (let* ((number (eth-rpc-block-number-param
+                      (list (first params)) store
+                      "eth_getUncleByBlockNumberAndIndex"))
+             (index (engine-rpc-quantity-param
+                     params 1 "uncle index"
+                     "eth_getUncleByBlockNumberAndIndex"))
+             (block (chain-store-block-by-number store number)))
+        (eth-rpc-ommer-by-index block index))))
 
 (defun engine-rpc-handle-eth-get-uncle-by-block-hash-and-index
     (params store)
