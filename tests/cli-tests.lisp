@@ -5751,6 +5751,7 @@
     (is (search "--root PATH" stdout))
     (is (search "--pinned-v5.4.0" stdout))
     (is (search "--devnet" stdout))
+    (is (search "--drift-map" stdout))
     (is (search "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT" stdout))
     (is (search "ETHEREUM_LISP_GETH_ROOT" stdout))
     (is (search "ETHEREUM_LISP_NETHERMIND_ROOT" stdout))
@@ -5774,6 +5775,7 @@
                "--"
                "--json=true"
                "--devnet=false"
+               "--drift-map=false"
                "--pinned-v5.4.0=false"
                (format nil "--root=~A" root-string))
          :output :string
@@ -6540,6 +6542,29 @@
     (is (search "(\"blockRlp\" . 1)" stdout))
     (is (search "fixtureCaseCount=38" stdout))
     (is (search "fixtureExecutedCount=38" stdout))))
+
+(deftest phase-a-smoke-gate-drift-map-fails-on-materializable-gaps
+  #-sbcl
+  (skip-test "Phase A smoke gate drift map failure requires SBCL")
+  #+sbcl
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (list "sbcl"
+             "--script"
+             "scripts/phase-a-smoke-gate.lisp"
+             "--"
+             "--root"
+             "tests/fixtures/execution-spec-tests-root/"
+             "--drift-map"
+             "--json")
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (is (not (= 0 status)))
+    (is (string= "" stdout))
+    (is (search "Phase A drift map found materializable selector gaps"
+                stderr))
+    (is (search "implementationBugCandidates=1" stderr))))
 
 (deftest phase-a-smoke-gate-pinned-mode-defaults-to-eest-root-env
   #-sbcl

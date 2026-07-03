@@ -5,6 +5,7 @@
 
 (defconstant +smoke-gate-pinned-v5.4.0-flag+ "--pinned-v5.4.0")
 (defconstant +smoke-gate-devnet-flag+ "--devnet")
+(defconstant +smoke-gate-drift-map-flag+ "--drift-map")
 (defconstant +smoke-gate-json-flag+ "--json")
 (defconstant +smoke-gate-root-option+ "--root")
 (defconstant +smoke-gate-help-flag+ "--help")
@@ -26,6 +27,7 @@
 (defparameter *smoke-gate-boolean-options*
   (list +smoke-gate-pinned-v5.4.0-flag+
         +smoke-gate-devnet-flag+
+        +smoke-gate-drift-map-flag+
         +smoke-gate-json-flag+))
 
 (defun smoke-gate-option-token-p (value)
@@ -74,6 +76,9 @@
 (defun smoke-gate-devnet-p (args)
   (member +smoke-gate-devnet-flag+ args :test #'string=))
 
+(defun smoke-gate-drift-map-p (args)
+  (member +smoke-gate-drift-map-flag+ args :test #'string=))
+
 (defun smoke-gate-json-p (args)
   (member +smoke-gate-json-flag+ args :test #'string=))
 
@@ -98,6 +103,7 @@
       (cond
         ((string= arg +smoke-gate-pinned-v5.4.0-flag+))
         ((string= arg +smoke-gate-devnet-flag+))
+        ((string= arg +smoke-gate-drift-map-flag+))
         ((string= arg +smoke-gate-json-flag+))
         ((string= arg +smoke-gate-help-flag+))
         ((string= arg +smoke-gate-root-option+)
@@ -122,6 +128,7 @@
   (format t "  --root PATH        Fixture suite root. Equivalent to positional ROOT.~%")
   (format t "  --pinned-v5.4.0    Validate the pinned EEST v5.4.0 stable archive subset.~%")
   (format t "  --devnet           Also run the devnet listener-boundary all-fixtures gate.~%")
+  (format t "  --drift-map        Also classify remaining unpinned selectors and require no materializable drift.~%")
   (format t "  --json             Print machine-readable JSON output.~%")
   (format t "  --help             Print this help without loading the test system.~%")
   (format t "~%")
@@ -187,6 +194,9 @@ references/ checkouts.~%"))
 
 (defun smoke-gate-field (object name)
   (cdr (assoc name object :test #'string=)))
+
+(defun smoke-gate-script-path (relative-path)
+  (namestring (merge-pathnames relative-path *ethereum-lisp-smoke-gate-root*)))
 
 (defun smoke-gate-false-p (value)
   (or (null value) (eq value :false)))
@@ -1233,7 +1243,65 @@ references/ checkouts.~%"))
               devnet-side-reorg-case-count
               devnet-engine-only-case-count)))))
 
-(defun smoke-gate-report (suite-root pinned-p &key devnet-p)
+(defun smoke-gate-drift-map-command (suite-root)
+  (list "sbcl"
+        "--script"
+        (smoke-gate-script-path "scripts/phase-a-drift-map.lisp")
+        "--"
+        "--root"
+        suite-root
+        "--failures-only"
+        "--summary-only"
+        "--json"))
+
+(defun smoke-gate-run-drift-map (suite-root)
+  (multiple-value-bind (stdout stderr status)
+      (uiop:run-program
+       (smoke-gate-drift-map-command suite-root)
+       :output :string
+       :error-output :string
+       :ignore-error-status t)
+    (unless (= 0 status)
+      (error "Phase A drift map failed with status ~D: ~A"
+             status
+             stderr))
+    (when (plusp (length stderr))
+      (error "Phase A drift map wrote unexpected stderr: ~A" stderr))
+    (smoke-gate-json-decode stdout)))
+
+(defun smoke-gate-drift-map-summary (suite-root)
+  (let* ((report (smoke-gate-run-drift-map suite-root))
+         (overall (smoke-gate-field report "overall"))
+         (materializable-clear
+           (smoke-gate-field overall "phaseAMaterializableClear")))
+    (unless (eq t materializable-clear)
+      (error "Phase A drift map found materializable selector gaps: knownImplementationDrift=~D implementationBugCandidates=~D fixtureHarnessErrors=~D"
+             (or (smoke-gate-field overall "knownImplementationDriftCount") 0)
+             (or (smoke-gate-field overall "implementationBugCandidateCount")
+                 0)
+             (or (smoke-gate-field overall "fixtureHarnessErrorCount") 0)))
+    (list
+     (cons "status" "ok")
+     (cons "mode" (smoke-gate-field report "mode"))
+     (cons "root" (smoke-gate-field report "root"))
+     (cons "failuresOnly" (smoke-gate-field report "failuresOnly"))
+     (cons "summaryOnly" (smoke-gate-field report "summaryOnly"))
+     (cons "suiteCount" (smoke-gate-field overall "suiteCount"))
+     (cons "candidateCount" (smoke-gate-field overall "candidateCount"))
+     (cons "classifiedCount" (smoke-gate-field overall "classifiedCount"))
+     (cons "passingCount" (smoke-gate-field overall "passingCount"))
+     (cons "knownImplementationDriftCount"
+           (smoke-gate-field overall "knownImplementationDriftCount"))
+     (cons "outOfScopeForkFeatureCount"
+           (smoke-gate-field overall "outOfScopeForkFeatureCount"))
+     (cons "implementationBugCandidateCount"
+           (smoke-gate-field overall "implementationBugCandidateCount"))
+     (cons "fixtureHarnessErrorCount"
+           (smoke-gate-field overall "fixtureHarnessErrorCount"))
+     (cons "phaseAMaterializableClear" materializable-clear)
+     (cons "suites" (smoke-gate-field report "suites")))))
+
+(defun smoke-gate-report (suite-root pinned-p &key devnet-p drift-map-p)
   (let ((state (smoke-gate-state-summary suite-root (not pinned-p)
                                          :pinned-p pinned-p))
         (transaction
@@ -1244,7 +1312,9 @@ references/ checkouts.~%"))
         (devnet-side-reorg
           (and devnet-p (smoke-gate-devnet-side-reorg-summary)))
         (devnet-engine-only
-          (and devnet-p (smoke-gate-devnet-engine-only-summary))))
+          (and devnet-p (smoke-gate-devnet-engine-only-summary)))
+        (drift-map
+          (and drift-map-p (smoke-gate-drift-map-summary suite-root))))
     (append
      (list
       (cons "suiteRoot" suite-root)
@@ -1264,7 +1334,9 @@ references/ checkouts.~%"))
      (when devnet-side-reorg
        (list (cons "devnetSideReorg" devnet-side-reorg)))
      (when devnet-engine-only
-       (list (cons "devnetEngineOnly" devnet-engine-only))))))
+       (list (cons "devnetEngineOnly" devnet-engine-only)))
+     (when drift-map
+       (list (cons "driftMap" drift-map))))))
 
 (defun smoke-gate-print-text (report)
   (let ((state (smoke-gate-field report "state"))
@@ -1275,7 +1347,8 @@ references/ checkouts.~%"))
         (reference-clients (smoke-gate-field report "referenceClients"))
         (devnet (smoke-gate-field report "devnet"))
         (devnet-side-reorg (smoke-gate-field report "devnetSideReorg"))
-        (devnet-engine-only (smoke-gate-field report "devnetEngineOnly")))
+        (devnet-engine-only (smoke-gate-field report "devnetEngineOnly"))
+        (drift-map (smoke-gate-field report "driftMap")))
     (format t "~&status=~A~%" (smoke-gate-field report "status"))
     (format t "suiteRoot=~A~%" (smoke-gate-field report "suiteRoot"))
     (format t "mode=~A~%" (smoke-gate-field report "mode"))
@@ -1320,6 +1393,28 @@ references/ checkouts.~%"))
             (smoke-gate-field report "totalCaseCount"))
     (format t "totalExecutedCount=~D~%"
             (smoke-gate-field report "totalExecutedCount"))
+    (when drift-map
+      (format t "driftMapStatus=~A~%"
+              (smoke-gate-field drift-map "status"))
+      (format t "driftMapCandidateCount=~D~%"
+              (smoke-gate-field drift-map "candidateCount"))
+      (format t "driftMapClassifiedCount=~D~%"
+              (smoke-gate-field drift-map "classifiedCount"))
+      (format t "driftMapPassingCount=~D~%"
+              (smoke-gate-field drift-map "passingCount"))
+      (format t "driftMapKnownImplementationDriftCount=~D~%"
+              (smoke-gate-field drift-map
+                                "knownImplementationDriftCount"))
+      (format t "driftMapOutOfScopeForkFeatureCount=~D~%"
+              (smoke-gate-field drift-map
+                                "outOfScopeForkFeatureCount"))
+      (format t "driftMapImplementationBugCandidateCount=~D~%"
+              (smoke-gate-field drift-map
+                                "implementationBugCandidateCount"))
+      (format t "driftMapFixtureHarnessErrorCount=~D~%"
+              (smoke-gate-field drift-map "fixtureHarnessErrorCount"))
+      (format t "driftMapPhaseAMaterializableClear=~A~%"
+              (smoke-gate-field drift-map "phaseAMaterializableClear")))
     (when devnet
       (format t "devnetStatus=~A~%" (smoke-gate-field devnet "status"))
       (format t "devnetCaseCount=~D~%" (smoke-gate-field devnet "caseCount"))
@@ -1475,13 +1570,17 @@ references/ checkouts.~%"))
         (smoke-gate-print-help)
         (let* ((pinned-p (smoke-gate-pinned-v5.4.0-p args))
                (devnet-p (smoke-gate-devnet-p args))
+               (drift-map-p (smoke-gate-drift-map-p args))
                (json-p (smoke-gate-json-p args))
                (root-argument (smoke-gate-argument-root args)))
           (load (merge-pathnames "tests/load-tests.lisp"
                                  *ethereum-lisp-smoke-gate-root*))
           (let* ((suite-root (smoke-gate-suite-root root-argument pinned-p))
                  (report (smoke-gate-report
-                          suite-root pinned-p :devnet-p devnet-p)))
+                          suite-root
+                          pinned-p
+                          :devnet-p devnet-p
+                          :drift-map-p drift-map-p)))
             (if json-p
                 (format t "~&~A~%" (smoke-gate-json-encode report))
                 (smoke-gate-print-text report)))))))

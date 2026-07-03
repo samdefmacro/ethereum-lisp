@@ -2274,7 +2274,13 @@ Detailed historical implementation notes for this section now live in
   zero state candidates, zero blockchain candidates, and only 53
   Prague/EIP-7702 transaction candidates in `out-of-scope-fork-feature`, with
   zero known-implementation-drift, implementation-bug-candidate, or
-  fixture-harness-error records.
+  fixture-harness-error records. The pinned Phase A smoke gate can now run
+  that same remaining-selector check with `--drift-map`, include the compact
+  `driftMap` summary in reports, and fail when known drift,
+  implementation-bug candidates, or fixture harness errors make
+  `phaseAMaterializableClear` false. The installed v5.4.0
+  `--pinned-v5.4.0 --drift-map` path executes 1360 pinned fixture cases and
+  leaves only the 53 Prague/EIP-7702 out-of-scope transaction candidates.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

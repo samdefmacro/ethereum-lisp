@@ -2085,6 +2085,17 @@ ones.
     remaining materializable Phase A official v5.4.0 selector gaps; future
     official-fixture work should wait for a new fork/feature scope decision or
     a concrete correctness bug.
+- [x] `PHASE-A-SMOKE-GATE-DRIFT-MAP`: Let the pinned Phase A smoke gate enforce
+  the official v5.4.0 remaining-selector drift classification directly.
+  - Result (2026-07-03): `scripts/phase-a-smoke-gate.lisp` now accepts
+    `--drift-map` / `--drift-map=true|false`, runs the consolidated drift map
+    with `--failures-only --summary-only --json`, includes a compact
+    `driftMap` object in JSON/text reports, and fails the gate if known
+    implementation drift, implementation-bug candidates, or fixture harness
+    errors make `phaseAMaterializableClear` false. The installed v5.4.0
+    `--pinned-v5.4.0 --drift-map` path executes 1360 pinned fixture cases and
+    classifies the 53 remaining candidates as Prague/EIP-7702
+    out-of-scope-fork-feature only, with zero materializable gaps.
 - [x] `TXPOOL-REORG-CONFLICTS`: Tighten concrete reorg/txpool conflict
   boundaries that affect current Phase A behavior without expanding public
   RPC surface. First target: displaced old-canonical transactions must not
