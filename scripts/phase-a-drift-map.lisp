@@ -16,6 +16,7 @@
 (defconstant +drift-map-transaction-limit-option+ "--transaction-limit")
 (defconstant +drift-map-blockchain-limit-option+ "--blockchain-limit")
 (defconstant +drift-map-failures-only-flag+ "--failures-only")
+(defconstant +drift-map-summary-only-flag+ "--summary-only")
 (defconstant +drift-map-eest-root-env+
   "ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT")
 (defparameter *drift-map-value-options*
@@ -32,7 +33,8 @@
 (defparameter *drift-map-boolean-options*
   (list +drift-map-json-flag+
         +drift-map-help-flag+
-        +drift-map-failures-only-flag+))
+        +drift-map-failures-only-flag+
+        +drift-map-summary-only-flag+))
 
 (defun drift-map-parse-boolean-assignment (option value)
   (let ((normalized (and (stringp value) (string-downcase value))))
@@ -88,6 +90,7 @@
   (format t "  --transaction-limit NUMBER Override the transaction-test candidate limit.~%")
   (format t "  --blockchain-limit NUMBER Override the blockchain replay candidate limit.~%")
   (format t "  --failures-only           Keep counts but include only non-passing result records.~%")
+  (format t "  --summary-only            Keep counts and family summaries but omit result records.~%")
   (format t "  --json                    Print machine-readable JSON output.~%")
   (format t "  --help                    Print this help.~%")
   (format t "~%")
@@ -108,6 +111,9 @@ implementation drift.~%")
 
 (defun drift-map-failures-only-p (args)
   (member +drift-map-failures-only-flag+ args :test #'string=))
+
+(defun drift-map-summary-only-p (args)
+  (member +drift-map-summary-only-flag+ args :test #'string=))
 
 (defun drift-map-option-like-p (value)
   (and (stringp value)
@@ -157,7 +163,8 @@ implementation drift.~%")
       (cond
         ((or (string= arg +drift-map-json-flag+)
              (string= arg +drift-map-help-flag+)
-             (string= arg +drift-map-failures-only-flag+)))
+             (string= arg +drift-map-failures-only-flag+)
+             (string= arg +drift-map-summary-only-flag+)))
         ((member arg *drift-map-value-options* :test #'string=)
          (unless args
            (error "~A requires a value" arg))
@@ -309,7 +316,7 @@ implementation drift.~%")
       (error "~A classifier wrote unexpected stderr: ~A" suite stderr))
     (drift-map-parse-json stdout)))
 
-(defun drift-map-suite-report (suite report)
+(defun drift-map-suite-report (suite report summary-only-p)
   (let ((passing-count
           (drift-map-field report "passingCount"))
         (known-implementation-drift-count
@@ -341,8 +348,10 @@ implementation drift.~%")
            (mapcar #'drift-map-canonical-family-summary
                    (drift-map-field report "families")))
      (cons "results"
-           (mapcar #'drift-map-canonical-result
-                   (drift-map-field report "results"))))))
+           (if summary-only-p
+               nil
+               (mapcar #'drift-map-canonical-result
+                       (drift-map-field report "results")))))))
 
 (defun drift-map-sum-field (suites name)
   (loop for suite in suites
@@ -375,7 +384,8 @@ implementation drift.~%")
 
 (defun drift-map-report
     (root suite state-limit transaction-limit blockchain-limit
-     state-prefix transaction-prefix blockchain-prefix failures-only-p)
+     state-prefix transaction-prefix blockchain-prefix failures-only-p
+     summary-only-p)
   (let ((suites
           (loop for (suite-name script limit prefix)
                   in `(("state"
@@ -400,7 +410,8 @@ implementation drift.~%")
                     root
                     limit
                     prefix
-                    failures-only-p)))))
+                    failures-only-p)
+                   summary-only-p))))
     (list
      (cons "mode" "phase-a-drift-map")
      (cons "root" (or root
@@ -410,6 +421,7 @@ implementation drift.~%")
                             :false
                             configured))))
      (cons "failuresOnly" (if failures-only-p t :false))
+     (cons "summaryOnly" (if summary-only-p t :false))
      (cons "suite" (or suite :false))
      (cons "overall" (drift-map-overall-report suites))
      (cons "suites" suites))))
@@ -431,6 +443,7 @@ implementation drift.~%")
     (format t "~&mode=~A~%" (drift-map-field report "mode"))
     (format t "root=~A~%" (drift-map-field report "root"))
     (format t "failuresOnly=~A~%" (drift-map-field report "failuresOnly"))
+    (format t "summaryOnly=~A~%" (drift-map-field report "summaryOnly"))
     (format t "candidateCount=~D classifiedCount=~D passing=~D knownImplementationDrift=~D outOfScopeForkFeature=~D implementationBugCandidates=~D fixtureHarnessErrors=~D phaseAMaterializableClear=~A~%"
             (drift-map-field overall "candidateCount")
             (drift-map-field overall "classifiedCount")
@@ -461,7 +474,8 @@ implementation drift.~%")
              (or (getf options :state-prefix) prefix)
              (or (getf options :transaction-prefix) prefix)
              (or (getf options :blockchain-prefix) prefix)
-             (drift-map-failures-only-p args))))
+             (drift-map-failures-only-p args)
+             (drift-map-summary-only-p args))))
       (if (drift-map-json-p args)
           (format t "~&~A~%" (drift-map-json-encode report))
           (drift-map-print-text-report report)))))

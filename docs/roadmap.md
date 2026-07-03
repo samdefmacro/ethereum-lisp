@@ -2255,6 +2255,14 @@ Detailed historical implementation notes for this section now live in
   into suite/overall `knownImplementationDriftCount`, so
   `phaseAMaterializableClear` only stays true when known drift,
   implementation-bug candidates, and fixture-harness errors are all absent.
+  The aggregate drift-map runner now also has a `--summary-only` mode for
+  automation and status refreshes: it preserves suite counts and family bucket
+  summaries while suppressing per-selector result records. A refreshed
+  installed v5.4.0 run with `--failures-only --summary-only --json` reports
+  zero state candidates, zero blockchain candidates, and only 53
+  Prague/EIP-7702 transaction candidates in `out-of-scope-fork-feature`, with
+  zero known-implementation-drift, implementation-bug-candidate, or
+  fixture-harness-error records.
 - *Partial:* broader cross-client process-level payload smoke coverage and wider
   pinned state-transition fixture breadth around the existing Shanghai path.
 - *Missing for Phase A:* no harness blocker for the current bounded pinned

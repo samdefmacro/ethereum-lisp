@@ -6992,6 +6992,7 @@
     (is (search "--state-limit NUMBER" stdout))
     (is (search "--transaction-limit NUMBER" stdout))
     (is (search "--blockchain-limit NUMBER" stdout))
+    (is (search "--summary-only" stdout))
     (is (search "known-implementation-drift" stdout))
     (is (search "out-of-scope-fork-feature" stdout))))
 
@@ -7010,6 +7011,7 @@
              "--limit"
              "1"
              "--failures-only"
+             "--summary-only"
              "--json")
        :output :string
        :error-output :string
@@ -7023,6 +7025,7 @@
         (is (string= "phase-a-drift-map"
                      (fixture-object-field report "mode")))
         (is (eq t (fixture-object-field report "failuresOnly")))
+        (is (eq t (fixture-object-field report "summaryOnly")))
         (is (= 3 (length suites)))
         (is (= 3 (fixture-object-field overall "suiteCount")))
         (is (= 3 (fixture-object-field overall "candidateCount")))
@@ -7048,24 +7051,20 @@
           (is (= 0 (fixture-object-field
                     suite
                     "knownImplementationDriftCount")))
-          (is (fixture-object-field suite "families")))
+          (is (fixture-object-field suite "families"))
+          (is (null (fixture-object-field suite "results"))))
         (let* ((transaction-suite
                  (find "transaction" suites
                        :key (lambda (suite)
                               (fixture-object-field suite "suite"))
                        :test #'string=))
                (transaction-family
-                 (first (fixture-object-field transaction-suite "families")))
-               (transaction-result
-                 (first (fixture-object-field transaction-suite "results"))))
+                 (first (fixture-object-field transaction-suite "families"))))
           (is (= 1
                  (fixture-object-field transaction-family
                                        "outOfScopeForkFeatureCount")))
           (is (null (fixture-object-field transaction-family
-                                          "outOfScopeCount")))
-          (is (string= "out-of-scope-fork-feature"
-                       (fixture-object-field transaction-result
-                                             "classification"))))))))
+                                          "outOfScopeCount"))))))))
 
 (deftest phase-a-drift-map-script-json-filters-suite
   #-sbcl
@@ -7121,6 +7120,7 @@
                "--transaction-prefix=prague/eip7702_set_code_tx/test_empty_authorization_list"
                "--blockchain-prefix=shanghai/phase-a-empty-engine"
                "--failures-only=true"
+               "--summary-only=true"
                "--json=1")
          :output :string
          :error-output :string
@@ -7150,6 +7150,7 @@
                        (fixture-object-field report "mode")))
           (is (string= root (fixture-object-field report "root")))
           (is (eq t (fixture-object-field report "failuresOnly")))
+          (is (eq t (fixture-object-field report "summaryOnly")))
           (is (string= "london/phase-a-state-sample.json/phase_a_london_access_list"
                        (fixture-object-field state-suite "prefix")))
           (is (string= "prague/eip7702_set_code_tx/test_empty_authorization_list"

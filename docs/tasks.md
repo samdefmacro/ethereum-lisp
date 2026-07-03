@@ -2040,6 +2040,18 @@ ones.
     remaining transaction candidates as Prague/EIP-7702 out-of-scope fork
     feature cases with zero known-implementation-drift,
     implementation-bug-candidate, or fixture-harness-error records.
+- [x] `PHASE-A-DRIFT-MAP-SUMMARY-ONLY`: Make the consolidated official fixture
+  drift map produce a compact remaining-gap family summary for automation.
+  - Result (2026-07-03): `scripts/phase-a-drift-map.lisp` now accepts
+    `--summary-only` / `--summary-only=true|false`, preserves overall and
+    per-suite canonical bucket counts plus family summaries, and suppresses
+    per-selector result records in JSON. Script coverage locks help output,
+    assigned boolean parsing, and summary-only JSON against the in-repo EEST
+    fixture root. A refreshed installed v5.4.0
+    `--failures-only --summary-only --json` run reports zero state candidates,
+    zero blockchain candidates, and only 53 Prague/EIP-7702 transaction
+    candidates classified as out-of-scope, with zero known-implementation-drift,
+    implementation-bug-candidate, or fixture-harness-error records.
 - [x] `PINNED-V5.4.0-STATE-REMAINDER-CLOSURE`: Convert the final classified
   official v5.4.0 materializable state-test selectors into stable pinned Phase
   A guards before leaving only out-of-scope transaction drift.
